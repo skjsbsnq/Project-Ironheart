@@ -1,0 +1,43 @@
+SituationDb(
+    situations: [
+        SituationDef(
+            id: "barbarossa",
+            title: "Operation Barbarossa",
+            description: "Germany breaks the pact with the Soviet Union and opens the long eastern front.",
+            sides: [
+                SituationSide(id: "axis", name: "Axis", color: (90, 90, 90), initial_progress: 50.0, default_supporters: ["GER", "ITA", "ROM"]),
+                SituationSide(id: "soviet_union", name: "Soviet Union", color: (188, 0, 45), initial_progress: 50.0, default_supporters: ["SOV"]),
+            ],
+            interventions: [],
+            base_progress: [0.0, 0.0],
+            progress_source: TerritorialControl(side_country_tags: [["GER", "ITA", "ROM"], ["SOV"]]),
+            milestones: [
+                (0, 70.0, "news.moscow_threatened"),
+            ],
+            milestone_effects: [
+                [TriggerEvent("news.moscow_threatened")],
+            ],
+            start_date: (1941, 6, 22),
+            end_date: (1945, 1, 1),
+            on_start: [
+                TriggerEvent("news.operation_barbarossa"),
+                CreateWar(attacker: "GER", defender: "SOV"),
+                AddWarParticipant(war_leader: "GER", participant: "ITA"),
+                AddWarParticipant(war_leader: "GER", participant: "ROM"),
+                GrantMilitaryAccess(grantor: "GER", grantee: "ITA"),
+                GrantMilitaryAccess(grantor: "GER", grantee: "ROM"),
+                GrantMilitaryAccess(grantor: "ROM", grantee: "GER"),
+                AddWarSupport(country: "GER", amount: 0.15),
+                AddWarSupport(country: "SOV", amount: 0.20),
+                AddStability(country: "SOV", amount: 0.05),
+                AddIdea(country: "SOV", idea: "great_patriotic_war"),
+                SetCountryFlag(country: "GER", flag: "barbarossa_started"),
+                SetCountryFlag(country: "SOV", flag: "great_patriotic_war"),
+            ],
+            on_end: [
+                [SetCountryFlag(country: "GER", flag: "soviet_union_defeated")],
+                [SetCountryFlag(country: "SOV", flag: "barbarossa_repulsed")],
+            ],
+        ),
+    ],
+)

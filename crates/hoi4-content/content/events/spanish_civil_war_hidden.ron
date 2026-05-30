@@ -1,0 +1,1020 @@
+EventDb(
+    events: [
+        Event(
+            id: "hidden.scw_initialize_rebel_state",
+            title: "初始化国民军状态",
+            description: "",
+            picture: "",
+            is_triggered_only: true,
+            hidden: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "初始化国民军状态。",
+                    effects: [
+                        If(
+                            trigger: Not(HasCountryFlag("spa_nationalist_pressure_axes_initialized")),
+                            effects: [
+                                SetCountryFlag("spa_nationalist_pressure_axes_initialized"),
+                                SetCountryFlag("spa_rebel_state_initialized"),
+                                SetCountryFlag("spa_capital_burgos_provisional"),
+                                SetCountryFlag("spa_junta_of_national_defense_created"),
+                                SetCountryFlag("spa_core_rebel_zone_secured"),
+                                SetCountryFlag("spa_initial_rebel_divisions_split"),
+                                SetCountryFlag("spa_rear_depots_burgos_seville"),
+                                SetCountryFlag("spa_northern_rail_supply_prioritized"),
+                                SetCountryFlag("spa_port_supply_chain_guarded"),
+                                SetCountryFlag("spa_officer_corps_fragile_loyalty"),
+                                SetVariable(name: "spa_franco_authority", value: 1.0),
+                                SetVariable(name: "spa_falange_power", value: 2.0),
+                                SetVariable(name: "spa_army_loyalty", value: 6.0),
+                                SetVariable(name: "spa_church_influence", value: 3.0),
+                                SetVariable(name: "spa_carlist_anger", value: 2.0),
+                                SetVariable(name: "spa_foreign_dependency", value: 0.0),
+                                SetVariable(name: "spa_rear_supply", value: 4.0),
+                                SetVariable(name: "spa_junta_legitimacy", value: 4.0),
+                                SetVariable(name: "spa_occupation_resistance", value: 2.0),
+                                SetVariable(name: "spa_international_outrage", value: 0.0),
+                                SetVariable(name: "spa_syndicalist_institutionalization", value: 0.0),
+                                AddManpower(18000),
+                                AddFuel(250.0),
+                                AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 0.60, duration_days: 120),
+                                AddBuildingLevel(state: 176, building_id: "infrastructure", level: 1),
+                                AddBuildingLevel(state: 169, building_id: "infrastructure", level: 1),
+                                ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                                ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                                ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                                ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0),
+                                ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                                ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                                ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                                ClampVariable(name: "spa_junta_legitimacy", min: 0.0, max: 100.0),
+                                ClampVariable(name: "spa_occupation_resistance", min: 0.0, max: 100.0),
+                                ClampVariable(name: "spa_international_outrage", min: 0.0, max: 100.0),
+                                ClampVariable(name: "spa_syndicalist_institutionalization", min: 0.0, max: 100.0),
+                            ],
+                        ),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_nationalist_pressure_axes_tick",
+            title: "汇总国民军压力轴",
+            description: "",
+            picture: "",
+            is_triggered_only: true,
+            hidden: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "汇总国民军压力轴。",
+                    effects: [
+                        If(
+                            trigger: HasCountryFlag("spa_axis_leadership_franco"),
+                            effects: [
+                                AddToVariable(name: "spa_franco_authority", value: 0.5),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_junta_staff_government"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_military_bureaucracy"),
+                                AddToVariable(name: "spa_junta_legitimacy", value: 1.0),
+                                AddToVariable(name: "spa_rear_supply", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_junta_delegated_front_commands"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_front_command_autonomy"),
+                                AddToVariable(name: "spa_rear_supply", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_cabanellas_warning_heeded"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_checked_caudillo"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_cabanellas_warning_ignored"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_personal_rule_warning"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_sanjurjo_death_power_vacuum"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_power_vacuum_junta"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_sanjurjo_death_used_for_unity"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_power_vacuum_caudillo"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_mola_northern_network_empowered"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_mola_northern_network"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_franco_generalissimo"),
+                            effects: [
+                                SetCountryFlag("spa_p9_candidate_franco_victory"),
+                                SetCountryFlag("spa_p9_weight_generalissimo"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_franco_inherits_mola_network"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_franco_after_mola"),
+                                AddToVariable(name: "spa_franco_authority", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_mola_legacy_staff_preserved"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_mola_legacy_staff"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_collective_command_preserved"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_junta_collective_memory"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_franco_command_expanded"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_franco_caudillo"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_axis_rightist_forced_unity"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_forced_unification"),
+                                AddToVariable(name: "spa_falange_power", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_axis_rightist_pluralism"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_traditionalist_compromise"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_white_terror_expanded"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_repressive_state"),
+                                AddToVariable(name: "spa_carlist_anger", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_axis_occupation_church_local_elites"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_national_catholic_order"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_axis_occupation_falange_committees"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_falange_local_state"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_axis_foreign_dependency_open_account"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_axis_debt"),
+                                AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_axis_foreign_dependency_limited"),
+                            effects: [
+                                SetCountryFlag("spa_p9_weight_autonomous_victory"),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "spa_franco_authority", value: 10.0),
+                            effects: [
+                                SetCountryFlag("spa_franco_authority_high"),
+                                SetCountryFlag("spa_p9_candidate_franco_victory"),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "spa_falange_power", value: 8.0),
+                            effects: [
+                                SetCountryFlag("spa_falange_power_high"),
+                                SetCountryFlag("spa_p9_candidate_falange_victory"),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "spa_church_influence", value: 8.0),
+                            effects: [
+                                SetCountryFlag("spa_church_influence_high"),
+                                SetCountryFlag("spa_p9_candidate_national_catholic_compromise"),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "spa_carlist_anger", value: 8.0),
+                            effects: [
+                                SetCountryFlag("spa_carlist_anger_high"),
+                                SetCountryFlag("spa_p9_risk_carlist_backlash"),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "spa_foreign_dependency", value: 8.0),
+                            effects: [
+                                SetCountryFlag("spa_foreign_dependency_high"),
+                                SetCountryFlag("spa_p9_risk_axis_claims"),
+                            ],
+                        ),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_junta_legitimacy", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_occupation_resistance", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_international_outrage", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_syndicalist_institutionalization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_nationalist_occupation_order_tick",
+            title: "汇总国民军占领秩序",
+            description: "",
+            picture: "",
+            is_triggered_only: true,
+            hidden: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "汇总国民军占领秩序。",
+                    effects: [
+                        If(trigger: HasCountryFlag("spa_radio_seville_terror_broadcasts"), effects: [SetCountryFlag("spa_p9_memory_terror_propaganda"), AddToVariable(name: "spa_international_outrage", value: 1.0)]),
+                        If(trigger: HasCountryFlag("spa_badajoz_repression_public"), effects: [SetCountryFlag("spa_white_terror_expanded"), SetCountryFlag("spa_p9_memory_badajoz_public"), AddToVariable(name: "spa_occupation_resistance", value: 3.0), AddToVariable(name: "spa_international_outrage", value: 3.0)]),
+                        If(trigger: HasCountryFlag("spa_yague_disciplined_after_badajoz"), effects: [SetCountryFlag("spa_p9_weight_army_discipline"), AddToVariable(name: "spa_army_loyalty", value: 1.0)]),
+                        If(trigger: HasCountryFlag("spa_occupation_policy_terror"), effects: [SetCountryFlag("spa_p9_weight_repressive_state"), AddToVariable(name: "spa_occupation_resistance", value: 2.0), AddToVariable(name: "spa_falange_power", value: 1.0)]),
+                        If(trigger: HasCountryFlag("spa_occupation_policy_military"), effects: [SetCountryFlag("spa_p9_weight_military_order"), AddToVariable(name: "spa_rear_supply", value: 1.0), AddToVariable(name: "spa_army_loyalty", value: 1.0)]),
+                        If(trigger: HasCountryFlag("spa_occupation_policy_church"), effects: [SetCountryFlag("spa_p9_weight_national_catholic_order"), AddToVariable(name: "spa_church_influence", value: 1.0)]),
+                        If(trigger: HasCountryFlag("spa_occupation_policy_falange"), effects: [SetCountryFlag("spa_p9_weight_falange_local_state"), AddToVariable(name: "spa_falange_power", value: 1.0), AddToVariable(name: "spa_syndicalist_institutionalization", value: 1.0)]),
+                        ClampVariable(name: "spa_occupation_resistance", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_international_outrage", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_syndicalist_institutionalization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_nationalist_internal_pressure_tick",
+            title: "汇总国民军内部压力",
+            description: "",
+            picture: "",
+            is_triggered_only: true,
+            hidden: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "汇总国民军内部压力。",
+                    effects: [
+                        TriggerEvent("hidden.scw_nationalist_pressure_axes_tick"),
+                        TriggerEvent("hidden.scw_nationalist_occupation_order_tick"),
+                        If(trigger: HasCountryFlag("spa_unification_decree_enforced"), effects: [SetCountryFlag("spa_p9_candidate_franco_victory"), AddToVariable(name: "spa_franco_authority", value: 1.0)]),
+                        If(trigger: HasCountryFlag("spa_hedilla_compromise_reached"), effects: [SetCountryFlag("spa_p9_candidate_falange_bargain"), AddToVariable(name: "spa_falange_power", value: 1.0)]),
+                        If(trigger: HasCountryFlag("spa_falange_secretariat_ascendant"), effects: [SetCountryFlag("spa_p9_candidate_falange_victory"), AddToVariable(name: "spa_syndicalist_institutionalization", value: 1.0)]),
+                        If(trigger: HasCountryFlag("spa_franco_caudillo_proclaimed"), effects: [SetCountryFlag("spa_p9_candidate_franco_victory"), SetCountryFlag("spa_p9_weight_caudillo_state")]),
+                        If(trigger: VariableAtLeast(name: "spa_syndicalist_institutionalization", value: 6.0), effects: [SetCountryFlag("spa_p9_candidate_institutionalized_syndicalism")]),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_syndicalist_institutionalization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_republic_pressure_axes_init",
+            title: "初始化共和国压力轴",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPR"),
+                HasCountryFlag("spanish_civil_war_started"),
+                Not(HasCountryFlag("spr_republic_pressure_axes_initialized")),
+            ]),
+            mean_time_to_happen_days: 0,
+            immediate: [
+                SetCountryFlag("spr_republic_pressure_axes_initialized"),
+            ],
+            options: [
+                EventOption(
+                    name: "汇总共和国战前压力。",
+                    effects: [
+                        SetCountryFlag("spr_axis_foreign_autonomous_war"),
+                        SetVariable(name: "spr_soviet_influence", value: 0.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+
+                        If(
+                            trigger: HasCountryFlag("spr_armed_unions"),
+                            effects: [
+                                SetCountryFlag("spr_axis_authority_militia_autonomy"),
+                                SetCountryFlag("spr_axis_revolution_social_revolution"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 3.0),
+                                AddToVariable(name: "spr_military_centralization", value: -2.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_refused_to_arm_unions"),
+                            effects: [
+                                SetCountryFlag("spr_axis_authority_state_command"),
+                                SetCountryFlag("spr_axis_revolution_republican_defense"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                                AddToVariable(name: "spr_military_centralization", value: 2.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_suspect_officers_purged"),
+                            effects: [
+                                SetCountryFlag("spr_axis_authority_purged_command"),
+                                AddToVariable(name: "spr_military_centralization", value: 2.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_officer_purge_delayed"),
+                            effects: [
+                                SetCountryFlag("spr_axis_authority_compromised_staff"),
+                                AddToVariable(name: "spr_military_centralization", value: -1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_land_collectives_legalized"),
+                            effects: [
+                                SetCountryFlag("spr_axis_revolution_land_collectives"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_land_seizures_repressed"),
+                            effects: [
+                                SetCountryFlag("spr_axis_revolution_rural_repression_memory"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_church_secularization_pushed"),
+                            effects: [
+                                SetCountryFlag("spr_axis_foreign_catholic_alarm"),
+                                AddToVariable(name: "foreign_intervention_pressure", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_calvo_case_suppressed"),
+                            effects: [
+                                SetCountryFlag("spr_axis_foreign_rightist_propaganda_gift"),
+                                AddToVariable(name: "foreign_intervention_pressure", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "spr_revolutionary_pressure", value: 10.0),
+                            effects: [
+                                SetCountryFlag("spr_axis_revolution_high_pressure"),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "spr_military_centralization", value: 10.0),
+                            effects: [
+                                SetCountryFlag("spr_axis_authority_centralizing"),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "foreign_intervention_pressure", value: 6.0),
+                            effects: [
+                                SetCountryFlag("spr_axis_foreign_isolated_republic"),
+                            ],
+                        ),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_republic_internal_pressure_tick",
+            title: "汇总共和国内部压力",
+            description: "",
+            picture: "",
+            is_triggered_only: true,
+            hidden: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "汇总共和国内部压力。",
+                    effects: [
+                        If(
+                            trigger: HasCountryFlag("spr_militia_autonomy"),
+                            effects: [
+                                SetCountryFlag("spr_cnt_may_days_risk"),
+                                SetCountryFlag("spr_nationalist_propaganda_red_militias"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                                AddToVariable(name: "spr_military_centralization", value: -1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_militia_contained"),
+                            effects: [
+                                SetCountryFlag("spr_state_kept_militia_registers"),
+                                SetCountryFlag("spr_cnt_distrusts_command_chain"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                                AddToVariable(name: "spr_military_centralization", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_workers_arms_restricted"),
+                            effects: [
+                                SetCountryFlag("spr_cnt_anger_over_arms"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_soviet_advisors_empowered"),
+                            effects: [
+                                SetCountryFlag("spr_soviet_dependency_visible"),
+                                SetCountryFlag("spr_poum_cnt_suspect_soviet_line"),
+                                AddToVariable(name: "spr_soviet_influence", value: 1.0),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_people_army_reformed"),
+                            effects: [
+                                SetCountryFlag("spr_government_authority_visible"),
+                                SetCountryFlag("spr_cnt_distrusts_people_army"),
+                                AddToVariable(name: "spr_military_centralization", value: 1.0),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_militia_autonomy_preserved"),
+                            effects: [
+                                SetCountryFlag("spr_nationalist_propaganda_red_militias"),
+                                SetCountryFlag("spr_cnt_may_days_risk"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                                AddToVariable(name: "spr_military_centralization", value: -1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_conceded_to_cnt"),
+                            effects: [
+                                SetCountryFlag("spr_cnt_relationship_preserved"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spr_soviet_conditions_accepted"),
+                            effects: [
+                                SetCountryFlag("spr_foreign_dependency_soviet_line"),
+                                AddToVariable(name: "spr_soviet_influence", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "spr_revolutionary_pressure", value: 14.0),
+                            effects: [
+                                SetCountryFlag("spr_revolutionary_pressure_dangerous"),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "spr_military_centralization", value: 12.0),
+                            effects: [
+                                SetCountryFlag("spr_government_authority_visible"),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "spr_soviet_influence", value: 6.0),
+                            effects: [
+                                SetCountryFlag("spr_soviet_influence_high"),
+                            ],
+                        ),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_cnt_uprising_check",
+            title: "检查 CNT 和 POUM 压力",
+            description: "",
+            picture: "",
+            is_triggered_only: true,
+            hidden: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "汇总 CNT 和 POUM 风险。",
+                    effects: [
+                        If(
+                            trigger: HasCountryFlag("cnt_collectivization_recognized"),
+                            effects: [
+                                SetCountryFlag("spr_cnt_collectivization_memory"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("cnt_factory_committees_supervised"),
+                            effects: [
+                                SetCountryFlag("spr_cnt_factory_supervision_grievance"),
+                                AddToVariable(name: "spr_military_centralization", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("cnt_refused_integration"),
+                            effects: [
+                                SetCountryFlag("spr_cnt_may_days_risk"),
+                                SetCountryFlag("spr_nationalist_propaganda_red_militias"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("cnt_militias_integrated"),
+                            effects: [
+                                SetCountryFlag("cnt_militias_integrated"),
+                                AddToVariable(name: "spr_military_centralization", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("poum_outlawed"),
+                            effects: [
+                                SetCountryFlag("spr_cnt_may_days_risk"),
+                                SetCountryFlag("spr_poum_repression_memory"),
+                                SetCountryFlag("spr_nationalist_propaganda_red_purge"),
+                                AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("poum_protected"),
+                            effects: [
+                                SetCountryFlag("spr_poum_legal_memory"),
+                                AddToVariable(name: "spr_soviet_influence", value: -1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: And([
+                                Date(year: 1937, month: 4, day: 15),
+                                HasCountryFlag("spr_cnt_may_days_risk"),
+                                Or([
+                                    HasCountryFlag("poum_outlawed"),
+                                    HasCountryFlag("spr_soviet_influence_high"),
+                                    HasCountryFlag("spr_militias_forced_into_discipline"),
+                                    VariableAtLeast(name: "spr_revolutionary_pressure", value: 16.0),
+                                ]),
+                                Not(HasCountryFlag("barcelona_may_days_triggered")),
+                                Not(HasCountryFlag("cnt_uprising_prevented")),
+                                Not(HasCountryFlag("spr_barcelona_telephone_exchange_crisis")),
+                            ]),
+                            effects: [
+                                SetCountryFlag("spr_cnt_uprising_pressure_high"),
+                                TriggerEvent("spr.scw_barcelona_telephone_exchange"),
+                            ],
+                        ),
+                        If(
+                            trigger: And([
+                                Or([
+                                    HasCountryFlag("spr_cnt_relationship_preserved"),
+                                    HasCountryFlag("cnt_militias_integrated"),
+                                    HasCountryFlag("poum_protected"),
+                                ]),
+                                Not(HasCountryFlag("barcelona_may_days_triggered")),
+                                Not(HasCountryFlag("spr_cnt_uprising_pressure_high")),
+                            ]),
+                            effects: [
+                                SetCountryFlag("cnt_uprising_prevented"),
+                            ],
+                        ),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_madrid_siege_router",
+            title: "马德里围城路由",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                ControlsState(793),
+                Not(HasCountryFlag("spa_scw_madrid_under_siege")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "更新马德里围城状态。",
+                    effects: [
+                        SetCountryFlag("spa_scw_madrid_under_siege"),
+                        SetGlobalFlag("spr_scw_madrid_under_siege_memory"),
+                        SetGlobalFlag("news_scw_madrid_under_siege_ready"),
+                        AddToVariable(name: "spa_franco_authority", value: 1.0),
+                        AddToVariable(name: "spa_rear_supply", value: -1.0),
+                        AddToVariable(name: "spa_international_outrage", value: 1.0),
+                        TriggerEvent("news.scw_madrid_under_siege"),
+                        TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_international_outrage", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_madrid_status_router",
+            title: "马德里战役状态路由",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                ControlsState(41),
+                Not(HasCountryFlag("spa_scw_madrid_fallen")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "更新马德里陷落状态。",
+                    effects: [
+                        If(
+                            trigger: Not(HasCountryFlag("spa_scw_madrid_under_siege")),
+                            effects: [
+                                SetCountryFlag("spa_scw_madrid_under_siege"),
+                                SetGlobalFlag("spr_scw_madrid_under_siege_memory"),
+                            ],
+                        ),
+                        If(
+                            trigger: Not(HasCountryFlag("spa_scw_madrid_fallen")),
+                            effects: [
+                                SetCountryFlag("spa_scw_madrid_fallen"),
+                                SetCountryFlag("spa_p9_memory_madrid_fell"),
+                                SetGlobalFlag("spr_scw_capital_lost"),
+                                SetGlobalFlag("spr_scw_republic_collapse_accelerated"),
+                                SetGlobalFlag("news_scw_madrid_falls_ready"),
+                                AddStability(0.03),
+                                AddWarSupport(0.04),
+                                AddToVariable(name: "spa_franco_authority", value: 3.0),
+                                AddToVariable(name: "spa_occupation_resistance", value: 2.0),
+                                AddToVariable(name: "spa_international_outrage", value: 1.0),
+                                AddBuildingLevel(state: 41, building_id: "infrastructure", level: -1),
+                                AddBuildingLevel(state: 41, building_id: "railway", level: -1),
+                                TriggerEvent("news.scw_madrid_falls"),
+                                TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                            ],
+                        ),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_occupation_resistance", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_international_outrage", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_bilbao_industry_router",
+            title: "毕尔巴鄂工业战役路由",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                ControlsState(792),
+                Not(HasCountryFlag("spa_scw_bilbao_fallen")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "更新毕尔巴鄂工业状态。",
+                    effects: [
+                        If(
+                            trigger: And([ControlsState(792), Not(HasCountryFlag("spa_scw_guernica_memory_set"))]),
+                            effects: [
+                                SetCountryFlag("spa_scw_guernica_memory_set"),
+                                SetCountryFlag("spa_p9_memory_condor_legion_terror"),
+                                SetGlobalFlag("news_scw_guernica_bombed_ready"),
+                                AddToVariable(name: "spa_international_outrage", value: 3.0),
+                                AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                                TriggerEvent("news.scw_guernica_bombed"),
+                            ],
+                        ),
+                        If(
+                            trigger: And([ControlsState(792), Not(HasCountryFlag("spa_scw_bilbao_fallen"))]),
+                            effects: [
+                                SetCountryFlag("spa_scw_bilbao_fallen"),
+                                SetCountryFlag("spa_p9_memory_basque_industry_taken"),
+                                SetGlobalFlag("spr_scw_basque_industry_lost"),
+                                SetGlobalFlag("news_scw_bilbao_falls_ready"),
+                                AddToVariable(name: "spa_rear_supply", value: 2.0),
+                                AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                                AddBuildingLevel(state: 792, building_id: "infrastructure", level: 1),
+                                AddBuildingLevel(state: 792, building_id: "steel_mill", level: 1),
+                                AddResourceDiscovery(state: 792, good_id: "iron", discovered_level: 1),
+                                TriggerEvent("news.scw_bilbao_falls"),
+                            ],
+                        ),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_international_outrage", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_northern_industry_router",
+            title: "北方工业战役路由",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                ControlsState(790),
+                ControlsState(792),
+                Not(HasCountryFlag("spa_scw_northern_front_collapsed")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "更新北方战役和工业状态。",
+                    effects: [
+                        If(
+                            trigger: Not(HasCountryFlag("spa_scw_bilbao_fallen")),
+                            effects: [
+                                SetCountryFlag("spa_scw_bilbao_fallen"),
+                                SetCountryFlag("spa_p9_memory_basque_industry_taken"),
+                                SetGlobalFlag("spr_scw_basque_industry_lost"),
+                            ],
+                        ),
+                        If(
+                            trigger: And([ControlsState(790), ControlsState(792), Not(HasCountryFlag("spa_scw_northern_front_collapsed"))]),
+                            effects: [
+                                SetCountryFlag("spa_scw_northern_front_collapsed"),
+                                SetCountryFlag("spa_p9_memory_northern_front_destroyed"),
+                                SetGlobalFlag("spr_scw_northern_front_collapsed"),
+                                SetGlobalFlag("news_scw_northern_front_collapses_ready"),
+                                AddToVariable(name: "spa_franco_authority", value: 2.0),
+                                AddToVariable(name: "spa_rear_supply", value: 2.0),
+                                AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                                AddBuildingLevel(state: 790, building_id: "coal_mine", level: 1),
+                                AddBuildingLevel(state: 790, building_id: "railway", level: 1),
+                                TriggerEvent("news.scw_northern_front_collapses"),
+                                TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                            ],
+                        ),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_international_outrage", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_ebro_battle_router",
+            title: "埃布罗战役路由",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                ControlsState(794),
+                Not(HasCountryFlag("spa_scw_ebro_battle_marked")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "更新埃布罗战役状态。",
+                    effects: [
+                        SetCountryFlag("spa_scw_ebro_battle_marked"),
+                        SetCountryFlag("spa_p9_memory_ebro_last_gamble"),
+                        SetGlobalFlag("spr_scw_ebro_last_gamble_failed"),
+                        SetGlobalFlag("news_scw_ebro_battle_ready"),
+                        AddWarSupport(-0.01),
+                        AddToVariable(name: "spa_rear_supply", value: -1.0),
+                        AddToVariable(name: "spa_franco_authority", value: 1.0),
+                        AddBuildingLevel(state: 794, building_id: "infrastructure", level: -1),
+                        AddBuildingLevel(state: 794, building_id: "railway", level: -1),
+                        TriggerEvent("news.scw_ebro_battle"),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_catalonia_collapse_router",
+            title: "埃布罗和加泰罗尼亚崩溃路由",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                ControlsState(165),
+                Not(HasCountryFlag("spa_scw_barcelona_fallen")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "更新加泰罗尼亚崩溃状态。",
+                    effects: [
+                        If(
+                            trigger: Not(HasCountryFlag("spa_scw_ebro_battle_marked")),
+                            effects: [
+                                SetCountryFlag("spa_scw_ebro_battle_marked"),
+                                SetCountryFlag("spa_p9_memory_ebro_last_gamble"),
+                                SetGlobalFlag("spr_scw_ebro_last_gamble_failed"),
+                            ],
+                        ),
+                        If(
+                            trigger: Not(HasCountryFlag("spa_scw_barcelona_fallen")),
+                            effects: [
+                                SetCountryFlag("spa_scw_barcelona_fallen"),
+                                SetCountryFlag("spa_p9_memory_barcelona_fell"),
+                                SetCountryFlag("spa_scw_victory_countdown_opened"),
+                                SetGlobalFlag("spr_scw_catalonia_collapsed"),
+                                SetGlobalFlag("spr_scw_refugee_columns_to_france"),
+                                SetGlobalFlag("news_scw_barcelona_falls_ready"),
+                                AddStability(0.03),
+                                AddWarSupport(0.03),
+                                AddToVariable(name: "spa_franco_authority", value: 3.0),
+                                AddToVariable(name: "spa_rear_supply", value: 2.0),
+                                AddToVariable(name: "spa_occupation_resistance", value: 3.0),
+                                AddToVariable(name: "spa_international_outrage", value: 2.0),
+                                AddBuildingLevel(state: 165, building_id: "infrastructure", level: -1),
+                                AddBuildingLevel(state: 165, building_id: "railway", level: -1),
+                                AddBuildingLevel(state: 165, building_id: "arms_industry", level: 1),
+                                AddBuildingLevel(state: 165, building_id: "port", level: 1),
+                                TriggerEvent("news.scw_barcelona_falls"),
+                                TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                            ],
+                        ),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_occupation_resistance", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_international_outrage", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "hidden.scw_route_nationalist_victory",
+            title: "国民军胜利路线分流",
+            description: "",
+            picture: "",
+            is_triggered_only: true,
+            hidden: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "结算国民军战后路线。",
+                    effects: [
+                        SetCountryFlag("spa_p9_route_evaluation_started"),
+                        TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                        If(
+                            trigger: Or([
+                                HasCountryFlag("spa_hedilla_arrested"),
+                                HasCountryFlag("spa_franco_caudillo_proclaimed"),
+                                HasCountryFlag("spa_p9_candidate_franco_victory"),
+                                VariableAtLeast(name: "spa_franco_authority", value: 12.0),
+                            ]),
+                            effects: [
+                                SetCountryFlag("spa_p9_route_franco_victory"),
+                                SetCountryFlag("spa_p9_route_decided"),
+                                AddToVariable(name: "spa_franco_authority", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: And([
+                                Not(HasCountryFlag("spa_p9_route_decided")),
+                                Or([
+                                    HasCountryFlag("spa_falange_secretariat_ascendant"),
+                                    HasCountryFlag("spa_p9_candidate_falange_victory"),
+                                    And([
+                                        VariableAtLeast(name: "spa_falange_power", value: 9.0),
+                                        VariableAtMost(name: "spa_army_loyalty", value: 6.0),
+                                    ]),
+                                ]),
+                            ]),
+                            effects: [
+                                SetCountryFlag("spa_p9_route_falange_victory"),
+                                SetCountryFlag("spa_p9_route_decided"),
+                                AddToVariable(name: "spa_falange_power", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: And([
+                                Not(HasCountryFlag("spa_p9_route_decided")),
+                                Or([
+                                    HasCountryFlag("spa_hedilla_compromise_reached"),
+                                    HasCountryFlag("spa_p9_candidate_falange_bargain"),
+                                    HasCountryFlag("spa_p9_candidate_institutionalized_syndicalism"),
+                                    VariableAtLeast(name: "spa_syndicalist_institutionalization", value: 6.0),
+                                ]),
+                            ]),
+                            effects: [
+                                SetCountryFlag("spa_p9_route_institutionalized_syndicalism"),
+                                SetCountryFlag("spa_p9_route_decided"),
+                                AddToVariable(name: "spa_syndicalist_institutionalization", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: And([
+                                Not(HasCountryFlag("spa_p9_route_decided")),
+                                Or([
+                                    HasCountryFlag("spa_p9_candidate_national_catholic_compromise"),
+                                    HasCountryFlag("spa_p9_weight_checked_caudillo"),
+                                    VariableAtLeast(name: "spa_church_influence", value: 8.0),
+                                    VariableAtLeast(name: "spa_carlist_anger", value: 8.0),
+                                ]),
+                            ]),
+                            effects: [
+                                SetCountryFlag("spa_p9_route_national_catholic_compromise"),
+                                SetCountryFlag("spa_p9_route_decided"),
+                                AddToVariable(name: "spa_church_influence", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: Not(HasCountryFlag("spa_p9_route_decided")),
+                            effects: [
+                                SetCountryFlag("spa_p9_route_checked_franco_state"),
+                                SetCountryFlag("spa_p9_route_decided"),
+                                AddToVariable(name: "spa_junta_legitimacy", value: 1.0),
+                            ],
+                        ),
+                        If(
+                            trigger: VariableAtLeast(name: "spa_foreign_dependency", value: 8.0),
+                            effects: [
+                                SetCountryFlag("spa_p9_route_axis_debt_overhang"),
+                                SetCountryFlag("spa_p9_risk_axis_claims"),
+                            ],
+                        ),
+                        If(
+                            trigger: HasCountryFlag("spa_white_terror_expanded"),
+                            effects: [
+                                SetCountryFlag("spa_p9_route_repression_state_memory"),
+                                AddToVariable(name: "spa_occupation_resistance", value: 1.0),
+                            ],
+                        ),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_occupation_resistance", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+    ],
+)

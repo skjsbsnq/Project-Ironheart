@@ -1,0 +1,198 @@
+EventDb(
+    events: [
+        Event(
+            id: "italy.annex_aussa_sultanate",
+            title: "Annexation of the Aussa Sultanate",
+            description: "Italian columns have secured the Afar lowlands and forced the Sultan of Aussa to submit. Rome can now fold the sultanate into Italian East Africa and tighten the northern approach to Ethiopia.",
+            picture: "GFX_event_italy_ethiopia",
+            trigger: And([
+                Tag("ITA"),
+                Date(year: 1936, month: 4, day: 1),
+                CountryExists("AFA"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Bring Aussa under Italian rule.",
+                    effects: [
+                        AnnexCountry("AFA"),
+                        AddPoliticalPower(25.0),
+                        AddNamedThreat(0.5),
+                        SetCountryFlag("annexed_aussa_sultanate"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "ita.scw_send_ctv",
+            title: "CTV 的船票",
+            description: "罗马把西班牙远征称为志愿行动，但码头上的清单比宣传口号诚实得多：步枪、炮弹、卡车、黑衫军军官、记者和一批必须在胜利游行中站到前排的人。墨索里尼要的不只是佛朗哥获胜。他要让欧洲相信，意大利能把地中海另一岸的战争变成自己的威望剧场。威望可以下注，也会赔本；CTV 出发时，外交部已经开始整理战后索偿的照片和剪报。",
+            picture: "GFX_event_italy",
+            trigger: And([
+                Tag("ITA"),
+                CountryExists("SPA"),
+                Date(year: 1936, month: 9, day: 1),
+                Not(HasCountryFlag("ita_scw_ctv_sent")),
+            ]),
+            mean_time_to_happen_days: 5,
+            immediate: [SetCountryFlag("ita_scw_ctv_sent")],
+            options: [
+                EventOption(
+                    name: "派出志愿军团，把威望押上西班牙。",
+                    effects: [
+                        SetCountryFlag("ita_scw_prestige_invested"),
+                        SetGlobalFlag("ita_scw_ctv_sent_to_spain"),
+                        ArmyExperience(6.0),
+                        AddPoliticalPower(-20.0),
+                        AddOpinion(target: "SPA", amount: 20),
+                    ],
+                    ai_chance: 0.85,
+                ),
+                EventOption(
+                    name: "只送军火和顾问，别让罗马为西班牙丢脸。",
+                    effects: [
+                        SetCountryFlag("ita_scw_limited_aid"),
+                        AddPoliticalPower(10.0),
+                        AddOpinion(target: "SPA", amount: 8),
+                    ],
+                    ai_chance: 0.15,
+                ),
+            ],
+        ),
+        Event(
+            id: "ita.scw_mediterranean_prestige",
+            title: "地中海威望账",
+            description: "罗马报纸把马拉加、海峡运输和国民军进攻写成同一篇胜利报道：意大利不仅在非洲能赢，在欧洲的内战中也能决定胜负。海军部把这些剪报夹进另一份文件，标题更冷：西班牙港口进入权、燃油补给便利、战后承包优先权。宣传部说这是兄弟情谊，外交部说这是影响力，财政部则提醒所有人，威望的维护费用每天都在增加。",
+            picture: "GFX_event_italy",
+            trigger: And([
+                Tag("ITA"),
+                HasCountryFlag("ita_scw_ctv_sent"),
+                Date(year: 1937, month: 2, day: 10),
+                Not(HasCountryFlag("ita_scw_mediterranean_prestige_claimed")),
+            ]),
+            mean_time_to_happen_days: 6,
+            immediate: [SetCountryFlag("ita_scw_mediterranean_prestige_claimed")],
+            options: [
+                EventOption(
+                    name: "把西班牙胜利写成意大利威望。",
+                    effects: [
+                        SetCountryFlag("ita_scw_mediterranean_prestige"),
+                        AddWarSupport(0.02),
+                        AddPoliticalPower(20.0),
+                        AddOpinion(target: "SPA", amount: 10),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "ita.scw_guadalajara_humiliation",
+            title: "瓜达拉哈拉的泥水",
+            description: "瓜达拉哈拉的撤退没有宣传部预想的镜头。道路被雨水搅成泥浆，卡车陷在路边，西班牙向导和意大利军官互相指责，敌军缴获的文件很快出现在外国记者手里。罗马原本想把 CTV 拍成法西斯效率的样板，现在却必须解释为什么一支被称为志愿军的意大利部队会在西班牙平原上丢下车辆、弹药和尊严。失败不会让账单消失，只会让账单更难收。",
+            picture: "GFX_event_italy",
+            trigger: And([
+                Tag("ITA"),
+                HasCountryFlag("ita_scw_ctv_sent"),
+                Date(year: 1937, month: 3, day: 18),
+                Not(HasCountryFlag("ita_scw_guadalajara_humiliation")),
+            ]),
+            mean_time_to_happen_days: 2,
+            immediate: [SetCountryFlag("ita_scw_guadalajara_humiliation")],
+            options: [
+                EventOption(
+                    name: "承认失败，重整 CTV。",
+                    effects: [
+                        SetCountryFlag("ita_scw_ctv_reorganized_after_guadalajara"),
+                        SetGlobalFlag("ita_scw_guadalajara_aftermath_ready"),
+                        AddWarSupport(-0.02),
+                        AddStability(-0.01),
+                        ArmyExperience(8.0),
+                    ],
+                    ai_chance: 0.65,
+                ),
+                EventOption(
+                    name: "让宣传部把撤退写成战术调整。",
+                    effects: [
+                        SetCountryFlag("ita_scw_guadalajara_propaganda_cover"),
+                        SetGlobalFlag("ita_scw_guadalajara_aftermath_ready"),
+                        AddPoliticalPower(-15.0),
+                        AddWarSupport(-0.01),
+                    ],
+                    ai_chance: 0.35,
+                ),
+            ],
+        ),
+        Event(
+            id: "ita.scw_expand_or_withdraw",
+            title: "继续押注，还是止损",
+            description: "瓜达拉哈拉之后，齐亚诺把两份方案放到墨索里尼面前。第一份要求增派炮兵、航空燃油和顾问，把失败压成下一场胜利的前言；第二份要求缩小 CTV 的曝光，把西班牙债务保留在外交文件里，而不是每天让意大利军装替佛朗哥承担风险。两份方案都不体面。继续投入可能换来威望和索偿，撤回则能止血，却等于承认罗马没有能力把这场战争塑造成自己的神话。",
+            picture: "GFX_event_italy",
+            trigger: And([
+                Tag("ITA"),
+                HasCountryFlag("ita_scw_guadalajara_humiliation"),
+                Date(year: 1937, month: 4, day: 15),
+                Not(HasCountryFlag("ita_scw_expand_or_withdraw_resolved")),
+            ]),
+            mean_time_to_happen_days: 5,
+            immediate: [SetCountryFlag("ita_scw_expand_or_withdraw_resolved")],
+            options: [
+                EventOption(
+                    name: "扩大投入，威望不能半途而废。",
+                    effects: [
+                        SetCountryFlag("ita_scw_intervention_expanded"),
+                        SetGlobalFlag("ita_scw_expanded_ctv_ready"),
+                        AddPoliticalPower(-25.0),
+                        AddWarSupport(0.02),
+                        ArmyExperience(8.0),
+                        AddOpinion(target: "SPA", amount: 15),
+                    ],
+                    ai_chance: 0.7,
+                ),
+                EventOption(
+                    name: "收缩曝光，保留索偿文件。",
+                    effects: [
+                        SetCountryFlag("ita_scw_intervention_limited_after_guadalajara"),
+                        AddPoliticalPower(10.0),
+                        AddOpinion(target: "SPA", amount: -5),
+                    ],
+                    ai_chance: 0.3,
+                ),
+            ],
+        ),
+        Event(
+            id: "ita.scw_claims_after_franco_victory",
+            title: "罗马要求自己的胜利",
+            description: "西班牙内战结束后，齐亚诺把 CTV 的损失表、燃油账目和宣传剪报一并送到墨索里尼桌上。罗马需要证明，西班牙不是一场昂贵的冒险，而是法西斯意大利能够塑造地中海秩序的证据。问题在于，佛朗哥的新国家满身债务、粮食短缺、军队疲惫，任何过重索偿都会把感激变成怨恨。意大利仍会索取回报，只是要决定这份回报写成威望、贸易，还是未来的外交债。",
+            picture: "GFX_event_italy",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "要求地中海威望和经济补偿。",
+                    effects: [
+                        SetCountryFlag("ita_scw_claims_after_franco_victory"),
+                        SetGlobalFlag("ita_scw_claims_on_spain_opened"),
+                        AddPoliticalPower(20.0),
+                        AddWarSupport(0.01),
+                        AddOpinion(target: "SPA", amount: 8),
+                        AddTradeAgreement(partner: "SPA", good_id: "steel", daily_quantity: 4.0),
+                    ],
+                    ai_chance: 0.7,
+                ),
+                EventOption(
+                    name: "把索偿压低，保住马德里的亲善。",
+                    effects: [
+                        SetCountryFlag("ita_scw_claims_after_franco_victory_limited"),
+                        SetGlobalFlag("ita_scw_limited_claims_on_spain"),
+                        ArmyExperience(8.0),
+                        AddOpinion(target: "SPA", amount: 12),
+                        AddTradeAgreement(partner: "SPA", good_id: "steel", daily_quantity: 2.0),
+                    ],
+                    ai_chance: 0.3,
+                ),
+            ],
+        ),
+    ],
+)

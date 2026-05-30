@@ -1,0 +1,33 @@
+#![enable(implicit_some)]
+
+// Japan 1935 census ~69.3M (incl. Korea 24M, Taiwan 5.6M → not counted as Japanese cores)
+// Home islands ~69.3M | Peasant 38%, Worker 18%, Clerk 14%, Capitalist 1.0%, Aristocrat 0.4%, Soldier 7.6%
+// Japan proper only; Korea & Taiwan covered separately. High military spending visible.
+(
+    total_population: 69300000,
+    groups: [
+        // ── 300 Tokyo / Kanto ~ 24M ──
+        (state_id: 300, class: Peasant,    size: 6500000,  employed_at: None, wage_rm: 1.5, satisfaction: 0.48, political_loyalty: 0.22),
+        (state_id: 300, class: Worker,     size: 5000000,  employed_at: None, wage_rm: 3.0, satisfaction: 0.42, political_loyalty: 0.18),
+        (state_id: 300, class: Clerk,      size: 3500000,  employed_at: None, wage_rm: 5.2, satisfaction: 0.55, political_loyalty: 0.22),
+        (state_id: 300, class: Capitalist, size: 280000,   employed_at: None, wage_rm: 20.0, satisfaction: 0.65, political_loyalty: 0.28),
+        (state_id: 300, class: Aristocrat, size: 80000,    employed_at: None, wage_rm: 30.0, satisfaction: 0.60, political_loyalty: 0.40),
+        (state_id: 300, class: Soldier,    size: 1900000,  employed_at: None, wage_rm: 2.2, satisfaction: 0.52, political_loyalty: 0.62),
+
+        // ── 301 Osaka / Kansai ~ 16M ──
+        (state_id: 301, class: Peasant,    size: 4500000,  employed_at: None, wage_rm: 1.5, satisfaction: 0.48, political_loyalty: 0.18),
+        (state_id: 301, class: Worker,     size: 3800000,  employed_at: None, wage_rm: 3.0, satisfaction: 0.42, political_loyalty: 0.15),
+        (state_id: 301, class: Clerk,      size: 2600000,  employed_at: None, wage_rm: 5.0, satisfaction: 0.55, political_loyalty: 0.18),
+        (state_id: 301, class: Capitalist, size: 200000,   employed_at: None, wage_rm: 20.0, satisfaction: 0.65, political_loyalty: 0.25),
+        (state_id: 301, class: Aristocrat, size: 55000,    employed_at: None, wage_rm: 28.0, satisfaction: 0.58, political_loyalty: 0.35),
+        (state_id: 301, class: Soldier,    size: 1200000,  employed_at: None, wage_rm: 2.2, satisfaction: 0.52, political_loyalty: 0.58),
+
+        // ── 302 Kyushu ~ 13M ──
+        (state_id: 302, class: Peasant,    size: 4500000,  employed_at: None, wage_rm: 1.2, satisfaction: 0.45, political_loyalty: 0.18),
+        (state_id: 302, class: Worker,     size: 2200000,  employed_at: None, wage_rm: 2.5, satisfaction: 0.40, political_loyalty: 0.12),
+        (state_id: 302, class: Clerk,      size: 1800000,  employed_at: None, wage_rm: 4.2, satisfaction: 0.52, political_loyalty: 0.18),
+        (state_id: 302, class: Capitalist, size: 100000,   employed_at: None, wage_rm: 15.0, satisfaction: 0.60, political_loyalty: 0.22),
+        (state_id: 302, class: Aristocrat, size: 35000,    employed_at: None, wage_rm: 22.0, satisfaction: 0.55, political_loyalty: 0.30),
+        (state_id: 302, class: Soldier,    size: 780000,   employed_at: None, wage_rm: 2.2, satisfaction: 0.50, political_loyalty: 0.55),
+    ],
+)

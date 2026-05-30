@@ -1,0 +1,15 @@
+#![enable(implicit_some)]
+
+// Mengkukuo (Mengjiang) 1936 estimate ~2M | Peasant 80%, Worker 3%, Clerk 4%, Aristocrat 2.0%, Soldier 5.0%
+// Japanese puppet in Inner Mongolia. Nomadic pastoral + agrarian.
+(
+    total_population: 2000000,
+    groups: [
+        (state_id: 308, class: Peasant,    size: 1600000, employed_at: None, wage_rm: 0.3, satisfaction: 0.22, political_loyalty: 0.02),
+        (state_id: 308, class: Worker,     size: 60000,   employed_at: None, wage_rm: 0.8, satisfaction: 0.20, political_loyalty: 0.05),
+        (state_id: 308, class: Clerk,      size: 80000,   employed_at: None, wage_rm: 1.2, satisfaction: 0.28, political_loyalty: 0.08),
+        (state_id: 308, class: Capitalist, size: 3000,    employed_at: None, wage_rm: 3.0, satisfaction: 0.30, political_loyalty: 0.08),
+        (state_id: 308, class: Aristocrat, size: 40000,   employed_at: None, wage_rm: 3.5, satisfaction: 0.32, political_loyalty: 0.25),
+        (state_id: 308, class: Soldier,    size: 100000,  employed_at: None, wage_rm: 0.7, satisfaction: 0.28, political_loyalty: 0.35),
+    ],
+)

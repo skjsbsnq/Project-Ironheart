@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "MAL",
+    population: 4800000,
+    gdp_1936_gbp: 1200000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.28, mining: 0.30, heavy_industry: 0.06, light_industry: 0.06, services: 0.17, government: 0.08, military_industry: 0.05),
+    urbanization: 0.20,
+    literacy: 0.35,
+    unemployment: 0.05,
+    industrial_capacity_index: 2.0,
+    military_spending_share: 0.02,
+    construction_capacity_index: 2.0,
+    gold_reserve_gbp: 50000000.0,
+    foreign_exchange_reserve_gbp: 80000000.0,
+    public_debt_gbp: 150000000.0,
+    initial_laws: (conscription: "volunteer_only", economy: "interventionism", trade: "export_focus", taxation: "medium_taxation", civil_rights: "limited_rights", information_control: "regulated_press"),
+)

@@ -1,0 +1,22 @@
+[package]
+name = "hoi4-script"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+vanilla-audit = []
+
+[dependencies]
+hoi4-data = { path = "../hoi4-data" }
+hoi4-state = { path = "../hoi4-state" }
+clausewitz-parser = { path = "../clausewitz-parser" }
+
+[dev-dependencies]
+hoi4-map = { path = "../hoi4-map" }
+hoi4-paths = { path = "../hoi4-paths" }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+required-features = ["vanilla-audit"]

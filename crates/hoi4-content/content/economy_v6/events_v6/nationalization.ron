@@ -1,0 +1,21 @@
+#![enable(implicit_some)]
+
+[
+    (
+        id: "nationalization",
+        title: "国有化运动",
+        body: "国家正式宣布一切生产资料归全民所有。全国所有私人建筑和托拉斯建筑被批量收归国有。银行被永久关闭，资本家阶层失业，流向职员池。这是一场深刻的社会变革，但代价是政治成本和资本家阶层的激烈反弹。",
+        options: [
+            (
+                name: "全面国有化——没有退路",
+                effects: [
+                    ("nationalize_all_buildings", ""),
+                    ("close_banks", ""),
+                    ("capitalist_loyalty_penalty", "-0.50"),
+                    ("political_power_cost", "-500"),
+                    ("stability_penalty", "-0.20"),
+                ],
+            ),
+        ],
+    ),
+]

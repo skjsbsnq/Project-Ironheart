@@ -1,0 +1,52 @@
+#![enable(implicit_some)]
+
+[
+    // ─── 自由新闻 ───
+    (
+        id: "free_press",
+        name: "自由新闻",
+        pp_cost: 50,
+        cooldown_days: 60,
+        loyalty_decay_multiplier: 1.5,
+        pop_modifiers: (
+            satisfaction: 0.0,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 监管新闻 ───
+    (
+        id: "regulated_press",
+        name: "监管新闻",
+        pp_cost: 100,
+        cooldown_days: 90,
+        loyalty_decay_multiplier: 1.0,
+        pop_modifiers: (
+            satisfaction: 0.0,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 国营媒体 ───
+    (
+        id: "state_media",
+        name: "国营媒体",
+        pp_cost: 200,
+        cooldown_days: 120,
+        loyalty_decay_multiplier: 0.5,
+        pop_modifiers: (
+            satisfaction: -0.02,
+            loyalty_coefficient: 0.8,
+        ),
+    ),
+    // ─── 全面宣传 ───
+    (
+        id: "total_propaganda",
+        name: "全面宣传",
+        pp_cost: 400,
+        cooldown_days: 180,
+        loyalty_decay_multiplier: 0.2,
+        pop_modifiers: (
+            satisfaction: -0.05,
+            loyalty_coefficient: 0.6,
+        ),
+    ),
+]

@@ -1,0 +1,147 @@
+EventDb(
+    events: [
+        Event(
+            id: "cnt.scw_collectivized_factories",
+            title: "工厂委员会接管车间",
+            description: "巴塞罗那的机器没有因为内战停下。车间墙上贴着新的委员会名单，工人代表把老板办公室改成配给登记处，民兵在门口检查卡车上的零件。会计账本被摊在会议桌上，工资、面包、机油和步枪零件第一次被同一支铅笔写进同一列数字。
+
+共和国官员承认他们需要这些工厂继续生产。没有加泰罗尼亚的车床，前线就少一批枪栓；没有工会的卡车，港口卸下来的弹药就会停在码头。但每一张集体化布告都在提醒瓦伦西亚：革命并不打算等战争结束。老板、银行和旧市政府留下的钥匙仍在抽屉里，只是现在握钥匙的人换成了工厂委员会。
+
+承认委员会能让工人继续自愿加班，把车间变成共和国还能依靠的兵工后方；强行登记则能把账本拉回国家手中，却会让 CNT 相信共和国只是在等一个合适的时机收回七月街垒的胜利。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPR"),
+                HasCountryFlag("spr_prieto_warned_the_cabinet"),
+                Not(HasCountryFlag("cnt_collectivized_factories_addressed")),
+            ]),
+            mean_time_to_happen_days: 4,
+            immediate: [SetCountryFlag("cnt_collectivized_factories_addressed")],
+            options: [
+                EventOption(
+                    name: "承认委员会的临时管理权，用配给和订单换取产量。",
+                    effects: [
+                        SetCountryFlag("cnt_collectivization_recognized"),
+                        SetCountryFlag("cnt_factory_committees_legalized"),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 135000.0, duration_days: 45),
+                        AddStability(-0.01),
+                        AddWarSupport(0.02),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        AddToVariable(name: "spr_military_centralization", value: -1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 0.55,
+                ),
+                EventOption(
+                    name: "派共和国监察员进厂，订单、工资和原料必须登记。",
+                    effects: [
+                        SetCountryFlag("cnt_factory_committees_supervised"),
+                        SetCountryFlag("spr_government_authority_visible"),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 95000.0, duration_days: 40),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 0.45,
+                ),
+            ],
+        ),
+        Event(
+            id: "cnt.scw_militias_refuse_orders",
+            title: "纵队不肯交出自己的命令簿",
+            description: "阿拉贡前线的联络员带回一叠被雨水泡皱的回信。几支 CNT 纵队承认会继续守阵地，也承认需要弹药、绷带和卡车；他们拒绝承认的是命令簿最上方新印的共和国军衔。纵队代表说，七月里是工人自己把枪从仓库搬出来，不是某个参谋处把自由发给了他们。
+
+共和国军官没有完全错。没有统一补给，弹药箱会送到错误山口；没有固定军官，撤退命令会在委员会表决中变成互相指责；没有登记，前线每多一个英雄，后方账本就少一支枪。可民兵也没有完全错。若战争只是把他们重新锁回旧军队，那么街垒上死去的人究竟保卫了什么？
+
+这不是 CNT 公开决裂，但它把巴塞罗那的空气又拧紧了一圈。每一次扣发补给都能换来一点纪律，也会让电话局、工厂和地方委员会里多一张等待清算的名单。",
+            picture: "GFX_event_spanish_militia_discipline",
+            trigger: And([
+                Tag("SPR"),
+                HasCountryFlag("cnt_collectivized_factories_addressed"),
+                Or([
+                    HasCountryFlag("spr_people_army_reformed"),
+                    HasCountryFlag("spr_militias_forced_into_discipline"),
+                    HasCountryFlag("spr_militia_autonomy_preserved"),
+                ]),
+                Not(HasCountryFlag("cnt_militias_refuse_orders_addressed")),
+            ]),
+            mean_time_to_happen_days: 5,
+            immediate: [SetCountryFlag("cnt_militias_refuse_orders_addressed")],
+            options: [
+                EventOption(
+                    name: "扣住不登记纵队的补给，纪律不能靠请求维持。",
+                    effects: [
+                        SetCountryFlag("cnt_refused_integration"),
+                        SetCountryFlag("spr_cnt_distrusts_people_army"),
+                        AddWarSupport(-0.01),
+                        AddStability(-0.02),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 3.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "承认前线委员会，但把弹药和伤员名单接入共和国账本。",
+                    effects: [
+                        SetCountryFlag("cnt_militias_integrated"),
+                        SetCountryFlag("cnt_militia_autonomy_bargain"),
+                        ArmyExperience(3.0),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "先让他们按自己的方式打仗，别在前线背后再开一条战线。",
+                    effects: [
+                        SetCountryFlag("cnt_refused_integration"),
+                        SetCountryFlag("spr_militia_autonomy_preserved"),
+                        AddManpower(7000),
+                        AddWarSupport(0.01),
+                        AddStability(-0.01),
+                        AddToVariable(name: "spr_military_centralization", value: -2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 0.2,
+                ),
+            ],
+        ),
+        Event(
+            id: "cnt.scw_join_republican_war",
+            title: "CNT-FAI 民兵接管加泰罗尼亚",
+            description: "",
+            picture: "",
+            is_triggered_only: true,
+            hidden: true,
+            trigger: Tag("CNT"),
+            mean_time_to_happen_days: 1,
+            immediate: [SetCountryFlag("cnt_revolt_state_created")],
+            options: [
+                EventOption(
+                    name: "地方委员会宣布保卫革命。",
+                    effects: [
+                        DeclareWarOn("SPR"),
+                        AddManpower(18000),
+                        AddWarSupport(0.08),
+                        AddStability(-0.02),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+    ],
+)

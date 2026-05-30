@@ -1,0 +1,32 @@
+#![enable(implicit_some)]
+
+// France 1931 census ~41.5M (slow growth) | Peasant 35%, Worker 22%, Clerk 24%, Capitalist 1.5%, Aristocrat 0.8%, Soldier 4.7%
+// Large agricultural sector. Slow industrial transition. Maginot-era conscript army.
+(
+    total_population: 41500000,
+    groups: [
+        // ── 105 Paris / Île-de-France ~ 10M ──
+        (state_id: 105, class: Peasant,    size: 800000,   employed_at: None, wage_rm: 2.0, satisfaction: 0.52, political_loyalty: 0.10),
+        (state_id: 105, class: Worker,     size: 2800000,  employed_at: None, wage_rm: 3.8, satisfaction: 0.45, political_loyalty: 0.05),
+        (state_id: 105, class: Clerk,      size: 3500000,  employed_at: None, wage_rm: 6.5, satisfaction: 0.58, political_loyalty: 0.10),
+        (state_id: 105, class: Capitalist, size: 180000,   employed_at: None, wage_rm: 24.0, satisfaction: 0.65, political_loyalty: 0.22),
+        (state_id: 105, class: Aristocrat, size: 90000,    employed_at: None, wage_rm: 35.0, satisfaction: 0.60, political_loyalty: 0.35),
+        (state_id: 105, class: Soldier,    size: 430000,   employed_at: None, wage_rm: 2.8, satisfaction: 0.52, political_loyalty: 0.55),
+
+        // ── 106 Normandy / Brittany ~ 8M ──
+        (state_id: 106, class: Peasant,    size: 3500000,  employed_at: None, wage_rm: 1.5, satisfaction: 0.45, political_loyalty: 0.08),
+        (state_id: 106, class: Worker,     size: 1800000,  employed_at: None, wage_rm: 3.2, satisfaction: 0.42, political_loyalty: 0.05),
+        (state_id: 106, class: Clerk,      size: 1400000,  employed_at: None, wage_rm: 5.2, satisfaction: 0.52, political_loyalty: 0.08),
+        (state_id: 106, class: Capitalist, size: 80000,    employed_at: None, wage_rm: 18.0, satisfaction: 0.60, political_loyalty: 0.18),
+        (state_id: 106, class: Aristocrat, size: 70000,    employed_at: None, wage_rm: 28.0, satisfaction: 0.55, political_loyalty: 0.28),
+        (state_id: 106, class: Soldier,    size: 350000,   employed_at: None, wage_rm: 2.8, satisfaction: 0.50, political_loyalty: 0.52),
+
+        // ── 107 Provence / South France ~ 6M ──
+        (state_id: 107, class: Peasant,    size: 2000000,  employed_at: None, wage_rm: 1.5, satisfaction: 0.48, political_loyalty: 0.08),
+        (state_id: 107, class: Worker,     size: 1300000,  employed_at: None, wage_rm: 3.5, satisfaction: 0.45, political_loyalty: 0.05),
+        (state_id: 107, class: Clerk,      size: 1400000,  employed_at: None, wage_rm: 5.5, satisfaction: 0.55, political_loyalty: 0.10),
+        (state_id: 107, class: Capitalist, size: 80000,    employed_at: None, wage_rm: 20.0, satisfaction: 0.62, political_loyalty: 0.20),
+        (state_id: 107, class: Aristocrat, size: 50000,    employed_at: None, wage_rm: 30.0, satisfaction: 0.58, political_loyalty: 0.28),
+        (state_id: 107, class: Soldier,    size: 310000,   employed_at: None, wage_rm: 2.8, satisfaction: 0.52, political_loyalty: 0.52),
+    ],
+)

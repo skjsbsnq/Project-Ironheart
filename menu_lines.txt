@@ -1,0 +1,16 @@
+﻿55: mod menu_scene;
+59: mod menu_pass;
+64: use menu_scene::MenuKind;
+67: use menu_pass::{CountryEntry, MenuButton};
+189: /// Phase 4.2: 褰撳墠鏄剧ず鐨勮彍鍗曠被鍨嬨€侾laying 闃舵鏃犺彍鍗曘€?    menu_kind: Option<MenuKind>,
+194: /// Phase 4.2 (redesign): 鍥藉閫夋嫨鑿滃崟鍙€夊浗瀹跺垪琛紙Phase 4.2 榛樿鍙湁 GER 鍙€夛級銆?    available_countries: Vec<CountryEntry>,
+195: /// 涓婁竴甯у竷灞€缂撳瓨鐨勬寜閽?+ 琛岋紙鐢ㄤ簬 click 鍒ゅ畾锛夈€?    last_main_buttons: Vec<MenuButton>,
+196: last_country_layout: Option<menu_pass::CountrySelectLayout>,
+407: menu_kind: Some(MenuKind::MainMenu),
+2790: GamePhase::MainMenu => Some(MenuKind::MainMenu),
+2791: GamePhase::CountrySelect => Some(MenuKind::CountrySelect),
+3432: let layout = menu_pass::draw_main_menu(
+3442: let layout = menu_pass::draw_country_select(
+3466: menu_pass::draw_country_detail(
+3966: /// Phase 4.2 (redesign): 鏋勯€犲浗瀹堕€夋嫨鍒楄〃銆?/// Phase 4.2 榛樿鍙湁 GER 鍙€夛紝鍏朵粬 majors 鐏版樉鍗犱綅銆?fn build_country_select_list(world: &World) -> Vec<CountryEntry> {
+3981: entries.push(CountryEntry {

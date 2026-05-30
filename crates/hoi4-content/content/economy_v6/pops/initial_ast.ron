@@ -1,0 +1,15 @@
+#![enable(implicit_some)]
+
+// Australia 1933 census ~6.6M; 1936 est ~7M | Peasant 25%, Worker 22%, Clerk 24%, Capitalist 1.0%, Aristocrat 0.15%, Soldier 1.85%
+// Pastoral / mining economy. Dominion. Tiny military but high volunteer tradition.
+(
+    total_population: 7000000,
+    groups: [
+        (state_id: 304, class: Peasant,    size: 1800000, employed_at: None, wage_rm: 2.2, satisfaction: 0.55, political_loyalty: 0.18),
+        (state_id: 304, class: Worker,     size: 1500000, employed_at: None, wage_rm: 4.0, satisfaction: 0.50, political_loyalty: 0.15),
+        (state_id: 304, class: Clerk,      size: 1700000, employed_at: None, wage_rm: 6.5, satisfaction: 0.58, political_loyalty: 0.22),
+        (state_id: 304, class: Capitalist, size: 70000,   employed_at: None, wage_rm: 24.0, satisfaction: 0.65, political_loyalty: 0.28),
+        (state_id: 304, class: Aristocrat, size: 10000,   employed_at: None, wage_rm: 32.0, satisfaction: 0.62, political_loyalty: 0.38),
+        (state_id: 304, class: Soldier,    size: 130000,  employed_at: None, wage_rm: 3.0, satisfaction: 0.58, political_loyalty: 0.60),
+    ],
+)

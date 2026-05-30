@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "XSM",
+    population: 9000000,
+    gdp_1936_gbp: 350000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.68, mining: 0.05, heavy_industry: 0.01, light_industry: 0.04, services: 0.09, government: 0.09, military_industry: 0.04),
+    urbanization: 0.06,
+    literacy: 0.14,
+    unemployment: 0.03,
+    industrial_capacity_index: 0.4,
+    military_spending_share: 0.12,
+    construction_capacity_index: 0.3,
+    gold_reserve_gbp: 2000000.0,
+    foreign_exchange_reserve_gbp: 1000000.0,
+    public_debt_gbp: 35000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "autarky", taxation: "medium_taxation", civil_rights: "limited_rights", information_control: "regulated_press"),
+)

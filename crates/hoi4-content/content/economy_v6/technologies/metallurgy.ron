@@ -1,0 +1,44 @@
+#![enable(implicit_some)]
+
+[
+    (
+        id: "metallurgy",
+        name: "冶金学",
+        category: Metallurgy,
+        research_cost: 1.0,
+        start_year: 1936,
+        difficulty: 0.0,
+        prereqs: [],
+        unlocks: [],
+    ),
+    (
+        id: "metallurgy_2",
+        name: "冶金学 II",
+        category: Metallurgy,
+        research_cost: 1.4,
+        start_year: 1938,
+        difficulty: 0.2,
+        prereqs: ["metallurgy"],
+        unlocks: [],
+    ),
+    (
+        id: "advanced_steel",
+        name: "高级钢材",
+        category: Metallurgy,
+        research_cost: 1.2,
+        start_year: 1937,
+        difficulty: 0.1,
+        prereqs: ["metallurgy"],
+        unlocks: [],
+    ),
+    (
+        id: "aluminium_processing",
+        name: "铝加工",
+        category: Metallurgy,
+        research_cost: 1.2,
+        start_year: 1937,
+        difficulty: 0.1,
+        prereqs: ["metallurgy"],
+        unlocks: [],
+    ),
+]

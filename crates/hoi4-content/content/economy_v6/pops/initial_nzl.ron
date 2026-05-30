@@ -1,0 +1,15 @@
+#![enable(implicit_some)]
+
+// New Zealand 1936 census ~1.6M | Peasant 22%, Worker 20%, Clerk 22%, Capitalist 1.2%, Aristocrat 0.2%, Soldier 1.6%
+// Pastoral / dairy economy. Dominion. Very small population.
+(
+    total_population: 1600000,
+    groups: [
+        (state_id: 306, class: Peasant,    size: 350000,  employed_at: None, wage_rm: 2.2, satisfaction: 0.55, political_loyalty: 0.18),
+        (state_id: 306, class: Worker,     size: 320000,  employed_at: None, wage_rm: 4.0, satisfaction: 0.50, political_loyalty: 0.15),
+        (state_id: 306, class: Clerk,      size: 350000,  employed_at: None, wage_rm: 6.5, satisfaction: 0.58, political_loyalty: 0.20),
+        (state_id: 306, class: Capitalist, size: 20000,   employed_at: None, wage_rm: 24.0, satisfaction: 0.65, political_loyalty: 0.25),
+        (state_id: 306, class: Aristocrat, size: 3000,    employed_at: None, wage_rm: 35.0, satisfaction: 0.60, political_loyalty: 0.35),
+        (state_id: 306, class: Soldier,    size: 27000,   employed_at: None, wage_rm: 3.0, satisfaction: 0.58, political_loyalty: 0.60),
+    ],
+)

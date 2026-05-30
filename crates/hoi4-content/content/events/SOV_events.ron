@@ -1,0 +1,164 @@
+EventDb(
+    events: [
+        Event(
+            id: "soviet.union_eastern_poland",
+            title: "The Red Army Enters Eastern Poland",
+            description: "With Poland collapsing under German attack, the Red Army moves west to occupy the territories assigned by the secret protocol.",
+            picture: "GFX_event_red_army",
+            trigger: Date(year: 1939, month: 9, day: 17),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Secure the frontier.",
+                    effects: [
+                        AddWarSupport(0.05),
+                        SetCountryFlag("eastern_poland_secured"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "soviet.winter_war",
+            title: "The Winter War",
+            description: "Negotiations with Finland have failed. The Red Army prepares to force the frontier away from Leningrad.",
+            picture: "GFX_event_winter_war",
+            trigger: Date(year: 1939, month: 11, day: 30),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Begin the operation.",
+                    effects: [
+                        AddWarSupport(0.06),
+                        AddNamedThreat(2.0),
+                        SetCountryFlag("winter_war_started"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "soviet.baltic_demands",
+            title: "Demands in the Baltic",
+            description: "The Baltic states are pressed to accept Soviet bases and political supervision. The western powers are in no position to intervene.",
+            picture: "GFX_event_baltic_demands",
+            trigger: Date(year: 1940, month: 6, day: 15),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Expand the security belt.",
+                    effects: [
+                        AddPoliticalPower(25.0),
+                        SetCountryFlag("baltic_demands_issued"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "soviet.operation_barbarossa",
+            title: "Operation Barbarossa",
+            description: "German forces have crossed the Soviet frontier from the Baltic to the Black Sea. The Great Patriotic War has begun.",
+            picture: "GFX_event_barbarossa",
+            trigger: Date(year: 1941, month: 6, day: 22),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Defend the Motherland.",
+                    effects: [
+                        AddWarSupport(0.20),
+                        AddStability(0.05),
+                        SetCountryFlag("great_patriotic_war"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "sov.scw_advisors_to_spain",
+            title: "派往西班牙的顾问名单",
+            description: "伏罗希洛夫桌上的名单没有写成国际主义诗歌。它写的是飞行教官、炮兵顾问、密码员、翻译、港口装卸协调员和政治联络员。西班牙共和国需要装备，但莫斯科更关心装备交给谁、由谁登记、由谁解释失败。援助可以被称为反法西斯团结；在实际文件里，它必须换回可检查的仓库、可信任的军官和对 POUM、CNT 的政治边界。",
+            picture: "GFX_event_soviet_advisors",
+            trigger: And([
+                Tag("SOV"),
+                CountryExists("SPR"),
+                Date(year: 1936, month: 9, day: 20),
+                Not(HasCountryFlag("sov_scw_advisors_sent")),
+            ]),
+            mean_time_to_happen_days: 6,
+            immediate: [SetCountryFlag("sov_scw_advisors_sent")],
+            options: [
+                EventOption(
+                    name: "派出顾问，但把政治条件写进电报。",
+                    effects: [
+                        SetCountryFlag("sov_scw_advisors_to_spain"),
+                        SetCountryFlag("sov_scw_republic_dependency_opened"),
+                        SetGlobalFlag("sov_scw_advisors_package_ready"),
+                        ArmyExperience(4.0),
+                        AirExperience(4.0),
+                        AddOpinion(target: "SPR", amount: 20),
+                    ],
+                    ai_chance: 0.85,
+                ),
+                EventOption(
+                    name: "只送有限装备，避免被西班牙内斗拖住。",
+                    effects: [
+                        SetCountryFlag("sov_scw_limited_republic_aid"),
+                        AddPoliticalPower(10.0),
+                        AddOpinion(target: "SPR", amount: 8),
+                    ],
+                    ai_chance: 0.15,
+                ),
+            ],
+        ),
+        Event(
+            id: "sov.scw_gold_in_moscow",
+            title: "莫斯科的西班牙黄金",
+            description: "金条进入仓库时，登记员先核对重量，再核对封条，最后才在单据上写下'西班牙共和国'。对马德里来说，这是购买枪支和飞机的担保；对莫斯科来说，这是让援助变得可追索的抵押。黄金没有意识形态，却能迫使意识形态排队。谁控制账簿，谁就能决定下一批弹药、顾问和政治建议何时离港。",
+            picture: "GFX_event_spanish_gold",
+            trigger: And([
+                Tag("SOV"),
+                CountryExists("SPR"),
+                Date(year: 1936, month: 10, day: 25),
+                Not(HasCountryFlag("sov_scw_spanish_gold_received")),
+            ]),
+            mean_time_to_happen_days: 5,
+            immediate: [SetCountryFlag("sov_scw_spanish_gold_received")],
+            options: [
+                EventOption(
+                    name: "用黄金抵押开启装备和顾问通道。",
+                    effects: [
+                        SetCountryFlag("sov_scw_gold_ledger_opened"),
+                        SetGlobalFlag("sov_scw_moscow_gold_credit_ready"),
+                        AddPoliticalPower(20.0),
+                        AddOpinion(target: "SPR", amount: 15),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "sov.scw_political_conditions",
+            title: "援助附带的政治语法",
+            description: "共产国际给马德里的措辞很谨慎：统一战线、军事纪律、反法西斯效率、肃清破坏分子。每个词都可以被共和国部长当作建议，也可以被内政部门当作命令。苏联不需要公开接管共和国；只要下一批飞机、步枪和顾问都经过同一套政治语法，马德里就会学会在申请援助之前先修改自己的句子。",
+            picture: "GFX_event_soviet_advisors",
+            trigger: And([
+                Tag("SOV"),
+                CountryExists("SPR"),
+                HasCountryFlag("sov_scw_advisors_sent"),
+                Date(year: 1936, month: 11, day: 20),
+                Not(HasCountryFlag("sov_scw_political_conditions_sent")),
+            ]),
+            mean_time_to_happen_days: 7,
+            immediate: [SetCountryFlag("sov_scw_political_conditions_sent")],
+            options: [
+                EventOption(
+                    name: "让援助和政治纪律绑定。",
+                    effects: [
+                        SetCountryFlag("sov_scw_conditions_bound_to_aid"),
+                        SetGlobalFlag("sov_scw_political_conditions_ready"),
+                        AddOpinion(target: "SPR", amount: 10),
+                        AddOpinion(target: "SPA", amount: -10),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+    ],
+)

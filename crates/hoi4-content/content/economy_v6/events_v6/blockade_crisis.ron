@@ -1,0 +1,26 @@
+#![enable(implicit_some)]
+
+[
+    (
+        id: "blockade_crisis",
+        title: "封锁危机",
+        body: "敌方海军封锁了我们的港口，进口物资断绝。橡胶和石油供给归零，军工生产面临停顿。必须切换至合成生产方案，但代价是煤炭被抢走、钢铁产出下降。",
+        options: [
+            (
+                name: "全面转入合成生产",
+                effects: [
+                    ("force_pm_synthetic", "synthetic_rubber,oil"),
+                    ("coal_diversion", "0.3"),
+                    ("pop_satisfaction_penalty", "-0.10"),
+                ],
+            ),
+            (
+                name: "节约使用——削减消费",
+                effects: [
+                    ("consumer_goods_cut", "0.5"),
+                    ("pop_satisfaction_penalty", "-0.15"),
+                ],
+            ),
+        ],
+    ),
+]

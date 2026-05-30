@@ -1,0 +1,1298 @@
+// V5 阶段 F.1：德国 1936-1939 核心事件库（自研，不解析 vanilla）。
+//
+// 共 50 个事件，覆盖：
+//   - 主线历史节点（Rhineland → 4-Year Plan → Anschluss → Sudetenland → Munich →
+//     Memel → Pact of Steel → Molotov-Ribbentrop → Danzig / Polish War）
+//   - 配套外交事件（Anti-Comintern / Rome-Berlin Axis / Stresa Front collapse /
+//     Italy-Albania / UK-FR DoW / Belgian neutrality 等）
+//   - 1936 国内整合（Plebiscite / Himmler-SS / Wehrgesetz 2 年制 / He-111 服役 /
+//     Madrid 围城 / Hitler-Jugend 强制法）
+//   - 国内事件（Olympics / Hossbach / Blomberg-Fritsch / Kristallnacht / Strength
+//     through Joy / Autobahn / Schacht resigns / Nuremberg Rally / Hitler 50th）
+//   - 战时事件（Gleiwitz / Warsaw falls / Poland Partition / Condor Legion
+//     /Madrid / Guernica / 归国）
+//
+// 触发：大部分按日期（`Date(year, month, day)`）+ 必要前置 focus / flag；少数
+// 由 focus 完成时 `Effect::TriggerEvent` 主动触发（is_triggered_only=true）。
+//
+// MTTH 约定：日期驱动的历史事件用 `mean_time_to_happen_days: 1`，pp 概率 100%
+// 等价立即触发（保留字段为日后调谐留口）。多分支的反应事件用 5–10。
+//
+// Effect 引用的 ideas / state-id 已对齐 D.3 GER focus tree（state 4=Vienna,
+// 69=Sudeten, 70/71=Bohemia/Slovakia, 188=Memel, 55/56/57/58/64=工业重镇）。
+
+EventDb(
+    events: [
+        // ═════════════════════════════════════════════════════════════════
+        // 1936
+        // ═════════════════════════════════════════════════════════════════
+        Event(
+            id: "germany.rhineland",
+            title: "Remilitarisation of the Rhineland",
+            description: "Wehrmacht troops have crossed back into the demilitarised zone. The Versailles Treaty is in tatters. France and Britain have not moved a single unit. The Reich's prestige soars.",
+            picture: "GFX_event_rhineland",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Glory to the Reich!",
+                    effects: [
+                        AddWarSupport(0.05),
+                        SetCountryFlag("rhineland_remilitarised"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.reichstag_plebiscite",
+            title: "The 99% Plebiscite",
+            description: "The Reichstag election doubles as a plebiscite endorsing the Rhineland coup. Goebbels announces 99% in favour. Even sceptical foreign observers call it the most efficient ballot ever stuffed.",
+            picture: "GFX_event_plebiscite",
+            trigger: And([
+                Date(year: 1936, month: 3, day: 29),
+                HasCountryFlag("rhineland_remilitarised"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "The Volk has spoken.",
+                    effects: [
+                        AddPoliticalPower(50.0),
+                        AddStability(0.05),
+                        AddPopularity(ideology: "fascism", amount: 0.05),
+                        SetCountryFlag("plebiscite_done"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.stresa_front_collapses",
+            title: "Italy Conquers Ethiopia",
+            description: "Mussolini has crushed Haile Selassie. Britain and France imposed sanctions in vain; the League of Nations is humiliated. The Stresa Front against us is dead.",
+            picture: "GFX_event_stresa_dead",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Court Italy.",
+                    effects: [
+                        AddOpinion(target: "ITA", amount: 30),
+                        AddNamedThreat(1.0),
+                        SetCountryFlag("stresa_dead"),
+                    ],
+                    ai_chance: 0.7,
+                ),
+                EventOption(
+                    name: "Stay aloof — let Italy bleed.",
+                    effects: [
+                        AddPoliticalPower(15.0),
+                        SetCountryFlag("stresa_dead"),
+                    ],
+                    ai_chance: 0.3,
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.himmler_police_chief",
+            title: "Himmler — Reichsfuehrer-SS and Chief of Police",
+            description: "Heinrich Himmler has been appointed Chief of the German Police. The SS now absorbs the Gestapo, the Kripo, and the Ordnungspolizei. The security state is unified.",
+            picture: "GFX_event_himmler",
+            trigger: And([
+                Date(year: 1936, month: 6, day: 17),
+                HasCompletedFocus("GER_rhineland"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "A unified Reich, a unified watch.",
+                    effects: [
+                        AddPoliticalPower(25.0),
+                        AddStability(0.03),
+                        AddPopularity(ideology: "fascism", amount: 0.02),
+                        SetCountryFlag("ss_unified"),
+                    ],
+                ),
+                EventOption(
+                    name: "Pour resources into the Gestapo.",
+                    effects: [
+                        AddPoliticalPower(50.0),
+                        AddStability(-0.03),
+                        AddPopularity(ideology: "fascism", amount: 0.03),
+                        SetCountryFlag("ss_unified"),
+                    ],
+                    ai_chance: 0.4,
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.wehrgesetz_2yr",
+            title: "Two-Year Conscription",
+            description: "The Wehrgesetz has been amended. Military service is extended from one to two years. The Wehrmacht's peacetime strength will double within the year.",
+            picture: "GFX_event_conscription",
+            trigger: And([
+                Date(year: 1936, month: 8, day: 24),
+                HasCompletedFocus("GER_rhineland"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Train them harder.",
+                    effects: [
+                        AddManpower(200000),
+                        ArmyExperience(15.0),
+                        AddConscription(0.02),
+                        SetCountryFlag("two_year_service"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.he111_service",
+            title: "He-111 Enters Squadron Service",
+            description: "Heinkel's He-111 medium bomber begins squadron service. Disguised as an airliner for export, the type is in fact the spine of our future bomber arm.",
+            picture: "GFX_event_he111",
+            trigger: And([
+                Date(year: 1936, month: 9, day: 19),
+                HasCompletedFocus("GER_air_innovation"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Push production schedules.",
+                    effects: [
+                        AirExperience(15.0),
+                        AddTechBonus(category: "medium_air", bonus: 0.5),
+                        AddPoliticalPower(15.0),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.madrid_siege",
+            title: "The Siege of Madrid",
+            description: "Nationalist forces close on Madrid. The Condor Legion is reinforced with Panzer I detachments and Flak-88 batteries; our crews learn what real combat feels like.",
+            picture: "GFX_event_madrid",
+            trigger: And([
+                Date(year: 1936, month: 11, day: 6),
+                HasCountryFlag("condor_legion_active"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Test the Flak-88 in anger.",
+                    effects: [
+                        ArmyExperience(15.0),
+                        AirExperience(15.0),
+                        AddTechBonus(category: "armor", bonus: 0.25),
+                        AddOpinion(target: "ITA", amount: 10),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.hitler_youth_law",
+            title: "Hitler Youth Law",
+            description: "Membership in the Hitlerjugend is now compulsory for all Aryan boys aged 10 to 18. Baldur von Schirach beams. Twelve million children in brown shirts.",
+            picture: "GFX_event_hj_law",
+            trigger: And([
+                Date(year: 1936, month: 12, day: 1),
+                HasGovernment("fascism"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Indoctrinate the next generation.",
+                    effects: [
+                        AddPopularity(ideology: "fascism", amount: 0.05),
+                        AddManpower(50000),
+                        AddPoliticalPower(20.0),
+                        SetCountryFlag("hj_compulsory"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.olympics_berlin",
+            title: "The Berlin Olympics",
+            description: "The 1936 Summer Games open in Berlin. Foreign visitors marvel at our achievements; the regime gleams in newsreels around the world.",
+            picture: "GFX_event_olympics",
+            trigger: And([
+                Date(year: 1936, month: 8, day: 1),
+                HasCompletedFocus("GER_rhineland"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "A propaganda triumph.",
+                    effects: [
+                        AddPoliticalPower(25.0),
+                        AddStability(0.05),
+                    ],
+                ),
+                EventOption(
+                    name: "Spend more on infrastructure.",
+                    effects: [
+                        AddBuildingAllStates(building: "infrastructure", level: 1),
+                    ],
+                    ai_chance: 0.3,
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.spanish_civil_war",
+            title: "Spanish Civil War",
+            description: "Generals Mola and Franco have rebelled against the Republic. Italy is sending arms. Will we intervene?",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Form the Condor Legion.",
+                    effects: [
+                        AirExperience(20.0),
+                        ArmyExperience(15.0),
+                        AddOpinion(target: "ITA", amount: 25),
+                        SetCountryFlag("condor_legion_active"),
+                    ],
+                    ai_chance: 0.8,
+                ),
+                EventOption(
+                    name: "Stay out of Spanish affairs.",
+                    effects: [
+                        AddPoliticalPower(15.0),
+                    ],
+                    ai_chance: 0.2,
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.four_year_plan_launch",
+            title: "The Four Year Plan",
+            description: "Goering has been appointed Plenipotentiary for the Four Year Plan. Within four years our economy must be ready for war and our armed forces must be ready for combat.",
+            picture: "GFX_event_four_year_plan",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Forward, Reichsmarschall.",
+                    effects: [
+                        AddPoliticalPower(20.0),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.rome_berlin_axis",
+            title: "The Rome-Berlin Axis",
+            description: "Mussolini has declared the existence of an axis connecting our two states. Italy and Germany now stand together against the Western democracies.",
+            picture: "GFX_event_rome_berlin_axis",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Hail Caesar!",
+                    effects: [
+                        AddOpinion(target: "ITA", amount: 50),
+                        AddPoliticalPower(20.0),
+                        SetCountryFlag("rome_berlin_axis"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.anti_comintern_pact",
+            title: "The Anti-Comintern Pact",
+            description: "Japan has joined us in a pact directed against the Communist International. The Soviet menace will be encircled from East and West.",
+            picture: "GFX_event_anti_comintern",
+            trigger: And([
+                HasCountryFlag("rome_berlin_axis"),
+                Date(year: 1938, month: 11, day: 25),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Sign the pact.",
+                    effects: [
+                        AddOpinion(target: "JAP", amount: 50),
+                        AddOpinion(target: "SOV", amount: -25),
+                        SetCountryFlag("anti_comintern_pact"),
+                    ],
+                ),
+            ],
+        ),
+
+        // ═════════════════════════════════════════════════════════════════
+        // 1937
+        // ═════════════════════════════════════════════════════════════════
+        Event(
+            id: "germany.autobahn",
+            title: "The Autobahn Network",
+            description: "Construction of the Autobahn continues at breakneck pace. Each new stretch is paraded as proof of the regime's modernity.",
+            picture: "GFX_event_autobahn",
+            trigger: And([
+                Date(year: 1937, month: 1, day: 1),
+                HasCompletedFocus("GER_four_year_plan"),
+            ]),
+            mean_time_to_happen_days: 60,
+            options: [
+                EventOption(
+                    name: "Continue construction.",
+                    effects: [
+                        AddBuildingAllStates(building: "infrastructure", level: 1),
+                        AddPoliticalPower(15.0),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.kdf_program",
+            title: "Strength Through Joy",
+            description: "The Kraft durch Freude movement promises every German family a Volkswagen. Public morale is soaring.",
+            picture: "GFX_event_kdf",
+            trigger: And([
+                Date(year: 1937, month: 2, day: 1),
+                HasCompletedFocus("GER_four_year_plan"),
+            ]),
+            mean_time_to_happen_days: 30,
+            options: [
+                EventOption(
+                    name: "Long live the Volk!",
+                    effects: [
+                        AddStability(0.05),
+                        AddPoliticalPower(15.0),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.condor_legion_battle",
+            title: "Condor Legion at Guernica",
+            description: "Our pilots have demonstrated devastating new tactics over the Basque country. The world recoils; our airmen learn.",
+            picture: "GFX_event_guernica",
+            trigger: And([
+                Date(year: 1937, month: 4, day: 26),
+                HasCountryFlag("condor_legion_active"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Lessons noted.",
+                    effects: [
+                        AirExperience(25.0),
+                        AddTechBonus(category: "air_doctrine", bonus: 0.25),
+                        AddNamedThreat(2.0),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.schacht_resigns",
+            title: "Schacht Resigns",
+            description: "Hjalmar Schacht has resigned as Minister of Economics. He warns that rearmament without exports cannot continue. Goering will absorb his portfolio.",
+            picture: "GFX_event_schacht",
+            trigger: And([
+                Date(year: 1937, month: 11, day: 26),
+                HasIdea("four_year_plan"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Goering takes the helm.",
+                    effects: [
+                        AddPoliticalPower(-25.0),
+                        AddStability(-0.03),
+                        SetCountryFlag("schacht_resigned"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.hossbach_memorandum",
+            title: "The Hossbach Memorandum",
+            description: "In a secret conference, the Fuehrer outlines his plans for Lebensraum to the heads of the armed forces. Some generals balk.",
+            picture: "GFX_event_hossbach",
+            trigger: And([
+                Date(year: 1937, month: 11, day: 5),
+                HasCompletedFocus("GER_four_year_plan"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "The path is set.",
+                    effects: [
+                        AddWarSupport(0.05),
+                        AddPoliticalPower(20.0),
+                        SetCountryFlag("hossbach_memorandum"),
+                    ],
+                ),
+            ],
+        ),
+
+        // ═════════════════════════════════════════════════════════════════
+        // 1938
+        // ═════════════════════════════════════════════════════════════════
+        Event(
+            id: "germany.blomberg_fritsch_affair",
+            title: "The Blomberg-Fritsch Affair",
+            description: "War Minister Blomberg has been compromised by his new bride's past. General von Fritsch faces fabricated charges. Hitler dissolves the War Ministry and takes personal command.",
+            picture: "GFX_event_blomberg_fritsch",
+            trigger: And([
+                Date(year: 1938, month: 2, day: 4),
+                HasCompletedFocus("GER_rhineland"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Consolidate command.",
+                    effects: [
+                        AddPoliticalPower(50.0),
+                        ArmyExperience(-10.0),
+                        AddStability(-0.05),
+                        SetCountryFlag("okw_established"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.anschluss",
+            title: "Anschluss",
+            description: "Austrian Chancellor Schuschnigg has resigned. Our troops cross the border to thunderous applause. Vienna is once again part of the Reich.",
+            picture: "GFX_event_anschluss",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "One people, one Reich!",
+                    effects: [
+                        AddStability(0.05),
+                        SetCountryFlag("anschluss_done"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.austrian_referendum",
+            title: "The Austrian Referendum",
+            description: "99.7% have voted in favour of unification with Germany. Even our cynics are surprised by the figure.",
+            picture: "GFX_event_austrian_referendum",
+            trigger: And([
+                Date(year: 1938, month: 4, day: 10),
+                HasCountryFlag("anschluss_done"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Print the figures.",
+                    effects: [
+                        AddPoliticalPower(25.0),
+                        AddStability(0.05),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.henlein_demands",
+            title: "Henlein's Karlsbad Programme",
+            description: "Konrad Henlein, leader of the Sudeten Germans, has issued his eight demands at Karlsbad. Prague refuses. The first crisis of the Reich's borders begins.",
+            picture: "GFX_event_henlein",
+            trigger: And([
+                Date(year: 1938, month: 4, day: 24),
+                HasCompletedFocus("GER_anschluss"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Press for autonomy.",
+                    effects: [
+                        AddOpinion(target: "CZE", amount: -25),
+                        AddNamedThreat(1.0),
+                        SetCountryFlag("sudeten_crisis_begun"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.may_crisis",
+            title: "The May Crisis",
+            description: "Czechoslovakia has called partial mobilisation. London and Paris warn us against any sudden moves. Our timing is off; we must regroup.",
+            picture: "GFX_event_may_crisis",
+            trigger: And([
+                Date(year: 1938, month: 5, day: 21),
+                HasCountryFlag("sudeten_crisis_begun"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Bide our time.",
+                    effects: [
+                        AddPoliticalPower(-15.0),
+                        AddNamedThreat(1.0),
+                        AddOpinion(target: "ENG", amount: -10),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.berchtesgaden",
+            title: "Berchtesgaden Conference",
+            description: "Chamberlain has flown to the Berghof. The British wish to broker a peaceful transfer of the Sudetenland.",
+            picture: "GFX_event_chamberlain",
+            trigger: And([
+                Date(year: 1938, month: 9, day: 15),
+                HasCountryFlag("sudeten_crisis_begun"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Demand the Sudetenland.",
+                    effects: [
+                        AddPoliticalPower(20.0),
+                        AddNamedThreat(2.0),
+                        SetCountryFlag("berchtesgaden_done"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.godesberg",
+            title: "Godesberg Memorandum",
+            description: "Chamberlain returns. Our terms have hardened: full annexation by 1 October. He recoils, but consults his cabinet.",
+            picture: "GFX_event_godesberg",
+            trigger: And([
+                Date(year: 1938, month: 9, day: 22),
+                HasCountryFlag("berchtesgaden_done"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Press the demand.",
+                    effects: [
+                        AddPoliticalPower(15.0),
+                        AddWarSupport(0.05),
+                        AddNamedThreat(2.0),
+                        SetCountryFlag("godesberg_done"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.munich_agreement",
+            title: "The Munich Agreement",
+            description: "Chamberlain, Daladier, Mussolini and the Fuehrer have signed. The Sudetenland is ours without a shot fired. \"Peace for our time.\"",
+            picture: "GFX_event_munich",
+            scope: News,
+            trigger: And([
+                Date(year: 1938, month: 9, day: 30),
+                HasCountryFlag("godesberg_done"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Triumph without war.",
+                    effects: [
+                        AddPoliticalPower(75.0),
+                        AddStability(0.10),
+                        AddWarSupport(0.05),
+                        SetCountryFlag("munich_agreement"),
+                    ],
+                ),
+                EventOption(
+                    name: "Reject — we want all of Czechoslovakia.",
+                    trigger: WarSupport(0.5),
+                    effects: [
+                        AddWarSupport(0.10),
+                        AddNamedThreat(5.0),
+                        AddOpinion(target: "ENG", amount: -25),
+                    ],
+                    ai_chance: 0.2,
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.kristallnacht",
+            title: "Kristallnacht",
+            description: "Coordinated attacks on Jewish businesses, synagogues and homes have spread across the Reich. The world is appalled. Goebbels claims it was \"spontaneous outrage.\"",
+            picture: "GFX_event_kristallnacht",
+            trigger: And([
+                Date(year: 1938, month: 11, day: 9),
+                HasGovernment("fascism"),
+                HasCompletedFocus("GER_anschluss"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Approve the outrage.",
+                    effects: [
+                        AddStability(-0.05),
+                        AddOpinion(target: "USA", amount: -25),
+                        AddOpinion(target: "ENG", amount: -15),
+                        AddNamedThreat(2.0),
+                        SetCountryFlag("kristallnacht"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.economy_crisis_1938",
+            title: "The 1938 Economic Crisis",
+            description: "Foreign currency reserves are at zero. The MEFO bills come due. Goering insists the only path is more war, more loot.",
+            picture: "GFX_event_economy_crisis",
+            trigger: And([
+                Date(year: 1938, month: 10, day: 1),
+                HasIdea("four_year_plan"),
+                HasCountryFlag("schacht_resigned"),
+            ]),
+            mean_time_to_happen_days: 14,
+            options: [
+                EventOption(
+                    name: "Squeeze the consumer.",
+                    effects: [
+                        AddStability(-0.05),
+                        AddPoliticalPower(25.0),
+                    ],
+                    ai_chance: 0.6,
+                ),
+                EventOption(
+                    name: "Default and look East.",
+                    effects: [
+                        AddWarSupport(0.05),
+                        AddNamedThreat(2.0),
+                    ],
+                    ai_chance: 0.4,
+                ),
+            ],
+        ),
+
+        // ═════════════════════════════════════════════════════════════════
+        // 1939
+        // ═════════════════════════════════════════════════════════════════
+        Event(
+            id: "germany.prague",
+            title: "The Occupation of Prague",
+            description: "Wehrmacht columns enter Prague at dawn. The remainder of Bohemia and Moravia is now a Reich Protectorate. London and Paris are stunned.",
+            picture: "GFX_event_prague",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "All Czechoslovakia is ours.",
+                    effects: [
+                        AddPoliticalPower(50.0),
+                        AddNamedThreat(5.0),
+                        AddOpinion(target: "ENG", amount: -50),
+                        AddOpinion(target: "FRA", amount: -50),
+                        SetCountryFlag("prague_occupation"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.memel_ultimatum",
+            title: "Ultimatum to Lithuania",
+            description: "We have demanded the immediate return of Memel. Lithuania, isolated, complies within hours.",
+            picture: "GFX_event_memel",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Accept the surrender.",
+                    effects: [
+                        AddPoliticalPower(25.0),
+                        SetCountryFlag("memel_returned"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.italian_albania",
+            title: "Italy Invades Albania",
+            description: "Mussolini, jealous of our gains, has occupied Albania. Our axis grows.",
+            picture: "GFX_event_italian_albania",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Congratulate Il Duce.",
+                    effects: [
+                        AddOpinion(target: "ITA", amount: 25),
+                        AddNamedThreat(1.0),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.hitlers_50th_birthday",
+            title: "The Fuehrer's 50th Birthday",
+            description: "A massive military parade rolls through the Wilhelmstrasse. Foreign attaches scribble notes. Domestic morale soars.",
+            picture: "GFX_event_birthday_parade",
+            trigger: And([
+                Date(year: 1939, month: 4, day: 20),
+                HasCompletedFocus("GER_anschluss"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Hail the Fuehrer!",
+                    effects: [
+                        AddStability(0.05),
+                        AddPoliticalPower(25.0),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.condor_legion_returns",
+            title: "Legion Condor Returns",
+            description: "Our airmen and tank crews return from Spain bearing experience that will shape doctrine for years to come.",
+            picture: "GFX_event_condor_return",
+            trigger: And([
+                Date(year: 1939, month: 5, day: 23),
+                HasCountryFlag("condor_legion_active"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Promote the veterans.",
+                    effects: [
+                        AirExperience(25.0),
+                        ArmyExperience(15.0),
+                        ClearCountryFlag("condor_legion_active"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.pact_of_steel_signed",
+            title: "Pact of Steel",
+            description: "Ribbentrop and Ciano have signed a full military alliance. Italy stands with us, come what may.",
+            picture: "GFX_event_pact_of_steel",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Long live the Axis!",
+                    effects: [
+                        AddWarSupport(0.05),
+                        SetCountryFlag("pact_of_steel_signed"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.danzig_demand",
+            title: "Demand for Danzig",
+            description: "We have demanded the return of Danzig and an extra-territorial corridor through Polish territory. Beck refuses outright.",
+            picture: "GFX_event_danzig",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Press the demand.",
+                    effects: [
+                        AddOpinion(target: "POL", amount: -50),
+                        SetCountryFlag("danzig_demand"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.uk_guarantees_poland",
+            title: "Britain Guarantees Poland",
+            description: "Chamberlain has pledged to defend Poland against any aggression. The era of appeasement is over.",
+            picture: "GFX_event_uk_guarantee",
+            scope: News,
+            trigger: And([
+                Date(year: 1939, month: 3, day: 31),
+                HasCountryFlag("danzig_demand"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "We are not deterred.",
+                    effects: [
+                        AddNamedThreat(3.0),
+                        AddOpinion(target: "ENG", amount: -50),
+                        AddWarSupport(0.05),
+                        SetCountryFlag("uk_polish_guarantee"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.molotov_ribbentrop",
+            title: "The Molotov-Ribbentrop Pact",
+            description: "Ribbentrop has signed in Moscow. A non-aggression pact with the Soviets — and a secret protocol that divides Eastern Europe between us. Stalin smiles for the cameras.",
+            picture: "GFX_event_mol_rib",
+            scope: News,
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "The world is ours to divide.",
+                    effects: [
+                        NonAggressionPact("SOV"),
+                        AddOpinion(target: "SOV", amount: 50),
+                        AddPoliticalPower(50.0),
+                        SetCountryFlag("molotov_ribbentrop_signed"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.poland_ultimatum",
+            title: "Final Ultimatum to Poland",
+            description: "We have presented our 16 points. Poland is to accept by midnight or face the consequences.",
+            picture: "GFX_event_poland_ultimatum",
+            trigger: And([
+                Date(year: 1939, month: 8, day: 30),
+                HasCountryFlag("danzig_demand"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Let them refuse.",
+                    effects: [
+                        AddWarSupport(0.10),
+                        AddNamedThreat(3.0),
+                        SetCountryFlag("poland_ultimatum"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.gleiwitz",
+            title: "The Gleiwitz Incident",
+            description: "A radio station has been attacked by what Goebbels calls Polish irregulars. Bodies in Polish uniforms have been recovered. The casus belli is fabricated, complete.",
+            picture: "GFX_event_gleiwitz",
+            trigger: And([
+                Date(year: 1939, month: 8, day: 31),
+                HasCountryFlag("poland_ultimatum"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Issue the order.",
+                    effects: [
+                        AddWarSupport(0.05),
+                        SetCountryFlag("gleiwitz_done"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.poland_war",
+            title: "War on Poland",
+            description: "At 04:45 our forces have crossed the border at multiple points. The Schleswig-Holstein opens fire on Westerplatte. A new war has begun.",
+            picture: "GFX_event_invasion_poland",
+            scope: News,
+            trigger: And([
+                Date(year: 1939, month: 9, day: 1),
+                HasCountryFlag("gleiwitz_done"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Forward to Warsaw!",
+                    effects: [
+                        AddWarSupport(0.10),
+                        AddNamedThreat(10.0),
+                        ArmyExperience(10.0),
+                        SetCountryFlag("polish_campaign"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.uk_fr_dow",
+            title: "Britain and France Declare War",
+            description: "Chamberlain has spoken: \"This country is at war with Germany.\" France follows three hours later. The Second World War has begun.",
+            picture: "GFX_event_uk_dow",
+            scope: News,
+            trigger: And([
+                Date(year: 1939, month: 9, day: 3),
+                HasCountryFlag("polish_campaign"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Steel ourselves for total war.",
+                    effects: [
+                        AddWarSupport(0.10),
+                        AddStability(-0.05),
+                        AddNamedThreat(15.0),
+                        SetCountryFlag("ww2_started"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.warsaw_falls",
+            title: "Warsaw Falls",
+            description: "Resistance in the capital has been overcome. The Polish government has fled. Our share of the country is secured.",
+            picture: "GFX_event_warsaw_falls",
+            scope: News,
+            trigger: And([
+                Date(year: 1939, month: 9, day: 27),
+                HasCountryFlag("polish_campaign"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "The Wehrmacht has proven itself.",
+                    effects: [
+                        AddWarSupport(0.10),
+                        ArmyExperience(25.0),
+                        AddPoliticalPower(50.0),
+                        SetCountryFlag("warsaw_fallen"),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.poland_partition",
+            title: "Partition of Poland",
+            description: "Soviet forces have linked up with our advance at Brest-Litovsk. The two empires divide Poland along the Bug.",
+            picture: "GFX_event_poland_partition",
+            trigger: And([
+                Date(year: 1939, month: 9, day: 28),
+                HasCountryFlag("warsaw_fallen"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "A clean partition.",
+                    effects: [
+                        AddOpinion(target: "SOV", amount: 25),
+                        AddPoliticalPower(25.0),
+                        SetCountryFlag("poland_partitioned"),
+                    ],
+                ),
+            ],
+        ),
+
+        // ═════════════════════════════════════════════════════════════════
+        // 持续 / 周期事件
+        // ═════════════════════════════════════════════════════════════════
+        Event(
+            id: "germany.nuremberg_rally_1936",
+            title: "Nuremberg Rally — \"Of Honour\"",
+            description: "Our annual party rally fills the Zeppelinfeld. Triumph of the Will plays in every cinema.",
+            picture: "GFX_event_nuremberg_rally",
+            trigger: And([
+                Date(year: 1936, month: 9, day: 8),
+                HasGovernment("fascism"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Sieg Heil!",
+                    effects: [
+                        AddStability(0.03),
+                        AddPoliticalPower(15.0),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.nuremberg_rally_1937",
+            title: "Nuremberg Rally — \"Of Labour\"",
+            description: "The 1937 rally celebrates the four-year-plan workers and the swelling Wehrmacht.",
+            picture: "GFX_event_nuremberg_rally",
+            trigger: And([
+                Date(year: 1937, month: 9, day: 6),
+                HasCompletedFocus("GER_four_year_plan"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Workers and soldiers — one Volk.",
+                    effects: [
+                        AddStability(0.03),
+                        AddPoliticalPower(15.0),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.nuremberg_rally_1938",
+            title: "Nuremberg Rally — \"Of Greater Germany\"",
+            description: "Austria has joined the Reich. The 1938 rally celebrates a Greater Germany at last.",
+            picture: "GFX_event_nuremberg_rally",
+            trigger: And([
+                Date(year: 1938, month: 9, day: 5),
+                HasCountryFlag("anschluss_done"),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Ein Volk, ein Reich.",
+                    effects: [
+                        AddStability(0.05),
+                        AddPoliticalPower(20.0),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.dnvp_dissolved",
+            title: "Last Opposition Parties Dissolved",
+            description: "The DNVP and remaining splinter parties have been formally dissolved. Only the NSDAP remains.",
+            picture: "GFX_event_party_dissolved",
+            trigger: And([
+                Date(year: 1936, month: 6, day: 1),
+                HasGovernment("fascism"),
+            ]),
+            mean_time_to_happen_days: 14,
+            options: [
+                EventOption(
+                    name: "One party, one future.",
+                    effects: [
+                        AddPopularity(ideology: "fascism", amount: 0.05),
+                        AddStability(-0.02),
+                        AddPoliticalPower(20.0),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.atlantic_wall_planning",
+            title: "West Wall Planning",
+            description: "Engineer Fritz Todt has presented his plans for fortifying our western frontier. Construction can begin immediately.",
+            picture: "GFX_event_west_wall",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Begin construction.",
+                    effects: [
+                        AddBuildingInState(state: 42, building: "infrastructure", level: 1),
+                        AddStability(0.03),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.luftwaffe_growth",
+            title: "Luftwaffe Comes of Age",
+            description: "The He-111, Do-17 and Bf-109 form the backbone of a modern air force. Goering boasts of \"the strongest air force in the world.\"",
+            picture: "GFX_event_luftwaffe_growth",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Air superiority will be ours.",
+                    effects: [
+                        AirExperience(25.0),
+                        AddTechBonus(category: "light_air", bonus: 0.5),
+                    ],
+                ),
+            ],
+        ),
+
+        Event(
+            id: "germany.italo_german_naval",
+            title: "Italo-German Naval Cooperation",
+            description: "Italian and German naval staff have begun joint Mediterranean exercises. The Royal Navy takes notice.",
+            picture: "GFX_event_naval_cooperation",
+            trigger: And([
+                Date(year: 1937, month: 6, day: 1),
+                HasCountryFlag("rome_berlin_axis"),
+            ]),
+            mean_time_to_happen_days: 30,
+            options: [
+                EventOption(
+                    name: "Coordinate fleets.",
+                    effects: [
+                        NavyExperience(15.0),
+                        AddOpinion(target: "ITA", amount: 15),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "ger.scw_condor_legion",
+            title: "秃鹰军团飞往西班牙",
+            description: "空军部把这批飞机、飞行员和技师登记为'技术试验部署'。这个词足够干净，可以给外交部；也足够模糊，可以给总参谋部。容克运输机、轰炸机备件、无线电和少量坦克顾问会从德国港口进入西班牙国民军控制区，换回的不是一句感谢，而是空战数据、军官履历、矿产承诺和战后采购期待。柏林不会把援助写成礼物。每一架飞机都有编号，每一箱燃油都有账页。",
+            picture: "GFX_event_condor_legion",
+            trigger: And([
+                Tag("GER"),
+                CountryExists("SPA"),
+                Date(year: 1936, month: 8, day: 1),
+                Not(HasCountryFlag("ger_scw_condor_legion_sent")),
+            ]),
+            mean_time_to_happen_days: 5,
+            immediate: [SetCountryFlag("ger_scw_condor_legion_sent")],
+            options: [
+                EventOption(
+                    name: "派出秃鹰军团，记录所有战后索偿凭据。",
+                    effects: [
+                        SetCountryFlag("condor_legion_active"),
+                        SetCountryFlag("ger_scw_spanish_debt_ledger_opened"),
+                        SetGlobalFlag("ger_scw_condor_legion_sent_to_spain"),
+                        AirExperience(8.0),
+                        AddOpinion(target: "SPA", amount: 20),
+                        AddNamedThreat(0.5),
+                    ],
+                    ai_chance: 0.85,
+                ),
+                EventOption(
+                    name: "只卖设备，不派成建制人员。",
+                    effects: [
+                        SetCountryFlag("ger_scw_limited_aircraft_sales"),
+                        AddPoliticalPower(15.0),
+                        AddOpinion(target: "SPA", amount: 8),
+                    ],
+                    ai_chance: 0.15,
+                ),
+            ],
+        ),
+        Event(
+            id: "ger.scw_air_war_laboratory",
+            title: "把天空当作实验室",
+            description: "西班牙北方传来的照片被送进柏林会议室：铁路线、桥梁、市镇广场、烟柱和防空火力位置。空军参谋不把这些照片称为城市，也不称为家园；他们称之为目标类型。轰炸机编队需要练习，战术学校需要数据，德国工业需要知道新型炸弹在真实街区中的效果。外交官提醒众人，若照片被英国报纸拿到，'志愿'二字会变得很薄。戈林只问了一句：数据是否足够清楚。",
+            picture: "GFX_event_guernica",
+            trigger: And([
+                Tag("GER"),
+                CountryExists("SPA"),
+                HasCountryFlag("ger_scw_condor_legion_sent"),
+                Date(year: 1937, month: 4, day: 26),
+                Not(HasCountryFlag("ger_scw_air_war_laboratory_run")),
+            ]),
+            mean_time_to_happen_days: 1,
+            immediate: [SetCountryFlag("ger_scw_air_war_laboratory_run")],
+            options: [
+                EventOption(
+                    name: "把战术数据带回柏林。",
+                    effects: [
+                        SetCountryFlag("ger_scw_guernica_lessons_taken"),
+                        SetGlobalFlag("ger_scw_air_war_laboratory_completed"),
+                        SetGlobalFlag("news_scw_guernica_bombed_ready"),
+                        AirExperience(20.0),
+                        AddTechBonus(category: "air_doctrine", bonus: 0.25),
+                        AddNamedThreat(1.5),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "ger.scw_condor_legion_returns",
+            title: "秃鹰军团归国",
+            description: "归国仪式上，飞行员得到鲜花，参谋得到报告，企业代表得到一叠更有价值的东西：西班牙前线验证过的故障记录、机场维护清单、弹药消耗表，以及布尔戈斯对未来采购和矿产供应的含糊承诺。德国把这些人称为志愿者，但他们带回来的经验会进入学校、工厂和下一场战争的计划书。西班牙得到的则是一份没有明确到期日的账单。",
+            picture: "GFX_event_condor_return",
+            trigger: And([
+                Tag("GER"),
+                HasCountryFlag("ger_scw_condor_legion_sent"),
+                Date(year: 1939, month: 5, day: 23),
+                Not(HasCountryFlag("ger_scw_condor_legion_returned")),
+            ]),
+            mean_time_to_happen_days: 1,
+            immediate: [SetCountryFlag("ger_scw_condor_legion_returned")],
+            options: [
+                EventOption(
+                    name: "把西班牙经验写进德国条令。",
+                    effects: [
+                        ClearCountryFlag("condor_legion_active"),
+                        SetGlobalFlag("ger_scw_condor_legion_returned_to_germany"),
+                        AirExperience(25.0),
+                        ArmyExperience(10.0),
+                        AddTechBonus(category: "air_doctrine", bonus: 0.20),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "ger.scw_claims_after_franco_victory",
+            title: "马德里的账单",
+            description: "西班牙胜利的消息抵达柏林时，空军、外交部和经济部门递上了三份不同的清单。空军要求把西班牙经验写进条令，经济部门要求钨矿、采购合同和还款安排，外交部则希望佛朗哥至少在公开场合承认德国援助的决定性作用。内战中的'志愿'现在变成了正式账目。西班牙太虚弱，无法立即成为可靠盟友；也正因为虚弱，它必须学会先偿还帮助它获胜的人。",
+            picture: "GFX_event_condor_return",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "索取矿产、订单和外交靠拢。",
+                    effects: [
+                        SetCountryFlag("ger_scw_claims_after_franco_victory"),
+                        SetGlobalFlag("ger_scw_claims_on_spain_opened"),
+                        AddPoliticalPower(25.0),
+                        AddOpinion(target: "SPA", amount: 10),
+                        AddTradeAgreement(partner: "SPA", good_id: "tungsten", daily_quantity: 6.0),
+                        AddTechBonus(category: "air_doctrine", bonus: 0.10),
+                    ],
+                    ai_chance: 0.75,
+                ),
+                EventOption(
+                    name: "暂时只要经验和经济合同。",
+                    effects: [
+                        SetCountryFlag("ger_scw_claims_after_franco_victory_limited"),
+                        SetGlobalFlag("ger_scw_limited_claims_on_spain"),
+                        AirExperience(10.0),
+                        AddOpinion(target: "SPA", amount: 5),
+                        AddTradeAgreement(partner: "SPA", good_id: "tungsten", daily_quantity: 3.0),
+                    ],
+                    ai_chance: 0.25,
+                ),
+            ],
+        ),
+    ],
+)

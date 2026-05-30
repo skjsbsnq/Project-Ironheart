@@ -1,0 +1,21 @@
+#![enable(implicit_some)]
+[
+    (importer: "GER", exporter: "ROM", good_id: "oil", daily_quantity: 18.0, route_kind: Land, port_state: None, strategic_importance: 0.95),
+    (importer: "GER", exporter: "SWE", good_id: "steel", daily_quantity: 14.0, route_kind: Sea, port_state: Some(59), strategic_importance: 0.90),
+    (importer: "GER", exporter: "ENG", good_id: "rubber", daily_quantity: 6.0, route_kind: Sea, port_state: Some(64), strategic_importance: 0.75),
+    (importer: "JAP", exporter: "USA", good_id: "oil", daily_quantity: 24.0, route_kind: Sea, port_state: Some(536), strategic_importance: 1.00),
+    (importer: "JAP", exporter: "USA", good_id: "steel", daily_quantity: 10.0, route_kind: Sea, port_state: Some(536), strategic_importance: 0.85),
+    (importer: "JAP", exporter: "ENG", good_id: "rubber", daily_quantity: 12.0, route_kind: Sea, port_state: Some(536), strategic_importance: 1.00),
+    (importer: "ENG", exporter: "MAL", good_id: "rubber", daily_quantity: 18.0, route_kind: ImperialPreference, port_state: Some(126), strategic_importance: 0.95),
+    (importer: "ENG", exporter: "CAN", good_id: "grain", daily_quantity: 20.0, route_kind: ImperialPreference, port_state: Some(126), strategic_importance: 0.70),
+    (importer: "ENG", exporter: "RAJ", good_id: "grain", daily_quantity: 10.0, route_kind: ImperialPreference, port_state: Some(126), strategic_importance: 0.65),
+    (importer: "ENG", exporter: "AST", good_id: "grain", daily_quantity: 8.0, route_kind: ImperialPreference, port_state: Some(126), strategic_importance: 0.55),
+    (importer: "ENG", exporter: "NZL", good_id: "meat", daily_quantity: 5.0, route_kind: ImperialPreference, port_state: Some(126), strategic_importance: 0.45),
+    (importer: "ENG", exporter: "SAF", good_id: "chromium", daily_quantity: 4.0, route_kind: ImperialPreference, port_state: Some(126), strategic_importance: 0.50),
+    (importer: "GER", exporter: "ITA", good_id: "bauxite", daily_quantity: 5.0, route_kind: Land, port_state: None, strategic_importance: 0.60),
+    (importer: "JAP", exporter: "MAN", good_id: "coal", daily_quantity: 10.0, route_kind: Land, port_state: None, strategic_importance: 0.80),
+    (importer: "JAP", exporter: "MAN", good_id: "iron", daily_quantity: 8.0, route_kind: Land, port_state: None, strategic_importance: 0.75),
+    (importer: "JAP", exporter: "MEN", good_id: "coal", daily_quantity: 4.0, route_kind: Land, port_state: None, strategic_importance: 0.55),
+    (importer: "SOV", exporter: "SOV", good_id: "oil", daily_quantity: 12.0, route_kind: Land, port_state: None, strategic_importance: 0.70),
+    (importer: "SOV", exporter: "SOV", good_id: "coal", daily_quantity: 14.0, route_kind: Land, port_state: None, strategic_importance: 0.65),
+]

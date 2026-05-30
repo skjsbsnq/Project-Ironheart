@@ -1,0 +1,25 @@
+[package]
+name = "hoi4-data"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+vanilla-audit = []
+
+[dependencies]
+clausewitz-parser = { path = "../clausewitz-parser" }
+hoi4-map = { path = "../hoi4-map" }
+hoi4-paths = { path = "../hoi4-paths" }
+ron = "0.8"
+serde = { version = "1", features = ["derive"] }
+
+[[test]]
+name = "audit_phase1"
+path = "tests/audit_phase1.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+required-features = ["vanilla-audit"]

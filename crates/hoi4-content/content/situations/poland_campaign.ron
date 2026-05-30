@@ -1,0 +1,49 @@
+SituationDb(
+    situations: [
+        SituationDef(
+            id: "poland_campaign",
+            title: "Polish Campaign",
+            description: "Germany's invasion of Poland has triggered a general European war. The campaign should be decided by armies in the field, not by scripted map transfers.",
+            sides: [
+                SituationSide(id: "axis", name: "Germany", color: (90, 90, 90), initial_progress: 50.0, default_supporters: ["GER"]),
+                SituationSide(id: "allies_poland", name: "Poland and Allies", color: (35, 80, 170), initial_progress: 50.0, default_supporters: ["POL", "ENG", "FRA"]),
+            ],
+            interventions: [],
+            base_progress: [0.0, 0.0],
+            progress_source: TerritorialControl(side_country_tags: [["GER"], ["POL", "ENG", "FRA"]]),
+            milestones: [
+                (0, 70.0, "news.warsaw_falls_runtime"),
+            ],
+            milestone_effects: [
+                [TriggerEvent("news.warsaw_falls_runtime")],
+            ],
+            start_date: (1939, 9, 1),
+            end_date: (1940, 1, 1),
+            on_start: [
+                TriggerEvent("news.invasion_of_poland"),
+                CreateWar(attacker: "GER", defender: "POL"),
+                CreateFaction(leader: "ENG", name: "Allies"),
+                AddToFaction(faction_leader: "ENG", member: "FRA"),
+                AddToFaction(faction_leader: "ENG", member: "CAN"),
+                AddToFaction(faction_leader: "ENG", member: "AST"),
+                AddToFaction(faction_leader: "ENG", member: "NZL"),
+                AddToFaction(faction_leader: "ENG", member: "SAF"),
+                AddToFaction(faction_leader: "ENG", member: "RAJ"),
+                AddWarParticipant(war_leader: "POL", participant: "ENG"),
+                AddWarParticipant(war_leader: "POL", participant: "FRA"),
+                GrantMilitaryAccess(grantor: "FRA", grantee: "ENG"),
+                GrantMilitaryAccess(grantor: "ENG", grantee: "FRA"),
+                AddWarSupport(country: "GER", amount: 0.10),
+                AddWarSupport(country: "ENG", amount: 0.15),
+                AddWarSupport(country: "FRA", amount: 0.12),
+                SetCountryFlag(country: "GER", flag: "polish_campaign"),
+                SetCountryFlag(country: "ENG", flag: "ww2_started"),
+                SetCountryFlag(country: "FRA", flag: "ww2_started"),
+            ],
+            on_end: [
+                [TriggerEvent("news.warsaw_falls_runtime"), SetCountryFlag(country: "GER", flag: "poland_partitioned")],
+                [SetCountryFlag(country: "POL", flag: "poland_holds")],
+            ],
+        ),
+    ],
+)

@@ -1,0 +1,47 @@
+#![enable(implicit_some)]
+
+(
+    id: "sov_first_plan",
+    name: "苏联第一个五年计划（1928-1932）",
+    year_start: 1928,
+    year_end: 1932,
+    focus_tech_directions: ["industry_1", "metallurgy_1", "electronics_base"],
+    focus_bonus: 0.30,
+    off_focus_penalty: -0.20,
+    targets: [
+        (
+            good_id: "steel",
+            target_daily_output: 5000.0,
+        ),
+        (
+            good_id: "coal",
+            target_daily_output: 8000.0,
+        ),
+        (
+            good_id: "machinery",
+            target_daily_output: 2000.0,
+        ),
+        (
+            good_id: "grain",
+            target_daily_output: 6000.0,
+        ),
+    ],
+    forced_pms: [
+        (
+            building_def_id: "steel_mill",
+            forced_pm_id: "default",
+        ),
+        (
+            building_def_id: "coal_mine",
+            forced_pm_id: "default",
+        ),
+        (
+            building_def_id: "machinery_workshop",
+            forced_pm_id: "default",
+        ),
+        (
+            building_def_id: "grain_farm",
+            forced_pm_id: "default",
+        ),
+    ],
+)

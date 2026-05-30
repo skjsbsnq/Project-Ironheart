@@ -1,0 +1,22 @@
+/target/
+
+# Build artifacts and local binaries
+*.exe
+*.dll
+*.pdb
+*.lib
+
+# Logs and diagnostics
+*.log
+*.trace
+
+# Local environment and editor state
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+
+# OS metadata
+Thumbs.db
+Desktop.ini

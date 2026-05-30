@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48">
+  <!-- 07 paratrooper — 伞形 + 吊带 + 兵员小圆点 -->
+  <g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <!-- 伞盖：半圆弧 -->
+    <path d="M 8 24 Q 32 4 56 24"/>
+    <!-- 伞绳：3 根从顶弧到兵员 -->
+    <line x1="14" y1="22" x2="32" y2="40"/>
+    <line x1="32" y1="9"  x2="32" y2="40"/>
+    <line x1="50" y1="22" x2="32" y2="40"/>
+  </g>
+  <!-- 兵员（实心小点） -->
+  <circle cx="32" cy="42" r="2.5" fill="#ffffff"/>
+</svg>

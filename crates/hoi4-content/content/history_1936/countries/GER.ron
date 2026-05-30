@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "GER",
+    population: 68000000,
+    gdp_1936_gbp: 42000000000.0,
+    gdp_quality: Estimated,
+    sector_shares: (agriculture: 0.08, mining: 0.12, heavy_industry: 0.30, light_industry: 0.12, services: 0.19, government: 0.10, military_industry: 0.09),
+    urbanization: 0.67,
+    literacy: 0.97,
+    unemployment: 0.04,
+    industrial_capacity_index: 43.0,
+    military_spending_share: 0.10,
+    construction_capacity_index: 45.0,
+    gold_reserve_gbp: 400000000.0,
+    foreign_exchange_reserve_gbp: 250000000.0,
+    public_debt_gbp: 8000000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "corporatist_war_economy", trade: "export_focus", taxation: "medium_taxation", civil_rights: "limited_rights", information_control: "regulated_press"),
+)

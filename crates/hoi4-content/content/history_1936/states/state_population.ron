@@ -1,0 +1,159 @@
+#![enable(implicit_some)]
+
+[
+    // Germany. Current Phase 1 values mirror the hand-authored POP state totals.
+    (state_id: 6, population: 5740000, integration: Metropole, urbanization: 0.70, literacy: 0.97, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 64, population: 2240000, integration: Metropole, urbanization: 0.95, literacy: 0.98, workforce_profile: UrbanServices, data_quality: Estimated),
+    (state_id: 8, population: 5930000, integration: Metropole, urbanization: 0.78, literacy: 0.97, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 54, population: 5478000, integration: Metropole, urbanization: 0.76, literacy: 0.97, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 9, population: 8485000, integration: Metropole, urbanization: 0.55, literacy: 0.96, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 11, population: 6660000, integration: Metropole, urbanization: 0.70, literacy: 0.97, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 51, population: 4265000, integration: Metropole, urbanization: 0.58, literacy: 0.96, workforce_profile: Mining, data_quality: Estimated),
+    (state_id: 7, population: 4023000, integration: Metropole, urbanization: 0.42, literacy: 0.96, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 10, population: 6595000, integration: Metropole, urbanization: 0.64, literacy: 0.97, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 15, population: 2540000, integration: Metropole, urbanization: 0.42, literacy: 0.96, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 55, population: 4705000, integration: Metropole, urbanization: 0.58, literacy: 0.97, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 13, population: 2503000, integration: Metropole, urbanization: 0.50, literacy: 0.97, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 28, population: 2125000, integration: Metropole, urbanization: 0.62, literacy: 0.97, workforce_profile: Mining, data_quality: Estimated),
+    (state_id: 29, population: 2935000, integration: Metropole, urbanization: 0.58, literacy: 0.97, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 59, population: 2375000, integration: Metropole, urbanization: 0.72, literacy: 0.97, workforce_profile: UrbanServices, data_quality: Estimated),
+
+    // United Kingdom metropole.
+    (state_id: 91, population: 12840000, integration: Metropole, urbanization: 0.86, literacy: 0.99, workforce_profile: UrbanServices, data_quality: Estimated),
+    (state_id: 92, population: 9400000, integration: Metropole, urbanization: 0.82, literacy: 0.99, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 93, population: 3950000, integration: Metropole, urbanization: 0.72, literacy: 0.99, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 126, population: 2300000, integration: Metropole, urbanization: 0.66, literacy: 0.99, workforce_profile: UrbanServices, data_quality: Estimated),
+
+    // France metropole.
+    (state_id: 105, population: 7800000, integration: Metropole, urbanization: 0.78, literacy: 0.95, workforce_profile: UrbanServices, data_quality: Estimated),
+    (state_id: 106, population: 7200000, integration: Metropole, urbanization: 0.48, literacy: 0.94, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 107, population: 5140000, integration: Metropole, urbanization: 0.55, literacy: 0.94, workforce_profile: Agrarian, data_quality: Estimated),
+
+    // United States. Phase 10 extends coverage from national fallback to authored state totals.
+    (state_id: 195, population: 10340000, integration: Metropole, urbanization: 0.58, literacy: 0.96, workforce_profile: Mining, data_quality: Estimated),
+    (state_id: 202, population: 8300000, integration: Metropole, urbanization: 0.60, literacy: 0.96, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 276, population: 5100000, integration: Metropole, urbanization: 0.45, literacy: 0.95, workforce_profile: Mining, data_quality: Estimated),
+    // 283 is Ningxia/Qinghai area in current vanilla data, not a United States state.
+    (state_id: 283, population: 2200000, integration: Incorporated, urbanization: 0.05, literacy: 0.14, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 285, population: 23500000, integration: Metropole, urbanization: 0.70, literacy: 0.97, workforce_profile: UrbanServices, data_quality: Estimated),
+    (state_id: 290, population: 6800000, integration: Metropole, urbanization: 0.52, literacy: 0.96, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 293, population: 6240000, integration: Metropole, urbanization: 0.40, literacy: 0.95, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 294, population: 13380000, integration: Metropole, urbanization: 0.64, literacy: 0.97, workforce_profile: Industrial, data_quality: Estimated),
+
+    // Soviet Union.
+    (state_id: 229, population: 27823000, integration: Metropole, urbanization: 0.48, literacy: 0.78, workforce_profile: Mining, data_quality: Rough),
+    (state_id: 230, population: 8112000, integration: Metropole, urbanization: 0.42, literacy: 0.76, workforce_profile: Industrial, data_quality: Rough),
+    (state_id: 231, population: 27913000, integration: Metropole, urbanization: 0.35, literacy: 0.75, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 232, population: 5655000, integration: Metropole, urbanization: 0.28, literacy: 0.70, workforce_profile: MilitaryFrontier, data_quality: Rough),
+
+    // Italy.
+    (state_id: 212, population: 9180000, integration: Metropole, urbanization: 0.48, literacy: 0.82, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 213, population: 14000000, integration: Metropole, urbanization: 0.40, literacy: 0.80, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 214, population: 6505000, integration: Metropole, urbanization: 0.32, literacy: 0.76, workforce_profile: Agrarian, data_quality: Estimated),
+
+    // Japan home islands.
+    (state_id: 300, population: 17260000, integration: Metropole, urbanization: 0.45, literacy: 0.91, workforce_profile: Industrial, data_quality: Estimated),
+    (state_id: 301, population: 12355000, integration: Metropole, urbanization: 0.38, literacy: 0.90, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 302, population: 9415000, integration: Metropole, urbanization: 0.34, literacy: 0.89, workforce_profile: Agrarian, data_quality: Estimated),
+
+    // China and regional governments.
+    (state_id: 287, population: 1800000, integration: Incorporated, urbanization: 0.06, literacy: 0.18, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 322, population: 1300000, integration: Incorporated, urbanization: 0.04, literacy: 0.10, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 325, population: 7200000, integration: Incorporated, urbanization: 0.07, literacy: 0.16, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 591, population: 2600000, integration: Incorporated, urbanization: 0.08, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 592, population: 7600000, integration: Incorporated, urbanization: 0.13, literacy: 0.22, workforce_profile: UrbanServices, data_quality: Rough),
+    (state_id: 593, population: 12600000, integration: Incorporated, urbanization: 0.10, literacy: 0.20, workforce_profile: Plantation, data_quality: Rough),
+    (state_id: 594, population: 7600000, integration: Incorporated, urbanization: 0.08, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 595, population: 11200000, integration: Incorporated, urbanization: 0.11, literacy: 0.22, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 596, population: 20500000, integration: Incorporated, urbanization: 0.16, literacy: 0.25, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 597, population: 31500000, integration: Incorporated, urbanization: 0.11, literacy: 0.20, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 598, population: 34000000, integration: Incorporated, urbanization: 0.18, literacy: 0.26, workforce_profile: UrbanServices, data_quality: Rough),
+    (state_id: 599, population: 8200000, integration: Incorporated, urbanization: 0.08, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 600, population: 13000000, integration: Incorporated, urbanization: 0.09, literacy: 0.19, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 601, population: 900000, integration: Incorporated, urbanization: 0.04, literacy: 0.10, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 602, population: 14500000, integration: Incorporated, urbanization: 0.08, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 603, population: 21500000, integration: Incorporated, urbanization: 0.10, literacy: 0.20, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 604, population: 1100000, integration: Incorporated, urbanization: 0.05, literacy: 0.14, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 605, population: 24500000, integration: Incorporated, urbanization: 0.09, literacy: 0.19, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 606, population: 17800000, integration: Incorporated, urbanization: 0.09, literacy: 0.19, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 607, population: 19200000, integration: Incorporated, urbanization: 0.08, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 608, population: 9500000, integration: Incorporated, urbanization: 0.18, literacy: 0.24, workforce_profile: UrbanServices, data_quality: Rough),
+    (state_id: 1038, population: 17500000, integration: Incorporated, urbanization: 0.10, literacy: 0.20, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 1039, population: 4800000, integration: Incorporated, urbanization: 0.08, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 613, population: 23500000, integration: Incorporated, urbanization: 0.14, literacy: 0.23, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 614, population: 26000000, integration: Incorporated, urbanization: 0.11, literacy: 0.21, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 615, population: 9500000, integration: Incorporated, urbanization: 0.08, literacy: 0.18, workforce_profile: Mining, data_quality: Rough),
+    (state_id: 616, population: 1500000, integration: Incorporated, urbanization: 0.05, literacy: 0.14, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 617, population: 1300000, integration: Incorporated, urbanization: 0.06, literacy: 0.18, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 618, population: 900000, integration: Incorporated, urbanization: 0.05, literacy: 0.16, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 619, population: 800000, integration: Incorporated, urbanization: 0.05, literacy: 0.16, workforce_profile: Mining, data_quality: Rough),
+    (state_id: 620, population: 14800000, integration: Incorporated, urbanization: 0.08, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 621, population: 3600000, integration: Incorporated, urbanization: 0.06, literacy: 0.16, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 622, population: 2500000, integration: Incorporated, urbanization: 0.05, literacy: 0.15, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 1037, population: 9800000, integration: Incorporated, urbanization: 0.10, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 1041, population: 11800000, integration: Incorporated, urbanization: 0.09, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 743, population: 2200000, integration: Incorporated, urbanization: 0.20, literacy: 0.28, workforce_profile: UrbanServices, data_quality: Rough),
+    (state_id: 744, population: 7800000, integration: Incorporated, urbanization: 0.10, literacy: 0.20, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 746, population: 1400000, integration: Incorporated, urbanization: 0.05, literacy: 0.14, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 747, population: 2800000, integration: Incorporated, urbanization: 0.06, literacy: 0.15, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 748, population: 6500000, integration: Incorporated, urbanization: 0.07, literacy: 0.16, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 749, population: 9800000, integration: Incorporated, urbanization: 0.10, literacy: 0.20, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 750, population: 11600000, integration: Incorporated, urbanization: 0.09, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 751, population: 7400000, integration: Incorporated, urbanization: 0.06, literacy: 0.15, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 752, population: 1200000, integration: Incorporated, urbanization: 0.04, literacy: 0.10, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 753, population: 1200000, integration: Incorporated, urbanization: 0.05, literacy: 0.14, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 754, population: 700000, integration: Incorporated, urbanization: 0.04, literacy: 0.12, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 755, population: 500000, integration: Incorporated, urbanization: 0.04, literacy: 0.12, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 756, population: 800000, integration: Incorporated, urbanization: 0.05, literacy: 0.14, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 757, population: 450000, integration: Incorporated, urbanization: 0.04, literacy: 0.10, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 758, population: 350000, integration: Incorporated, urbanization: 0.03, literacy: 0.08, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 759, population: 250000, integration: Incorporated, urbanization: 0.04, literacy: 0.12, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 760, population: 900000, integration: Incorporated, urbanization: 0.07, literacy: 0.18, workforce_profile: MilitaryFrontier, data_quality: Rough),
+
+    // British Empire subjects and dominions covered in Phase 1.
+    (state_id: 303, population: 157000000, integration: Protectorate, urbanization: 0.11, literacy: 0.12, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 702, population: 3600000, integration: Protectorate, urbanization: 0.18, literacy: 0.35, workforce_profile: Plantation, data_quality: Rough),
+    (state_id: 703, population: 8350000, integration: Incorporated, urbanization: 0.45, literacy: 0.96, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 304, population: 5210000, integration: Incorporated, urbanization: 0.58, literacy: 0.97, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 307, population: 8405000, integration: Incorporated, urbanization: 0.24, literacy: 0.45, workforce_profile: Mining, data_quality: Rough),
+    (state_id: 306, population: 1070000, integration: Incorporated, urbanization: 0.52, literacy: 0.98, workforce_profile: Agrarian, data_quality: Estimated),
+
+    // Japanese subject states.
+    (state_id: 305, population: 27800000, integration: Protectorate, urbanization: 0.18, literacy: 0.35, workforce_profile: Mining, data_quality: Rough),
+    (state_id: 308, population: 1883000, integration: Protectorate, urbanization: 0.12, literacy: 0.20, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 524, population: 5600000, integration: Colony, urbanization: 0.18, literacy: 0.35, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 525, population: 11200000, integration: Colony, urbanization: 0.17, literacy: 0.34, workforce_profile: Agrarian, data_quality: Estimated),
+    (state_id: 527, population: 12500000, integration: Colony, urbanization: 0.16, literacy: 0.32, workforce_profile: Agrarian, data_quality: Estimated),
+
+    // French colonial empire. Batch C records broad 1936 resident-population estimates.
+    (state_id: 458, population: 2600000, integration: Protectorate, urbanization: 0.16, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 459, population: 3600000, integration: Colony, urbanization: 0.22, literacy: 0.22, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 461, population: 4700000, integration: Protectorate, urbanization: 0.13, literacy: 0.16, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 462, population: 1700000, integration: Protectorate, urbanization: 0.10, literacy: 0.14, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 513, population: 450000, integration: Colony, urbanization: 0.05, literacy: 0.08, workforce_profile: MilitaryFrontier, data_quality: Fallback),
+    (state_id: 514, population: 180000, integration: Colony, urbanization: 0.04, literacy: 0.06, workforce_profile: MilitaryFrontier, data_quality: Fallback),
+    (state_id: 543, population: 3800000, integration: Colony, urbanization: 0.08, literacy: 0.12, workforce_profile: Plantation, data_quality: Rough),
+    (state_id: 553, population: 900000, integration: Mandate, urbanization: 0.28, literacy: 0.24, workforce_profile: UrbanServices, data_quality: Rough),
+    (state_id: 677, population: 2200000, integration: Mandate, urbanization: 0.18, literacy: 0.18, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 670, population: 1800000, integration: Protectorate, urbanization: 0.07, literacy: 0.12, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 671, population: 7600000, integration: Protectorate, urbanization: 0.11, literacy: 0.16, workforce_profile: Plantation, data_quality: Rough),
+    (state_id: 741, population: 2800000, integration: Protectorate, urbanization: 0.08, literacy: 0.13, workforce_profile: Agrarian, data_quality: Rough),
+
+    // Dutch colonial empire.
+    (state_id: 334, population: 2200000, integration: Colony, urbanization: 0.07, literacy: 0.12, workforce_profile: Plantation, data_quality: Rough),
+    (state_id: 335, population: 41000000, integration: Colony, urbanization: 0.12, literacy: 0.18, workforce_profile: Plantation, data_quality: Rough),
+    (state_id: 672, population: 8200000, integration: Colony, urbanization: 0.09, literacy: 0.14, workforce_profile: Plantation, data_quality: Rough),
+    (state_id: 673, population: 4200000, integration: Colony, urbanization: 0.07, literacy: 0.12, workforce_profile: Plantation, data_quality: Rough),
+    (state_id: 669, population: 900000, integration: Colony, urbanization: 0.03, literacy: 0.08, workforce_profile: MilitaryFrontier, data_quality: Fallback),
+
+    // Belgian Congo.
+    (state_id: 718, population: 10500000, integration: Colony, urbanization: 0.05, literacy: 0.08, workforce_profile: Mining, data_quality: Rough),
+    (state_id: 719, population: 3400000, integration: Colony, urbanization: 0.04, literacy: 0.07, workforce_profile: Plantation, data_quality: Fallback),
+
+    // Portuguese colonial empire.
+    (state_id: 540, population: 3400000, integration: Colony, urbanization: 0.06, literacy: 0.10, workforce_profile: Plantation, data_quality: Rough),
+    (state_id: 544, population: 4100000, integration: Colony, urbanization: 0.06, literacy: 0.09, workforce_profile: Plantation, data_quality: Rough),
+    (state_id: 296, population: 360000, integration: Colony, urbanization: 0.05, literacy: 0.08, workforce_profile: Plantation, data_quality: Fallback),
+    (state_id: 721, population: 460000, integration: Colony, urbanization: 0.05, literacy: 0.10, workforce_profile: Plantation, data_quality: Fallback),
+    (state_id: 729, population: 160000, integration: Concession, urbanization: 0.72, literacy: 0.34, workforce_profile: UrbanServices, data_quality: Fallback),
+]

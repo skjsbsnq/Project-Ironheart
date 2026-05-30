@@ -1,0 +1,26 @@
+#![enable(implicit_some)]
+
+[
+    (
+        id: "mark_devaluation_crisis",
+        title: "马克贬值危机",
+        body: "马克对英镑汇率在一个月内贬值超过10%。外汇储备枯竭，进口成本飙升。国内物价飞涨，民众生活受到严重冲击。必须立即采取行动稳定汇率。",
+        options: [
+            (
+                name: "抛售黄金储备稳定汇率",
+                effects: [
+                    ("sell_gold_for_reserve", "0.5"),
+                    ("exchange_rate_stabilize", ""),
+                    ("pop_satisfaction_penalty", "-0.05"),
+                ],
+            ),
+            (
+                name: "实施外汇管制",
+                effects: [
+                    ("force_trade_law", "autarky"),
+                    ("pop_satisfaction_penalty", "-0.08"),
+                ],
+            ),
+        ],
+    ),
+]

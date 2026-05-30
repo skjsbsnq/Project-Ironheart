@@ -1,0 +1,38 @@
+[package]
+name = "hoi4-ui"
+version = "0.1.0"
+edition = "2021"
+
+# ROADMAP_V5 阶段 B.1：自研 UI 框架（egui + vanilla theme）。
+#
+# 本 crate 是 V5 全新的 UI 子系统，承接旧 V3 4.3 路线被 DELETE 后留下的位置。
+# 仅包含 egui 集成与 vanilla theme 实现，不再解析任何 .gui / .gfx / .fnt。
+#
+# 依赖版本 pin 说明：
+# - egui / egui-wgpu / egui-winit 0.31.1 是「pre-wgpu-25」最后一个版本系，
+#   官方 Cargo.toml 中明确依赖 wgpu = "24.0.0" + winit = "0.30.7"。
+# - 项目 workspace 用 wgpu = "24.0.1" + winit = "0.30.9"，semver 范围内兼容。
+# - egui 0.32+ 升级到 wgpu 25，会与 hoi4-render 的 25 个 pass / 30 wgsl 冲突，
+#   因此本 crate 必须停留在 0.31.x。下次 wgpu 大版本升级时同步抬升。
+
+[dependencies]
+# 上游依赖 pin（与 wgpu 24 + winit 0.30 兼容，参考 https://github.com/emilk/egui/blob/0.31.1/Cargo.toml）
+egui = "=0.31.1"
+egui-wgpu = "=0.31.1"
+egui-winit = { version = "=0.31.1", features = ["accesskit"] }
+
+# 渲染 / 窗口 / 字体后端，跟随 workspace 当前版本，避免版本漂移
+wgpu = "24.0.1"
+winit = "0.30.9"
+
+# B.4：从 vanilla 安装目录查 9-slice 纹理（PathConfig::find） + 解析 DDS。
+hoi4-paths = { path = "../hoi4-paths" }
+hoi4-assets = { path = "../hoi4-assets" }
+hoi4-content = { path = "../hoi4-content" }
+hoi4-state = { path = "../hoi4-state" }
+
+[dev-dependencies]
+egui_kittest = { version = "=0.31.1", features = ["snapshot", "wgpu"] }
+
+# 本地 crate 依赖在 B.2 阶段（egui 集成到 hoi4-app 主循环）按需引入。
+# 当前 B.1 仅占位骨架，无需 hoi4-* 内部依赖。

@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "SIC",
+    population: 36000000,
+    gdp_1936_gbp: 1350000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.63, mining: 0.04, heavy_industry: 0.03, light_industry: 0.07, services: 0.11, government: 0.08, military_industry: 0.04),
+    urbanization: 0.08,
+    literacy: 0.17,
+    unemployment: 0.04,
+    industrial_capacity_index: 1.2,
+    military_spending_share: 0.12,
+    construction_capacity_index: 0.8,
+    gold_reserve_gbp: 7000000.0,
+    foreign_exchange_reserve_gbp: 3000000.0,
+    public_debt_gbp: 110000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "import_substitution", taxation: "medium_taxation", civil_rights: "limited_rights", information_control: "regulated_press"),
+)

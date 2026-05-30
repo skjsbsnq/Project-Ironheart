@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "FRA",
+    population: 41500000,
+    gdp_1936_gbp: 28000000000.0,
+    gdp_quality: Estimated,
+    sector_shares: (agriculture: 0.18, mining: 0.05, heavy_industry: 0.18, light_industry: 0.14, services: 0.28, government: 0.10, military_industry: 0.07),
+    urbanization: 0.52,
+    literacy: 0.95,
+    unemployment: 0.08,
+    industrial_capacity_index: 28.0,
+    military_spending_share: 0.07,
+    construction_capacity_index: 26.0,
+    gold_reserve_gbp: 2500000000.0,
+    foreign_exchange_reserve_gbp: 800000000.0,
+    public_debt_gbp: 16000000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "export_focus", taxation: "medium_taxation", civil_rights: "open_society", information_control: "free_press"),
+)

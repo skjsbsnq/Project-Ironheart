@@ -1,0 +1,12 @@
+#![enable(implicit_some)]
+
+(
+    aaa: (debt_ratio_max: 0.3, interest_bonus: -0.005),
+    aa: (debt_ratio_max: 0.5, interest_bonus: 0.0),
+    a: (debt_ratio_max: 0.8, interest_bonus: 0.005),
+    bbb: (debt_ratio_max: 1.2, interest_bonus: 0.01),
+    bb: (debt_ratio_max: 1.6, interest_bonus: 0.02),
+    b: (debt_ratio_max: 2.0, interest_bonus: 0.04),
+    ccc: (debt_ratio_max: 3.0, interest_bonus: 0.08),
+    d: (debt_ratio_max: 999.0, interest_bonus: 0.15),
+)

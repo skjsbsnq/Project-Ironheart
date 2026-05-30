@@ -1,0 +1,1407 @@
+EventDb(
+    events: [
+        Event(
+            id: "spr.scw_opening_history",
+            title: "第二共和国的第五个年头",
+            description: "1936年的西班牙共和国并不是一个年轻国家，而是一间被太多人同时索取钥匙的办公室。1931年，国王离开马德里时，街上响起的是共和歌、教堂钟声和报纸号外；五年后，留下来的却是未完成的土地改革、被反复改写的军队名册、被关停又重开的工会会所，以及每个省长都学会用两种语气写给内政部的报告。
+
+共和国的敌人说它从诞生那天起就是秩序的叛徒。共和国的拥护者说它只是还没有得到足够时间去兑现自己的承诺。两种说法都太干净了。阿斯图里亚斯的矿井记得1934年的炮声，乡村佃农记得每一次被延期的地契，军官团记得自己的调令如何被议会辩论羞辱，主教府记得学校、婚姻和墓地如何一点点离开教会账簿。每一方都能列出受害者，也都能列出应该由别人偿还的债。
+
+马德里仍然拥有法律、内阁、警察和国旗；但法律在乡村要经过地主、佃农和国民警卫队重新解释，内阁在街头要与工会、长枪党和报纸标题争夺权威，警察在每一次葬礼之后都更难证明自己不是某一派的工具。共和国还没有崩溃。正因为它还没有崩溃，所有人都相信最后一次推搡、最后一次选举、最后一次调令，足以决定西班牙会被谁继承。",
+            picture: "GFX_event_spanish_republic",
+            trigger: And([
+                Tag("SPR"),
+                Date(year: 1936, month: 1, day: 1),
+                Not(HasCountryFlag("spr_opening_history_read")),
+            ]),
+            mean_time_to_happen_days: 1,
+            immediate: [
+                SetCountryFlag("spr_opening_history_read"),
+            ],
+            options: [
+                EventOption(
+                    name: "西班牙仍在等待判决。",
+                    effects: [],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_popular_front_victory",
+            title: "人民阵线胜选",
+            description: "选举结果在凌晨才从各省陆续送到内政部。马德里的走廊里挤着记者、社会主义者的信使、共和派律师和不断要求接线的省长；楼外，冻了一夜的人群听见“人民阵线胜利”的传言后先是沉默，随后像火一样把口号传过太阳门广场。有人高喊释放十月起义后的囚犯，有人举着被拖延多年的土地改革请愿书，还有工会代表挤进前厅，提醒部长们：选票不是请愿书，而是一张已经到期的收据。
+
+同一清晨，萨拉曼卡的地主俱乐部关上了百叶窗，主教座堂寄来的信封没有拆开就被压在银质镇纸下面，军官食堂里则有人把报纸摊在桌上，问共和国是否已经把国家交给了街头。阿萨尼亚明白，这场胜利不是普通内阁的授权。它是1931年未竟承诺、1934年镇压伤口、军队改革怨恨和乡村饥饿账本的集中到期。共和国赢得了议会，却没有赢得国家机器的服从；赢得了街头，却没有赢得街头的耐心。
+
+部长会议的桌上摆着三份草案。第一份试图把大赦、土地仲裁和军队纪律捆在一起，给共和国争取几个月喘息。第二份要求立刻释放政治犯、恢复被停职的市政委员会、推动土地占用合法化，用胜利压倒反动派的迟滞。第三份则把多数法令推迟到新议会稳定之后，寄望于不刺激教会、军官和信贷市场。每一份都能暂时拯救共和国，也都会告诉某一群西班牙人：他们又一次被出卖了。",
+            picture: "GFX_event_spanish_election",
+            trigger: And([
+                Tag("SPR"),
+                Date(year: 1936, month: 2, day: 17),
+            ]),
+            mean_time_to_happen_days: 1,
+            immediate: [
+                SetCountryFlag("spr_popular_front_victory"),
+            ],
+            options: [
+                EventOption(
+                    name: "把改革写进法令，但让警察和省长先恢复秩序。",
+                    effects: [
+                        SetCountryFlag("spr_popular_front_moderate_reform"),
+                        AddStability(0.02),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "共和国欠街头一笔债，今天就开始偿还。",
+                    effects: [
+                        SetCountryFlag("spr_popular_front_deepened_reform"),
+                        AddStability(-0.02),
+                        AddWarSupport(0.02),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 3.0),
+                        AddToVariable(name: "spr_military_centralization", value: -1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "把火先压下去，别给兵营任何借口。",
+                    effects: [
+                        SetCountryFlag("spr_popular_front_delayed_reform"),
+                        AddPoliticalPower(20.0),
+                        AddStability(-0.01),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.2,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_government_in_crisis",
+            title: "共和国政府陷入危机",
+            description: "马德里的部长会议室里，电话铃声没有停过。军区报告互相矛盾，省长们的声音在接线板里断断续续，武器库门口已经挤满带着工会袖章的人。忠于共和国的军官把手按在地图上，反复说明哪些仓库一旦被打开就再也关不上；内政部官员则提醒他们，若仓库不开，许多城市可能连今晚都撑不过去。
+
+共和国仍然合法，但合法性已经被推到走廊、兵营和工人会所之间。法律文书可以证明政府有权指挥军队，却不能保证军官接电话；工会民兵可以在几个小时内填满街垒，却不会自动服从一个曾经逮捕过他们同志的国家机器。每个人都在说“保卫共和国”，只是他们口中的共和国并不完全相同。
+
+内阁必须先决定自己靠什么活过第一周。守住命令链，意味着把国家押给仍愿服从的军官和警卫队；打开仓库，意味着把共和国的生存权分给那些曾被共和国视作麻烦的人。无论哪一种选择，战后的共和国都不会再回到今天早晨以前。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "先守住政府的命令链。",
+                    effects: [
+                        SetCountryFlag("spr_scw_command_chain_prioritized"),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "把枪交给愿意保卫共和国的人。",
+                    effects: [
+                        SetCountryFlag("spr_scw_weapon_depots_opened"),
+                        AddManpower(25000),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        AddToVariable(name: "spr_military_centralization", value: -1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.55,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_land_seizures",
+            title: "土地占领蔓延到乡村",
+            description: "埃斯特雷马杜拉的清晨没有等到马德里的命令。佃农们带着锄头、旧猎枪和一张从镇公所抄来的共和国法令走进橄榄园，把木牌钉在庄园门口，宣称这片地从今天起由村社耕种。市政委员会的书记员站在尘土里，手里攥着还没有盖章的土地仲裁表；地主的代理人则已经骑马去省城找国民警卫队，声称政府若还算政府，就必须保护契约。
+
+送到内政部的不是一份整齐的政治请愿，而是一捆互相打架的纸：村里用铅笔画出的灌溉渠，地主账房递来的欠租名单，面包铺老板写下的赊账本，国民警卫队长用军用电报纸补写的“请示开枪规则”。农业部说改革必须按程序推进，内政部说程序正在被饥饿和枪支追赶，财政部则提醒所有人，若地主开始转移资本，秋收和税收都会先共和国一步崩坏。
+
+部长们面前不是抽象的改革速度，而是粮食、租佃合同、地方警察和枪口。共和国可以把占领合法化，用行政印章追认街头事实；也可以派仲裁员下乡，试图让国家重新成为地主与佃农之间唯一的翻译；或者用警力把土地还给旧主人，证明法律不向人群让步。无论哪一种，乡村都会记住今天谁站在篱笆哪一边，而未来的军队也会从这些记忆里招募士兵。",
+            picture: "GFX_event_spanish_land_reform",
+            trigger: And([
+                Tag("SPR"),
+                Date(year: 1936, month: 3, day: 10),
+                HasCountryFlag("spr_popular_front_victory"),
+                Not(HasCountryFlag("spr_land_crisis_addressed")),
+            ]),
+            mean_time_to_happen_days: 3,
+            immediate: [
+                SetCountryFlag("spr_land_crisis_addressed"),
+            ],
+            options: [
+                EventOption(
+                    name: "承认占地委员会，但把粮食征收和租佃登记交给省政府。",
+                    effects: [
+                        SetCountryFlag("spr_land_collectives_legalized"),
+                        AddStability(-0.02),
+                        AddWarSupport(0.01),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 3.0),
+                        AddToVariable(name: "spr_military_centralization", value: -1.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: 1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "派仲裁员下乡，土地必须改革，但不能由人群决定边界。",
+                    effects: [
+                        SetCountryFlag("spr_land_arbitration_commissions"),
+                        AddStability(0.01),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "让国民警卫队恢复产权秩序，政府不能被庄园门口的木牌拖着走。",
+                    effects: [
+                        SetCountryFlag("spr_land_seizures_repressed"),
+                        AddStability(-0.01),
+                        AddPoliticalPower(15.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.2,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_church_conflict",
+            title: "钟声与火光",
+            description: "复活节前的街道比教堂里更拥挤。几座教会学校的墙上被刷上标语，修女从侧门离开时低着头，附近工人会所的年轻人则说他们只是在清算旧秩序的傲慢。省长办公室的桌上摆着一只被烟熏黑的银质圣杯、三本烧焦边角的课本，以及一张写着“学校明天是否开门”的便条。便条没有署名，因为每个人都知道署名意味着选边。
+
+阿萨尼亚翻看各省来信时，笔尖停在同一个词上：秩序。这个词在不同纸面上长着完全不同的脸。主教府用烫金信笺写它，校长用考勤表背面写它，参加葬礼的母亲用沾蜡油的手写它，街区民兵则把它喷在被撬开的校门旁。共和国的世俗法律要求教会退回私人信仰，然而许多村庄里，教会就是学校、慈善、婚姻登记和死亡证明；削弱教会，等同于拆掉旧国家留下的最后一套基层行政。
+
+每一座被辱骂的祭台都会变成右翼晚餐桌上的证词，每一间继续上课的教会学校也会变成工人区里的羞辱。内阁可以公开保护宗教场所，换取教会承认共和国法律；也可以推动更激进的世俗化，让旧势力知道选举已经改变国家；或者只在火势失控时派警察灭火，把冲突留给地方自己消化。钟声还在响，但已经很难分清它是在召人礼拜，还是在给未来的战争报时。",
+            picture: "GFX_event_spanish_church",
+            trigger: And([
+                Tag("SPR"),
+                Date(year: 1936, month: 4, day: 20),
+                HasCountryFlag("spr_land_crisis_addressed"),
+                Not(HasCountryFlag("spr_church_crisis_addressed")),
+            ]),
+            mean_time_to_happen_days: 4,
+            immediate: [
+                SetCountryFlag("spr_church_crisis_addressed"),
+            ],
+            options: [
+                EventOption(
+                    name: "保护教堂和学校，但要求主教公开承认共和国法律。",
+                    effects: [
+                        SetCountryFlag("spr_church_compromise"),
+                        AddStability(0.02),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.4,
+                ),
+                EventOption(
+                    name: "推进世俗学校和教产清查，旧祭台不能再替旧西班牙统治乡村。",
+                    effects: [
+                        SetCountryFlag("spr_church_secularization_pushed"),
+                        AddStability(-0.02),
+                        AddWarSupport(0.01),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: 2.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "避免正面冲突，让地方警察只处理纵火和械斗。",
+                    effects: [
+                        SetCountryFlag("spr_church_conflict_drifted"),
+                        AddStability(-0.01),
+                        AddPoliticalPower(10.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        AddToVariable(name: "spr_military_centralization", value: -1.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: 1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.25,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_falange_street_violence",
+            title: "长枪党人在街角开火",
+            description: "马德里的午后被一阵短促的枪声撕开。电车停在轨道上，乘客趴在座椅下面，街角的咖啡馆玻璃碎了一地。有人说先开枪的是蓝衫青年，有人说工会纠察队早就带着棍棒等在那里；等警察赶到时，血已经顺着排水沟流到报摊前，第二天的标题也已经写好。真正最先抵达现场的不是警察，而是各派解释者。
+
+警察报告的页边贴着从现场捡回来的东西：一枚蓝色衬衫扣子，半张印着长枪党箭束的传单，一截包着红布的木棍，还有咖啡馆老板写给保险公司的损失清单。报社排字间通宵亮灯，把同一滩血排成两种完全相反的故事；军官俱乐部的烟灰缸旁则多了一句低声重复的话：街道已经不属于政府。长枪党需要烈士证明共和国无能，工会需要烈士证明法西斯已经开战，两边都在等待政府用错误的手势确认自己的宣传。
+
+政府可以取缔长枪党组织，用警力把他们的会所和印刷机一并封掉；也可以扩大巡逻、同时收缴左右两边的武器，试图保住共和国的中立权威；或者把主要精力放在工会纠察队身上，向保守派证明政府仍然能控制街道。可街道秩序不是一个按钮。每一次搜查都会制造新的秘密仓库，每一次宽容都会制造新的葬礼，每一种秩序都会得罪一批愿意为未来流血的人。",
+            picture: "GFX_event_spanish_street_violence",
+            trigger: And([
+                Tag("SPR"),
+                Date(year: 1936, month: 5, day: 10),
+                HasCountryFlag("spr_church_crisis_addressed"),
+                Not(HasCountryFlag("spr_falange_street_violence_addressed")),
+            ]),
+            mean_time_to_happen_days: 4,
+            immediate: [
+                SetCountryFlag("spr_falange_street_violence_addressed"),
+            ],
+            options: [
+                EventOption(
+                    name: "取缔长枪党会所，没收他们的印刷机和武器。",
+                    effects: [
+                        SetCountryFlag("spr_falange_banned"),
+                        AddStability(-0.02),
+                        AddWarSupport(0.01),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: 1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "扩大巡逻并同时收缴左右两边的街头武器。",
+                    effects: [
+                        SetCountryFlag("spr_street_patrols_expanded"),
+                        AddStability(0.01),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "先压住工会纠察队，别让右翼把共和国描成暴民政府。",
+                    effects: [
+                        SetCountryFlag("spr_unions_policed_after_falange_clashes"),
+                        AddStability(-0.01),
+                        AddPoliticalPower(10.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.2,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_mola_conspiracy",
+            title: "莫拉的信件在兵营间传递",
+            description: "潘普洛纳的夜晚很安静，安静到足以听见打字机的金属声。埃米利奥·莫拉没有在信里写下多余的豪言，他写日期、联络人、驻军反应和各省必须在同一小时行动的要求。信件被折进军帽、圣像盒和雪茄盒里，沿着铁路和军官休假路线向南、向西、向海峡两岸移动。阴谋在这里不是浪漫，而是一套行政流程，只是收件人穿军装，印章换成了沉默。
+
+内政部的地图上开始出现没有公开解释的红针。萨拉戈萨旁边钉着“晚宴过长”，塞维利亚旁边钉着“弹药盘点重复”，摩洛哥旁边只有一个问号。截获的纸条没有署名，只写着“主任”的短句和一串车次；最糟的是，那些看似忠诚的回信也越来越像是在等待风向，而不是服从共和国。军队改革曾试图让军官团成为国家的工具，现在国家发现工具正在评估主人是否还配拥有它。
+
+莫拉的阴谋真正危险之处不在某一封信，而在于它把犹豫者变成了等待信号的人。政府若重拳出击，可能打断网络，也可能提前引爆兵营；若只监视不抓人，密谋者会获得时间；若试图用调任和安抚分化他们，就必须承认共和国已经在和自己的军队谈判。共和国不缺法律依据，缺的是能让法律穿过兵营大门的手。",
+            picture: "GFX_event_spanish_conspiracy",
+            trigger: And([
+                Tag("SPR"),
+                Date(year: 1936, month: 6, day: 5),
+                HasCountryFlag("spr_falange_street_violence_addressed"),
+                Not(HasCountryFlag("spr_mola_conspiracy_addressed")),
+            ]),
+            mean_time_to_happen_days: 5,
+            immediate: [
+                SetCountryFlag("spr_mola_conspiracy_addressed"),
+            ],
+            options: [
+                EventOption(
+                    name: "逮捕联络军官，哪怕这会让兵营提前露出刀子。",
+                    effects: [
+                        SetCountryFlag("spr_mola_network_raided"),
+                        AddStability(-0.02),
+                        AddWarSupport(0.02),
+                        ArmyExperience(5.0),
+                        AddToVariable(name: "spr_military_centralization", value: 3.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.3,
+                ),
+                EventOption(
+                    name: "监视莫拉的网络，等名单完整后再动手。",
+                    effects: [
+                        SetCountryFlag("spr_mola_network_monitored"),
+                        AddPoliticalPower(10.0),
+                        AddStability(-0.01),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "分化军官团，用调任和承诺把犹豫者从阴谋里拉出来。",
+                    effects: [
+                        SetCountryFlag("spr_mola_conspiracy_appeased"),
+                        AddStability(0.01),
+                        AddPoliticalPower(-15.0),
+                        AddToVariable(name: "spr_military_centralization", value: -1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.25,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_officer_transfers",
+            title: "军官调令摆上内阁桌面",
+            description: "总参谋部送来的名单很薄，却像一块石板压在部长会议桌上。名单上有驻摩洛哥的佛朗哥，有北方关系盘根错节的莫拉，有在塞维利亚和萨拉戈萨被反复提及的指挥官。每一个名字后面都写着可能的去处：边远军区、无实权职务、提前退休，或干脆留在原地继续被监视。共和国已经学会用调令处理政治问题，却还没有学会处理那些把调令视作侮辱的人。
+
+名单旁边的批注比名单本身更刺眼。有人用蓝墨水写下“执行力强，但不会原谅羞辱”，有人用红铅笔圈出“电台、机场、弹药库”，还有一行被划掉又重新写上的字：“若拒绝调令，谁去逮捕他？”走廊外的副官们压低声音交换消息，电话接线员则发现，几个军区的长途电话忽然都变得格外简短。每一通沉默都像一次点名。
+
+这些调令不是简单的人事安排，而是在内战爆发前重新摆放棋子。把可疑将领调离要害，能削弱叛乱的第一击，也可能把密谋者从等待推向行动；安抚他们，能换来几周表面平静，却等于承认忠诚可以讨价还价；建立一套共和国派指挥链，则可能在开战时保住马德里，却会让旧军官团更确信政府正在制造一支政治军队。内阁面对的不是哪位将军可信，而是共和国还能否命令那些已经开始想象共和国之后秩序的人。",
+            picture: "GFX_event_spanish_officers",
+            trigger: And([
+                Tag("SPR"),
+                Date(year: 1936, month: 6, day: 25),
+                HasCountryFlag("spr_mola_conspiracy_addressed"),
+                Not(HasCountryFlag("spr_officer_transfers_addressed")),
+            ]),
+            mean_time_to_happen_days: 4,
+            immediate: [
+                SetCountryFlag("spr_officer_transfers_addressed"),
+            ],
+            options: [
+                EventOption(
+                    name: "把可疑将领调离要害军区，命令今天就发出。",
+                    effects: [
+                        SetCountryFlag("spr_suspect_officers_transferred"),
+                        AddStability(-0.02),
+                        AddPoliticalPower(-10.0),
+                        AddWarSupport(0.02),
+                        AddToVariable(name: "spr_military_centralization", value: 3.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "建立共和国派联络指挥链，让忠诚军官先知道该听谁的。",
+                    effects: [
+                        SetCountryFlag("spr_loyal_officer_network_prepared"),
+                        ArmyExperience(8.0),
+                        AddPoliticalPower(-15.0),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.4,
+                ),
+                EventOption(
+                    name: "不要逼军官团摊牌，先用承诺和监视维持表面服从。",
+                    effects: [
+                        SetCountryFlag("spr_suspect_officers_appeased"),
+                        AddStability(0.01),
+                        AddPoliticalPower(10.0),
+                        AddToVariable(name: "spr_military_centralization", value: -2.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.25,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_calvo_sotelo_assassinated",
+            title: "卡尔沃·索特洛的尸体",
+            description: "清晨的马德里停尸房里，白布盖住了何塞·卡尔沃·索特洛的脸。值班员把手写登记簿往前推了半寸，又立刻收回去，像那一行名字会烫伤手指。昨夜的汽车、制服、敲门声和枪声已经在城市里变成互相矛盾的版本；唯一无法争辩的是，反对派最响亮的议会嗓音死在了共和国治安人员的阴影下。一个国家可以解释暴力，却很难解释由自己制服投下的阴影。
+
+内政部走廊比往常更安静。电话铃响起时，接线员先看一眼门口，才把线接进部长办公室。右派报纸还没开印，标题却已经在排字盘里成形；军官食堂里，有人把咖啡杯放回碟子时故意发出声响；工人区的墙角也开始出现新的传单，称这是一场会被反动派拿来点燃兵营的谋杀。共和国的敌人不需要证明政府下令杀人，只需要证明政府已经不能阻止自己的人杀人。
+
+政府必须在葬礼、逮捕、审查和街头之间抢时间。公开追查涉案人员能保住法治外壳，却会暴露国家机器已经裂开；压低案情能拖过几天，却会把每一次沉默都送给阴谋者；如果把重心转向防范军队，共和国等于承认死亡通知书已经变成政变倒计时。索特洛死后，事实本身已经不够用了，接下来会杀人的，是每一方对事实的使用方式。",
+            picture: "GFX_event_spanish_assassination",
+            trigger: And([
+                Tag("SPR"),
+                Date(year: 1936, month: 7, day: 13),
+                HasCountryFlag("spr_officer_transfers_addressed"),
+                Not(HasCountryFlag("spr_calvo_sotelo_assassinated")),
+            ]),
+            mean_time_to_happen_days: 1,
+            immediate: [
+                SetCountryFlag("spr_calvo_sotelo_assassinated"),
+            ],
+            options: [
+                EventOption(
+                    name: "公开逮捕涉案人员，哪怕案卷会把政府也拖进泥里。",
+                    effects: [
+                        SetCountryFlag("spr_calvo_case_public_inquiry"),
+                        AddStability(-0.02),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "压低案情，把警力先调去兵营和广播电台。",
+                    effects: [
+                        SetCountryFlag("spr_calvo_case_suppressed"),
+                        AddStability(-0.03),
+                        AddWarSupport(0.02),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: 2.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.4,
+                ),
+                EventOption(
+                    name: "允许盛大葬礼，但让便衣警察记下每一个军装来客。",
+                    effects: [
+                        SetCountryFlag("spr_calvo_funeral_watched"),
+                        AddPoliticalPower(10.0),
+                        AddStability(-0.01),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.25,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_last_cabinet_meeting",
+            title: "最后内阁会议",
+            description: "7月的热气压在马德里屋顶上，部长会议室里的窗帘却被拉得很紧。桌上没有完整的议程，只有地图、电话记录、几份被汗水打皱的军区报告，以及一张被反复传阅的纸：哪些工会仓库里有卡车，哪些军官可能拒绝命令，哪些省长还敢在午夜接电话。共和国的日常行政已经退场，留下的是一张国家能否在明天早晨继续存在的盘点表。
+
+会议没有谁真正坐稳。有人站着听完汇报，有人把雪茄夹在指间直到灰烬断落，有人盯着电话机，仿佛下一声铃响就是塞维利亚或摩洛哥的第一枪。阿萨尼亚和部长们明白，共和国已经没有“正常行政”的选项；剩下的只是把国家权威押在军队命令链上，或把生存押在工会和街头的枪上。前者可能没有足够士兵，后者可能不再是同一个国家。
+
+最后的决定会比任何宣言都更长久。若打开武器库，内战第一天会有更多人为共和国而战，但中央命令也会被分到每个工人会所、每道街垒和每个临时委员会；若拒绝武装工会，政府能保住法理，却可能在兵营叛变时发现自己无人可用。与此同时，可疑军官名单还在桌角，等待最后一次签字。签字可以清洗军队，也可以把中立者逼成敌人；不签字则会让敌人保留他们最熟悉的工具。共和国没有正确答案，只有能够活到明天的答案。",
+            picture: "GFX_event_spanish_cabinet",
+            trigger: And([
+                Tag("SPR"),
+                Date(year: 1936, month: 7, day: 16),
+                HasCountryFlag("spr_calvo_sotelo_assassinated"),
+                Not(HasCountryFlag("spr_last_cabinet_meeting_held")),
+            ]),
+            mean_time_to_happen_days: 1,
+            immediate: [
+                SetCountryFlag("spr_last_cabinet_meeting_held"),
+            ],
+            options: [
+                EventOption(
+                    name: "打开武器库，同时签署可疑军官清洗令。",
+                    effects: [
+                        SetCountryFlag("spr_armed_unions"),
+                        SetCountryFlag("spr_suspect_officers_purged"),
+                        AddManpower(35000),
+                        AddStability(-0.04),
+                        AddWarSupport(0.04),
+                        ArmyExperience(5.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 4.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "武装工会，但暂不清洗军官，先让共和国活过明天。",
+                    effects: [
+                        SetCountryFlag("spr_armed_unions"),
+                        SetCountryFlag("spr_officer_purge_delayed"),
+                        AddManpower(45000),
+                        AddStability(-0.03),
+                        AddWarSupport(0.05),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 5.0),
+                        AddToVariable(name: "spr_military_centralization", value: -2.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.4,
+                ),
+                EventOption(
+                    name: "拒绝打开武器库，依靠忠诚军官和警卫队守住共和国。",
+                    effects: [
+                        SetCountryFlag("spr_refused_to_arm_unions"),
+                        SetCountryFlag("spr_legal_chain_of_command_preserved"),
+                        AddStability(-0.01),
+                        AddPoliticalPower(15.0),
+                        AddWarSupport(-0.02),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        AddToVariable(name: "spr_military_centralization", value: 3.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.25,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_arm_the_workers",
+            title: "武器库门前的队列",
+            description: "内战的第一夜没有真正结束。马德里几座武器库门口排着长队，铁路工人、印刷工、面包师、大学生和穿旧军装的退役兵挤在同一盏灯下，听仓库军士按名单念出步枪编号。有人把枪背带套反了，有人当场拆开枪机学习保养，还有人只是握着一支没有刺刀的步枪，像握住共和国最后一根栏杆。
+
+问题不在枪本身，而在枪离开库房后听谁的命令。工会会所已经开始给民兵队取名，省政府则把电话打到马德里，询问这些队伍是否会服从军区调度。忠诚军官可以把民兵编进临时纵队，也可以承认委员会指挥权换取速度；若政府此前拒绝提前武装工会，现在每一箱弹药都要在合法手续和前线崩塌之间抢时间。
+
+共和国必须在短期兵力和长期秩序之间签下一张没有回头路的收据。把枪交给街头能立刻填补防线，却会让中央政府在每一道路障前重新谈判；把民兵压进军队表格能保住命令链，却可能让最先站出来的人觉得自己被马德里背叛。",
+            picture: "GFX_event_spanish_militia",
+            trigger: And([
+                Tag("SPR"),
+                HasCountryFlag("spanish_civil_war_started"),
+                HasCountryFlag("spr_republic_pressure_axes_initialized"),
+                Not(HasCountryFlag("spr_arm_the_workers_addressed")),
+            ]),
+            mean_time_to_happen_days: 1,
+            immediate: [
+                SetCountryFlag("spr_arm_the_workers_addressed"),
+            ],
+            options: [
+                EventOption(
+                    name: "承认民兵委员会指挥权，让他们立刻去堵住叛军道路。",
+                    trigger: HasCountryFlag("spr_armed_unions"),
+                    effects: [
+                        SetCountryFlag("spr_militia_autonomy"),
+                        SetCountryFlag("spr_militia_committees_recognized"),
+                        AddManpower(30000),
+                        AddWarSupport(0.03),
+                        AddStability(-0.03),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 220000.0, duration_days: 45),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 3.0),
+                        AddToVariable(name: "spr_military_centralization", value: -3.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "发枪，但每一队都必须挂在共和国军官名册下面。",
+                    effects: [
+                        SetCountryFlag("spr_militia_contained"),
+                        SetCountryFlag("spr_militia_registered_by_state"),
+                        AddManpower(18000),
+                        AddWarSupport(0.02),
+                        AddStability(-0.01),
+                        ArmyExperience(4.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 150000.0, duration_days: 35),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.4,
+                ),
+                EventOption(
+                    name: "先把枪留给警卫队和忠诚军官，街头只拿到少量弹药。",
+                    trigger: HasCountryFlag("spr_refused_to_arm_unions"),
+                    effects: [
+                        SetCountryFlag("spr_militia_contained"),
+                        SetCountryFlag("spr_workers_arms_restricted"),
+                        AddManpower(8000),
+                        AddWarSupport(-0.01),
+                        AddStability(-0.02),
+                        ArmyExperience(6.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 90000.0, duration_days: 30),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 3.0),
+                        AddToVariable(name: "spr_military_centralization", value: 3.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.15,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_gold_reserves",
+            title: "黄金装箱",
+            description: "西班牙银行的地下库房里，木箱被一只只钉上封条。账簿上的数字仍然属于共和国，但每一声锤子落下，都像是在把一种未来从马德里敲走。财政官员在清单边缘写下重量、成色、保险路线和护卫人数，写字时却不敢看同事的脸；他们都知道，这些金条不是财富，而是共和国最后还能被外国认真对待的语言。
+
+总账上的数字接近七百吨——按当时价格属于全球前四的中央银行储备。但黄金不能整块运走：一部分必须留在西方，用来支付法国和比利时的转账、海关贿赂、瑞士的设备订单；另一部分若要换苏联的飞机、坦克和顾问，就只能压在莫斯科的保险柜里。这是一道分账题，不是忠诚题。内格林在桌上摊开两张清单：一张写着马赛—巴黎，一张写着卡塔赫纳—奥德萨。
+
+把全部黄金运去莫斯科可以换来最完整的装备链，也会把共和国的战争财政、外交话语和内部清洗压力一起装进同一艘船。把全部黄金留在巴黎能保住西方银行通道，却让真正的武器订单缩水。历史上拉尔戈·卡瓦列罗政府选了第三种：把大约四分之三送往莫斯科，剩下的存进法国——既要枪，也要不失去西方账户。每一种分账方式都会被战后写进债务清单。",
+            picture: "GFX_event_spanish_gold",
+            trigger: And([
+                Tag("SPR"),
+                HasCountryFlag("spr_arm_the_workers_addressed"),
+                Not(HasCountryFlag("spr_gold_reserves_addressed")),
+            ]),
+            mean_time_to_happen_days: 3,
+            immediate: [SetCountryFlag("spr_gold_reserves_addressed")],
+            options: [
+                EventOption(
+                    name: "四分之三送莫斯科，四分之一存巴黎（历史路线）。",
+                    effects: [
+                        SetCountryFlag("spr_gold_to_moscow"),
+                        SetCountryFlag("spr_paris_gold_deposit"),
+                        SetCountryFlag("sov_gold_received"),
+                        AddOpinion(target: "SOV", amount: 20),
+                        AddOpinion(target: "FRA", amount: 5),
+                        AddTradeAgreement(partner: "SOV", good_id: "small_arms", daily_quantity: 14.0),
+                        AddTradeAgreement(partner: "SOV", good_id: "ammunition", daily_quantity: 18.0),
+                        AddTradeAgreement(partner: "FRA", good_id: "machine_tools", daily_quantity: 2.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 260000.0, duration_days: 65),
+                        AddToVariable(name: "spr_soviet_influence", value: 3.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: 1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.55,
+                ),
+                EventOption(
+                    name: "全部送莫斯科，把宝全压在苏联援助上。",
+                    effects: [
+                        SetCountryFlag("spr_gold_to_moscow"),
+                        SetCountryFlag("spr_gold_entirely_to_moscow"),
+                        SetCountryFlag("sov_gold_received"),
+                        AddOpinion(target: "SOV", amount: 30),
+                        AddOpinion(target: "FRA", amount: -10),
+                        AddTradeAgreement(partner: "SOV", good_id: "small_arms", daily_quantity: 22.0),
+                        AddTradeAgreement(partner: "SOV", good_id: "ammunition", daily_quantity: 26.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 360000.0, duration_days: 75),
+                        AddToVariable(name: "spr_soviet_influence", value: 6.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: 2.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.18,
+                ),
+                EventOption(
+                    name: "全部托管巴黎，保住西方账户和不干涉妥协空间。",
+                    effects: [
+                        SetCountryFlag("spr_paris_gold_deposit"),
+                        SetCountryFlag("spr_gold_entirely_to_paris"),
+                        AddPoliticalPower(15.0),
+                        AddOpinion(target: "FRA", amount: 15),
+                        AddOpinion(target: "SOV", amount: -10),
+                        AddTradeAgreement(partner: "FRA", good_id: "machine_tools", daily_quantity: 5.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 160000.0, duration_days: 45),
+                        AddToVariable(name: "spr_soviet_influence", value: -2.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: -1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.12,
+                ),
+                EventOption(
+                    name: "暂缓转移，先用黄金稳定工资、粮食和港口采购。",
+                    effects: [
+                        SetCountryFlag("spr_gold_held_for_domestic_supply"),
+                        AddStability(0.01),
+                        AddWarSupport(-0.01),
+                        AddTradeAgreement(partner: "FRA", good_id: "grain", daily_quantity: 20.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 90000.0, duration_days: 40),
+                        AddToVariable(name: "spr_soviet_influence", value: -1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.15,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_soviet_advisors_arrive",
+            title: "从敖德萨来的顾问",
+            description: "第一批苏联顾问抵达时没有军乐。翻译、密码员、飞行教官和穿便装的政治人员从码头的阴影里下船，随身带着木箱、清单和一套共和国官员读不懂的工作习惯。他们先问仓库编号，再问铁路时刻，最后才问前线在哪里；这种顺序让军需官松了口气，也让内政部的人感到不安。
+
+他们能让炮兵表格变得整齐，让机场调度不再像祈祷，也能在会议室里把 POUM 和 CNT 的名字写进另一份名单。顾问们不需要公开命令共和国做什么；他们只需要说明哪条补给线更可靠，哪位军官更懂现代战争，哪家报纸正在破坏反法西斯统一。援助不是免费的，甚至不只用黄金结算。
+
+共和国可以让他们进入核心机关，也可以把他们限制在技术岗位，或者在没有黄金抵押的情况下只接受有限任务。第一种选择会让枪和弹药来得更快，也会让莫斯科的政治语法进入国家机器；后两种选择能保住一点距离，却可能让共和国在最需要援助的时候显得不可信。",
+            picture: "GFX_event_soviet_advisors",
+            trigger: And([
+                Tag("SPR"),
+                HasCountryFlag("spr_gold_reserves_addressed"),
+                Not(HasCountryFlag("spr_soviet_advisors_arrived")),
+            ]),
+            mean_time_to_happen_days: 4,
+            immediate: [SetCountryFlag("spr_soviet_advisors_arrived")],
+            options: [
+                EventOption(
+                    name: "让顾问进入参谋部和军需机关。",
+                    trigger: HasCountryFlag("spr_gold_to_moscow"),
+                    effects: [
+                        SetCountryFlag("spr_soviet_advisors_empowered"),
+                        ArmyExperience(10.0),
+                        AddGovernmentOrder(equipment_category: "artillery", daily_budget_rm: 260000.0, duration_days: 60),
+                        AddToVariable(name: "spr_soviet_influence", value: 4.0),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.5,
+                ),
+                EventOption(
+                    name: "只接受技术顾问，政治名单留在政府抽屉里。",
+                    effects: [
+                        SetCountryFlag("spr_soviet_advisors_limited"),
+                        ArmyExperience(6.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 140000.0, duration_days: 50),
+                        AddToVariable(name: "spr_soviet_influence", value: 2.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "把他们放在训练场，不让莫斯科替共和国写政治账本。",
+                    effects: [
+                        SetCountryFlag("spr_soviet_advisors_kept_at_distance"),
+                        ArmyExperience(3.0),
+                        AddStability(0.01),
+                        AddToVariable(name: "spr_soviet_influence", value: 1.0),
+                        AddToVariable(name: "spr_military_centralization", value: -1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.15,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_people_army_reform",
+            title: "把纵队写进军队名册",
+            description: "临时纵队的旗帜还挂在营房墙上，军需官却已经把它们改写成旅、营、连和补给表。民兵指挥员带着沾泥的靴子走进办公室，发现自己的队伍被分配了编号、军官、弹药限额和迟到处罚。有些人把这看成共和国终于学会打仗；另一些人只看见一台旧国家机器正把七月街垒上的承诺装订成军队文件。
+
+参谋部的理由冷酷而正确。没有统一番号，弹药会送错山口；没有固定军官，火炮不会等委员会表决；没有军纪，前线每一次撤退都会被写成英勇转进或政治背叛。可民兵也有自己的理由。最早站出来的人不是为了把枪交还给制服而流血，CNT 和 UGT 的队伍不会轻易接受一个昨天还可能镇压他们的官僚体系。
+
+人民军这个名字本身就是妥协，也是谎言。它承诺既属于人民又像军队一样服从。共和国要决定，究竟用多少强制把热情变成纪律，又愿意为这份纪律支付多少革命怨恨。",
+            picture: "GFX_event_spanish_army_reform",
+            trigger: And([
+                Tag("SPR"),
+                HasCountryFlag("spr_soviet_advisors_arrived"),
+                Not(HasCountryFlag("spr_people_army_reform_addressed")),
+            ]),
+            mean_time_to_happen_days: 5,
+            immediate: [SetCountryFlag("spr_people_army_reform_addressed")],
+            options: [
+                EventOption(
+                    name: "建立人民军，民兵必须接受统一番号和补给纪律。",
+                    effects: [
+                        SetCountryFlag("spr_people_army_reformed"),
+                        ArmyExperience(12.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 180000.0, duration_days: 60),
+                        AddToVariable(name: "spr_military_centralization", value: 4.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.5,
+                ),
+                EventOption(
+                    name: "先整编补给和军官联络，保留一部分民兵自治。",
+                    effects: [
+                        SetCountryFlag("spr_partial_people_army_reform"),
+                        SetCountryFlag("spr_militia_autonomy_preserved"),
+                        ArmyExperience(7.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 120000.0, duration_days: 50),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "前线不能等表格，暂时承认各纵队原有指挥。",
+                    effects: [
+                        SetCountryFlag("spr_militia_autonomy_preserved"),
+                        AddManpower(12000),
+                        AddWarSupport(0.02),
+                        AddStability(-0.02),
+                        AddToVariable(name: "spr_military_centralization", value: -2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.15,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_militias_resist_discipline",
+            title: "民兵拒绝报到",
+            description: "整编命令贴到墙上后的第三天，几支纵队没有按时到达指定营地。联络员在巴塞罗那、瓦伦西亚和阿拉贡前线之间来回奔走，带回的不是叛变消息，而是一种更难处理的沉默：队伍还在作战，卡车还在运弹药，哨兵还在夜里冻得发抖，但他们拒绝把自己的委员会交给陌生军官签字。
+
+军需部说这等同于破坏命令链。工会代表说，真正破坏命令链的是那些躲在办公室里重新发明等级制的人。苏联顾问建议扣住补给，CNT 报纸则把这句话印成标题，配上一张从前线寄回的照片：三个穿便服的民兵站在破墙后面，手里拿着同一挺坏掉的机枪。
+
+共和国必须决定如何惩罚仍在替共和国作战的人。强制整编会让命令变得清楚，也会把巴塞罗那的怨恨推向临界点；谈判能保住统一阵线，却会让每一个军令都变成会议议程；退让则能暂时避开内斗，但国家权威会在每一道路障前继续漏血。",
+            picture: "GFX_event_spanish_militia_discipline",
+            trigger: And([
+                Tag("SPR"),
+                HasCountryFlag("spr_people_army_reform_addressed"),
+                Not(HasCountryFlag("spr_militias_resist_discipline_addressed")),
+            ]),
+            mean_time_to_happen_days: 4,
+            immediate: [SetCountryFlag("spr_militias_resist_discipline_addressed")],
+            options: [
+                EventOption(
+                    name: "扣住补给，番号和军纪不能讨价还价。",
+                    effects: [
+                        SetCountryFlag("spr_militias_forced_into_discipline"),
+                        AddStability(-0.02),
+                        AddWarSupport(-0.01),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 3.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "派工会出身的联络军官去谈，把整编做成协议。",
+                    effects: [
+                        SetCountryFlag("spr_militias_integrated_by_negotiation"),
+                        ArmyExperience(4.0),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "承认前线自治，先别在敌人面前拆自己的路障。",
+                    effects: [
+                        SetCountryFlag("spr_militia_autonomy_preserved"),
+                        SetCountryFlag("spr_militias_refused_discipline"),
+                        AddWarSupport(0.01),
+                        AddStability(-0.01),
+                        AddToVariable(name: "spr_military_centralization", value: -2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.2,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_largo_caballero_government",
+            title: "拉尔戈·卡瓦列罗接过钥匙",
+            description: "拉尔戈·卡瓦列罗走进首相办公室时，桌上已经堆着三种共和国：盖着官方印章的共和国、工会会所里用粉笔写在黑板上的共和国，以及苏联顾问用红铅笔标注补给线的共和国。他被称作工人领袖，也必须像国家首脑一样签署粮食、军需、逮捕和外交文件。称号可以来自街头，纸张却只能由国家机器执行。
+
+他的支持者希望他证明，工人运动不只是共和国的民兵仓库，而能成为共和国的骨架。他的敌人等待他证明相反的事情：社会主义者一旦坐进办公室，就会让国家滑向革命委员会。共和派律师担心合法性被口号淹没，CNT 代表担心合法性只是新的绳索，共产党人则担心所有不经纪律过滤的热情都会浪费掉莫斯科来之不易的援助。
+
+组阁不是把派系名字放进同一张名单。它是在决定谁能签署逮捕令，谁能分配面包，谁能解释撤退，谁能在战后声称自己代表共和国活了下来。拉尔戈需要一间能运转的内阁，但每增加一把椅子，政府就多一个未来的否决者。",
+            picture: "GFX_event_spanish_government",
+            trigger: And([
+                Tag("SPR"),
+                HasCountryFlag("spr_militias_resist_discipline_addressed"),
+                Not(HasCountryFlag("spr_largo_caballero_government_formed")),
+            ]),
+            mean_time_to_happen_days: 4,
+            immediate: [SetCountryFlag("spr_largo_caballero_government_formed")],
+            options: [
+                EventOption(
+                    name: "把工会、共和派和共产党都拉进同一张内阁桌。",
+                    effects: [
+                        SetCountryFlag("spr_broad_wartime_cabinet"),
+                        SetCountryFlag("spr_democratic_legitimacy_preserved"),
+                        AddPoliticalPower(20.0),
+                        AddStability(0.01),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "让工人组织成为政府的骨架，内阁必须跟上街头。",
+                    effects: [
+                        SetCountryFlag("spr_largo_worker_cabinet"),
+                        SetCountryFlag("spr_cnt_expectations_raised"),
+                        AddWarSupport(0.02),
+                        AddStability(-0.02),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 3.0),
+                        AddToVariable(name: "spr_military_centralization", value: -1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.3,
+                ),
+                EventOption(
+                    name: "把军需和安全交给能办事的人，政治争论等胜利后再说。",
+                    effects: [
+                        SetCountryFlag("spr_security_and_supply_cabinet"),
+                        SetCountryFlag("spr_government_authority_visible"),
+                        AddPoliticalPower(10.0),
+                        AddStability(-0.01),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.25,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_prieto_warns_the_cabinet",
+            title: "普列托在地图前停下",
+            description: "普列托没有在会议上提高声音。他只是把几份前线报告摊开，让部长们看见弹药数字、铁路中断、港口卸货延误和顾问团批注之间的缝隙。共和国还在战斗，但每一条缝隙都可能被莫斯科、CNT、军官团或外国记者写成完全不同的故事。
+
+他真正担心的不是某一份报告，而是共和国正在失去解释自身的能力。若补给来自苏联，失败就会被说成未能服从正确路线；若民兵拒绝整编，失败就会被说成革命被背叛；若议会继续开会，失败又会被说成资产阶级软弱误国。每一种叙述都能找到事实，每一种事实都能撬走一块政府权威。
+
+普列托要求内阁承认，战争不只在前线进行，也在账簿、报纸、港口和监狱名单中进行。共和国可以公开重申议会合法性，冒着效率下降的风险保住战后名义；也可以接受苏联条件，让补给线继续流动；或者向 CNT 让出地方空间，换取他们继续留在统一阵线里。三条路都能推迟失败，也都在重新定义胜利。",
+            picture: "GFX_event_spanish_cabinet",
+            trigger: And([
+                Tag("SPR"),
+                HasCountryFlag("spr_largo_caballero_government_formed"),
+                Not(HasCountryFlag("spr_prieto_warned_the_cabinet")),
+            ]),
+            mean_time_to_happen_days: 5,
+            immediate: [SetCountryFlag("spr_prieto_warned_the_cabinet")],
+            options: [
+                EventOption(
+                    name: "公开保卫议会合法性，别让战争把共和国变成影子政府。",
+                    effects: [
+                        SetCountryFlag("spr_democratic_legitimacy_emphasized"),
+                        SetCountryFlag("spr_republican_legality_memory"),
+                        AddStability(0.02),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spr_soviet_influence", value: -1.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "接受苏联条件，先让补给线继续流动。",
+                    effects: [
+                        SetCountryFlag("spr_soviet_conditions_accepted"),
+                        SetCountryFlag("spr_soviet_advisors_empowered"),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 220000.0, duration_days: 50),
+                        AddWarSupport(0.02),
+                        AddStability(-0.01),
+                        AddToVariable(name: "spr_soviet_influence", value: 3.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.4,
+                ),
+                EventOption(
+                    name: "向 CNT 让出地方委员会席位，换取他们继续留在共和国阵线里。",
+                    effects: [
+                        SetCountryFlag("spr_conceded_to_cnt"),
+                        SetCountryFlag("cnt_collectivization_recognized"),
+                        AddStability(-0.02),
+                        AddWarSupport(0.02),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        AddToVariable(name: "spr_military_centralization", value: -1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 0.25,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_poum_accused",
+            title: "POUM 的名字被写进另一份名单",
+            description: "内政部走廊尽头的房间里，打字机响得比炮声更规整。报告把 POUM 写成一个问题：它反对斯大林，质疑苏联顾问，和 CNT 在许多街区共享同一批印刷机、律师和藏枪地点。报告没有直接说他们是叛徒，只是在每一段结尾都留下同一个暗示：如果共和国要靠莫斯科的枪活下去，就不能让莫斯科的敌人在后方公开组织。
+
+安德烈斯·宁的名字在会议桌上被念出来时，几个人没有抬头。共产党代表说统一阵线不能容忍破坏纪律的派别；共和派律师提醒众人，合法性不是胜利后才需要的装饰；CNT 代表则听出了更危险的东西：今天可以用战时安全处理 POUM，明天同一支笔也可以写下 CNT。
+
+保护 POUM 会让苏联顾问怀疑共和国是否值得继续武装。镇压 POUM 能换来更顺畅的补给表，却会把巴塞罗那推向一种熟悉的结论：共和国的监狱终于开始为左翼自己准备牢房。",
+            picture: "GFX_event_spanish_cabinet",
+            trigger: And([
+                Tag("SPR"),
+                HasCountryFlag("spr_soviet_advisors_arrived"),
+                Or([
+                    HasCountryFlag("spr_soviet_advisors_empowered"),
+                    HasCountryFlag("spr_soviet_conditions_accepted"),
+                    VariableAtLeast(name: "spr_soviet_influence", value: 5.0),
+                ]),
+                Not(HasCountryFlag("spr_poum_accusation_addressed")),
+            ]),
+            mean_time_to_happen_days: 5,
+            immediate: [SetCountryFlag("spr_poum_accusation_addressed")],
+            options: [
+                EventOption(
+                    name: "保护 POUM 的合法地位，不能让顾问替共和国写逮捕名单。",
+                    effects: [
+                        SetCountryFlag("poum_protected"),
+                        SetCountryFlag("spr_republican_legality_memory"),
+                        AddOpinion(target: "SOV", amount: -15),
+                        AddStability(0.01),
+                        AddWarSupport(-0.01),
+                        AddToVariable(name: "spr_soviet_influence", value: -2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: -1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("spr.scw_poum_trial"),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 0.25,
+                ),
+                EventOption(
+                    name: "宣布 POUM 非法，先保证苏联补给线和后方纪律。",
+                    effects: [
+                        SetCountryFlag("poum_outlawed"),
+                        SetCountryFlag("spr_cracked_down_on_poum"),
+                        AddOpinion(target: "SOV", amount: 15),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 120000.0, duration_days: 35),
+                        AddStability(-0.02),
+                        AddToVariable(name: "spr_soviet_influence", value: 2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("spr.scw_poum_trial"),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 0.55,
+                ),
+                EventOption(
+                    name: "拖进公开调查，把问题留在法院而不是地下室。",
+                    effects: [
+                        SetCountryFlag("spr_poum_public_inquiry"),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spr_soviet_influence", value: 1.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("spr.scw_poum_trial"),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 0.2,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_poum_trial",
+            title: "审判席旁的空椅子",
+            description: "法院门口站着三种人：等着把 POUM 定成法西斯同谋的记者，等着证明共和国仍有法律的律师，以及等着确认下一个被点名者会不会轮到自己的 CNT 代表。审判席旁有一把空椅子，不论坐上去的是宁、地方编辑、民兵联络员还是某个被临时抓来的书记员，它都已经不再只属于一个人。
+
+苏联顾问没有坐在法庭前排。他们不需要。军需清单、进口许可和顾问团备忘录已经坐在那里。共和国可以把审判做成公开程序，让每一份证据都经得起报纸追问；也可以让案件迅速结束，换来更干净的后方和更顺畅的弹药；还可以试图把 POUM 并入反法西斯纪律，给他们留下活路，同时让所有人都不满意。
+
+这场审判真正决定的不是 POUM 是否纯洁，而是共和国会不会为了活下去，把自己最初用来反对叛军的法律语言一层层拆掉。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "公开审理，让共和国的敌人不能说我们只剩秘密警察。",
+                    effects: [
+                        SetCountryFlag("spr_poum_trial_public"),
+                        SetCountryFlag("poum_protected"),
+                        AddStability(0.01),
+                        AddOpinion(target: "SOV", amount: -10),
+                        AddToVariable(name: "spr_soviet_influence", value: -1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 0.25,
+                ),
+                EventOption(
+                    name: "快速定罪，战时后方不能为派别争论继续流血。",
+                    effects: [
+                        SetCountryFlag("spr_poum_trial_political_sentence"),
+                        SetCountryFlag("poum_outlawed"),
+                        AddStability(-0.01),
+                        AddWarSupport(0.01),
+                        AddToVariable(name: "spr_soviet_influence", value: 1.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 0.55,
+                ),
+                EventOption(
+                    name: "要求 POUM 解散武装组织，给普通党员留一条回到前线的路。",
+                    effects: [
+                        SetCountryFlag("spr_poum_disarmed_but_not_destroyed"),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_cnt_uprising_check"),
+                    ],
+                    ai_chance: 0.2,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_barcelona_telephone_exchange",
+            title: "电话局楼梯上的枪声",
+            description: "巴塞罗那电话局的楼梯很窄，窄到两支同属反法西斯阵线的队伍无法体面地错身而过。共和国警卫说他们只是接管通信中枢，确保前线命令不再经过工会接线员的耳朵。CNT 守卫说电话局是在七月街垒中夺下来的，谁控制线路，谁就控制巴塞罗那听见什么、沉默什么。
+
+最先开枪的人是谁已经不重要。重要的是，每个接线员都知道哪些部长在同谁通话，哪些军官要求切断哪条线路，哪些工会代表在深夜寻找失踪的同志。电话局不是一栋楼，而是共和国、加泰政府、CNT、POUM 和苏联顾问互相监听的神经。现在有人试图把神经从城市身体里拔出来。
+
+如果政府退让，巴塞罗那会继续像一个半自治的革命城市那样运转；如果政府强攻，五月的街道将重新竖起路障；如果谈判，所有人都会把这当成下一次摊牌前的喘息。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            immediate: [SetCountryFlag("spr_barcelona_telephone_exchange_crisis")],
+            options: [
+                EventOption(
+                    name: "警卫队进入电话局，国家必须控制通信。",
+                    effects: [
+                        SetCountryFlag("spr_telephone_exchange_seized"),
+                        AddStability(-0.03),
+                        AddToVariable(name: "spr_military_centralization", value: 2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 3.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("spr.scw_may_days"),
+                    ],
+                    ai_chance: 0.5,
+                ),
+                EventOption(
+                    name: "由加泰政府和工会共同守楼，先把枪口压下去。",
+                    effects: [
+                        SetCountryFlag("spr_telephone_exchange_compromise"),
+                        SetCountryFlag("cnt_uprising_prevented"),
+                        AddPoliticalPower(-15.0),
+                        AddToVariable(name: "spr_military_centralization", value: -1.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: -1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.3,
+                ),
+                EventOption(
+                    name: "后撤警卫队，承认巴塞罗那暂时不能按瓦伦西亚的命令运转。",
+                    effects: [
+                        SetCountryFlag("spr_telephone_exchange_backed_down"),
+                        SetCountryFlag("cnt_uprising_prevented"),
+                        AddStability(0.01),
+                        AddWarSupport(-0.01),
+                        AddToVariable(name: "spr_military_centralization", value: -2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.2,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_may_days",
+            title: "巴塞罗那五月事件",
+            description: "五月的巴塞罗那再次学会了怎样在几个小时内筑起路障。电话局附近的枪声沿着街角、工会会所和旅馆阳台扩散，最后变成整座城市互相确认敌友的方式。昨天还向同一条前线运送弹药的人，今天在同一条街上用沙袋隔开彼此。每个路障都挂着反法西斯口号，却没有人能说清哪一边正在保卫共和国，哪一边正在拆掉共和国。
+
+瓦伦西亚收到的电报彼此矛盾。有人说 CNT 发动叛乱，有人说政府警卫挑起流血，有人说 POUM 终于露出真面目，也有人说苏联路线正在清洗所有不肯服从的人。国民军电台不需要知道真相，它只需要把“红色西班牙互相屠杀”的消息重复到欧洲每一份右翼报纸上。
+
+共和国可以用警卫队、共产党组织和加泰政府残余权威压下街垒，也可以谈判收场，把伤口包起来留到以后溃烂。无论如何，五月事件已经发生。它不会推翻共和国，却会改变共和国怎样记住自己的左翼。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            immediate: [SetCountryFlag("barcelona_may_days_triggered")],
+            options: [
+                EventOption(
+                    name: "派警卫队清理路障，统一阵线必须服从国家。",
+                    effects: [
+                        SetCountryFlag("spr_may_days_suppressed_by_force"),
+                        SetCountryFlag("spr_suppressed_cnt"),
+                        SetCountryFlag("cnt_refused_integration"),
+                        AddStability(-0.04),
+                        AddWarSupport(-0.02),
+                        AddManpower(-3000),
+                        AddToVariable(name: "spr_military_centralization", value: 3.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("spr.scw_cnt_open_revolt"),
+                    ],
+                    ai_chance: 0.55,
+                ),
+                EventOption(
+                    name: "让工会部长出面停火，承认伤口但别让它变成第二场内战。",
+                    effects: [
+                        SetCountryFlag("spr_may_days_negotiated_ceasefire"),
+                        SetCountryFlag("cnt_uprising_prevented"),
+                        SetCountryFlag("spr_conceded_to_cnt"),
+                        AddStability(-0.02),
+                        AddPoliticalPower(-15.0),
+                        AddToVariable(name: "spr_military_centralization", value: -1.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: -1.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.3,
+                ),
+                EventOption(
+                    name: "把责任推给 POUM 和无法控制的地方委员会，保住中央政府名义。",
+                    effects: [
+                        SetCountryFlag("spr_may_days_blame_poum_and_committees"),
+                        SetCountryFlag("poum_outlawed"),
+                        AddStability(-0.03),
+                        AddOpinion(target: "SOV", amount: 10),
+                        AddToVariable(name: "spr_soviet_influence", value: 1.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("spr.scw_cnt_open_revolt"),
+                    ],
+                    ai_chance: 0.15,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_cnt_open_revolt",
+            title: "CNT 和 POUM 公开决裂",
+            description: "巴塞罗那的路障没有在清晨撤掉。电话局枪声之后，CNT 地方委员会、POUM 联络员和拒绝解散的民兵纵队宣布他们不会再服从瓦伦西亚的命令。共和国政府仍然声称这只是一次治安行动，但加泰罗尼亚的工厂、工会会所和民兵仓库已经开始按另一套命令运转。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: And([Tag("SPR"), Not(CountryExists("CNT"))]),
+            mean_time_to_happen_days: 1,
+            immediate: [
+                SetCountryFlag("cnt_open_revolt_triggered"),
+                SetCountryFlag("barcelona_may_days_triggered"),
+            ],
+            options: [
+                EventOption(
+                    name: "巴塞罗那已经变成第二条战线。",
+                    effects: [
+                        CreateCountry(tag: "CNT", color: (92, 24, 36), ruling_party: "communism"),
+                        TransferStateTo(state: 165, country: "CNT"),
+                        AddCoreTo(state: 165, country: "CNT"),
+                        SpawnDivisionsInStates(country: "CNT", states: [165], count_per_state: 4, name_prefix: "CNT-FAI Militia"),
+                        AddStability(-0.05),
+                        AddWarSupport(-0.03),
+                        TriggerEvent("cnt.scw_join_republican_war"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_receive_soviet_advisors_package",
+            title: "接收苏联顾问援助",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPR"),
+                HasGlobalFlag("sov_scw_advisors_package_ready"),
+                Not(HasCountryFlag("spr_soviet_dependency_visible")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "苏联顾问、装备和政治观察员进入共和国账本。",
+                    effects: [
+                        SetCountryFlag("spr_soviet_advisors_empowered"),
+                        SetCountryFlag("spr_soviet_dependency_visible"),
+                        SetCountryFlag("spr_poum_cnt_suspect_soviet_line"),
+                        ArmyExperience(6.0),
+                        AirExperience(4.0),
+                        AddGovernmentOrder(equipment_category: "artillery", daily_budget_rm: 180000.0, duration_days: 55),
+                        AddTradeAgreement(partner: "SOV", good_id: "ammunition", daily_quantity: 16.0),
+                        AddToVariable(name: "spr_soviet_influence", value: 3.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_receive_moscow_gold_credit",
+            title: "接收莫斯科黄金信用",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPR"),
+                HasGlobalFlag("sov_scw_moscow_gold_credit_ready"),
+                Not(HasCountryFlag("spr_gold_to_moscow")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "黄金抵押换来外汇、进口装备和更深依赖。",
+                    effects: [
+                        SetCountryFlag("spr_gold_to_moscow"),
+                        SetCountryFlag("spr_foreign_dependency_soviet_line"),
+                        AddOpinion(target: "SOV", amount: 15),
+                        AddTradeAgreement(partner: "SOV", good_id: "small_arms", daily_quantity: 18.0),
+                        AddTradeAgreement(partner: "SOV", good_id: "ammunition", daily_quantity: 20.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 260000.0, duration_days: 65),
+                        AddToVariable(name: "spr_soviet_influence", value: 3.0),
+                        AddToVariable(name: "foreign_intervention_pressure", value: 1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "foreign_intervention_pressure", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "spr.scw_receive_soviet_conditions",
+            title: "接收苏联政治条件",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPR"),
+                HasGlobalFlag("sov_scw_political_conditions_ready"),
+                Not(HasCountryFlag("spr_soviet_conditions_accepted")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "援助继续流动，条件也进入共和国后方。",
+                    effects: [
+                        SetCountryFlag("spr_soviet_conditions_accepted"),
+                        SetCountryFlag("spr_nationalist_propaganda_red_purge"),
+                        SetCountryFlag("spr_poum_cnt_suspect_soviet_line"),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 180000.0, duration_days: 45),
+                        AddToVariable(name: "spr_soviet_influence", value: 2.0),
+                        AddToVariable(name: "spr_revolutionary_pressure", value: 2.0),
+                        AddToVariable(name: "spr_military_centralization", value: 1.0),
+                        ClampVariable(name: "spr_soviet_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_revolutionary_pressure", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spr_military_centralization", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_republic_internal_pressure_tick"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+    ],
+)

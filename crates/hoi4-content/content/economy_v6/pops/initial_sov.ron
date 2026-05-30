@@ -1,0 +1,40 @@
+#![enable(implicit_some)]
+
+// SOV 1937 census ~162M; 1936 estimated ~168M | Peasant 55%, Worker 16%, Clerk 8%, Capitalist 0.1%, Aristocrat 0.05%, Soldier 4.9%
+// Collectivisation trauma still fresh. Very low capitalist / aristocrat share. Large standing army.
+(
+    total_population: 168000000,
+    groups: [
+        // ── 229 Moscow / Stalingrad industrial core ~ 35M ──
+        (state_id: 229, class: Peasant,    size: 14000000, employed_at: None, wage_rm: 1.0, satisfaction: 0.32, political_loyalty: 0.15),
+        (state_id: 229, class: Worker,     size: 8000000,  employed_at: None, wage_rm: 2.2, satisfaction: 0.28, political_loyalty: 0.10),
+        (state_id: 229, class: Clerk,      size: 3000000,  employed_at: None, wage_rm: 3.5, satisfaction: 0.38, political_loyalty: 0.18),
+        (state_id: 229, class: Capitalist, size: 15000,    employed_at: None, wage_rm: 8.0, satisfaction: 0.22, political_loyalty: -0.15),
+        (state_id: 229, class: Aristocrat, size: 8000,     employed_at: None, wage_rm: 10.0, satisfaction: 0.18, political_loyalty: -0.25),
+        (state_id: 229, class: Soldier,    size: 2800000,  employed_at: None, wage_rm: 1.8, satisfaction: 0.32, political_loyalty: 0.35),
+
+        // ── 230 Leningrad ~ 9M ──
+        (state_id: 230, class: Peasant,    size: 2500000,  employed_at: None, wage_rm: 1.2, satisfaction: 0.38, political_loyalty: 0.20),
+        (state_id: 230, class: Worker,     size: 3000000,  employed_at: None, wage_rm: 2.5, satisfaction: 0.32, political_loyalty: 0.18),
+        (state_id: 230, class: Clerk,      size: 1800000,  employed_at: None, wage_rm: 4.0, satisfaction: 0.42, political_loyalty: 0.22),
+        (state_id: 230, class: Capitalist, size: 8000,     employed_at: None, wage_rm: 10.0, satisfaction: 0.28, political_loyalty: -0.05),
+        (state_id: 230, class: Aristocrat, size: 4000,     employed_at: None, wage_rm: 12.0, satisfaction: 0.22, political_loyalty: -0.15),
+        (state_id: 230, class: Soldier,    size: 800000,   employed_at: None, wage_rm: 1.8, satisfaction: 0.38, political_loyalty: 0.38),
+
+        // ── 231 Ukraine SSR ~ 32M ──
+        (state_id: 231, class: Peasant,    size: 18000000, employed_at: None, wage_rm: 0.8, satisfaction: 0.28, political_loyalty: 0.02),
+        (state_id: 231, class: Worker,     size: 5500000,  employed_at: None, wage_rm: 2.0, satisfaction: 0.25, political_loyalty: 0.02),
+        (state_id: 231, class: Clerk,      size: 2000000,  employed_at: None, wage_rm: 3.0, satisfaction: 0.35, political_loyalty: 0.05),
+        (state_id: 231, class: Capitalist, size: 8000,     employed_at: None, wage_rm: 7.0, satisfaction: 0.20, political_loyalty: -0.20),
+        (state_id: 231, class: Aristocrat, size: 5000,     employed_at: None, wage_rm: 9.0, satisfaction: 0.15, political_loyalty: -0.30),
+        (state_id: 231, class: Soldier,    size: 2400000,  employed_at: None, wage_rm: 1.6, satisfaction: 0.28, political_loyalty: 0.25),
+
+        // ── 232 Belarus SSR ~ 6M ──
+        (state_id: 232, class: Peasant,    size: 3800000,  employed_at: None, wage_rm: 0.8, satisfaction: 0.30, political_loyalty: 0.08),
+        (state_id: 232, class: Worker,     size: 900000,   employed_at: None, wage_rm: 1.8, satisfaction: 0.28, political_loyalty: 0.05),
+        (state_id: 232, class: Clerk,      size: 450000,   employed_at: None, wage_rm: 3.0, satisfaction: 0.35, political_loyalty: 0.08),
+        (state_id: 232, class: Capitalist, size: 3000,     employed_at: None, wage_rm: 7.0, satisfaction: 0.22, political_loyalty: -0.12),
+        (state_id: 232, class: Aristocrat, size: 2000,     employed_at: None, wage_rm: 9.0, satisfaction: 0.18, political_loyalty: -0.22),
+        (state_id: 232, class: Soldier,    size: 500000,   employed_at: None, wage_rm: 1.6, satisfaction: 0.30, political_loyalty: 0.30),
+    ],
+)

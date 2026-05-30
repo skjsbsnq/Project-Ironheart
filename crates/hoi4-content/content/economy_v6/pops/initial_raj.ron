@@ -1,0 +1,15 @@
+#![enable(implicit_some)]
+
+// British Raj 1931 census ~350M (incl. Burma & princely states) | Peasant 80%, Worker 3%, Clerk 4%, Capitalist 0.1%, Aristocrat 1.1%, Soldier 2.8%
+// Overwhelmingly agrarian. Princely states = Aristocrat. British Indian Army ~200K + auxiliaries.
+(
+    total_population: 350000000,
+    groups: [
+        (state_id: 303, class: Peasant,    size: 140000000, employed_at: None, wage_rm: 0.3, satisfaction: 0.22, political_loyalty: 0.05),
+        (state_id: 303, class: Worker,     size: 5000000,   employed_at: None, wage_rm: 0.8, satisfaction: 0.20, political_loyalty: 0.02),
+        (state_id: 303, class: Clerk,      size: 6000000,   employed_at: None, wage_rm: 1.5, satisfaction: 0.30, political_loyalty: 0.08),
+        (state_id: 303, class: Capitalist, size: 150000,    employed_at: None, wage_rm: 4.0, satisfaction: 0.35, political_loyalty: 0.08),
+        (state_id: 303, class: Aristocrat, size: 2000000,   employed_at: None, wage_rm: 5.0, satisfaction: 0.32, political_loyalty: 0.22),
+        (state_id: 303, class: Soldier,    size: 3850000,   employed_at: None, wage_rm: 0.8, satisfaction: 0.28, political_loyalty: 0.35),
+    ],
+)

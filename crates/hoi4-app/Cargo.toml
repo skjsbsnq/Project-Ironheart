@@ -1,0 +1,39 @@
+[package]
+name = "hoi4-app"
+version = "0.1.0"
+edition = "2021"
+
+# Phase 0.2：游戏的实际入口。
+# 命令行解析（--game-path / --mod）→ 路径配置 → 加载 World → 启动渲染循环
+# → 每帧驱动 SystemSchedule → 渲染最新世界状态。
+
+[dependencies]
+hoi4-paths = { path = "../hoi4-paths" }
+hoi4-render = { path = "../hoi4-render" }
+hoi4-map = { path = "../hoi4-map" }
+hoi4-data = { path = "../hoi4-data" }
+hoi4-state = { path = "../hoi4-state" }
+hoi4-logic = { path = "../hoi4-logic" }
+hoi4-script = { path = "../hoi4-script" }
+hoi4-ai = { path = "../hoi4-ai" }
+hoi4-assets = { path = "../hoi4-assets" }
+hoi4-ui = { path = "../hoi4-ui" }
+hoi4-content = { path = "../hoi4-content" }
+hoi4-runtime = { path = "../hoi4-runtime" }
+hoi4-audio = { path = "../hoi4-audio" }
+clausewitz-parser = { path = "../clausewitz-parser" }
+wgpu = "24.0.1"
+winit = "0.30.9"
+pollster = "0.4.0"
+bytemuck = { version = "1.25.0", features = ["derive"] }
+glam = { version = "0.29", features = ["bytemuck"] }
+fontdue = "0.9"
+png = "0.17"
+
+[dev-dependencies]
+# Phase 3.12.4: validate terrain.wgsl with naga.
+naga = "24.0"
+
+[[bin]]
+name = "hoi4-app"
+path = "src/main.rs"

@@ -1,0 +1,128 @@
+#![enable(implicit_some)]
+
+// GER 1936 census ~67M. Expanded real HOI4 state coverage with plausible sub-totals.
+// state_id 64 = Berlin, 59 = trade port region; remaining are real HOI4 vanilla state IDs.
+(
+    total_population: 67000000,
+    groups: [
+        // ── 6 Brandenburg (Berlin periphery) ~ 6.0M ──
+        (state_id: 6,  class: Peasant,    size: 1100000, employed_at: None, wage_rm: 1.5, satisfaction: 0.55, political_loyalty: 0.20),
+        (state_id: 6,  class: Worker,     size: 2300000, employed_at: None, wage_rm: 3.0, satisfaction: 0.50, political_loyalty: 0.15),
+        (state_id: 6,  class: Clerk,      size: 1400000, employed_at: None, wage_rm: 5.5, satisfaction: 0.55, political_loyalty: 0.20),
+        (state_id: 6,  class: Capitalist, size:  200000, employed_at: None, wage_rm: 18.0, satisfaction: 0.65, political_loyalty: 0.30),
+        (state_id: 6,  class: Aristocrat, size:   40000, employed_at: None, wage_rm: 30.0, satisfaction: 0.60, political_loyalty: 0.50),
+        (state_id: 6,  class: Soldier,    size:  700000, employed_at: None, wage_rm: 2.5, satisfaction: 0.55, political_loyalty: 0.60),
+
+        // ── 64 Berlin ~ 2.8M ──
+        (state_id: 64,  class: Peasant,    size:   15000, employed_at: None, wage_rm: 2.0, satisfaction: 0.55, political_loyalty: 0.15),
+        (state_id: 64,  class: Worker,     size:  900000, employed_at: None, wage_rm: 3.5, satisfaction: 0.48, political_loyalty: 0.05),
+        (state_id: 64,  class: Clerk,      size: 1100000, employed_at: None, wage_rm: 6.5, satisfaction: 0.58, political_loyalty: 0.10),
+        (state_id: 64,  class: Capitalist, size:  110000, employed_at: None, wage_rm: 22.0, satisfaction: 0.68, political_loyalty: 0.25),
+        (state_id: 64,  class: Aristocrat, size:   15000, employed_at: None, wage_rm: 35.0, satisfaction: 0.62, political_loyalty: 0.40),
+        (state_id: 64,  class: Soldier,    size:  100000, employed_at: None, wage_rm: 2.8, satisfaction: 0.55, political_loyalty: 0.55),
+
+        // ── 8 Rhineland ~ 6.3M ──
+        (state_id: 8,  class: Peasant,    size: 1100000, employed_at: None, wage_rm: 1.5, satisfaction: 0.52, political_loyalty: 0.10),
+        (state_id: 8,  class: Worker,     size: 2700000, employed_at: None, wage_rm: 3.2, satisfaction: 0.50, political_loyalty: 0.05),
+        (state_id: 8,  class: Clerk,      size: 1400000, employed_at: None, wage_rm: 5.5, satisfaction: 0.55, political_loyalty: 0.10),
+        (state_id: 8,  class: Capitalist, size:  210000, employed_at: None, wage_rm: 18.0, satisfaction: 0.68, political_loyalty: 0.25),
+        (state_id: 8,  class: Aristocrat, size:   30000, employed_at: None, wage_rm: 28.0, satisfaction: 0.58, political_loyalty: 0.35),
+        (state_id: 8,  class: Soldier,    size:  490000, employed_at: None, wage_rm: 2.5, satisfaction: 0.52, political_loyalty: 0.50),
+
+        // ── 54 Westphalia ~ 5.9M ──
+        (state_id: 54,  class: Peasant,    size: 1000000, employed_at: None, wage_rm: 1.5, satisfaction: 0.52, political_loyalty: 0.15),
+        (state_id: 54,  class: Worker,     size: 2600000, employed_at: None, wage_rm: 3.1, satisfaction: 0.50, political_loyalty: 0.10),
+        (state_id: 54,  class: Clerk,      size: 1300000, employed_at: None, wage_rm: 5.0, satisfaction: 0.55, political_loyalty: 0.15),
+        (state_id: 54,  class: Capitalist, size:  200000, employed_at: None, wage_rm: 18.0, satisfaction: 0.62, political_loyalty: 0.25),
+        (state_id: 54,  class: Aristocrat, size:   28000, employed_at: None, wage_rm: 28.0, satisfaction: 0.55, political_loyalty: 0.35),
+        (state_id: 54,  class: Soldier,    size:  350000, employed_at: None, wage_rm: 2.5, satisfaction: 0.52, political_loyalty: 0.50),
+
+        // ── 9 Bavaria ~ 8.0M ──
+        (state_id: 9,  class: Peasant,    size: 3300000, employed_at: None, wage_rm: 1.3, satisfaction: 0.55, political_loyalty: 0.05),
+        (state_id: 9,  class: Worker,     size: 2900000, employed_at: None, wage_rm: 2.8, satisfaction: 0.48, political_loyalty: 0.05),
+        (state_id: 9,  class: Clerk,      size: 1300000, employed_at: None, wage_rm: 4.5, satisfaction: 0.55, political_loyalty: 0.05),
+        (state_id: 9,  class: Capitalist, size:  150000, employed_at: None, wage_rm: 15.0, satisfaction: 0.62, political_loyalty: 0.20),
+        (state_id: 9,  class: Aristocrat, size:   55000, employed_at: None, wage_rm: 24.0, satisfaction: 0.60, political_loyalty: 0.30),
+        (state_id: 9,  class: Soldier,    size:  780000, employed_at: None, wage_rm: 2.4, satisfaction: 0.52, political_loyalty: 0.45),
+
+        // ── 11 Saxony / Thuringia ~ 7.0M ──
+        (state_id: 11, class: Peasant,    size: 1700000, employed_at: None, wage_rm: 1.4, satisfaction: 0.50, political_loyalty: 0.05),
+        (state_id: 11, class: Worker,     size: 2900000, employed_at: None, wage_rm: 2.8, satisfaction: 0.48, political_loyalty: 0.00),
+        (state_id: 11, class: Clerk,      size: 1300000, employed_at: None, wage_rm: 4.5, satisfaction: 0.55, political_loyalty: 0.05),
+        (state_id: 11, class: Capitalist, size:  190000, employed_at: None, wage_rm: 15.0, satisfaction: 0.62, political_loyalty: 0.20),
+        (state_id: 11, class: Aristocrat, size:   30000, employed_at: None, wage_rm: 24.0, satisfaction: 0.55, political_loyalty: 0.30),
+        (state_id: 11, class: Soldier,    size:  540000, employed_at: None, wage_rm: 2.4, satisfaction: 0.52, political_loyalty: 0.50),
+
+        // ── 51 Silesia ~ 4.5M ──
+        (state_id: 51, class: Peasant,    size: 1200000, employed_at: None, wage_rm: 1.3, satisfaction: 0.48, political_loyalty: 0.08),
+        (state_id: 51, class: Worker,     size: 1900000, employed_at: None, wage_rm: 2.8, satisfaction: 0.46, political_loyalty: 0.00),
+        (state_id: 51, class: Clerk,      size:  700000, employed_at: None, wage_rm: 4.5, satisfaction: 0.52, political_loyalty: 0.08),
+        (state_id: 51, class: Capitalist, size:  100000, employed_at: None, wage_rm: 15.0, satisfaction: 0.60, political_loyalty: 0.18),
+        (state_id: 51, class: Aristocrat, size:   25000, employed_at: None, wage_rm: 24.0, satisfaction: 0.55, political_loyalty: 0.30),
+        (state_id: 51, class: Soldier,    size:  340000, employed_at: None, wage_rm: 2.4, satisfaction: 0.50, political_loyalty: 0.48),
+
+        // ── 7 East Prussia ~ 4.2M ──
+        (state_id: 7,  class: Peasant,    size: 1700000, employed_at: None, wage_rm: 1.2, satisfaction: 0.48, political_loyalty: 0.30),
+        (state_id: 7,  class: Worker,     size: 1300000, employed_at: None, wage_rm: 2.5, satisfaction: 0.44, political_loyalty: 0.15),
+        (state_id: 7,  class: Clerk,      size:  500000, employed_at: None, wage_rm: 4.0, satisfaction: 0.52, political_loyalty: 0.15),
+        (state_id: 7,  class: Capitalist, size:   65000, employed_at: None, wage_rm: 13.0, satisfaction: 0.58, political_loyalty: 0.35),
+        (state_id: 7,  class: Aristocrat, size:   58000, employed_at: None, wage_rm: 22.0, satisfaction: 0.55, political_loyalty: 0.50),
+        (state_id: 7,  class: Soldier,    size:  400000, employed_at: None, wage_rm: 2.2, satisfaction: 0.50, political_loyalty: 0.60),
+
+        // ── 10 Hamburg / Lower Saxony ~ 7.0M ──
+        (state_id: 10, class: Peasant,    size: 1600000, employed_at: None, wage_rm: 1.5, satisfaction: 0.52, political_loyalty: 0.15),
+        (state_id: 10, class: Worker,     size: 2600000, employed_at: None, wage_rm: 3.0, satisfaction: 0.50, political_loyalty: 0.10),
+        (state_id: 10, class: Clerk,      size: 1600000, employed_at: None, wage_rm: 5.5, satisfaction: 0.58, political_loyalty: 0.15),
+        (state_id: 10, class: Capitalist, size:  240000, employed_at: None, wage_rm: 20.0, satisfaction: 0.68, political_loyalty: 0.30),
+        (state_id: 10, class: Aristocrat, size:   35000, employed_at: None, wage_rm: 32.0, satisfaction: 0.60, political_loyalty: 0.40),
+        (state_id: 10, class: Soldier,    size:  520000, employed_at: None, wage_rm: 2.5, satisfaction: 0.55, political_loyalty: 0.55),
+
+        // ── 15 Pomerania ~ 2.8M ──
+        (state_id: 15, class: Peasant,    size: 1000000, employed_at: None, wage_rm: 1.2, satisfaction: 0.48, political_loyalty: 0.25),
+        (state_id: 15, class: Worker,     size:  900000, employed_at: None, wage_rm: 2.5, satisfaction: 0.44, political_loyalty: 0.10),
+        (state_id: 15, class: Clerk,      size:  320000, employed_at: None, wage_rm: 4.0, satisfaction: 0.52, political_loyalty: 0.15),
+        (state_id: 15, class: Capitalist, size:   40000, employed_at: None, wage_rm: 13.0, satisfaction: 0.58, political_loyalty: 0.30),
+        (state_id: 15, class: Aristocrat, size:   50000, employed_at: None, wage_rm: 22.0, satisfaction: 0.55, political_loyalty: 0.50),
+        (state_id: 15, class: Soldier,    size:  230000, employed_at: None, wage_rm: 2.2, satisfaction: 0.50, political_loyalty: 0.55),
+
+        // ── 55 Württemberg / Baden ~ 5.5M ──
+        (state_id: 55, class: Peasant,    size: 1300000, employed_at: None, wage_rm: 1.4, satisfaction: 0.55, political_loyalty: 0.05),
+        (state_id: 55, class: Worker,     size: 2000000, employed_at: None, wage_rm: 3.0, satisfaction: 0.50, political_loyalty: 0.05),
+        (state_id: 55, class: Clerk,      size:  900000, employed_at: None, wage_rm: 5.0, satisfaction: 0.58, political_loyalty: 0.08),
+        (state_id: 55, class: Capitalist, size:  140000, employed_at: None, wage_rm: 18.0, satisfaction: 0.65, political_loyalty: 0.22),
+        (state_id: 55, class: Aristocrat, size:   35000, employed_at: None, wage_rm: 28.0, satisfaction: 0.60, political_loyalty: 0.28),
+        (state_id: 55, class: Soldier,    size:  330000, employed_at: None, wage_rm: 2.5, satisfaction: 0.55, political_loyalty: 0.48),
+
+        // ── 13 Schleswig-Holstein / Mecklenburg ~ 2.9M ──
+        (state_id: 13, class: Peasant,    size:  800000, employed_at: None, wage_rm: 1.3, satisfaction: 0.50, political_loyalty: 0.20),
+        (state_id: 13, class: Worker,     size:  950000, employed_at: None, wage_rm: 2.8, satisfaction: 0.48, political_loyalty: 0.12),
+        (state_id: 13, class: Clerk,      size:  400000, employed_at: None, wage_rm: 4.5, satisfaction: 0.55, political_loyalty: 0.15),
+        (state_id: 13, class: Capitalist, size:   55000, employed_at: None, wage_rm: 15.0, satisfaction: 0.62, political_loyalty: 0.28),
+        (state_id: 13, class: Aristocrat, size:   38000, employed_at: None, wage_rm: 24.0, satisfaction: 0.58, political_loyalty: 0.45),
+        (state_id: 13, class: Soldier,    size:  260000, employed_at: None, wage_rm: 2.4, satisfaction: 0.52, political_loyalty: 0.55),
+
+        // ── 28 Moselland / Saar-Pfalz ~ 2.3M ──
+        (state_id: 28, class: Peasant,    size:  500000, employed_at: None, wage_rm: 1.4, satisfaction: 0.52, political_loyalty: 0.10),
+        (state_id: 28, class: Worker,     size:  950000, employed_at: None, wage_rm: 3.0, satisfaction: 0.48, political_loyalty: 0.05),
+        (state_id: 28, class: Clerk,      size:  400000, employed_at: None, wage_rm: 5.0, satisfaction: 0.55, political_loyalty: 0.10),
+        (state_id: 28, class: Capitalist, size:   60000, employed_at: None, wage_rm: 16.0, satisfaction: 0.62, political_loyalty: 0.20),
+        (state_id: 28, class: Aristocrat, size:   15000, employed_at: None, wage_rm: 26.0, satisfaction: 0.55, political_loyalty: 0.30),
+        (state_id: 28, class: Soldier,    size:  200000, employed_at: None, wage_rm: 2.5, satisfaction: 0.52, political_loyalty: 0.50),
+
+        // ── 29 western states ~ 3.2M ──
+        (state_id: 29, class: Peasant,    size:  700000, employed_at: None, wage_rm: 1.5, satisfaction: 0.52, political_loyalty: 0.10),
+        (state_id: 29, class: Worker,     size: 1400000, employed_at: None, wage_rm: 3.0, satisfaction: 0.50, political_loyalty: 0.05),
+        (state_id: 29, class: Clerk,      size:  550000, employed_at: None, wage_rm: 5.2, satisfaction: 0.55, political_loyalty: 0.10),
+        (state_id: 29, class: Capitalist, size:   70000, employed_at: None, wage_rm: 16.0, satisfaction: 0.62, political_loyalty: 0.22),
+        (state_id: 29, class: Aristocrat, size:   15000, employed_at: None, wage_rm: 26.0, satisfaction: 0.55, political_loyalty: 0.32),
+        (state_id: 29, class: Soldier,    size:  200000, employed_at: None, wage_rm: 2.5, satisfaction: 0.52, political_loyalty: 0.50),
+
+        // ── 59 trade port region ~ 2.8M ──
+        (state_id: 59, class: Peasant,    size:  400000, employed_at: None, wage_rm: 1.6, satisfaction: 0.55, political_loyalty: 0.15),
+        (state_id: 59, class: Worker,     size: 1000000, employed_at: None, wage_rm: 3.2, satisfaction: 0.50, political_loyalty: 0.10),
+        (state_id: 59, class: Clerk,      size:  650000, employed_at: None, wage_rm: 5.8, satisfaction: 0.58, political_loyalty: 0.15),
+        (state_id: 59, class: Capitalist, size:  100000, employed_at: None, wage_rm: 22.0, satisfaction: 0.65, political_loyalty: 0.28),
+        (state_id: 59, class: Aristocrat, size:   15000, employed_at: None, wage_rm: 32.0, satisfaction: 0.60, political_loyalty: 0.35),
+        (state_id: 59, class: Soldier,    size:  210000, employed_at: None, wage_rm: 2.6, satisfaction: 0.55, political_loyalty: 0.55),
+    ],
+)

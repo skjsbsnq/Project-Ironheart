@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "SOV",
+    population: 168000000,
+    gdp_1936_gbp: 40000000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.29, mining: 0.09, heavy_industry: 0.24, light_industry: 0.08, services: 0.13, government: 0.10, military_industry: 0.07),
+    urbanization: 0.33,
+    literacy: 0.75,
+    unemployment: 0.02,
+    industrial_capacity_index: 40.0,
+    military_spending_share: 0.08,
+    construction_capacity_index: 55.0,
+    gold_reserve_gbp: 300000000.0,
+    foreign_exchange_reserve_gbp: 100000000.0,
+    public_debt_gbp: 4000000000.0,
+    initial_laws: (conscription: "volunteer_only", economy: "planned_economy", trade: "state_trade_monopoly", taxation: "high_taxation", civil_rights: "police_state", information_control: "state_media"),
+)

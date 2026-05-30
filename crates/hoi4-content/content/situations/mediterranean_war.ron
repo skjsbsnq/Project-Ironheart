@@ -1,0 +1,66 @@
+SituationDb(
+    situations: [
+        SituationDef(
+            id: "mediterranean_war",
+            title: "Mediterranean War",
+            description: "Italy enters the European war, opening fronts in the Alps, North Africa and the Balkans.",
+            sides: [
+                SituationSide(id: "axis", name: "Axis", color: (90, 90, 90), initial_progress: 50.0, default_supporters: ["GER", "ITA"]),
+                SituationSide(id: "med_allies", name: "Allies and Greece", color: (35, 80, 170), initial_progress: 50.0, default_supporters: ["ENG", "FRA", "GRE"]),
+            ],
+            interventions: [],
+            base_progress: [0.0, 0.0],
+            progress_source: TerritorialControl(side_country_tags: [["GER", "ITA"], ["ENG", "FRA", "GRE"]]),
+            milestones: [
+                (0, 65.0, "news.greece_invaded"),
+            ],
+            milestone_effects: [
+                [TriggerEvent("news.greece_invaded")],
+            ],
+            start_date: (1940, 6, 10),
+            end_date: (1942, 1, 1),
+            on_start: [
+                TriggerEvent("news.italy_enters_war"),
+                CreateFaction(leader: "GER", name: "Axis"),
+                AddToFaction(faction_leader: "GER", member: "ITA"),
+                CreateWar(attacker: "ITA", defender: "FRA"),
+                AddWarParticipant(war_leader: "FRA", participant: "ENG"),
+                GrantMilitaryAccess(grantor: "GER", grantee: "ITA"),
+                GrantMilitaryAccess(grantor: "ITA", grantee: "GER"),
+                AddWarSupport(country: "ITA", amount: 0.12),
+                SetCountryFlag(country: "ITA", flag: "italy_enters_war"),
+            ],
+            on_end: [
+                [SetCountryFlag(country: "ITA", flag: "mediterranean_axis_advantage")],
+                [SetCountryFlag(country: "ENG", flag: "mediterranean_allied_advantage")],
+            ],
+        ),
+        SituationDef(
+            id: "greco_italian_war",
+            title: "Greco-Italian War",
+            description: "Italy attempts to break Greece from Albania, forcing the Balkans into the wider war.",
+            sides: [
+                SituationSide(id: "italy", name: "Italy", color: (40, 120, 55), initial_progress: 50.0, default_supporters: ["ITA"]),
+                SituationSide(id: "greece", name: "Greece", color: (35, 80, 170), initial_progress: 50.0, default_supporters: ["GRE", "ENG"]),
+            ],
+            interventions: [],
+            base_progress: [0.0, 0.0],
+            progress_source: TerritorialControl(side_country_tags: [["ITA", "GER"], ["GRE", "ENG"]]),
+            milestones: [],
+            milestone_effects: [],
+            start_date: (1940, 10, 28),
+            end_date: (1941, 6, 1),
+            on_start: [
+                TriggerEvent("news.greece_invaded"),
+                CreateWar(attacker: "ITA", defender: "GRE"),
+                AddWarParticipant(war_leader: "GRE", participant: "ENG"),
+                AddWarSupport(country: "GRE", amount: 0.12),
+                SetCountryFlag(country: "ITA", flag: "greece_invaded"),
+            ],
+            on_end: [
+                [SetCountryFlag(country: "ITA", flag: "greece_campaign_won")],
+                [SetCountryFlag(country: "GRE", flag: "greece_holds")],
+            ],
+        ),
+    ],
+)

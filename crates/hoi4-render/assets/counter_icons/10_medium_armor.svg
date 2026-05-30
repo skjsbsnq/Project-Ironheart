@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48">
+  <!-- 10 medium_armor — 中椭圆（中型坦克 / 标准 NATO 装甲） -->
+  <g fill="none" stroke="#ffffff" stroke-width="2">
+    <ellipse cx="32" cy="24" rx="20" ry="10"/>
+  </g>
+</svg>

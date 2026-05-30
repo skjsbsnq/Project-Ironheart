@@ -1,0 +1,12 @@
+#![enable(implicit_some)]
+
+(
+    unlock_conscription_min: "limited_conscription",
+    unlock_economy_min: "interventionism",
+    crisis_threshold_ratio: 0.30,
+    crisis_forced_payment_ratio: 0.4,
+    crisis_residual_debt_ratio: 0.6,
+    crisis_loyalty_penalty: -0.20,
+    crisis_loyalty_duration_days: 180,
+    crisis_inflation_multiplier: 1.5,
+)

@@ -1,0 +1,415 @@
+EventDb(
+    events: [
+        Event(
+            id: "japan.china_incident_escalated",
+            title: "华北局势失控",
+            description: "卢沟桥附近的冲突已经成为扩大华北作战的借口。东京决定把事变推进为对中国的全面军事行动。",
+            picture: "GFX_event_marco_polo_bridge",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "扩大华北作战。",
+                    effects: [
+                        AddWarSupport(0.08),
+                        AddPoliticalPower(25.0),
+                        SetCountryFlag("china_incident_escalated"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.north_china_campaign",
+            title: "华北作战扩大",
+            description: "华北方面军要求迅速向平津、山西与冀南推进，在中国各战区完成协调前夺取主动权。",
+            picture: "GFX_event_marco_polo_bridge",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "压向华北要地。",
+                    effects: [
+                        SetCountryFlag("jap_priority_north_china"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.shandong_campaign",
+            title: "山东作战",
+            description: "参谋本部认为山东是打通华北与华东战线的关键。日军将加大对济南、青岛与胶济线方向的压力。",
+            picture: "GFX_event_shanghai_battle",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "山东必须被纳入攻势。",
+                    effects: [
+                        SetCountryFlag("jap_priority_shandong"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.shanghai_expedition",
+            title: "上海派遣军",
+            description: "上海战事扩大后，日本决定向长江下游投入更多兵力，以迫使中国首都圈承受直接压力。",
+            picture: "GFX_event_shanghai_battle",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "增援上海方向。",
+                    effects: [
+                        SetCountryFlag("jap_priority_shanghai_nanjing"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.advance_on_nanjing",
+            title: "进攻南京",
+            description: "上海方向取得进展后，日军司令部开始筹划沿长江下游向南京推进。",
+            picture: "GFX_event_nanjing",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "向中国首都推进。",
+                    effects: [
+                        SetCountryFlag("jap_advance_on_nanjing"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.shandong_campaign_auto",
+            title: "Shandong Campaign",
+            description: "The North China campaign expands toward Shandong.",
+            picture: "GFX_event_shanghai_battle",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                HasWarWith("CHI"),
+                Date(year: 1937, month: 8, day: 1),
+                Not(HasCountryFlag("jap_priority_shandong")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "Add Shandong to the campaign plan.",
+                    effects: [
+                        SetCountryFlag("jap_priority_shandong"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.jinan_under_threat_auto",
+            title: "济南告急",
+            description: "日军已经迫近山东腹地，济南方向承受直接压力。",
+            picture: "GFX_event_chinese_defense",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                Or([ControlsState(1038), ControlsState(743), ControlsState(597)]),
+                Not(HasCountryFlag("news_jinan_under_threat_fired")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "山东战局正在变化。",
+                    effects: [
+                        SetCountryFlag("news_jinan_under_threat_fired"),
+                        TriggerEvent("news.jinan_under_threat"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.fall_of_beiping_tianjin_auto",
+            title: "平津陷落",
+            description: "日军已经控制平津相关地区，华北战局急剧恶化。",
+            picture: "GFX_event_marco_polo_bridge",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                Or([ControlsState(608), ControlsState(1039)]),
+                Not(HasCountryFlag("news_fall_of_beiping_tianjin_fired")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "平津已经陷落。",
+                    effects: [
+                        SetCountryFlag("news_fall_of_beiping_tianjin_fired"),
+                        TriggerEvent("news.fall_of_beiping_tianjin"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.battle_of_taiyuan_auto",
+            title: "太原会战",
+            description: "日军已经进入山西关键州，太原方向爆发大规模战事。",
+            picture: "GFX_event_chinese_defense",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                Or([ControlsState(615), ControlsState(621), ControlsState(746)]),
+                Not(HasCountryFlag("news_battle_of_taiyuan_fired")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "太原战事扩大。",
+                    effects: [
+                        SetCountryFlag("news_battle_of_taiyuan_fired"),
+                        TriggerEvent("news.battle_of_taiyuan"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.fall_of_jinan_auto",
+            title: "济南陷落",
+            description: "日军控制山东主要州后，济南防线已经瓦解。",
+            picture: "GFX_event_chinese_defense",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                ControlsState(597),
+                ControlsState(743),
+                Not(HasCountryFlag("news_fall_of_jinan_fired")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "济南已经失守。",
+                    effects: [
+                        SetCountryFlag("news_fall_of_jinan_fired"),
+                        TriggerEvent("news.fall_of_jinan"),
+                        TriggerEvent("news.qingdao_landing_or_pressure"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.shanghai_campaign_auto",
+            title: "Battle of Shanghai",
+            description: "The China campaign expands toward Shanghai and the lower Yangtze.",
+            picture: "GFX_event_shanghai_battle",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                HasCountryFlag("jap_priority_shandong"),
+                HasWarWith("CHI"),
+                Date(year: 1937, month: 8, day: 13),
+                Not(HasCountryFlag("jap_priority_shanghai_nanjing")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "Open the Shanghai front.",
+                    effects: [
+                        SetCountryFlag("battle_of_shanghai_fired"),
+                        SetCountryFlag("jap_priority_shanghai_nanjing"),
+                        TriggerEvent("news.battle_of_shanghai_begins"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.battle_of_shanghai_auto",
+            title: "上海方向战事扩大",
+            description: "日军已经进入长江下游战区，上海方向战事升级为大规模会战。",
+            picture: "GFX_event_shanghai_battle",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                Or([ControlsState(613), ControlsState(598)]),
+                Not(HasCountryFlag("battle_of_shanghai_fired")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "淞沪会战爆发。",
+                    effects: [
+                        SetCountryFlag("battle_of_shanghai_fired"),
+                        SetCountryFlag("jap_priority_shanghai_nanjing"),
+                        TriggerEvent("japan.shanghai_expedition"),
+                        TriggerEvent("china.battle_of_shanghai"),
+                        TriggerEvent("news.battle_of_shanghai_begins"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.shanghai_falls_auto",
+            title: "上海陷落",
+            description: "日军已经控制上海核心州，长江下游门户被打开。",
+            picture: "GFX_event_shanghai_battle",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                ControlsState(613),
+                Not(HasCountryFlag("news_shanghai_falls_fired")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "上海已经陷落。",
+                    effects: [
+                        SetCountryFlag("news_shanghai_falls_fired"),
+                        TriggerEvent("news.shanghai_falls"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.nanjing_drive_auto",
+            title: "Advance on Nanjing",
+            description: "After the Shanghai campaign begins, Japanese planning shifts toward Nanjing.",
+            picture: "GFX_event_nanjing",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                HasCountryFlag("jap_priority_shanghai_nanjing"),
+                HasWarWith("CHI"),
+                Date(year: 1937, month: 11, day: 15),
+                Not(HasCountryFlag("jap_advance_on_nanjing")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "Drive toward Nanjing.",
+                    effects: [
+                        SetCountryFlag("news_nanjing_under_threat_fired"),
+                        SetCountryFlag("jap_advance_on_nanjing"),
+                        TriggerEvent("news.nanjing_under_threat"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.nanjing_under_threat_auto",
+            title: "南京告急",
+            description: "日军已经突破长江下游外围，南京首都圈面临直接威胁。",
+            picture: "GFX_event_nanjing",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                Or([ControlsState(598), ControlsState(606), ControlsState(613)]),
+                Not(HasCountryFlag("news_nanjing_under_threat_fired")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "南京正受到威胁。",
+                    effects: [
+                        SetCountryFlag("news_nanjing_under_threat_fired"),
+                        SetCountryFlag("jap_advance_on_nanjing"),
+                        TriggerEvent("japan.advance_on_nanjing"),
+                        TriggerEvent("china.defense_of_nanjing"),
+                        TriggerEvent("news.nanjing_under_threat"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.fall_of_nanjing_auto",
+            title: "南京陷落",
+            description: "日军已经控制南京所在州，中国首都防线被突破。",
+            picture: "GFX_event_nanjing",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                ControlsState(598),
+                Not(HasCountryFlag("news_fall_of_nanjing_fired")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "南京已经陷落。",
+                    effects: [
+                        SetCountryFlag("news_fall_of_nanjing_fired"),
+                        TriggerEvent("news.fall_of_nanjing"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.china_occupation_pressure_1939",
+            title: "大陆战线压力加重",
+            description: "中国战事进入长期阶段后，占领区治安、补给距离与守备兵力需求持续上升。日军仍能发动局部攻势，但难以维持一九三七年的高速推进。",
+            picture: "GFX_event_chinese_defense",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Tag("JAP"),
+                HasCountryFlag("china_incident_escalated"),
+                HasWarWith("CHI"),
+                Date(year: 1939, month: 1, day: 1),
+                Not(HasCountryFlag("china_occupation_pressure_1939_applied")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "战事已经拖长。",
+                    effects: [
+                        SetCountryFlag("china_occupation_pressure_1939_applied"),
+                        RemoveIdea("jap_continental_offensive_momentum"),
+                        RemoveIdea("jap_north_china_expeditionary_expansion"),
+                        AddIdea("jap_occupation_security_pressure"),
+                        AddIdea("jap_extended_continental_supply_lines"),
+                        AddIdea("jap_forces_dispersed_in_china"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+    ],
+)

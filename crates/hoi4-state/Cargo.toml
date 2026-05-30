@@ -1,0 +1,28 @@
+[package]
+name = "hoi4-state"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+vanilla-audit = []
+
+[dependencies]
+hoi4-map = { path = "../hoi4-map" }
+hoi4-data = { path = "../hoi4-data" }
+clausewitz-parser = { path = "../clausewitz-parser" }
+serde = { version = "=1.0.219", features = ["derive"] }
+tracing = "0.1"
+
+[dev-dependencies]
+hoi4-paths = { path = "../hoi4-paths" }
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "save_roundtrip"
+path = "tests/save_roundtrip.rs"
+required-features = ["vanilla-audit"]

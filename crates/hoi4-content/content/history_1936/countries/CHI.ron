@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "CHI",
+    population: 430000000,
+    gdp_1936_gbp: 20000000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.49, mining: 0.04, heavy_industry: 0.06, light_industry: 0.10, services: 0.18, government: 0.09, military_industry: 0.04),
+    urbanization: 0.12,
+    literacy: 0.22,
+    unemployment: 0.04,
+    industrial_capacity_index: 8.0,
+    military_spending_share: 0.08,
+    construction_capacity_index: 7.0,
+    gold_reserve_gbp: 120000000.0,
+    foreign_exchange_reserve_gbp: 80000000.0,
+    public_debt_gbp: 5000000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "import_substitution", taxation: "medium_taxation", civil_rights: "limited_rights", information_control: "regulated_press"),
+)

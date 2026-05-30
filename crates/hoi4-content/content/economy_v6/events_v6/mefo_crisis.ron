@@ -1,0 +1,29 @@
+#![enable(implicit_some)]
+
+[
+    (
+        id: "mefo_crisis",
+        title: "梅福债危机",
+        body: "帝国隐性债务已超过国内生产总值的30%。梅福票据持有者开始大规模兑付，国库现金被强制抽空。信用评级骤降至D级，马克面临恶性贬值。民众对经济前景信心崩溃，满意度骤降。",
+        options: [
+            (
+                name: "强制兑付并违约",
+                effects: [
+                    ("mefo_forced_payment", ""),
+                    ("credit_rating_set_d", ""),
+                    ("inflation_multiply", "1.5"),
+                    ("pop_satisfaction_penalty", "-0.20"),
+                    ("satisfaction_penalty_duration", "180"),
+                ],
+            ),
+            (
+                name: "以战养债——发动战争以延迟清算",
+                effects: [
+                    ("war_support_add", "0.15"),
+                    ("stability_add", "-0.10"),
+                    ("mefo_crisis_deferred", ""),
+                ],
+            ),
+        ],
+    ),
+]

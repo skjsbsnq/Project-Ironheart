@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48">
+  <!-- 14 anti_tank — 实心圆 + 水平横线穿过（反坦克） -->
+  <g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round">
+    <line x1="8" y1="24" x2="56" y2="24"/>
+  </g>
+  <circle cx="32" cy="24" r="7" fill="#ffffff"/>
+</svg>

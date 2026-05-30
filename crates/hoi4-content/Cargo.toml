@@ -1,0 +1,14 @@
+[package]
+name = "hoi4-content"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "=1.0.219", features = ["derive"] }
+ron = "=0.8.1"
+hoi4-state = { path = "../hoi4-state" }
+
+
+[dev-dependencies]
+hoi4-map = { path = "../hoi4-map" }
+hoi4-data = { path = "../hoi4-data" }

@@ -1,0 +1,32 @@
+#![enable(implicit_some)]
+
+// China 1936 estimate ~430M (not census, estimates vary 400-450M) | Peasant 78%, Worker 4%, Clerk 5%, Capitalist 0.15%, Aristocrat 1.5%, Soldier 3.35%
+// Overwhelmingly agrarian. Landlord gentry = Aristocrat. Warlord-era military ~1.7M active standing + militias.
+(
+    total_population: 430000000,
+    groups: [
+        // ── 613 North China Plain ~ 120M ──
+        (state_id: 613, class: Peasant,    size: 98000000, employed_at: None, wage_rm: 0.5, satisfaction: 0.25, political_loyalty: 0.02),
+        (state_id: 613, class: Worker,     size: 4000000,  employed_at: None, wage_rm: 1.2, satisfaction: 0.22, political_loyalty: 0.05),
+        (state_id: 613, class: Clerk,      size: 4000000,  employed_at: None, wage_rm: 2.0, satisfaction: 0.32, political_loyalty: 0.08),
+        (state_id: 613, class: Capitalist, size: 120000,   employed_at: None, wage_rm: 5.0, satisfaction: 0.40, political_loyalty: 0.10),
+        (state_id: 613, class: Aristocrat, size: 2200000,  employed_at: None, wage_rm: 6.0, satisfaction: 0.38, political_loyalty: 0.12),
+        (state_id: 613, class: Soldier,    size: 3880000,  employed_at: None, wage_rm: 1.0, satisfaction: 0.28, political_loyalty: 0.15),
+
+        // ── 614 Lower Yangtze ~ 110M ──
+        (state_id: 614, class: Peasant,    size: 82000000, employed_at: None, wage_rm: 0.6, satisfaction: 0.28, political_loyalty: 0.05),
+        (state_id: 614, class: Worker,     size: 6000000,  employed_at: None, wage_rm: 1.5, satisfaction: 0.25, political_loyalty: 0.05),
+        (state_id: 614, class: Clerk,      size: 7000000,  employed_at: None, wage_rm: 2.5, satisfaction: 0.35, political_loyalty: 0.08),
+        (state_id: 614, class: Capitalist, size: 250000,   employed_at: None, wage_rm: 7.0, satisfaction: 0.45, political_loyalty: 0.15),
+        (state_id: 614, class: Aristocrat, size: 1700000,  employed_at: None, wage_rm: 8.0, satisfaction: 0.42, political_loyalty: 0.15),
+        (state_id: 614, class: Soldier,    size: 3650000,  employed_at: None, wage_rm: 1.2, satisfaction: 0.30, political_loyalty: 0.18),
+
+        // ── 615 Sichuan ~ 80M ──
+        (state_id: 615, class: Peasant,    size: 68000000, employed_at: None, wage_rm: 0.4, satisfaction: 0.22, political_loyalty: 0.02),
+        (state_id: 615, class: Worker,     size: 2000000,  employed_at: None, wage_rm: 1.0, satisfaction: 0.20, political_loyalty: 0.02),
+        (state_id: 615, class: Clerk,      size: 2000000,  employed_at: None, wage_rm: 1.8, satisfaction: 0.30, political_loyalty: 0.05),
+        (state_id: 615, class: Capitalist, size: 60000,    employed_at: None, wage_rm: 4.0, satisfaction: 0.38, political_loyalty: 0.08),
+        (state_id: 615, class: Aristocrat, size: 1300000,  employed_at: None, wage_rm: 5.0, satisfaction: 0.35, political_loyalty: 0.10),
+        (state_id: 615, class: Soldier,    size: 1980000,  employed_at: None, wage_rm: 0.8, satisfaction: 0.25, political_loyalty: 0.12),
+    ],
+)

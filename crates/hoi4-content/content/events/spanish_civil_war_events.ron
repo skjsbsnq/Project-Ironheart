@@ -1,0 +1,38 @@
+EventDb(
+    events: [
+        Event(
+            id: "spain.scw_choose_side",
+            title: "西班牙裂成两半",
+            description: "电报从军区、港口、主教府和工人会所同时涌来，像一叠没有页码的审判书。共和国仍在马德里宣称合法，叛乱军官已经在摩洛哥、塞维利亚和北方兵营撕开缺口；军官要求所有人服从既有命令链，工会要求立即打开武器库，省长们则在电话另一头询问，若本地驻军宣布拥护“西班牙”，他们究竟该向哪一个西班牙开火。
+
+这不是两个阵营在地图上干净分开。军队名册、铁路仓库、港口海关、银行金库、教堂钟楼和市政印章都在同一天失去单一主人。有人仍把共和国称作法律，有人已经把叛乱称作救国；更多人只是盯着仓库钥匙、弹药清单和家门外的脚步声，等待你替他们把恐惧翻译成命令。
+
+现在的问题不再是能否阻止战争，而是谁会用你的命令、你的仓库和你的士兵继续这场战争。选择共和国，意味着继承一个合法却裂开的国家；选择国民军，意味着加入一场自称恢复秩序、却必须先摧毁现存秩序的反叛。两边都会要求忠诚，两边都会记住犹豫。",
+            picture: "GFX_event_spanish_civil_war",
+            scope: Country,
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "保卫共和国。",
+                    effects: [
+                        SetCountryFlag("player_chose_republic"),
+                        SwitchPlayerCountry("SPR"),
+                        TriggerEvent("spr.scw_government_in_crisis"),
+                    ],
+                    ai_chance: 0.5,
+                ),
+                EventOption(
+                    name: "加入国民军。",
+                    effects: [
+                        SetCountryFlag("player_chose_nationalists"),
+                        SwitchPlayerCountry("SPA"),
+                        TriggerEvent("spa.scw_junta_forms"),
+                    ],
+                    ai_chance: 0.5,
+                ),
+            ],
+        ),
+    ],
+)

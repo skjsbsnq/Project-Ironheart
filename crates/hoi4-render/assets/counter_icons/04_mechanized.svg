@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48">
+  <!-- 04 mechanized — 椭圆 + 横线（履带式步兵） -->
+  <g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round">
+    <ellipse cx="32" cy="24" rx="20" ry="10"/>
+    <line x1="12" y1="24" x2="52" y2="24"/>
+  </g>
+</svg>

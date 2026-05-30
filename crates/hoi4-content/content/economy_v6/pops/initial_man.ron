@@ -1,0 +1,15 @@
+#![enable(implicit_some)]
+
+// Manchukuo 1936 estimate ~30M (incl. Japanese settlers) | Peasant 75%, Worker 5%, Clerk 5%, Capitalist 0.15%, Aristocrat 1.2%, Soldier 4.65%
+// Japanese puppet state. Large Kwantung Army garrison. Agricultural base with developing industry.
+(
+    total_population: 30000000,
+    groups: [
+        (state_id: 305, class: Peasant,    size: 23000000, employed_at: None, wage_rm: 0.5, satisfaction: 0.25, political_loyalty: 0.02),
+        (state_id: 305, class: Worker,     size: 1500000,  employed_at: None, wage_rm: 1.5, satisfaction: 0.22, political_loyalty: 0.05),
+        (state_id: 305, class: Clerk,      size: 1500000,  employed_at: None, wage_rm: 2.5, satisfaction: 0.30, political_loyalty: 0.08),
+        (state_id: 305, class: Capitalist, size: 50000,    employed_at: None, wage_rm: 6.0, satisfaction: 0.35, political_loyalty: 0.12),
+        (state_id: 305, class: Aristocrat, size: 350000,   employed_at: None, wage_rm: 7.0, satisfaction: 0.32, political_loyalty: 0.25),
+        (state_id: 305, class: Soldier,    size: 1400000,  employed_at: None, wage_rm: 1.2, satisfaction: 0.30, political_loyalty: 0.40),
+    ],
+)

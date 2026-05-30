@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48">
+  <!-- 15 anti_air — 上指箭头（防空） -->
+  <g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <line x1="32" y1="42" x2="32" y2="8"/>
+    <polyline points="20,20 32,8 44,20"/>
+  </g>
+</svg>

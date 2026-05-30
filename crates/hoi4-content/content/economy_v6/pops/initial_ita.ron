@@ -1,0 +1,32 @@
+#![enable(implicit_some)]
+
+// Italy 1931 census ~41.2M; 1936 est ~43M | Peasant 38%, Worker 16%, Clerk 14%, Capitalist 0.8%, Aristocrat 0.3%, Soldier 8.9%
+// Significant North/South divide. Large military for size (Ethiopia campaign).
+(
+    total_population: 43000000,
+    groups: [
+        // ── 212 Lombardy / Piedmont ~ 12M ──
+        (state_id: 212, class: Peasant,    size: 3200000,  employed_at: None, wage_rm: 1.8, satisfaction: 0.52, political_loyalty: 0.22),
+        (state_id: 212, class: Worker,     size: 2800000,  employed_at: None, wage_rm: 3.2, satisfaction: 0.45, political_loyalty: 0.18),
+        (state_id: 212, class: Clerk,      size: 2200000,  employed_at: None, wage_rm: 5.5, satisfaction: 0.55, political_loyalty: 0.22),
+        (state_id: 212, class: Capitalist, size: 160000,   employed_at: None, wage_rm: 20.0, satisfaction: 0.65, political_loyalty: 0.30),
+        (state_id: 212, class: Aristocrat, size: 40000,    employed_at: None, wage_rm: 28.0, satisfaction: 0.60, political_loyalty: 0.35),
+        (state_id: 212, class: Soldier,    size: 780000,   employed_at: None, wage_rm: 2.5, satisfaction: 0.52, political_loyalty: 0.58),
+
+        // ── 213 Mezzogiorno / Sicily ~ 16M ──
+        (state_id: 213, class: Peasant,    size: 9000000,  employed_at: None, wage_rm: 1.2, satisfaction: 0.35, political_loyalty: 0.08),
+        (state_id: 213, class: Worker,     size: 2200000,  employed_at: None, wage_rm: 2.5, satisfaction: 0.32, political_loyalty: 0.05),
+        (state_id: 213, class: Clerk,      size: 1800000,  employed_at: None, wage_rm: 4.0, satisfaction: 0.42, political_loyalty: 0.08),
+        (state_id: 213, class: Capitalist, size: 70000,    employed_at: None, wage_rm: 13.0, satisfaction: 0.50, political_loyalty: 0.12),
+        (state_id: 213, class: Aristocrat, size: 50000,    employed_at: None, wage_rm: 20.0, satisfaction: 0.45, political_loyalty: 0.18),
+        (state_id: 213, class: Soldier,    size: 880000,   employed_at: None, wage_rm: 2.4, satisfaction: 0.42, political_loyalty: 0.50),
+
+        // ── 214 Emilia / Tuscany ~ 8M ──
+        (state_id: 214, class: Peasant,    size: 3000000,  employed_at: None, wage_rm: 1.5, satisfaction: 0.45, political_loyalty: 0.15),
+        (state_id: 214, class: Worker,     size: 1400000,  employed_at: None, wage_rm: 2.8, satisfaction: 0.40, political_loyalty: 0.12),
+        (state_id: 214, class: Clerk,      size: 1400000,  employed_at: None, wage_rm: 4.5, satisfaction: 0.50, political_loyalty: 0.15),
+        (state_id: 214, class: Capitalist, size: 80000,    employed_at: None, wage_rm: 16.0, satisfaction: 0.58, political_loyalty: 0.22),
+        (state_id: 214, class: Aristocrat, size: 25000,    employed_at: None, wage_rm: 24.0, satisfaction: 0.52, political_loyalty: 0.28),
+        (state_id: 214, class: Soldier,    size: 600000,   employed_at: None, wage_rm: 2.4, satisfaction: 0.48, political_loyalty: 0.55),
+    ],
+)

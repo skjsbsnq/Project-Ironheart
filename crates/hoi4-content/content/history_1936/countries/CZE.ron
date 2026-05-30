@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "CZE",
+    population: 15000000,
+    gdp_1936_gbp: 6500000000.0,
+    gdp_quality: Estimated,
+    sector_shares: (agriculture: 0.18, mining: 0.10, heavy_industry: 0.24, light_industry: 0.14, services: 0.20, government: 0.08, military_industry: 0.06),
+    urbanization: 0.39,
+    literacy: 0.94,
+    unemployment: 0.08,
+    industrial_capacity_index: 12.0,
+    military_spending_share: 0.055,
+    construction_capacity_index: 9.0,
+    gold_reserve_gbp: 180000000.0,
+    foreign_exchange_reserve_gbp: 120000000.0,
+    public_debt_gbp: 1100000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "export_focus", taxation: "medium_taxation", civil_rights: "open_society", information_control: "free_press"),
+)

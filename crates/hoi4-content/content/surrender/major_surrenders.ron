@@ -1,0 +1,62 @@
+SurrenderDb(
+    surrenders: [
+        ScriptedSurrenderDef(
+            id: "fra_surrender",
+            target: "FRA",
+            enemy_side: ["GER", "ITA"],
+            require_capital_lost: true,
+            max_target_core_control_ratio: 0.35,
+            remove_from_wars: true,
+            effects: [
+                TriggerEvent("news.france_surrenders"),
+                TriggerEvent("news.fall_of_france_runtime"),
+                SetCountryFlag(country: "FRA", flag: "surrendered_to_axis"),
+                SetCountryFlag(country: "GER", flag: "france_defeated"),
+                AddWarSupport(country: "GER", amount: 0.05),
+            ],
+        ),
+        ScriptedSurrenderDef(
+            id: "ita_surrender",
+            target: "ITA",
+            enemy_side: ["ENG", "USA", "FRA"],
+            require_capital_lost: true,
+            max_target_core_control_ratio: 0.40,
+            remove_from_wars: true,
+            effects: [
+                TriggerEvent("news.italy_surrenders"),
+                SetCountryFlag(country: "ITA", flag: "surrendered_to_allies"),
+                SetCountryFlag(country: "ENG", flag: "italy_defeated"),
+                SetCountryFlag(country: "USA", flag: "italy_defeated"),
+            ],
+        ),
+        ScriptedSurrenderDef(
+            id: "ger_surrender",
+            target: "GER",
+            enemy_side: ["SOV", "ENG", "USA", "FRA"],
+            require_capital_lost: true,
+            max_target_core_control_ratio: 0.25,
+            remove_from_wars: true,
+            effects: [
+                TriggerEvent("news.germany_surrenders"),
+                SetCountryFlag(country: "GER", flag: "surrendered_to_allies"),
+                SetCountryFlag(country: "SOV", flag: "germany_defeated"),
+                SetCountryFlag(country: "ENG", flag: "germany_defeated"),
+                SetCountryFlag(country: "USA", flag: "germany_defeated"),
+            ],
+        ),
+        ScriptedSurrenderDef(
+            id: "jap_surrender",
+            target: "JAP",
+            enemy_side: ["USA", "ENG", "SOV", "CHI"],
+            require_capital_lost: true,
+            max_target_core_control_ratio: 0.30,
+            remove_from_wars: true,
+            effects: [
+                TriggerEvent("news.japan_surrenders"),
+                SetCountryFlag(country: "JAP", flag: "surrendered_to_allies"),
+                SetCountryFlag(country: "USA", flag: "japan_defeated"),
+                SetCountryFlag(country: "CHI", flag: "japan_defeated"),
+            ],
+        ),
+    ],
+)

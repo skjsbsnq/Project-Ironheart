@@ -1,0 +1,241 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 360" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <!-- 背景：东线初秋平原 -->
+    <linearGradient id="mapBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#6b7a4d"/>
+      <stop offset="100%" stop-color="#4a5638"/>
+    </linearGradient>
+    <pattern id="terrain" x="0" y="0" width="50" height="50" patternUnits="userSpaceOnUse">
+      <rect width="50" height="50" fill="url(#mapBg)"/>
+      <circle cx="12" cy="18" r="1.2" fill="#5a6a3e" opacity="0.4"/>
+      <circle cx="38" cy="32" r="1.5" fill="#5a6a3e" opacity="0.35"/>
+      <circle cx="25" cy="42" r="0.8" fill="#3a4628" opacity="0.5"/>
+    </pattern>
+
+    <!-- 国防军暗灰底色（GD 是国防军精锐，不是 SS） -->
+    <linearGradient id="bgWehrmacht" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5a5a5a"/>
+      <stop offset="50%" stop-color="#3a3a3a"/>
+      <stop offset="100%" stop-color="#1a1a1a"/>
+    </linearGradient>
+
+    <!-- 顶部高光 -->
+    <linearGradient id="topShine" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#fff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- 底部阴影 -->
+    <radialGradient id="dropShadow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0%" stop-color="#000" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+    </radialGradient>
+
+    <!-- 经验金属光 -->
+    <linearGradient id="goldStar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffe080"/>
+      <stop offset="50%" stop-color="#d9b84a"/>
+      <stop offset="100%" stop-color="#8a6f1f"/>
+    </linearGradient>
+
+    <!-- ORG/STR bar 渐变 -->
+    <linearGradient id="orgGreen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7adc7a"/>
+      <stop offset="100%" stop-color="#3d8a3d"/>
+    </linearGradient>
+    <linearGradient id="strYellow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0d060"/>
+      <stop offset="100%" stop-color="#9c7a20"/>
+    </linearGradient>
+
+    <!-- 机械化兵种符号（椭圆 + 横线，NATO 标准） -->
+    <symbol id="sym_mech" viewBox="0 0 64 48">
+      <!-- 外框 -->
+      <rect x="0.5" y="0.5" width="63" height="47" fill="none" stroke="#fff" stroke-width="2"/>
+      <!-- 椭圆 (装甲) -->
+      <ellipse cx="32" cy="24" rx="20" ry="11" fill="none" stroke="#fff" stroke-width="2.5"/>
+      <!-- 横线 (机械化) -->
+      <line x1="10" y1="24" x2="54" y2="24" stroke="#fff" stroke-width="2"/>
+    </symbol>
+
+    <!-- 铁十字（GD 师徽特征） -->
+    <symbol id="iron_cross" viewBox="0 0 24 24">
+      <path d="M 4 10 L 8 10 L 8 4 L 16 4 L 16 10 L 20 10 L 20 14 L 16 14 L 16 20 L 8 20 L 8 14 L 4 14 Z"
+            fill="#1a1a1a" stroke="#c8a040" stroke-width="0.8"/>
+    </symbol>
+
+    <!-- 滤镜：选中金色发光 -->
+    <filter id="goldGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- 背景地图 -->
+  <rect width="480" height="360" fill="url(#terrain)"/>
+
+  <!-- 标题 -->
+  <text x="240" y="32" font-size="18" fill="#e8d8a8" text-anchor="middle" font-weight="bold">
+    Panzergrenadier-Division „Großdeutschland"
+  </text>
+  <text x="240" y="52" font-size="11" fill="#c8b888" text-anchor="middle" font-style="italic">
+    国防军精锐 · 1942 模板 · 6 步兵 + 2 机械化 + 1 装甲 + 支援营
+  </text>
+
+  <!-- ============= 主兵牌 ============= -->
+  <!-- 投影 -->
+  <ellipse cx="240" cy="265" rx="120" ry="14" fill="url(#dropShadow)"/>
+
+  <!-- 选中态金色发光外框（比兵牌大 6px） -->
+  <g filter="url(#goldGlow)" opacity="0.85">
+    <rect x="116" y="86" width="248" height="172" rx="8" fill="none" stroke="#ffd860" stroke-width="2.5"/>
+  </g>
+
+  <!-- 兵牌主体 240×164 (放大版，约 3× 实际尺寸) -->
+  <g transform="translate(120, 90)">
+    <!-- 底框 + 渐变 -->
+    <rect x="0" y="0" width="240" height="164" rx="6"
+          fill="url(#bgWehrmacht)" stroke="#0a0a0a" stroke-width="2"/>
+    <!-- 顶部高光条 -->
+    <rect x="2" y="2" width="236" height="18" rx="4" fill="url(#topShine)"/>
+
+    <!-- ─── 顶部条带：师番号 + 类型 + NATO 规模 ─── -->
+    <!-- 顶部 NATO 师级标识：III (3 横线) -->
+    <g transform="translate(108, -8)">
+      <rect x="0" y="0" width="3" height="6" fill="#e8d8a8"/>
+      <rect x="6" y="0" width="3" height="6" fill="#e8d8a8"/>
+      <rect x="12" y="0" width="3" height="6" fill="#e8d8a8"/>
+      <rect x="18" y="0" width="3" height="6" fill="#e8d8a8"/>
+    </g>
+
+    <!-- 左上：师番号 + 名字 -->
+    <g>
+      <text x="10" y="22" font-size="16" fill="#e8d8a8" font-weight="bold" font-family="Georgia, serif">
+        GD
+      </text>
+      <text x="36" y="20" font-size="10" fill="#c8b888">PzGren-Div</text>
+      <text x="10" y="36" font-size="9" fill="#9aa080" font-style="italic">"Großdeutschland"</text>
+    </g>
+
+    <!-- 右上：堆叠数徽章 -->
+    <g transform="translate(218, 16)">
+      <circle r="13" fill="#1a1a1a" stroke="#c8a040" stroke-width="2"/>
+      <text y="5" font-size="14" fill="#e8d8a8" text-anchor="middle" font-weight="bold">1</text>
+    </g>
+
+    <!-- 右上偏左：师徽（铁十字 + GD 缩写） -->
+    <g transform="translate(186, 8)">
+      <use href="#iron_cross" width="16" height="16"/>
+    </g>
+
+    <!-- ─── 中央：兵种 NATO 符号（机械化） ─── -->
+    <g transform="translate(60, 50)">
+      <use href="#sym_mech" width="120" height="60"/>
+      <!-- 兵种小标签 -->
+      <text x="60" y="80" font-size="9" fill="#c8b888" text-anchor="middle">MECHANIZED</text>
+    </g>
+
+    <!-- ─── 经验星标（精锐 — 3 颗金星） ─── -->
+    <g transform="translate(216, 56)">
+      <g transform="translate(0, 0)">
+        <polygon points="0,-5 1.5,-1.5 5,-1.5 2,1 3.2,5 0,2.5 -3.2,5 -2,1 -5,-1.5 -1.5,-1.5"
+                 fill="url(#goldStar)" stroke="#5a4a10" stroke-width="0.5"/>
+      </g>
+      <g transform="translate(0, 14)">
+        <polygon points="0,-5 1.5,-1.5 5,-1.5 2,1 3.2,5 0,2.5 -3.2,5 -2,1 -5,-1.5 -1.5,-1.5"
+                 fill="url(#goldStar)" stroke="#5a4a10" stroke-width="0.5"/>
+      </g>
+      <g transform="translate(0, 28)">
+        <polygon points="0,-5 1.5,-1.5 5,-1.5 2,1 3.2,5 0,2.5 -3.2,5 -2,1 -5,-1.5 -1.5,-1.5"
+                 fill="url(#goldStar)" stroke="#5a4a10" stroke-width="0.5"/>
+      </g>
+    </g>
+
+    <!-- ─── 底部信息条 ─── -->
+    <!-- ORG 条 -->
+    <g transform="translate(10, 122)">
+      <text y="9" font-size="10" fill="#c8b888" font-weight="bold">ORG</text>
+      <rect x="32" y="0" width="160" height="10" fill="#0a0a0a" stroke="#3a3a3a" stroke-width="1"/>
+      <rect x="33" y="1" width="142" height="8" fill="url(#orgGreen)"/>
+      <!-- 刻度线 -->
+      <line x1="72" y1="0" x2="72" y2="10" stroke="#1a1a1a" stroke-width="0.5"/>
+      <line x1="112" y1="0" x2="112" y2="10" stroke="#1a1a1a" stroke-width="0.5"/>
+      <line x1="152" y1="0" x2="152" y2="10" stroke="#1a1a1a" stroke-width="0.5"/>
+      <text x="220" y="9" font-size="10" fill="#c8b888" text-anchor="end">89%</text>
+    </g>
+
+    <!-- STR 条 -->
+    <g transform="translate(10, 138)">
+      <text y="9" font-size="10" fill="#c8b888" font-weight="bold">STR</text>
+      <rect x="32" y="0" width="160" height="10" fill="#0a0a0a" stroke="#3a3a3a" stroke-width="1"/>
+      <rect x="33" y="1" width="153" height="8" fill="url(#strYellow)"/>
+      <line x1="72" y1="0" x2="72" y2="10" stroke="#1a1a1a" stroke-width="0.5"/>
+      <line x1="112" y1="0" x2="112" y2="10" stroke="#1a1a1a" stroke-width="0.5"/>
+      <line x1="152" y1="0" x2="152" y2="10" stroke="#1a1a1a" stroke-width="0.5"/>
+      <text x="220" y="9" font-size="10" fill="#c8b888" text-anchor="end">96%</text>
+    </g>
+
+    <!-- 底部状态行：将领 + 位置 -->
+    <g transform="translate(10, 154)">
+      <text y="6" font-size="8" fill="#9aa080">⚔ Gen. v.Manstein</text>
+      <text x="220" y="6" font-size="8" fill="#9aa080" text-anchor="end">@ Voronezh</text>
+    </g>
+
+  </g>
+
+  <!-- ============= 标注 ============= -->
+  <g font-size="10" fill="#e8d8a8">
+    <!-- 师番号 -->
+    <line x1="120" y1="112" x2="80" y2="112" stroke="#c8b888" stroke-width="0.8"/>
+    <line x1="80" y1="112" x2="80" y2="320" stroke="#c8b888" stroke-width="0.8"/>
+    <text x="20" y="324" font-size="9" fill="#c8b888">① 师番号 + 类型 + 别号</text>
+
+    <!-- NATO 规模 -->
+    <line x1="240" y1="84" x2="240" y2="68" stroke="#c8b888" stroke-width="0.8"/>
+    <text x="245" y="72" font-size="9" fill="#c8b888">② NATO 师级 (III)</text>
+
+    <!-- 堆叠徽章 -->
+    <line x1="338" y1="106" x2="395" y2="106" stroke="#c8b888" stroke-width="0.8"/>
+    <text x="398" y="110" font-size="9" fill="#c8b888">③ 堆叠师数</text>
+
+    <!-- 师徽 -->
+    <line x1="320" y1="96" x2="395" y2="80" stroke="#c8b888" stroke-width="0.8"/>
+    <text x="398" y="84" font-size="9" fill="#c8b888">④ 师徽（铁十字）</text>
+
+    <!-- 兵种 -->
+    <line x1="240" y1="160" x2="395" y2="160" stroke="#c8b888" stroke-width="0.8"/>
+    <text x="398" y="164" font-size="9" fill="#c8b888">⑤ 兵种符号 (机械化)</text>
+
+    <!-- 经验星 -->
+    <line x1="338" y1="142" x2="395" y2="200" stroke="#c8b888" stroke-width="0.8"/>
+    <text x="398" y="204" font-size="9" fill="#c8b888">⑥ 经验 ★★★ 精锐</text>
+
+    <!-- ORG -->
+    <line x1="120" y1="218" x2="80" y2="218" stroke="#c8b888" stroke-width="0.8"/>
+    <text x="20" y="222" font-size="9" fill="#c8b888">⑦ 组织度 89%</text>
+
+    <!-- STR -->
+    <line x1="120" y1="234" x2="80" y2="234" stroke="#c8b888" stroke-width="0.8"/>
+    <text x="20" y="238" font-size="9" fill="#c8b888">⑧ 战力 96%</text>
+
+    <!-- 选中边框 -->
+    <line x1="118" y1="86" x2="60" y2="40" stroke="#ffd860" stroke-width="0.8"/>
+    <text x="20" y="38" font-size="9" fill="#ffd860">⑨ 选中态金色外框</text>
+  </g>
+
+  <!-- ============= 编制详情面板 ============= -->
+  <g transform="translate(20, 280)">
+    <text x="0" y="0" font-size="11" fill="#e8d8a8" font-weight="bold">编制 (1942):</text>
+    <g font-size="9" fill="#c8b888">
+      <text x="0" y="16">• 2× 装甲掷弹兵团 (motorized)</text>
+      <text x="170" y="16">• 1× 装甲营 (Panzer III/IV)</text>
+      <text x="0" y="30">• 1× 摩托化炮兵团</text>
+      <text x="170" y="30">• 1× 突击炮营 (StuG III)</text>
+      <text x="0" y="44">• 1× 摩托化侦察营</text>
+      <text x="170" y="44">• 1× 工兵 + 反坦克 + 防空营</text>
+    </g>
+  </g>
+</svg>

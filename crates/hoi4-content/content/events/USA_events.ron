@@ -1,0 +1,78 @@
+EventDb(
+    events: [
+        Event(
+            id: "usa.pearl_harbor_attacked",
+            title: "Pearl Harbor Attacked",
+            description: "Japanese aircraft have struck Pearl Harbor. The United States enters the war with overwhelming public support.",
+            picture: "GFX_event_pearl_harbor",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "A day of infamy.",
+                    effects: [
+                        AddWarSupport(0.35),
+                        AddStability(0.05),
+                        AddPoliticalPower(100.0),
+                        SetCountryFlag("pearl_harbor_attacked"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "usa.arsenal_of_democracy",
+            title: "Arsenal of Democracy",
+            description: "American industry shifts toward a full wartime footing. Shipyards, aircraft factories and vehicle plants expand production for a global war.",
+            picture: "GFX_event_american_industry",
+            trigger: Date(year: 1941, month: 12, day: 8),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Mobilize industry.",
+                    effects: [
+                        AddGovernmentOrder(equipment_category: "aircraft", daily_budget_rm: 850000.0, duration_days: 365),
+                        AddGovernmentOrder(equipment_category: "naval_vessel", daily_budget_rm: 1100000.0, duration_days: 365),
+                        AddGovernmentOrder(equipment_category: "convoy", daily_budget_rm: 400000.0, duration_days: 365),
+                        SetCountryFlag("arsenal_of_democracy_active"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "usa.island_hopping_strategy",
+            title: "Island Hopping Strategy",
+            description: "American planners prepare a central Pacific advance built around carriers, amphibious landings and forward air bases.",
+            picture: "GFX_event_pacific_marines",
+            trigger: Date(year: 1943, month: 1, day: 1),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Build the road back across the Pacific.",
+                    effects: [
+                        NavyExperience(25.0),
+                        AddGovernmentOrder(equipment_category: "convoy", daily_budget_rm: 450000.0, duration_days: 365),
+                        SetCountryFlag("island_hopping_strategy"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "usa.lend_lease_to_china",
+            title: "Aid to China Expanded",
+            description: "With the United States at war with Japan, aid to China is expanded through every route still open.",
+            picture: "GFX_event_lend_lease_china",
+            trigger: Date(year: 1942, month: 3, day: 1),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Keep China in the war.",
+                    effects: [
+                        AddWarSupport(0.03),
+                        SetCountryFlag("china_lend_lease_expanded"),
+                    ],
+                ),
+            ],
+        ),
+    ],
+)

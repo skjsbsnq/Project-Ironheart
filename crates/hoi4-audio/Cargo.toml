@@ -1,0 +1,8 @@
+[package]
+name = "hoi4-audio"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hoi4-paths = { path = "../hoi4-paths" }
+rodio = "0.19"

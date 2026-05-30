@@ -1,0 +1,44 @@
+SituationDb(
+    situations: [
+        SituationDef(
+            id: "spanish_civil_war",
+            title: "西班牙内战",
+            description: "共和国、西班牙军官集团、工会民兵、教会和地方势力把国家拖入内战。战争的走向由地图控制、后方秩序和派系选择共同决定。",
+            sides: [
+                SituationSide(id: "republic", name: "共和国", color: (196, 154, 66), initial_progress: 50.0, default_supporters: ["SPR"]),
+                SituationSide(id: "nationalists", name: "国民军", color: (64, 96, 160), initial_progress: 50.0, default_supporters: ["SPA"]),
+            ],
+            interventions: [],
+            base_progress: [0.0, 0.0],
+            progress_source: TerritorialControl(side_country_tags: [["SPR"], ["SPA"]]),
+            milestones: [],
+            milestone_effects: [],
+            start_date: (1936, 7, 17),
+            end_date: (1939, 4, 1),
+            on_start: [
+                SplitCountryByStates(
+                    source_tag: "SPR",
+                    rebel_tag: "SPA",
+                    rebel_color: (64, 96, 160),
+                    rebel_party: "fascist",
+                    rebel_states: [166, 169, 171, 172, 173, 174, 176, 177, 178, 290, 788, 789, 791],
+                    manpower_fraction: 0.45,
+                ),
+                SplitDivisions(source_tag: "SPR", rebel_tag: "SPA", fraction: 0.45),
+                SpawnFrontlineDivisions(tag: "SPR", enemy_tag: "SPA", density: 2),
+                SpawnFrontlineDivisions(tag: "SPA", enemy_tag: "SPR", density: 1),
+                SpawnDivisionsInStates(tag: "SPA", states: [166, 169, 171, 172, 173, 174, 176, 290, 788, 789, 791], count_per_state: 1, template_priority: ["infantry", "Infantry"]),
+                SetCountryFlag(country: "SPR", flag: "spanish_civil_war_started"),
+                SetCountryFlag(country: "SPA", flag: "spanish_civil_war_started"),
+                SetCountryFlag(country: "SPA", flag: "spa_sanjurjo_dead"),
+                TriggerEvent("hidden.scw_initialize_rebel_state"),
+                TriggerEvent("spain.scw_choose_side"),
+                TriggerEvent("news.scw_outbreak"),
+            ],
+            on_end: [
+                [SetCountryFlag(country: "SPR", flag: "spr_scw_survived"), TriggerEvent("news.scw_republican_victory")],
+                [SetCountryFlag(country: "SPA", flag: "spa_scw_victory"), TriggerEvent("news.scw_nationalist_victory")],
+            ],
+        ),
+    ],
+)

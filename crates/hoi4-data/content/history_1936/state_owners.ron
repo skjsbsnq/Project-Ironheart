@@ -1,0 +1,74 @@
+#![enable(implicit_some)]
+
+[
+    // Self-authored 1936 start ownership overrides.
+    // These entries are the source of truth for disputed/date-scripted European states.
+    // We still read vanilla state files for map geometry, province membership, resources,
+    // and names, but not for these states' 1936 political ownership.
+
+    // Austria, independent on 1936-01-01. Anschluss happens later by focus/event.
+    (state_id: 4, owner: "AUS", cores: ["AUS"]),
+    (state_id: 152, owner: "AUS", cores: ["AUS"]),
+    (state_id: 153, owner: "AUS", cores: ["AUS"]),
+    (state_id: 848, owner: "AUS", cores: ["AUS"]),
+    (state_id: 975, owner: "AUS", cores: ["AUS"]),
+    (state_id: 976, owner: "AUS", cores: ["AUS"]),
+
+    // Czechoslovakia before Munich and the March 1939 occupation.
+    (state_id: 69, owner: "CZE", cores: ["CZE"]),
+    (state_id: 74, owner: "CZE", cores: ["CZE"]),
+    (state_id: 75, owner: "CZE", cores: ["CZE"]),
+    (state_id: 972, owner: "CZE", cores: ["CZE"]),
+
+    // Memel/Klaipeda before the 1939 German ultimatum.
+    (state_id: 188, owner: "LIT", cores: ["LIT"]),
+
+    // China 1936 regional governments. Explicit here so future vanilla-history
+    // date blocks or DLC changes cannot collapse all China into CHI.
+    (state_id: 283, owner: "XSM", cores: ["XSM", "CHI"]),
+    (state_id: 287, owner: "SIK", cores: ["SIK"]),
+    (state_id: 322, owner: "TIB", cores: ["TIB"]),
+    (state_id: 325, owner: "YUN", cores: ["YUN", "CHI"]),
+    (state_id: 591, owner: "GDC", cores: ["GDC", "CHI"]),
+    (state_id: 592, owner: "GDC", cores: ["GDC", "CHI"]),
+    (state_id: 593, owner: "GDC", cores: ["GDC", "CHI"]),
+    (state_id: 594, owner: "GXC", cores: ["GXC", "CHI"]),
+    (state_id: 599, owner: "GXC", cores: ["GXC", "CHI"]),
+    (state_id: 601, owner: "TIB", cores: ["TIB"]),
+    (state_id: 604, owner: "XSM", cores: ["XSM", "CHI"]),
+    (state_id: 608, owner: "HBC", cores: ["HBC", "CHI"]),
+    (state_id: 610, owner: "MAN", cores: ["MAN", "CHI"]),
+    (state_id: 611, owner: "MEN", cores: ["MEN", "CHI"]),
+    (state_id: 612, owner: "MEN", cores: ["MEN", "CHI"]),
+    (state_id: 615, owner: "SHX", cores: ["SHX", "CHI"]),
+    (state_id: 616, owner: "XSM", cores: ["XSM", "CHI"]),
+    (state_id: 617, owner: "SIK", cores: ["SIK"]),
+    (state_id: 618, owner: "SIK", cores: ["SIK"]),
+    (state_id: 619, owner: "SIK", cores: ["SIK"]),
+    (state_id: 620, owner: "CHI", cores: ["CHI"]),
+    (state_id: 621, owner: "SHX", cores: ["SHX", "CHI"]),
+    (state_id: 622, owner: "PRC", cores: ["PRC", "CHI"]),
+    (state_id: 1038, owner: "SND", cores: ["SND", "CHI"]),
+    (state_id: 1039, owner: "HBC", cores: ["HBC", "CHI"]),
+    (state_id: 1037, owner: "SIC", cores: ["SIC", "CHI"]),
+    (state_id: 1041, owner: "SIC", cores: ["SIC", "CHI"]),
+    (state_id: 714, owner: "MAN", cores: ["MAN", "CHI"]),
+    (state_id: 715, owner: "MAN", cores: ["MAN", "CHI"]),
+    (state_id: 716, owner: "MAN", cores: ["MAN", "CHI"]),
+    (state_id: 717, owner: "MAN", cores: ["MAN", "CHI"]),
+    (state_id: 746, owner: "SHX", cores: ["SHX", "CHI"]),
+    (state_id: 744, owner: "XAJ", cores: ["XAJ", "CHI"]),
+    (state_id: 747, owner: "YUN", cores: ["YUN", "CHI"]),
+    (state_id: 597, owner: "SND", cores: ["SND", "CHI"]),
+    (state_id: 743, owner: "SND", cores: ["SND", "CHI"]),
+    (state_id: 751, owner: "SIC", cores: ["SIC", "CHI"]),
+    (state_id: 753, owner: "XSM", cores: ["XSM", "CHI"]),
+    (state_id: 754, owner: "XSM", cores: ["XSM", "CHI"]),
+    (state_id: 755, owner: "XSM", cores: ["XSM", "CHI"]),
+    (state_id: 756, owner: "XSM", cores: ["XSM", "CHI"]),
+    (state_id: 757, owner: "TIB", cores: ["TIB"]),
+    (state_id: 758, owner: "TIB", cores: ["TIB"]),
+    (state_id: 759, owner: "SIK", cores: ["SIK"]),
+    (state_id: 760, owner: "SIK", cores: ["SIK"]),
+    (state_id: 761, owner: "MAN", cores: ["MAN", "CHI"]),
+]

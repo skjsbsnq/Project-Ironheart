@@ -1,0 +1,72 @@
+#![enable(implicit_some)]
+
+// USA 1936 ~ 128.8M census | Peasant 19%, Worker 23%, Clerk 31%, Capitalist 1.8%, Aristocrat 0.3%, Soldier 1.9%
+// ~17% unemployment so satisfaction depressed. Large service sector. Small military pre-war.
+(
+    total_population: 128800000,
+    groups: [
+        // ── 285 Midwest Industrial (IL/IN/OH/MI/WI) ~ 28M ──
+        (state_id: 285, class: Peasant,    size: 5000000, employed_at: None, wage_rm: 2.0, satisfaction: 0.42, political_loyalty: 0.05),
+        (state_id: 285, class: Worker,     size: 9000000, employed_at: None, wage_rm: 4.5, satisfaction: 0.38, political_loyalty: 0.02),
+        (state_id: 285, class: Clerk,      size: 8500000, employed_at: None, wage_rm: 7.5, satisfaction: 0.52, political_loyalty: 0.10),
+        (state_id: 285, class: Capitalist, size: 450000,  employed_at: None, wage_rm: 28.0, satisfaction: 0.65, political_loyalty: 0.25),
+        (state_id: 285, class: Aristocrat, size: 50000,   employed_at: None, wage_rm: 40.0, satisfaction: 0.60, political_loyalty: 0.30),
+        (state_id: 285, class: Soldier,    size: 500000,  employed_at: None, wage_rm: 3.5, satisfaction: 0.48, political_loyalty: 0.55),
+
+        // ── 202 Pennsylvania / WV ~ 10M ──
+        (state_id: 202, class: Peasant,    size: 1200000, employed_at: None, wage_rm: 2.2, satisfaction: 0.45, political_loyalty: 0.10),
+        (state_id: 202, class: Worker,     size: 3500000, employed_at: None, wage_rm: 4.5, satisfaction: 0.42, political_loyalty: 0.08),
+        (state_id: 202, class: Clerk,      size: 3200000, employed_at: None, wage_rm: 7.2, satisfaction: 0.55, political_loyalty: 0.12),
+        (state_id: 202, class: Capitalist, size: 180000,  employed_at: None, wage_rm: 26.0, satisfaction: 0.65, political_loyalty: 0.28),
+        (state_id: 202, class: Aristocrat, size: 20000,   employed_at: None, wage_rm: 38.0, satisfaction: 0.58, political_loyalty: 0.32),
+        (state_id: 202, class: Soldier,    size: 200000,  employed_at: None, wage_rm: 3.5, satisfaction: 0.50, political_loyalty: 0.55),
+
+        // ── 276 California ~ 6.5M ──
+        (state_id: 276, class: Peasant,    size: 900000,  employed_at: None, wage_rm: 2.0, satisfaction: 0.48, political_loyalty: 0.12),
+        (state_id: 276, class: Worker,     size: 1700000, employed_at: None, wage_rm: 4.8, satisfaction: 0.45, political_loyalty: 0.08),
+        (state_id: 276, class: Clerk,      size: 2200000, employed_at: None, wage_rm: 7.8, satisfaction: 0.58, political_loyalty: 0.15),
+        (state_id: 276, class: Capitalist, size: 160000,  employed_at: None, wage_rm: 30.0, satisfaction: 0.68, political_loyalty: 0.25),
+        (state_id: 276, class: Aristocrat, size: 10000,   employed_at: None, wage_rm: 42.0, satisfaction: 0.62, political_loyalty: 0.28),
+        (state_id: 276, class: Soldier,    size: 130000,  employed_at: None, wage_rm: 3.5, satisfaction: 0.52, political_loyalty: 0.55),
+
+        // ── 283 Texas ~ 6.5M ──
+        (state_id: 283, class: Peasant,    size: 2200000, employed_at: None, wage_rm: 1.8, satisfaction: 0.45, political_loyalty: 0.18),
+        (state_id: 283, class: Worker,     size: 1800000, employed_at: None, wage_rm: 4.2, satisfaction: 0.42, political_loyalty: 0.12),
+        (state_id: 283, class: Clerk,      size: 1500000, employed_at: None, wage_rm: 6.8, satisfaction: 0.52, political_loyalty: 0.15),
+        (state_id: 283, class: Capitalist, size: 90000,   employed_at: None, wage_rm: 24.0, satisfaction: 0.62, political_loyalty: 0.28),
+        (state_id: 283, class: Aristocrat, size: 10000,   employed_at: None, wage_rm: 36.0, satisfaction: 0.58, political_loyalty: 0.30),
+        (state_id: 283, class: Soldier,    size: 120000,  employed_at: None, wage_rm: 3.5, satisfaction: 0.50, political_loyalty: 0.55),
+
+        // ── 290 New England ~ 8.5M ──
+        (state_id: 290, class: Peasant,    size: 600000,  employed_at: None, wage_rm: 2.5, satisfaction: 0.50, political_loyalty: 0.10),
+        (state_id: 290, class: Worker,     size: 2400000, employed_at: None, wage_rm: 5.0, satisfaction: 0.45, political_loyalty: 0.08),
+        (state_id: 290, class: Clerk,      size: 3400000, employed_at: None, wage_rm: 8.5, satisfaction: 0.60, political_loyalty: 0.15),
+        (state_id: 290, class: Capitalist, size: 250000,  employed_at: None, wage_rm: 32.0, satisfaction: 0.70, political_loyalty: 0.28),
+        (state_id: 290, class: Aristocrat, size: 15000,   employed_at: None, wage_rm: 45.0, satisfaction: 0.65, political_loyalty: 0.30),
+        (state_id: 290, class: Soldier,    size: 135000,  employed_at: None, wage_rm: 3.5, satisfaction: 0.52, political_loyalty: 0.55),
+
+        // ── 293 Mid-Atlantic (NJ/DE/MD) ~ 8M ──
+        (state_id: 293, class: Peasant,    size: 500000,  employed_at: None, wage_rm: 2.2, satisfaction: 0.50, political_loyalty: 0.12),
+        (state_id: 293, class: Worker,     size: 2200000, employed_at: None, wage_rm: 4.8, satisfaction: 0.45, political_loyalty: 0.08),
+        (state_id: 293, class: Clerk,      size: 3200000, employed_at: None, wage_rm: 7.5, satisfaction: 0.58, political_loyalty: 0.15),
+        (state_id: 293, class: Capitalist, size: 190000,  employed_at: None, wage_rm: 28.0, satisfaction: 0.68, political_loyalty: 0.25),
+        (state_id: 293, class: Aristocrat, size: 10000,   employed_at: None, wage_rm: 40.0, satisfaction: 0.62, political_loyalty: 0.28),
+        (state_id: 293, class: Soldier,    size: 140000,  employed_at: None, wage_rm: 3.5, satisfaction: 0.52, political_loyalty: 0.55),
+
+        // ── 294 Southeast ~ 15M ──
+        (state_id: 294, class: Peasant,    size: 6800000, employed_at: None, wage_rm: 1.5, satisfaction: 0.35, political_loyalty: 0.25),
+        (state_id: 294, class: Worker,     size: 3400000, employed_at: None, wage_rm: 3.5, satisfaction: 0.38, political_loyalty: 0.15),
+        (state_id: 294, class: Clerk,      size: 2800000, employed_at: None, wage_rm: 5.8, satisfaction: 0.48, political_loyalty: 0.18),
+        (state_id: 294, class: Capitalist, size: 120000,  employed_at: None, wage_rm: 20.0, satisfaction: 0.58, political_loyalty: 0.28),
+        (state_id: 294, class: Aristocrat, size: 30000,   employed_at: None, wage_rm: 32.0, satisfaction: 0.50, political_loyalty: 0.32),
+        (state_id: 294, class: Soldier,    size: 230000,  employed_at: None, wage_rm: 3.2, satisfaction: 0.48, political_loyalty: 0.55),
+
+        // ── 195 South-Central Plains ~ 12M ──
+        (state_id: 195, class: Peasant,    size: 5200000, employed_at: None, wage_rm: 1.6, satisfaction: 0.40, political_loyalty: 0.20),
+        (state_id: 195, class: Worker,     size: 2400000, employed_at: None, wage_rm: 3.8, satisfaction: 0.40, political_loyalty: 0.12),
+        (state_id: 195, class: Clerk,      size: 2400000, employed_at: None, wage_rm: 6.0, satisfaction: 0.50, political_loyalty: 0.15),
+        (state_id: 195, class: Capitalist, size: 100000,  employed_at: None, wage_rm: 22.0, satisfaction: 0.58, political_loyalty: 0.25),
+        (state_id: 195, class: Aristocrat, size: 20000,   employed_at: None, wage_rm: 34.0, satisfaction: 0.52, political_loyalty: 0.28),
+        (state_id: 195, class: Soldier,    size: 220000,  employed_at: None, wage_rm: 3.2, satisfaction: 0.48, political_loyalty: 0.55),
+    ],
+)

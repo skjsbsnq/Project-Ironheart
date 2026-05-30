@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "AST",
+    population: 6800000,
+    gdp_1936_gbp: 3600000000.0,
+    gdp_quality: Estimated,
+    sector_shares: (agriculture: 0.24, mining: 0.10, heavy_industry: 0.12, light_industry: 0.11, services: 0.25, government: 0.11, military_industry: 0.07),
+    urbanization: 0.58,
+    literacy: 0.93,
+    unemployment: 0.09,
+    industrial_capacity_index: 5.0,
+    military_spending_share: 0.03,
+    construction_capacity_index: 5.0,
+    gold_reserve_gbp: 70000000.0,
+    foreign_exchange_reserve_gbp: 90000000.0,
+    public_debt_gbp: 900000000.0,
+    initial_laws: (conscription: "volunteer_only", economy: "interventionism", trade: "free_trade", taxation: "medium_taxation", civil_rights: "open_society", information_control: "free_press"),
+)

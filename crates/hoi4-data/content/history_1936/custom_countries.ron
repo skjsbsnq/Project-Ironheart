@@ -1,0 +1,16 @@
+#![enable(implicit_some)]
+
+[
+    (
+        tag: "GDC",
+        color: (r: 84, g: 156, b: 88),
+        capital: 592,
+        ruling_party: "neutrality",
+    ),
+    (
+        tag: "XAJ",
+        color: (r: 92, g: 132, b: 82),
+        capital: 744,
+        ruling_party: "neutrality",
+    ),
+]

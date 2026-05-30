@@ -1,0 +1,59 @@
+#![enable(implicit_some)]
+
+(
+    id: "sov_second_plan",
+    name: "苏联第二个五年计划（1933-1937）",
+    year_start: 1933,
+    year_end: 1937,
+    focus_tech_directions: ["industry_2", "electrical_engineering_1", "combustion_engine"],
+    focus_bonus: 0.30,
+    off_focus_penalty: -0.20,
+    targets: [
+        (
+            good_id: "steel",
+            target_daily_output: 9000.0,
+        ),
+        (
+            good_id: "coal",
+            target_daily_output: 12000.0,
+        ),
+        (
+            good_id: "machinery",
+            target_daily_output: 4500.0,
+        ),
+        (
+            good_id: "chemicals",
+            target_daily_output: 3000.0,
+        ),
+        (
+            good_id: "engines",
+            target_daily_output: 1500.0,
+        ),
+        (
+            good_id: "grain",
+            target_daily_output: 8000.0,
+        ),
+    ],
+    forced_pms: [
+        (
+            building_def_id: "steel_mill",
+            forced_pm_id: "default",
+        ),
+        (
+            building_def_id: "coal_mine",
+            forced_pm_id: "default",
+        ),
+        (
+            building_def_id: "machinery_workshop",
+            forced_pm_id: "default",
+        ),
+        (
+            building_def_id: "chemical_plant",
+            forced_pm_id: "default",
+        ),
+        (
+            building_def_id: "grain_farm",
+            forced_pm_id: "default",
+        ),
+    ],
+)

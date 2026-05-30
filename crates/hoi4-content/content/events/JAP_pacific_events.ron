@@ -1,0 +1,110 @@
+EventDb(
+    events: [
+        Event(
+            id: "japan.pacific_war_plan",
+            title: "Southern Operation Approved",
+            description: "The embargo and the war in China have pushed Japan toward a decisive southern advance. The navy prepares to strike the American Pacific Fleet while the army moves on Malaya, the Philippines and the Dutch East Indies.",
+            picture: "GFX_event_japanese_navy",
+            trigger: Date(year: 1941, month: 11, day: 5),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Secure the southern resources.",
+                    effects: [
+                        AddWarSupport(0.12),
+                        NavyExperience(15.0),
+                        SetCountryFlag("pacific_war_plan_approved"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.pearl_harbor_strike",
+            title: "Strike on Pearl Harbor",
+            description: "Carrier aircraft of the Kido Butai strike the American Pacific Fleet at Pearl Harbor. Japan has chosen a general war across the Pacific.",
+            picture: "GFX_event_pearl_harbor",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Tora! Tora! Tora!",
+                    effects: [
+                        AddWarSupport(0.15),
+                        NavyExperience(25.0),
+                        AddNamedThreat(15.0),
+                        SetCountryFlag("pearl_harbor_struck"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.malaya_operation",
+            title: "Operation in Malaya",
+            description: "Japanese forces land in northern Malaya and drive toward Singapore. The campaign depends on sea control, convoys and rapid movement through difficult terrain.",
+            picture: "GFX_event_malaya",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Advance on Singapore.",
+                    effects: [
+                        SetCountryFlag("jap_priority_malaya_singapore"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.philippines_operation",
+            title: "Operation in the Philippines",
+            description: "The Philippines guard the American route into the western Pacific. Japanese forces prepare landings on Luzon and the approaches to Manila Bay.",
+            picture: "GFX_event_philippines",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Take the American bastion.",
+                    effects: [
+                        SetCountryFlag("jap_priority_philippines"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.dutch_east_indies_operation",
+            title: "Drive on the Dutch East Indies",
+            description: "Oil from the Dutch East Indies is the strategic prize of the southern advance. The navy and army coordinate convoy routes, escort cover and island landings.",
+            picture: "GFX_event_dutch_east_indies",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Seize the oil fields.",
+                    effects: [
+                        AddWarSupport(0.05),
+                        SetCountryFlag("jap_priority_dutch_east_indies"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "japan.burma_road_pressure",
+            title: "Pressure on Burma",
+            description: "Japanese planners seek to cut the Burma Road and isolate China from Allied aid. The campaign links the Pacific War with the long war on the mainland.",
+            picture: "GFX_event_burma",
+            trigger: Date(year: 1942, month: 1, day: 15),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Cut the supply routes.",
+                    effects: [
+                        SetCountryFlag("jap_priority_burma_road"),
+                    ],
+                ),
+            ],
+        ),
+    ],
+)

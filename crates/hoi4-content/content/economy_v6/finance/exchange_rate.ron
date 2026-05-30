@@ -1,0 +1,10 @@
+#![enable(implicit_some)]
+
+(
+    base_rate: 12.5,
+    gold_modifier_per_1000kg: -0.005,
+    debt_pressure_threshold: 0.5,
+    debt_pressure_modifier: 0.01,
+    weekly_ema_factor: 0.05,
+    crisis_monthly_change_threshold: 0.10,
+)

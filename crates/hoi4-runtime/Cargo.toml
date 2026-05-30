@@ -1,0 +1,13 @@
+[package]
+name = "hoi4-runtime"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hoi4-ai = { path = "../hoi4-ai" }
+hoi4-content = { path = "../hoi4-content" }
+hoi4-data = { path = "../hoi4-data" }
+hoi4-logic = { path = "../hoi4-logic" }
+hoi4-map = { path = "../hoi4-map" }
+hoi4-script = { path = "../hoi4-script" }
+hoi4-state = { path = "../hoi4-state" }

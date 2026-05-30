@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "SND",
+    population: 36000000,
+    gdp_1936_gbp: 1450000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.58, mining: 0.05, heavy_industry: 0.03, light_industry: 0.08, services: 0.13, government: 0.09, military_industry: 0.04),
+    urbanization: 0.12,
+    literacy: 0.21,
+    unemployment: 0.04,
+    industrial_capacity_index: 1.1,
+    military_spending_share: 0.10,
+    construction_capacity_index: 0.8,
+    gold_reserve_gbp: 6000000.0,
+    foreign_exchange_reserve_gbp: 2500000.0,
+    public_debt_gbp: 90000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "import_substitution", taxation: "medium_taxation", civil_rights: "limited_rights", information_control: "regulated_press"),
+)

@@ -1,0 +1,1611 @@
+EventDb(
+    events: [
+        Event(
+            id: "spa.scw_junta_forms",
+            title: "布尔戈斯的军靴与木料",
+            description: "卡瓦内利亚斯最先听到的是靴底踩在潮湿地砖上的声音。临时征用的省政府大楼还没晾干木料，莫拉的北方军区联络官已经在走廊里摊开了铁路调度图，佛朗哥的代表把非洲军团电报和德国驻加那利群岛领事回函折成一个薄夹子，推开会议室的门。
+
+屋子里坐了十二个人，没有一个人想先开口谈权力。所有人都在谈'效率'——运输效率、军需效率、电报效率——因为谈效率可以暂时不回答同一个问题：这场叛乱到底属于谁。
+
+卡瓦内利亚斯请书记员记下第一项议程：'讨论国防委员会的临时组织形式。'他用了'讨论'而不是'决定'，因为此刻还说不准谁能决定什么。莫拉的联络官立刻要求委员会承认北方阴谋网络优先权。佛朗哥的代表没有争执，只是把夹子推到桌子中间，用手指点着外援回电的页码说：飞机、燃油和运输承诺需要一个能立刻回电的联络人。
+
+起义者已经有了军队，有了电台，有了外国人的耳朵。但能让这些碎片变成国家的只有一条路径——有人必须被允许签字。谁签字、谁副署、谁在谁的名字下面画押——打字机还没开始印命令，但权力已经在那张空白的公文纸上开始重新排列。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "维持军政府合议。",
+                    effects: [
+                        TriggerEvent("hidden.scw_initialize_rebel_state"),
+                        SetCountryFlag("spa_mola_prominent"),
+                        SetCountryFlag("spa_axis_leadership_junta"),
+                        SetCountryFlag("spa_junta_collective_opening"),
+                        AddToVariable(name: "spa_army_loyalty", value: 2.0),
+                        AddToVariable(name: "spa_franco_authority", value: -1.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        TriggerEvent("spa.scw_sanjurjo_plane_crash"),
+                    ],
+                    ai_chance: 0.4,
+                ),
+                EventOption(
+                    name: "让佛朗哥协调非洲军团与外援。",
+                    effects: [
+                        TriggerEvent("hidden.scw_initialize_rebel_state"),
+                        SetCountryFlag("spa_franco_supreme_command"),
+                        SetCountryFlag("spa_axis_leadership_franco"),
+                        SetCountryFlag("spa_franco_logistics_opening"),
+                        AddToVariable(name: "spa_franco_authority", value: 1.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        TriggerEvent("spa.scw_sanjurjo_plane_crash"),
+                    ],
+                    ai_chance: 0.6,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_sanjurjo_plane_crash",
+            title: "一截烧焦的行李箱",
+            description: "电报机在凌晨三点先于所有人知道了消息。布尔戈斯临时司令部的值班电报员被从葡萄牙方向传来的密码打断——不是前线战报，而是一则读起来更像气象报告的急电：一架德哈维兰龙型飞机从埃什托里尔起飞后失速，坠毁于近郊树林。机上仅有的乘客何塞·桑胡尔霍·萨卡内尔将军——1932年政变的策划者、共和国监狱里的叛乱元勋、此刻正被所有起义军官当作名义旗帜的流亡老人——正躺在一堆烧焦的行李和一件未能穿上的礼服中间。
+
+桑胡尔霍本应穿着那件礼服飞抵布尔戈斯，让满屋子谁也不服谁的将领们至少能假装服从同一个人的意志。他带了一箱勋章和一箱承诺：对卡洛斯派的王位暗示、对莫拉北方阴谋网络的认可、对佛朗哥那支远在非洲的精锐军团敷衍的安抚。后来有人在残骸中找到了那些烧得只剩金线的绶带，却没有找到任何关于权力分配的遗嘱、任何指定继承人的记录、任何能让这场叛乱假装拥有同一个主人的文件。
+
+消息在清晨六点抵达参谋室。卡瓦内利亚斯最先被叫醒，莫拉的北方军区联络官在走廊里压低声音互相询问同一句话：阴谋网络现在属于谁？卡洛斯派代表翻开旧日交谈的碎片——桑胡尔霍曾亲口答应王位问题会在胜利后优先讨论，现在谁能在那张永远开不出的支票上签字？打字员站在门口，不知道该用'桑胡尔霍将军的名义'还是'国防委员会的名义'起草下一批调度命令。
+
+佛朗哥此时仍在加那利群岛。他的第一封回电在坠机消息后三小时送达布尔戈斯——措辞谨慎得像一篇官样悼词：对将军之死表示沉痛，对运动之继续表示信心，对指挥权问题只字不提。后来替佛朗哥整理电报的秘书曾对同事说，那几行字读起来像在等另一个人先说错话，然后他的沉默就会变成证据。
+
+办公室里没有人公开哭泣。桑胡尔霍的死亡没有结束叛乱，却拆掉了叛乱者原本准备用来遮盖彼此野心的屋顶。谁来继承这片无主的阴影——委员会合议、将领同盟、还是某一个人的名字——将从今天起决定国民军究竟是军事参谋团、战地军阀联盟，还是即将诞生在布尔戈斯潮湿办公室里的独裁机器。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "让他的权力留在国防委员会的合议桌上。",
+                    effects: [
+                        SetCountryFlag("spa_sanjurjo_dead"),
+                        SetCountryFlag("spa_sanjurjo_death_power_vacuum"),
+                        SetCountryFlag("spa_p9_memory_sanjurjo_vacuum"),
+                        KillCharacter("spa_jose_sanjurjo"),
+                        AddToVariable(name: "spa_junta_legitimacy", value: 1.0),
+                        AddToVariable(name: "spa_army_loyalty", value: 1.0),
+                        AddToVariable(name: "spa_franco_authority", value: -1.0),
+                        ClampVariable(name: "spa_junta_legitimacy", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        TriggerEvent("spa.scw_junta_of_national_defense"),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "把他的死亡变成统一统帅的最后推力。",
+                    effects: [
+                        SetCountryFlag("spa_sanjurjo_dead"),
+                        SetCountryFlag("spa_sanjurjo_death_used_for_unity"),
+                        SetCountryFlag("spa_p9_memory_sanjurjo_used_for_caudillo"),
+                        KillCharacter("spa_jose_sanjurjo"),
+                        AddWarSupport(0.01),
+                        AddToVariable(name: "spa_franco_authority", value: 2.0),
+                        AddToVariable(name: "spa_army_loyalty", value: -1.0),
+                        AddToVariable(name: "spa_carlist_anger", value: 1.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                        TriggerEvent("spa.scw_junta_of_national_defense"),
+                    ],
+                    ai_chance: 0.55,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_junta_of_national_defense",
+            title: "印章落进潮湿的纸张",
+            description: "第二天早上八点，省政府一楼的法务室变成了事实上的文官部。四名从布尔戈斯法庭借调来的书记官正在用不同的字迹誊抄同一条法令的开头，互相问谁有权在'根据'后面填名字。军需参谋把地图摊在另一张桌上，用红铅笔划出三条线——北方铁路、塞维利亚仓库群、从葡萄牙边境到布尔戈斯的短补给通道——然后用铅笔屁股敲着地图说：'命令格式不统一，铁路调度员不会理我们的。'
+
+走廊里挤着被各地方司令官派来探口风的联络员。一个人带来地主的信，问税单用省政府的印还是用国防委员会的印。一个人带来主教的口信，说教区可以立刻重开救济院，前提是委员会公开把这场战争称为十字军。一个红贝雷队长和一个蓝衫干部在楼梯口碰到一起，互相看完对方的制服，一句话没说就分头敲门去了——他们要的是两样东西：独立武装名册和随军神父。这些要求加起来，比任何一场前线战斗都更接近政治的真相：国民军不是一个人、一个党、一支军队，而是一堆彼此不认识的人被迫挤在同一张桌子上。
+
+卡瓦内利亚斯把刻着'国防委员会'的金属印章按在第一批公文上时，墨迹浸得太深，纸背透出一个模糊的十字形墨渍。后来有人回忆这一天时说：那不是合法性，那是合法性的占位符。谁能在未来夺走这把印章，就能在上面刻自己的名字。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            immediate: [
+                SetCountryFlag("spa_junta_of_national_defense_seen"),
+            ],
+            options: [
+                EventOption(
+                    name: "先把委员会建成真正的参谋政府。",
+                    effects: [
+                        SetCountryFlag("spa_junta_staff_government"),
+                        SetCountryFlag("spa_rear_supply_command_established"),
+                        SetCountryFlag("spa_p9_memory_military_bureaucracy"),
+                        AddPoliticalPower(-15.0),
+                        AddManpower(-6000),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 0.75, duration_days: 90),
+                        AddToVariable(name: "spa_army_loyalty", value: 3.0),
+                        AddToVariable(name: "spa_franco_authority", value: -1.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        TriggerEvent("spa.scw_cabanellas_warns_the_junta"),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "给前线将领更大签字权，先让命令跑起来。",
+                    effects: [
+                        SetCountryFlag("spa_junta_delegated_front_commands"),
+                        SetCountryFlag("spa_front_command_autonomy"),
+                        SetCountryFlag("spa_p9_memory_delegated_generals"),
+                        AddWarSupport(0.02),
+                        AddPoliticalPower(10.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 0.50, duration_days: 60),
+                        AddToVariable(name: "spa_franco_authority", value: 2.0),
+                        AddToVariable(name: "spa_army_loyalty", value: -1.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        TriggerEvent("spa.scw_cabanellas_warns_the_junta"),
+                    ],
+                    ai_chance: 0.55,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_cabanellas_warns_the_junta",
+            title: "卡瓦内利亚斯没有立刻离开",
+            description: "散会后，卡瓦内利亚斯让参谋们先出去，只留下莫拉的代表和佛朗哥的联络官。他让警卫把门关上，然后走到桌边那叠还没签字的最紧急命令清单旁边——非洲军团运输令、北方铁路调度授权、德国顾问联络编号——用食指点了点佛朗哥名字旁那一栏空白。
+
+'你们需要一个人来签这些字。'他说。'签完之后呢？他签字的笔不是他自己的，是你们递给他的。递出去的东西，收不回来。'
+
+这位七十三岁的将军不是出于温和派的良心才说这些话。他见过1923年的米格尔·普里莫·德·里维拉：也是临时命令、也是前线将领、也是所有人说'只需要六个月'。六年之后军靴踩上共和国的脖子。他也见过桑胡尔霍在1932年如何用一次失败政变换来了流亡中的体面——和所有政变失败者一样，他失败时还像个英雄，成功时却不可能再做英雄了。
+
+秘书在门外等了二十分钟。等他终于被叫进去时，发现卡瓦内利亚斯已经把那份运输令推到桌子另一边——他不打算阻止佛朗哥签字。他只要求在命令末尾加一行字：'本命令须经国防委员会副署。'
+
+这不是妥协。这是一道被刻在纸张边缘的防线。它不能挡住坦克，但能让将来的历史学者看清楚——权力不是某天突然出现的，是有人先把门关上，然后用手指指着一个名字说'他不会再还回来'，而房间里其他人选择了沉默。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "把警告写进委员会规则，最高指挥权必须可被副署。",
+                    effects: [
+                        SetCountryFlag("spa_cabanellas_warning_heeded"),
+                        SetCountryFlag("spa_junta_requires_countersignature"),
+                        SetCountryFlag("spa_p9_memory_caudillo_checked"),
+                        AddToVariable(name: "spa_army_loyalty", value: 2.0),
+                        AddToVariable(name: "spa_franco_authority", value: -2.0),
+                        AddToVariable(name: "spa_falange_power", value: -1.0),
+                        AddWarSupport(-0.01),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_pressure_axes_tick"),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "记录他的反对，但让佛朗哥继续集中运输、外援和非洲军团。",
+                    effects: [
+                        SetCountryFlag("spa_cabanellas_warning_ignored"),
+                        SetCountryFlag("spa_franco_authority_not_returned_warning"),
+                        SetCountryFlag("spa_p9_memory_franco_power_grab"),
+                        AddToVariable(name: "spa_franco_authority", value: 3.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                        AddToVariable(name: "spa_army_loyalty", value: -1.0),
+                        AddWarSupport(0.02),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_pressure_axes_tick"),
+                    ],
+                    ai_chance: 0.65,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_mola_northern_plan",
+            title: "导演的铅笔线",
+            description: "莫拉的地图不是画给参谋看的，是画给委员会看的。他把红贝雷民兵名册压在布尔戈斯到萨拉戈萨的铁路线上，铅笔线从纳瓦拉出发，穿过巴斯克矿区，把整条北方工业带圈成一个冷硬的椭圆。'导演'没有用'计划'这个词——他用的是'既成事实'。
+
+在莫拉的视野里，这场叛乱不能靠电台和非洲军团赢。电台会被共和国干扰，非洲军团必须先过海峡；而北方已经在打了——毕尔巴鄂的矿区、桑坦德的港口、阿斯图里亚斯的煤矿工人工会——只要把这些资源锁住，共和国的工业肺管就会先于它的军队衰竭。但他锁住北方需要委员会把铁路、军区和民兵编制权同时交给他。他交出的是服从；他换取的，是一个几乎独立于布尔戈斯之外的指挥区。
+
+佛朗哥的联络官把莫拉的要求看了一遍，只批注了一句话：'若北方接受统一战役节奏，可授权莫拉指挥北方军区。'他不是在同意莫拉的计划。他是在把莫拉的独立王国防委员会体系内。莫拉当然读懂了。他把纸推到一边，给北方军区拍了两个字：'照旧。'
+
+这两个字意味着北方会按自己的节奏推进。也意味着从这一天起，国民军内部开始有了不止一张地图。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spa_junta_of_national_defense_seen"),
+                Not(HasCountryFlag("spa_mola_northern_plan_resolved")),
+            ]),
+            mean_time_to_happen_days: 7,
+            immediate: [
+                SetCountryFlag("spa_mola_northern_plan_resolved"),
+            ],
+            options: [
+                EventOption(
+                    name: "优先保障北方铁路和莫拉的军区网络。",
+                    effects: [
+                        SetCountryFlag("spa_mola_northern_network_empowered"),
+                        SetCountryFlag("spa_p9_memory_mola_collective_command"),
+                        RecruitCharacter("spa_emilio_mola"),
+                        AddBuildingLevel(state: 171, building_id: "infrastructure", level: 1),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 0.45, duration_days: 90),
+                        AddToVariable(name: "spa_army_loyalty", value: 3.0),
+                        AddToVariable(name: "spa_rear_supply", value: 2.0),
+                        AddToVariable(name: "spa_franco_authority", value: -1.0),
+                        AddToVariable(name: "spa_carlist_anger", value: -1.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "北方要服从统一战役节奏，不能把阴谋网络变成独立政府。",
+                    effects: [
+                        SetCountryFlag("spa_mola_northern_plan_subordinated"),
+                        SetCountryFlag("spa_p9_memory_mola_checked"),
+                        RecruitCharacter("spa_emilio_mola"),
+                        AddWarSupport(0.01),
+                        AddToVariable(name: "spa_franco_authority", value: 2.0),
+                        AddToVariable(name: "spa_army_loyalty", value: -1.0),
+                        AddToVariable(name: "spa_carlist_anger", value: 1.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.55,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_franco_crosses_the_strait",
+            title: "海峡上空的不请自来者",
+            description: "佛朗哥在加那利群岛总督府的阳台上收到了德意两国的联合运输承诺。他把电报折了两折塞进军装口袋，然后给国防委员会发了一封只有三行的回函：'非洲军团将于未来一周内开始海运。所需飞机、燃油及护航已由外国方面提供。请委员会授权我在此事上的全权联络。'
+
+他没有说外国方面是谁。委员会所有人都知道，他故意没有说。
+
+海峡运输从来不只是军事问题。非洲军团的摩洛哥部队和西班牙外籍军团是国民军手中唯一受过实战考验的精锐，但他们必须穿过那片被共和国海军和英国直布罗陀要塞同时盯着的海域。德国容克运输机和意大利护航舰能解决这个问题，但它们的代价不是油料——柏林想要西班牙钨矿和军事试验数据，罗马想要地中海威望和一份可以在战后拿出来的'援助清单'。
+
+佛朗哥比任何人都更快看懂了这笔账的逻辑：委员会越需要外援，签字权就越会从他手里流过。每一条德国无线电、每一批意大利航空燃油都不只是在运输士兵——它们在运输权力。等非洲军团踏上塞维利亚的土地时，已经没有人能分清楚：佛朗哥是从委员会拿到的指挥权，还是从柏林和罗马拿到的，再由委员会事后盖章。
+
+一名北方军区参谋后来在日记里写道：'他在海峡对岸的时候还是个将军。他在这边上岸的时候，已经不只是将军了。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spa_junta_of_national_defense_seen"),
+                Not(HasCountryFlag("spa_franco_crossed_the_strait")),
+            ]),
+            mean_time_to_happen_days: 10,
+            immediate: [
+                SetCountryFlag("spa_franco_crossed_the_strait"),
+            ],
+            options: [
+                EventOption(
+                    name: "接受德意运输协助，让非洲军团尽快上岸。",
+                    effects: [
+                        SetCountryFlag("spa_army_of_africa_transferred"),
+                        SetCountryFlag("spa_german_airlift_memory"),
+                        SetCountryFlag("spa_italian_transport_memory"),
+                        SetCountryFlag("spa_p9_memory_franco_african_army"),
+                        AddManpower(22000),
+                        AddFuel(-150.0),
+                        AddWarSupport(0.03),
+                        AddToVariable(name: "spa_franco_authority", value: 4.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 3.0),
+                        AddToVariable(name: "spa_rear_supply", value: 1.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.65,
+                ),
+                EventOption(
+                    name: "分批运输，避免把海峡和外援谈判都交给佛朗哥。",
+                    effects: [
+                        SetCountryFlag("spa_army_of_africa_phased_transfer"),
+                        SetCountryFlag("spa_p9_memory_limited_franco_transport"),
+                        AddManpower(12000),
+                        AddFuel(-80.0),
+                        AddWarSupport(0.01),
+                        AddToVariable(name: "spa_franco_authority", value: 1.0),
+                        AddToVariable(name: "spa_army_loyalty", value: 1.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_supreme_command_question",
+            title: "一支笔和一枚副署章",
+            description: "非洲军团上岸后的第三天，委员会桌上只剩一张没签字的命令。命令本身很简单：'确认国民军最高军事指挥权归属。'空白处留着两行线——一行写统帅的名字，一行留给副署人。
+
+莫拉的代表没有直接反对佛朗哥。他只是摊开了一份桑胡尔霍坠机后各军区发来的效忠电报统计：十一个军区，七个要求委员会保持合议制，两个明确支持佛朗哥，两个还在等命令。'如果我们现在就给一个人最高统帅的头衔，这些没签字的军区会怎么理解？他们会认为自己被排除在决策之外了。'
+
+佛朗哥的联络官没有反驳数字。他把非洲军团上岸后的第一批战报推到桌面上，然后问了一个问题：'下一次调动需要三个军区同时协调时，我们等谁签命令？等委员会投票吗？前线等不了投票。'
+
+卡瓦内利亚斯没有发言。他的手指在桌上轻轻敲了三下——那三下是在算三个人：桑胡尔霍已经死了，莫拉的权力在北方不在中央，佛朗哥的军队和外援已经到了本土。他算完之后发现：委员会其实已经不是在选择谁来当统帅，而是选择承认还是不承认一个已经形成的权力重心。但他仍然让秘书把最高统帅令旁边那一行副署栏画得更粗了一点。不是因为他能阻止什么，而是因为在未来某个连佛朗哥也无法预见的历史时刻，制度会比人的记忆更长。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spa_mola_northern_plan_resolved"),
+                HasCountryFlag("spa_franco_crossed_the_strait"),
+                Not(HasCountryFlag("spa_supreme_command_question_resolved")),
+            ]),
+            mean_time_to_happen_days: 8,
+            immediate: [
+                SetCountryFlag("spa_supreme_command_question_resolved"),
+            ],
+            options: [
+                EventOption(
+                    name: "任命佛朗哥为最高统帅，但不承诺战后权力归还。",
+                    effects: [
+                        SetCountryFlag("spa_franco_generalissimo"),
+                        SetCountryFlag("spa_p9_weight_franco_personal_command"),
+                        SetLeader("spa_francisco_franco"),
+                        AddWarSupport(0.04),
+                        AddToVariable(name: "spa_franco_authority", value: 6.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 2.0),
+                        AddToVariable(name: "spa_army_loyalty", value: -2.0),
+                        AddToVariable(name: "spa_carlist_anger", value: 1.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_pressure_axes_tick"),
+                    ],
+                    ai_chance: 0.65,
+                ),
+                EventOption(
+                    name: "设最高军事协调员，所有战略命令仍由委员会副署。",
+                    effects: [
+                        SetCountryFlag("spa_supreme_command_countersigned"),
+                        SetCountryFlag("spa_p9_weight_collective_command_survives"),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spa_army_loyalty", value: 3.0),
+                        AddToVariable(name: "spa_junta_legitimacy", value: 2.0),
+                        AddToVariable(name: "spa_franco_authority", value: 2.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: -1.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_junta_legitimacy", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_pressure_axes_tick"),
+                    ],
+                    ai_chance: 0.35,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_franco_and_mola_map_room",
+            title: "两个箭头在地图纸上相遇",
+            description: "莫拉把北方地图卷起来夹在腋下，走进佛朗哥的办公室，没有敬礼。他把地图重新摊开，用笔帽顺着毕尔巴鄂矿区划到布尔戈斯：'你从南方打。我锁着北方。各打各的。'
+
+佛朗哥没有看地图。他看着莫拉的脸，然后从抽屉里抽出一份柏林外援回电的副本推过去：'德国人可以给你矿区，但条件是统一指挥链。他们不想跟两个西班牙签合同。'
+
+这句看似客观的话实际上是一步棋。佛朗哥没有说委员会的决定，没有说自己的要求，只说了德国人的要求。他把自己的野心包装成了外国人的条件，让莫拉无法直接反驳。他甚至在说完之后等了整整二十秒——不是让莫拉回应，而是让'统一指挥链'这个外国人的词变成房间里所有人都能触摸到的政治现实。
+
+莫拉把笔帽放在地图上，在北方铁路交汇处点了一个墨点。'那你的统一指挥链先别碰我的军区参谋系统。'他说完站起来，把地图留在桌上。这是一种投降，也是一种警告：我今天给你指挥链，但我的人还是我的人。
+
+等到莫拉离开后，佛朗哥的一名参谋悄悄问他：要不要趁现在把北方军区改组方案写出来？佛朗哥摇了摇头。'不用写。等他的人自己想换主人的时候，他们自己会来敲我的门。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spa_supreme_command_question_resolved"),
+                Not(HasCountryFlag("spa_franco_mola_map_room_resolved")),
+            ]),
+            mean_time_to_happen_days: 12,
+            immediate: [
+                SetCountryFlag("spa_franco_mola_map_room_resolved"),
+            ],
+            options: [
+                EventOption(
+                    name: "承认莫拉负责北方，换取他接受统一战略节奏。",
+                    effects: [
+                        SetCountryFlag("spa_franco_mola_compromise"),
+                        SetCountryFlag("spa_p9_memory_franco_mola_compromise"),
+                        AddBuildingLevel(state: 173, building_id: "infrastructure", level: 1),
+                        AddToVariable(name: "spa_rear_supply", value: 2.0),
+                        AddToVariable(name: "spa_army_loyalty", value: 2.0),
+                        AddToVariable(name: "spa_franco_authority", value: 1.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.5,
+                ),
+                EventOption(
+                    name: "让南方推进和外援谈判压过北方计划。",
+                    effects: [
+                        SetCountryFlag("spa_franco_outmaneuvered_mola"),
+                        SetCountryFlag("spa_p9_memory_mola_marginalized"),
+                        AddWarSupport(0.02),
+                        AddToVariable(name: "spa_franco_authority", value: 3.0),
+                        AddToVariable(name: "spa_army_loyalty", value: -2.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.5,
+                ),
+            ],
+        ),
+Event(
+            id: "spa.scw_mola_dies_in_air_crash",
+            title: "导演的飞机也没能降落",
+            description: "布尔戈斯参谋室的日历翻到了1937年6月3日。莫拉的军帽挂在衣架上的时候，联络官推门进来，没有报出任何前线战报。他只说了一句话：'将军的飞机在北线撞山了。'
+
+房间里没有人站起来。没有人问'哪个将军'——所有人都知道，国民军里只有一个人的飞机被叫做'将军的飞机'。桑胡尔霍的坠机在十一个月前。现在，第二个以个人名字命名的指挥系统，也从地图上被擦去了。
+
+北方军区的参谋们用了一整天互相打电话，反复问同一个问题：军区网络还属不属于我们自己？卡洛斯派代表立刻把法尔·孔德从北方前线召回，让他当面问卡瓦内利亚斯：红贝雷换来的王位承诺还能不能兑现——以前承诺是莫拉代表委员会给的，莫拉死了，承诺还算不算数？长枪党的地方委员会则趁着北方参谋系统瘫痪，开始接管纳瓦拉和巴斯克边境的部分粮食调度站。
+
+佛朗哥在下午两点发来唁电。全文五十三个字，其中十一个字用了'导演'这个称呼——他明知莫拉讨厌被叫成导演，但此刻用这个外号，是在微妙地暗示：他了解莫拉、尊重莫拉、也继承了莫拉的记忆。唁电末尾没有提继承问题，只是在'致国防委员会'后面署了自己的全名——弗朗西斯科·佛朗哥·巴阿蒙德。这是第一次他在公文中用全名签名。
+
+北方参谋系统的崩溃不是一声巨响，而是一连串被挂断的电话。等到晚上九点，还有四个北方军区联络官没有接到布尔戈斯的回电。他们已经不需要等待命令了——他们需要等待新主人。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spa_franco_mola_map_room_resolved"),
+                Date(year: 1937, month: 6, day: 3),
+                Not(HasCountryFlag("spa_mola_dead")),
+            ]),
+            mean_time_to_happen_days: 2,
+            options: [
+                EventOption(
+                    name: "保留莫拉的北方参谋系统，别让他的死亡变成独裁捷径。",
+                    effects: [
+                        SetCountryFlag("spa_mola_dead"),
+                        SetCountryFlag("spa_mola_legacy_staff_preserved"),
+                        SetCountryFlag("spa_p9_memory_mola_legacy"),
+                        KillCharacter("spa_emilio_mola"),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spa_army_loyalty", value: 2.0),
+                        AddToVariable(name: "spa_junta_legitimacy", value: 1.0),
+                        AddToVariable(name: "spa_franco_authority", value: -1.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_junta_legitimacy", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_pressure_axes_tick"),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "让佛朗哥接收北方网络和对外签字权。",
+                    effects: [
+                        SetCountryFlag("spa_mola_dead"),
+                        SetCountryFlag("spa_franco_inherits_mola_network"),
+                        SetCountryFlag("spa_p9_memory_franco_after_mola"),
+                        KillCharacter("spa_emilio_mola"),
+                        SetLeader("spa_francisco_franco"),
+                        AddWarSupport(0.02),
+                        AddToVariable(name: "spa_franco_authority", value: 5.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                        AddToVariable(name: "spa_carlist_anger", value: 1.0),
+                        AddToVariable(name: "spa_army_loyalty", value: -1.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_pressure_axes_tick"),
+                    ],
+                    ai_chance: 0.65,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_command_table",
+            title: "谁的名字在前面",
+            description: "莫拉死后第五天，布尔戈斯的司令部地图桌上摊开了两份命令草稿，格式几乎一样，只差在抬头。一份写'西班牙国防委员会最高统帅部'，另一份写'最高统帅佛朗哥转国防委员会'。军需参谋在两份草稿上各压了一枚棋子，然后抬头看卡瓦内利亚斯：'铁路调度员们昨天已经问了三次——他们到底听谁的？'
+
+这个问题看似在问军令流程，其实在问体制。司令部里每一个人都知道：谁的名字在前，谁的命令就会被调度员当成优先执行。如果委员会名字在前，各军区将领需要先向布尔戈斯请示再互相协调；如果佛朗哥名字在前，他可以越过军区间界限直接调动部队。
+
+法务军官插了一句嘴：按照临时参谋章程，所有跨军区调动必须由委员会副署。但他立刻被佛朗哥的联络官打断了——'章程是莫拉生前定的。你们现在还有第二个莫拉来替他维护章程吗？'
+
+卡瓦内利亚斯让所有人安静，然后亲自在两份草稿的页脚各画了一道线：一份留给委员会印章，一份留给了佛朗哥名字下方那个空白的副署位。他没有取消副署权，只是把它从纸的上面挪到了下面。这是一个老人用墨水留下的最后防线——他改变不了权力的方向，但至少让后来的人能看清楚：权力是从哪一条线上滑走的。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                HasCountryFlag("spa_nationalist_pressure_axes_initialized"),
+                Not(HasCountryFlag("spa_command_table_resolved")),
+            ]),
+            mean_time_to_happen_days: 5,
+            immediate: [
+                SetCountryFlag("spa_command_table_resolved"),
+            ],
+            options: [
+                EventOption(
+                    name: "所有前线命令仍须经军政府副署。",
+                    effects: [
+                        SetCountryFlag("spa_collective_command_preserved"),
+                        SetCountryFlag("spa_p9_candidate_junta_memory"),
+                        AddToVariable(name: "spa_army_loyalty", value: 3.0),
+                        AddToVariable(name: "spa_franco_authority", value: -1.0),
+                        AddWarSupport(-0.01),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "让佛朗哥拥有跨军区协调权。",
+                    effects: [
+                        SetCountryFlag("spa_franco_command_expanded"),
+                        SetCountryFlag("spa_p9_candidate_franco_authoritarian"),
+                        AddToVariable(name: "spa_franco_authority", value: 4.0),
+                        AddToVariable(name: "spa_army_loyalty", value: -1.0),
+                        AddWarSupport(0.02),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.65,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_rightist_committees",
+            title: "三份名单同一天到达",
+            description: "一名从萨拉戈萨赶来的省级秘书把三份文件摊在军政府接待处的桌子上。第一份是长枪党地区代表的备忘录，要求在纳瓦拉和布尔戈斯设立长枪党宣传处和青年队训练营；第二份是卡洛斯派纳瓦拉军区指挥官的信，写着红贝雷的北方民兵'只在服从国王的名义下继续作战'；第三份是一个旧市政官带来的账簿——他既不穿蓝衫也不戴红贝雷，只想知道新政府还认不认战前的粮食合同。
+
+这三份文件代表着国民军内部从不曾统一的三种权力来源：街头运动、武装民兵、行政机器。蓝衫有组织但没经验，红贝雷有兵力但有条件，旧行政官有账簿但没立场。秘书不知道先送哪一份进去，因为他知道——先被处理的那份，会变成当天的政治方向。
+
+走廊里的人在等待时互相打听对方拿到了多少办公室、多少人员和多少钱。他们都说自己在为同一个西班牙服务，但没有一个人能说出那个'同一个西班牙'到底长什么样。一个蓝衫青年看着一个红贝雷队长的靴子说：'你们的西班牙戴着王冠。我们的西班牙戴着箭束。我们到底在打同一场战争吗？'红贝雷队长没有回答。他把自己的信从秘书桌上抽回来，直接敲门进了军需参谋室。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                HasCountryFlag("spa_nationalist_pressure_axes_initialized"),
+                Not(HasCountryFlag("spa_rightist_committees_resolved")),
+            ]),
+            mean_time_to_happen_days: 12,
+            immediate: [
+                SetCountryFlag("spa_rightist_committees_resolved"),
+            ],
+            options: [
+                EventOption(
+                    name: "先让各派保留自己的办公室和民兵名册。",
+                    effects: [
+                        SetCountryFlag("spa_axis_rightist_pluralism"),
+                        SetCountryFlag("spa_p9_candidate_traditionalist_compromise"),
+                        AddToVariable(name: "spa_army_loyalty", value: 1.0),
+                        AddToVariable(name: "spa_church_influence", value: 1.0),
+                        AddToVariable(name: "spa_carlist_anger", value: -2.0),
+                        AddToVariable(name: "spa_falange_power", value: -1.0),
+                        AddPoliticalPower(-10.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.45,
+                ),
+                EventOption(
+                    name: "建立统一政治秘书处，谁要资源就接受整编。",
+                    effects: [
+                        SetCountryFlag("spa_axis_rightist_forced_unity"),
+                        SetCountryFlag("spa_p9_candidate_falange_state"),
+                        AddToVariable(name: "spa_falange_power", value: 3.0),
+                        AddToVariable(name: "spa_franco_authority", value: 1.0),
+                        AddToVariable(name: "spa_carlist_anger", value: 2.0),
+                        AddToVariable(name: "spa_army_loyalty", value: -1.0),
+                        AddPoliticalPower(10.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.55,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_rear_security_orders",
+            title: "弹药车前夜的铁轨声",
+            description: "占领区宪兵队的第一份周报只有三段，最后一段被铁路调度员加了一句手写备注：'如果夜里继续有人拆轨，明天的弹药列车不会到站。'调度员没有说拆轨的人是谁——他说不出。可能是共和国的特遣小队，可能是本地矿工，也可能只是想把铁轨卖到黑市的农民。在前线和后方之间，还存在一片比任何作战地图都更难描绘的灰色地带：占领区。
+
+军需处把报告分成了三叠。第一叠是宪兵和长枪党地方委员会各自提交的'清剿建议'——有的要求建立公开处决程序，有的要求赋予民兵就地执法权。第二叠是教区代表送来的救济名单和学校钥匙，暗示只要交出教育权和福利分配权，教会就能替军政府稳住乡村。第三叠最薄，只有一份被反复涂改过的军管条例草稿，每一版都在'军事管制权'和'地方自治保留'之间来回删改。
+
+军政府内部出现了前所未有的分歧。一些将领主张用宪兵和军法庭恢复铁路线，把兵力集中在运输安全上。另一些将领认为，如果每一个镇子都驻兵，前线很快就会无人可打——不如把地方执法权交给蓝衫委员会，或者干脆让地方精英和教区自己维持秩序。每一种选择的代价都不只是兵力数字：它们会在战后长出完全不同的制度根系。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                HasCountryFlag("spa_nationalist_pressure_axes_initialized"),
+                Not(HasCountryFlag("spa_rear_security_orders_issued")),
+            ]),
+            mean_time_to_happen_days: 20,
+            immediate: [
+                SetCountryFlag("spa_rear_security_orders_issued"),
+            ],
+            options: [
+                EventOption(
+                    name: "扩大军事管制，用宪兵和军法庭保住铁路。",
+                    effects: [
+                        SetCountryFlag("spa_axis_occupation_military_rule"),
+                        SetCountryFlag("spa_p9_candidate_order_state"),
+                        AddManpower(-8000),
+                        AddToVariable(name: "spa_army_loyalty", value: 2.0),
+                        AddToVariable(name: "spa_falange_power", value: -1.0),
+                        AddStability(0.01),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.4,
+                ),
+                EventOption(
+                    name: "授权地方惩戒队，恐惧会替我们节省兵力。",
+                    effects: [
+                        SetCountryFlag("spa_axis_terror_expanded"),
+                        SetCountryFlag("spa_white_terror_expanded"),
+                        SetCountryFlag("spa_p9_memory_white_terror"),
+                        AddManpower(5000),
+                        AddStability(-0.02),
+                        AddToVariable(name: "spa_falange_power", value: 2.0),
+                        AddToVariable(name: "spa_carlist_anger", value: 1.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "让教区和旧市政官接管救济、学校与粮食登记。",
+                    effects: [
+                        SetCountryFlag("spa_axis_occupation_church_local_elites"),
+                        SetCountryFlag("spa_p9_candidate_national_catholic"),
+                        AddToVariable(name: "spa_church_influence", value: 3.0),
+                        AddToVariable(name: "spa_falange_power", value: -1.0),
+                        AddToVariable(name: "spa_carlist_anger", value: -1.0),
+                        AddStability(0.02),
+                        ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.25,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_foreign_aid_accounting",
+            title: "账本上的外援没有单价",
+            description: "国民军的财政统计员姓莫雷诺，内战前在布尔戈斯地方银行做过十年会计。他被征调到国防委员会后勤处后做的第一件事，就是把德意两国送来的物资登记入册。他给每一箱弹药都编了号，却在'单价'栏全部写了同一个词：待议。
+
+莫雷诺不是懒。他是在害怕。那些德国容克运输机的零件、意大利航空燃油桶、葡萄牙边境送来的无线电机件——它们没有被标价，不是因为免费，而是因为柏林和罗马从未给它们开过发票。德国驻西班牙联络官只是把一份矿产开采权优先备忘录压在运输清单下面，用铅笔在'钨矿'旁边画了一个问号。意大利的海事联络人更直接——他在CTV部队的燃油补给单背面写了四个字：'战后详谈。'
+
+这些无单价账单像一根根被削尖的铅笔，指向同一个方向：战后。它们现在不痛，是因为还没到期。等到国民军胜利那一天，柏林会把这些铅笔重新拿出来，用同一只手递过来一张被签字过的矿产合同——不是请西班牙签字，而是提醒西班牙当初签过字的运输承诺已经在事实上默认了这张合同的存在。
+
+莫雷诺把账本锁进铁柜时，在柜门内侧用铅笔写了两个字：'锁链。'同事问他写什么。他说：'没什么。我只是在算战后我们要还的子弹到底多少钱一颗。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                HasCountryFlag("spa_nationalist_pressure_axes_initialized"),
+                Not(HasCountryFlag("spa_foreign_aid_accounting_resolved")),
+            ]),
+            mean_time_to_happen_days: 28,
+            immediate: [
+                SetCountryFlag("spa_foreign_aid_accounting_resolved"),
+            ],
+            options: [
+                EventOption(
+                    name: "让货物先上前线，账单胜利后再处理。",
+                    effects: [
+                        SetCountryFlag("spa_axis_foreign_dependency_open_account"),
+                        SetCountryFlag("spa_german_dependency"),
+                        SetCountryFlag("spa_italian_dependency"),
+                        SetCountryFlag("spa_p9_memory_axis_debt"),
+                        AddWarSupport(0.03),
+                        AddToVariable(name: "spa_foreign_dependency", value: 4.0),
+                        AddToVariable(name: "spa_franco_authority", value: 1.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.6,
+                ),
+                EventOption(
+                    name: "所有援助都要折成明确债务和贸易承诺。",
+                    effects: [
+                        SetCountryFlag("spa_axis_foreign_dependency_limited"),
+                        SetCountryFlag("spa_p9_candidate_autonomous_victory"),
+                        AddWarSupport(-0.01),
+                        AddPoliticalPower(-15.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                        AddToVariable(name: "spa_army_loyalty", value: 1.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.4,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_local_administration_choice",
+            title: "面包店门口的掌印",
+            description: "一座省城的市政厅被接管后第三天，新旗帜在楼顶升起来了，但面包店老板还在用旧共和国的面粉配额单。警察局长在门口站了十分钟，不知道自己有没有权没收那张过期表格。
+
+控制一座城市从来不是升旗。是决定谁在面包上盖分配章、谁登记户口本上的死者原因、谁给学校发教材——那教材里写的是'圣三位一体'还是'劳动神圣'。军政府的占领区参谋送来三套方案。第一套最简单：所有民政归宪兵队，市政厅变成军管办公室，一切决定由军区参谋长副署。代价是每个城镇都要驻兵。第二套最传统：把救济院和学校还给教区，让旧市政官员继续管粮食征收和户口登记，教会提供秩序，政府提供认可。代价是战后教会将成为唯一有基层组织的机构。第三套最危险但最省兵力：让长枪党地方委员会接管——蓝衫青年负责配给、宣传和清洗登记册，他们不要军饷，只要授权。
+
+参谋在提交最后一套方案时，在页脚注明了一行小字：'如果长枪党拿到了地方委员会，他们就不会再把权力还给任何人。'他用的是现在时态，不是将来时。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                HasCountryFlag("spa_nationalist_pressure_axes_initialized"),
+                HasCountryFlag("spa_rear_security_orders_issued"),
+                Not(HasCountryFlag("spa_local_administration_choice_made")),
+            ]),
+            mean_time_to_happen_days: 18,
+            immediate: [
+                SetCountryFlag("spa_local_administration_choice_made"),
+            ],
+            options: [
+                EventOption(
+                    name: "保留临时军管，后方必须服从前线。",
+                    effects: [
+                        SetCountryFlag("spa_axis_occupation_military_administration"),
+                        AddManpower(-5000),
+                        AddToVariable(name: "spa_army_loyalty", value: 2.0),
+                        AddToVariable(name: "spa_falange_power", value: -1.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "让教会和地方精英接手救济、教育和登记。",
+                    effects: [
+                        SetCountryFlag("spa_axis_occupation_church_administration"),
+                        AddStability(0.02),
+                        AddToVariable(name: "spa_church_influence", value: 2.0),
+                        AddToVariable(name: "spa_carlist_anger", value: -1.0),
+                        ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.35,
+                ),
+                EventOption(
+                    name: "把地方委员会交给长枪党，清洗和配给必须同一只手执行。",
+                    effects: [
+                        SetCountryFlag("spa_axis_occupation_falange_committees"),
+                        SetCountryFlag("spa_p9_candidate_falange_local_state"),
+                        AddStability(-0.01),
+                        AddToVariable(name: "spa_falange_power", value: 3.0),
+                        AddToVariable(name: "spa_church_influence", value: -1.0),
+                        AddToVariable(name: "spa_carlist_anger", value: 1.0),
+                        ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0),
+                    ],
+                    ai_chance: 0.3,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_army_of_africa",
+            title: "卡迪斯码头的煤烟味",
+            description: "第一批从摩洛哥登陆的士兵在卡迪斯码头闻到了两种气味：煤烟和海盐。他们中有西班牙外籍军团的老兵，有前一年还在里夫山区作战的摩洛哥正规军，还有一些只是被军饷和西班牙保护领地的宗教承诺带上船的青年。军需官在码头上清点火器、骡马和弹药箱，宪兵把围观的人群推到街角，不让他们看见那些从船上卸下来的不只是步枪——还有殖民战争的整套暴力习惯。
+
+非洲军团是国民军此刻最锋利的矛，但也是一把带着记忆的矛。它在摩洛哥的山区学会了快速突破、就地征发和不留俘虏。这些习惯在非洲叫'绥靖'，到了西班牙本土，它们会被叫成别的名字。布尔戈斯司令部里已经有人在私下议论：这支军队能攻下城市，但它占领城市的方式，会决定战后西班牙是被铁腕捏住，还是被行政治理。
+
+佛朗哥的参谋没有参与这种议论。他的全部精力都用在了两件事上：确保非洲军团只对佛朗哥的直接指挥部负责，确保每一批新上岸的士兵名单在送交委员会之前先经过佛朗哥的联络官。他不需要公开声称这支军队是他的——只需要让所有人默认它是。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_franco_crossed_the_strait"), Not(HasCountryFlag("spa_army_of_africa_arrived"))]),
+            mean_time_to_happen_days: 5,
+            immediate: [SetCountryFlag("spa_army_of_africa_arrived")],
+            options: [
+                EventOption(name: "把他们作为突击拳头集中使用。", effects: [SetCountryFlag("spa_african_army_shock_column"), AddManpower(18000), AddWarSupport(0.02), AddToVariable(name: "spa_franco_authority", value: 2.0), AddToVariable(name: "spa_army_loyalty", value: 1.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0), ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0)], ai_chance: 0.6),
+                EventOption(name: "分散到各军区，避免佛朗哥独占这支力量。", effects: [SetCountryFlag("spa_african_army_distributed"), AddManpower(12000), AddToVariable(name: "spa_army_loyalty", value: 2.0), AddToVariable(name: "spa_franco_authority", value: -1.0), ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0)], ai_chance: 0.4),
+            ],
+        ),
+        Event(
+            id: "spa.scw_moroccan_recruitment",
+            title: "得土安的军饷清单",
+            description: "得土安征募站送来了一份由西班牙保护领地事务官和当地部落长老联合签署的备忘录。正文只有一页半，附录却有十七页——每一页都是承诺：军饷与西班牙正规军同等的标准、在穆斯林节日期间的宗教礼遇、阵亡抚恤由西班牙国库承担、战后为服役满两年的摩洛哥士兵提供西班牙国籍申请通道。这些承诺写在纸上的时候轻飘飘的，但每一行都绑定着战后殖民地行政的未来。一旦这些承诺被兑现，西班牙在摩洛哥就不是殖民者，而是债务人；一旦不兑现，得土安的下一个备忘录就会变成里夫山区的新一轮叛乱宣言。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_army_of_africa_arrived"), Not(HasCountryFlag("spa_moroccan_recruitment_resolved"))]),
+            mean_time_to_happen_days: 10,
+            immediate: [SetCountryFlag("spa_moroccan_recruitment_resolved")],
+            options: [
+                EventOption(name: "扩大招募，军饷和礼遇写进账本。", effects: [SetCountryFlag("spa_moroccan_recruitment_expanded"), SetCountryFlag("spa_p9_memory_moroccan_promises"), AddManpower(16000), AddPoliticalPower(-10.0), AddToVariable(name: "spa_foreign_dependency", value: 1.0), AddToVariable(name: "spa_franco_authority", value: 1.0), ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0)], ai_chance: 0.6),
+                EventOption(name: "限制招募规模，别让殖民承诺拖进战后。", effects: [SetCountryFlag("spa_moroccan_recruitment_limited"), AddManpower(6000), AddToVariable(name: "spa_army_loyalty", value: 1.0), AddToVariable(name: "spa_franco_authority", value: -1.0), ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0)], ai_chance: 0.4),
+            ],
+        ),
+        Event(
+            id: "spa.scw_alcazar_symbol",
+            title: "托莱多的烟还没有散",
+            description: "托莱多围攻结束后第二天，塞维利亚电台播出了一段经过剪辑的现场录音。枪声被滤掉了，伤员的呻吟被教堂钟声覆盖，只有阿尔卡萨尔要塞守军的宣誓声被反复播放。宣传处长在播音结束后给广播员发了奖金——不是因为他报道了胜利，而是因为他把一场混乱的、血腥的、几乎失败的救援行动，剪成了一份可以被反复印刷的圣迹图。
+
+国民军需要这个神话。他们没有共和国那种选举合法性，没有工人组织那种群众根基，甚至没有一个被所有人承认的领袖。他们有的是一场叛乱和一个可以被反复讲述的故事。阿尔卡萨尔神话是第一个真正投入使用的故事：坚守、牺牲、在废墟上被解救。
+
+但神话一旦被制造出来，就开始有自己的生命。前线将领很快发现，阿尔卡萨尔被用作一种政治标准——如果一座要塞可以被守成神话，那为什么这座要塞不能？每一次撤退都会被拿来和托莱多比较，每一次妥协都会被质问：'托莱多的人会这么做吗？'布尔戈斯的委员会里有人开始担忧：他们制造了一把尺子，将来会被任何人拿来量任何人的脖子。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_army_of_africa_arrived"), Not(HasCountryFlag("spa_alcazar_symbol_resolved"))]),
+            mean_time_to_happen_days: 18,
+            immediate: [SetCountryFlag("spa_alcazar_symbol_resolved")],
+            options: [
+                EventOption(name: "把阿尔卡萨尔塑造成国民军圣迹。", effects: [SetCountryFlag("spa_alcazar_myth_promoted"), SetCountryFlag("spa_p9_memory_crusade_myth"), AddWarSupport(0.03), AddToVariable(name: "spa_franco_authority", value: 2.0), AddToVariable(name: "spa_church_influence", value: 1.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0), ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0)], ai_chance: 0.7),
+                EventOption(name: "保留为军队宣传，不让教会和个人崇拜独占它。", effects: [SetCountryFlag("spa_alcazar_military_symbol"), AddWarSupport(0.01), AddToVariable(name: "spa_army_loyalty", value: 1.0), AddToVariable(name: "spa_franco_authority", value: -1.0), ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0)], ai_chance: 0.3),
+            ],
+        ),
+        Event(
+            id: "spa.scw_radio_seville",
+            title: "奎波的声音不需要演讲稿",
+            description: "奎波·德·利亚诺从塞维利亚电台播音室出来后，对参谋长说了一句话：'我今天替佛朗哥赢了一个省，子弹打不下来的那个。'
+
+他说的是事实。奎波每晚的广播不需要国防委员会审稿——他从来不用稿。酒精和肾上腺素混合而成的叙述能把恐惧包装成秩序，把残忍包装成幽默，把一桩未经审判的处决说成'今晚少了一个共和国的纳税人'。这种语言穿透了战线，穿透了识字率，穿透了任何官方公文都达不到的地方。
+
+但是布尔戈斯也听到了这些广播。委员会里的法务军官最先提出担忧：奎波不是在替国民军说话，他是在用国民军的名义替自己建造声望。塞维利亚电台的声音太响，以至于一些北方军区驻地的士兵开始引用奎波的话来质疑他们自己军区的命令——既然奎波说'北方那些老学究只会签字'，那北方军区凭什么要服从？
+
+佛朗哥没有公开替奎波辩护，也没有公开谴责。他只是让联络处给奎波发了一封私人信函，末尾写了一行字：'你的声音很有力量。请确保这种力量知道它的主人是谁。'他没有说主人是谁。他不需要说。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spanish_civil_war_started"), Not(HasCountryFlag("spa_radio_seville_resolved"))]),
+            mean_time_to_happen_days: 16,
+            immediate: [SetCountryFlag("spa_radio_seville_resolved")],
+            options: [
+                EventOption(name: "让电台继续恐吓敌后，短期动员更重要。", effects: [SetCountryFlag("spa_radio_seville_terror_broadcasts"), AddWarSupport(0.03), AddStability(-0.01), AddToVariable(name: "spa_occupation_resistance", value: 1.0), AddToVariable(name: "spa_army_loyalty", value: -1.0), TriggerEvent("hidden.scw_nationalist_occupation_order_tick")], ai_chance: 0.55),
+                EventOption(name: "把广播稿交给审查处，奎波不能替国家说话。", effects: [SetCountryFlag("spa_radio_seville_censored"), AddPoliticalPower(-10.0), AddToVariable(name: "spa_army_loyalty", value: 1.0), AddToVariable(name: "spa_franco_authority", value: 1.0), TriggerEvent("hidden.scw_nationalist_occupation_order_tick")], ai_chance: 0.45),
+            ],
+        ),
+        Event(
+            id: "spa.scw_badajoz_aftermath",
+            title: "斗牛场外墙的白灰还没有干",
+            description: "巴达霍斯陷落后第四天，一名葡萄牙记者设法通过了边境哨卡。他后来在发给里斯本电讯社的报道中写道：'斗牛场外墙的弹孔比城门还密。守卫告诉我只是处决了武装分子。但我在登记处看到的名单上，第一个死者的职业是面包师，最后一个是助产士。'
+
+这份报道没有在西班牙发表。但它的片段——通过葡萄牙报纸、英国广播公司和法国流亡者圈子的转述——在两周内抵达了日内瓦国际联盟办公室、伦敦《泰晤士报》编辑部，以及德国柏林外交部一位中校桌上的文件夹。那位中校看完翻译件后批注了两个字：'可控。'
+
+布尔戈斯面临的不是一场舆论危机——而是一个定义性问题：国民军占领城市的方式，将决定它被世界看作一支军队、一个政权，还是仅仅一个武装恐怖集团。奎波在巴达霍斯的广播继续叫嚣'清洗'，但军政府法务处已经把一份被圈画得满篇都是问号的军法调查报告送到了卡瓦内利亚斯桌上。报告的结论是模棱两可的：'无法确认命令来源。无法确认执行范围。无法确认死者名单与敌对武装之间的直接联系。'三句'无法确认'，比任何一句'确认'都要沉重。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_army_of_africa_arrived"), Not(HasCountryFlag("spa_badajoz_aftermath_resolved"))]),
+            mean_time_to_happen_days: 24,
+            immediate: [SetCountryFlag("spa_badajoz_aftermath_resolved")],
+            options: [
+                EventOption(name: "承认恐惧的用途，别追问执行细节。", effects: [SetCountryFlag("spa_badajoz_repression_public"), SetCountryFlag("spa_white_terror_expanded"), AddWarSupport(0.02), AddStability(-0.03), AddToVariable(name: "spa_occupation_resistance", value: 4.0), AddToVariable(name: "spa_international_outrage", value: 3.0), TriggerEvent("hidden.scw_nationalist_occupation_order_tick")], ai_chance: 0.5),
+                EventOption(name: "把责任压回军法处，至少恢复表面纪律。", effects: [SetCountryFlag("spa_badajoz_discipline_review"), AddPoliticalPower(-10.0), AddToVariable(name: "spa_army_loyalty", value: 1.0), AddToVariable(name: "spa_occupation_resistance", value: 1.0), TriggerEvent("hidden.scw_nationalist_occupation_order_tick")], ai_chance: 0.5),
+            ],
+        ),
+        Event(
+            id: "spa.scw_yague_after_badajoz",
+            title: "亚圭的军衔还挂在档案里",
+            description: "军法处在巴达霍斯事件后，把所有相关军官的档案调出来重审了一遍。只有一个人的档案上没有任何书面处分记录：胡安·亚圭。不是因为他无辜，而是因为没有人能在报告里明确写下'亚圭下令'这四个字——每一道命令都是口头传达，每一名执行者都只说'收到了命令'而不说'收到了谁的命令'。这种含糊不是行政失误，是非洲军团在殖民地积累出来的老练：他们知道怎么写报告才能让上司永远找不到责任人。
+
+佛朗哥的一名高级参谋私下告诉联络官：'亚圭不能调走。把他调走，非洲军团的军官团会认为总部在背叛前线。'另一个声音来自法务处：'不调走，国际红十字会的下一份报告会把国民军的名字和军事法庭绑在一起。'这两种恐惧——前线的士气和国际的舆论——互相挤压出同一个结论：不管怎么处置亚圭，都有人在等着一笔迟早要还的代价。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_badajoz_aftermath_resolved"), Not(HasCountryFlag("spa_yague_after_badajoz_resolved"))]),
+            mean_time_to_happen_days: 8,
+            immediate: [SetCountryFlag("spa_yague_after_badajoz_resolved")],
+            options: [
+                EventOption(name: "保留亚圭，非洲军团需要胜利者。", effects: [SetCountryFlag("spa_yague_protected_after_badajoz"), AddWarSupport(0.02), AddToVariable(name: "spa_franco_authority", value: 1.0), AddToVariable(name: "spa_international_outrage", value: 1.0), TriggerEvent("hidden.scw_nationalist_occupation_order_tick")], ai_chance: 0.65),
+                EventOption(name: "调离一线，告诉军队纪律仍然存在。", effects: [SetCountryFlag("spa_yague_disciplined_after_badajoz"), AddWarSupport(-0.01), AddToVariable(name: "spa_army_loyalty", value: 2.0), AddToVariable(name: "spa_franco_authority", value: -1.0), TriggerEvent("hidden.scw_nationalist_occupation_order_tick")], ai_chance: 0.35),
+            ],
+        ),
+        Event(
+            id: "spa.scw_order_in_occupied_zones",
+            title: "四种秩序争夺同一座城市",
+            description: "占领区临时行政手册写到第三版时，军需参谋处发生了公开争吵。争吵的内容只有一个问题：一座新占领的城镇，应该先恢复什么？宪兵代表说先恢复铁路警卫和军管所，否则下一批弹药运不进来。教区代表说先开救济院和学校登记，否则饿死的人会比战死者还多。长枪党干部说先清洗登记册和建立地方委员会，否则旧共和国的人会渗透进新政权的毛细血管。一名旧市政官在争吵中一直沉默，最后只问了一句话：'你们讨论完谁管这个镇子之后，能不能告诉我谁来管面包的发放？'
+
+这四种秩序——军事管制、白色恐怖、教会渗透、党派地方化——每一种都能让城市暂时安静，但每一种也会在安静下面埋下不同的种子。军管会把权力留在将军手里。恐怖会把恐惧变成一种流通货币，任何人都可以消费它。教会会把救济院变成神权前哨。长枪党会把每个地方委员会编进运动档案。参谋长把四套方案各减了三条，然后全部签上'呈委员会讨论'——他知道委员会也不会决定，只会把问题推回给占领区事实上的权力角逐。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_badajoz_aftermath_resolved"), Not(HasCountryFlag("spa_occupied_zone_order_set"))]),
+            mean_time_to_happen_days: 12,
+            immediate: [SetCountryFlag("spa_occupied_zone_order_set")],
+            options: [
+                EventOption(name: "恐怖镇压，先让街道安静。", effects: [SetCountryFlag("spa_occupation_policy_terror"), SetCountryFlag("spa_white_terror_expanded"), AddStability(-0.02), AddManpower(4000), AddToVariable(name: "spa_occupation_resistance", value: 3.0), TriggerEvent("hidden.scw_nationalist_occupation_order_tick")], ai_chance: 0.3),
+                EventOption(name: "临时军管，铁路和仓库归军区。", effects: [SetCountryFlag("spa_occupation_policy_military"), AddManpower(-6000), AddToVariable(name: "spa_rear_supply", value: 2.0), AddToVariable(name: "spa_army_loyalty", value: 1.0), TriggerEvent("hidden.scw_nationalist_occupation_order_tick")], ai_chance: 0.3),
+                EventOption(name: "教会和地方精英接手救济与登记。", effects: [SetCountryFlag("spa_occupation_policy_church"), AddStability(0.02), AddToVariable(name: "spa_church_influence", value: 3.0), AddToVariable(name: "spa_falange_power", value: -1.0), TriggerEvent("hidden.scw_nationalist_occupation_order_tick")], ai_chance: 0.25),
+                EventOption(name: "长枪党地方委员会接管清洗和配给。", effects: [SetCountryFlag("spa_occupation_policy_falange"), AddStability(-0.01), AddToVariable(name: "spa_falange_power", value: 3.0), AddToVariable(name: "spa_syndicalist_institutionalization", value: 1.0), TriggerEvent("hidden.scw_nationalist_occupation_order_tick")], ai_chance: 0.15),
+            ],
+        ),
+        Event(
+            id: "spa.scw_jose_antonio_absent",
+            title: "空椅子上的名字",
+            description: "长枪党全国总部在萨拉曼卡征用了一座旧修道院的偏厅。他们搬走了圣像，搬进来了打字机，但没有搬走那把一直空着的椅子——何塞·安东尼奥·普里莫·德·里维拉的椅子。内战爆发时他在阿利坎特共和国监狱里，内战继续时他还在那里。长枪党的一切会议、一切命令、一切宣传，都以他的名义发出，但他从未亲自签署过任何一张纸。
+
+这种缺席是一种奇特的政治资源。活着的何塞·安东尼奥可能犯错、妥协、与佛朗哥交易；缺席的何塞·安东尼奥永远不会犯错。蓝衫青年可以把他的信从监狱里偷运出来，当作'领袖遗训'背诵；旧衫派可以用他的名字清洗投机分子；佛朗哥也可以用他的名字收编长枪党——'一切都是为了何塞·安东尼奥的事业。'每个人都在利用他。每个人也都需要他继续缺席。
+
+赫迪利亚曾对一名旧衫派同伴说：'只要他还活着在监狱里，我们就不需要真正的领袖。但如果他死了，我们必须在他死后第一天就决定——谁替他说话。'他说完这句话后，看了看那把空椅子，然后把门锁上了。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spanish_civil_war_started"), Not(HasCountryFlag("spa_jose_antonio_absent_seen"))]),
+            mean_time_to_happen_days: 20,
+            immediate: [SetCountryFlag("spa_jose_antonio_absent_seen"), SetCharacterStatus(key: "spa_jose_antonio_primo_de_rivera", status: Absent)],
+            options: [EventOption(name: "让他的缺席维持长枪党的神秘合法性。", effects: [SetCountryFlag("spa_jose_antonio_absent_symbol"), AddToVariable(name: "spa_falange_power", value: 1.0), ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0)], ai_chance: 1.0)],
+        ),
+        Event(
+            id: "spa.scw_falange_martyrdom",
+            title: "阿利坎特传单上的黑框照片",
+            description: "何塞·安东尼奥在阿利坎特被共和国民兵处决的消息于1936年11月20日清晨传到萨拉曼卡。赫迪利亚最先接到电话，他放下听筒后做的第一件事不是通知其他党内干部，而是把总部的打字员叫进来，口授了一份标题为'领袖永垂不朽'的传单稿。稿子第三段已经在用'我们殉道的创始人'这个称呼——距他接到死讯不到一小时。
+
+何塞·安东尼奥活着的时候，每个派系都可以说'领袖其实支持我们的立场'。他死了之后，这句话变成了'领袖的遗志就是我们的立场'。区别在于：第一种是猜测，第二种是宣判。殉道叙事把长枪党从一个依赖个人魅力的派系运动，变成了一台不需要活人领导的动员机器。蓝衫青年不再问'何塞·安东尼奥会怎么说'——他们自己替他说，而且说得比生前更绝对。
+
+佛朗哥的联络处没有干预这场殉道制造，只派人送来了一封简短的悼念函。悼念函的落款不是'最高统帅佛朗哥'，而是'你的同志，弗朗西斯科'。这个落款后来被长枪党内部传阅了很多遍。赫迪利亚看了之后，把信纸折起来放进抽屉，对秘书说：'他不是我们的同志。他在借我们的名字穿上我们的衬衫。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_jose_antonio_absent_seen"), Not(HasCountryFlag("spa_falange_martyrdom_resolved"))]),
+            mean_time_to_happen_days: 25,
+            immediate: [SetCountryFlag("spa_falange_martyrdom_resolved")],
+            options: [
+                EventOption(name: "把殉道叙事交给长枪党动员。", effects: [SetCountryFlag("spa_jose_antonio_martyr_myth"), KillCharacter("spa_jose_antonio_primo_de_rivera"), AddWarSupport(0.02), AddToVariable(name: "spa_falange_power", value: 3.0), AddToVariable(name: "spa_church_influence", value: -1.0), ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0), ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0)], ai_chance: 0.65),
+                EventOption(name: "把纪念仪式纳入军政府审查。", effects: [SetCountryFlag("spa_jose_antonio_martyr_censored"), KillCharacter("spa_jose_antonio_primo_de_rivera"), AddToVariable(name: "spa_franco_authority", value: 1.0), AddToVariable(name: "spa_falange_power", value: 1.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0), ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0)], ai_chance: 0.35),
+            ],
+        ),
+        Event(
+            id: "spa.scw_hedilla_succession_crisis",
+            title: "蓝衫总部没有人叫领袖",
+            description: "何塞·安东尼奥死后的第一周，萨拉曼卡的长枪党总部像一锅被搅动过的油。赫迪利亚以何塞·安东尼奥生前指定的临时书记身份接管了日常事务，但他立刻发现：'书记'这个头衔只能管理秘书处的打字机和档案柜，管不了各省长枪党地方委员会那些手里有枪的人。旧衫派中坚分子在走廊里公开说赫迪利亚只是个'守尸人'——他们不打算推翻他，但也不打算服从他。而内战爆发后新加入长枪党的律师、军官亲属和地方保守派则对这场争吵毫无兴趣，他们只想知道一件事：谁能给他们发任命状。
+
+继承危机的实质不是谁当领袖，而是长枪党还能不能继续当一场运动。旧衫派想要一场更激进的清洗——清除投机分子、清除妥协分子、清除一切不曾在1934年穿着蓝衫挨过打的人。赫迪利亚则想守住组织框架，哪怕需要和佛朗哥做交易。他从抽屉里翻出了何塞·安东尼奥被捕前最后一批信件，试图从中找到'领袖遗命'的依据。但他找到的那封信里，何塞·安东尼奥只写了一句与继承人无关的话：'不要让运动变成国家，因为国家会反过来吃掉运动。'赫迪利亚把信放回抽屉，没有再引用它。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_falange_martyrdom_resolved"), Not(HasCountryFlag("spa_hedilla_crisis_resolved"))]),
+            mean_time_to_happen_days: 12,
+            immediate: [SetCountryFlag("spa_hedilla_crisis_resolved"), RecruitCharacter("spa_manuel_hedilla")],
+            options: [
+                EventOption(name: "支持赫迪利亚维持旧衫正统。", effects: [SetCountryFlag("spa_hedilla_legitimist_line"), AddToVariable(name: "spa_falange_power", value: 2.0), AddToVariable(name: "spa_army_loyalty", value: -1.0), ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0), ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0)], ai_chance: 0.35),
+                EventOption(name: "让佛朗哥的人进入秘书处，先把危机锁住。", effects: [SetCountryFlag("spa_hedilla_checked_by_franco"), AddToVariable(name: "spa_franco_authority", value: 2.0), AddToVariable(name: "spa_falange_power", value: -1.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0), ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0)], ai_chance: 0.65),
+            ],
+        ),
+        Event(
+            id: "spa.scw_old_shirts_and_new_men",
+            title: "蓝衫的颜色没有深浅之分",
+            description: "纳瓦拉省的长枪党办公室门口贴着一张手写的告示：'凡在1936年7月18日之前获得党员身份者，请携带旧党证至二楼登记处。'这是旧衫派贴的。他们用一张纸划分了两种蓝衫：一种是穿着蓝衫挨过警察棍子的，一种是看到国民军已经打进省城才去买蓝布的。
+
+办公室一楼聚集着新入党的地方律师、退役军官的儿子、被教会推荐来的保守青年和几名想把长枪党地方委员会变成'新市政厅'的投机主义市长。他们在等着领任命书。二楼走廊里站着几个三十岁左右的旧衫干部，穿着洗了太多次以至于蓝色都快褪成灰白的旧衬衫，看着楼下的人流，其中一个说：'何塞·安东尼奥死的时候，他们还没入党呢。现在他们要来继承他的遗志了。'
+
+新人带来的是行政能力和地方人脉：他们能填账簿、会写法律条文、认识省里的地主和银行经理。旧衫派带来的是意识形态纯度、街头动员能力和1934年以来积累的所有伤痕。赫迪利亚必须在二者之间做出平衡——不是选择谁取代谁，而是选择哪一种长枪党会延续到战后：一场运动的残余，还是一个官僚机构的雏形。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_hedilla_crisis_resolved"), Not(HasCountryFlag("spa_old_shirts_new_men_resolved"))]),
+            mean_time_to_happen_days: 10,
+            immediate: [SetCountryFlag("spa_old_shirts_new_men_resolved")],
+            options: [
+                EventOption(name: "保留旧衫派在地方组织的优先权。", effects: [SetCountryFlag("spa_old_shirts_empowered"), AddToVariable(name: "spa_falange_power", value: 2.0), AddToVariable(name: "spa_syndicalist_institutionalization", value: 1.0), AddToVariable(name: "spa_army_loyalty", value: -1.0), ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0), ClampVariable(name: "spa_syndicalist_institutionalization", min: 0.0, max: 100.0), ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0)], ai_chance: 0.45),
+                EventOption(name: "让新人负责行政，蓝衫必须会填账簿。", effects: [SetCountryFlag("spa_new_men_administer_falange"), AddPoliticalPower(10.0), AddToVariable(name: "spa_franco_authority", value: 1.0), AddToVariable(name: "spa_falange_power", value: 1.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0), ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0)], ai_chance: 0.55),
+            ],
+        ),
+        Event(
+            id: "spa.scw_hedilla_meets_serrano_suner",
+            title: "没有记录的会面",
+            description: "拉蒙·塞拉诺·苏涅尔是佛朗哥的连襟，也是内战前在萨拉戈萨执业的律师。他选了萨拉曼卡城外的一座农庄作为会面地点，没有让任何长枪党记录员到场。桌上只摆了咖啡，没有文件。
+
+他对赫迪利亚说的话可以被归纳为三点：第一，佛朗哥已经是最可能赢得战争的人，他的胜利就是长枪党不被共和国清算的唯一保障。第二，长枪党需要法律上的承认——不是街头运动的承认，而是被军政府法令明确写入国家体制的承认。第三，塞拉诺·苏涅尔自己可以充当这个'法律框架'的起草人——作为交换，赫迪利亚必须默认佛朗哥对长枪党的最终领导权。
+
+赫迪利亚听完了，没有立即答复。他把咖啡杯推到了桌子另一边——推杯子的手势在西班牙旧式社交礼仪中意味着'我在想，先别逼我'。他知道这笔交易的真正代价不是交出长枪党的领导权，而是把运动从一个自主的政治实体变成一个附属于佛朗哥的法律实体。但他也清楚：没有法律承认，长枪党在战后将没有任何谈判筹码。运动不变成制度，就会被制度消灭。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_old_shirts_new_men_resolved"), Not(HasCountryFlag("spa_hedilla_serrano_meeting_resolved"))]),
+            mean_time_to_happen_days: 10,
+            immediate: [SetCountryFlag("spa_hedilla_serrano_meeting_resolved"), RecruitCharacter("spa_serrano_suner")],
+            options: [
+                EventOption(name: "达成交易，长枪党接受国家法令框架。", effects: [SetCountryFlag("spa_hedilla_serrano_bargain"), AddToVariable(name: "spa_franco_authority", value: 1.0), AddToVariable(name: "spa_falange_power", value: 1.0), AddToVariable(name: "spa_syndicalist_institutionalization", value: 1.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0), ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0), ClampVariable(name: "spa_syndicalist_institutionalization", min: 0.0, max: 100.0)], ai_chance: 0.55),
+                EventOption(name: "赫迪利亚拒绝被家族法学家驯化。", effects: [SetCountryFlag("spa_hedilla_rejects_serrano"), AddToVariable(name: "spa_falange_power", value: 2.0), AddToVariable(name: "spa_franco_authority", value: -1.0), AddToVariable(name: "spa_army_loyalty", value: -1.0), ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0), ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0)], ai_chance: 0.45),
+            ],
+        ),
+        Event(
+            id: "spa.scw_falange_seizes_secretariat",
+            title: "秘书处的钥匙有两把",
+            description: "长枪党全国秘书处不是一个政治机构——在官僚体系里，它只是一个盖章处。但它掌握着三样东西：各省委任状的签发权、青年队训练营的拨款申请表、以及和军政府后勤处之间的物资调配联络通道。这三样东西加起来，等于一个权力：谁能让自己的人填满各省任命表，谁就事实上控制了战后长枪党的所有基层组织。
+
+赫迪利亚对塞拉诺·苏涅尔会面后的答复，实质上是在赌一件事：他可以先让长枪党拿到秘书处，再用秘书处反过来制衡佛朗哥。但佛朗哥的参谋们不这么看。他们给塞拉诺·苏涅尔的指示只有一句话：'他可以拿到秘书处。但秘书处的印章必须由考迪罗办公室刻制。'这意味着赫迪利亚可以用秘书处盖命令，但命令的法定效力来自佛朗哥——一旦需要，佛朗哥可以换一枚新印章，让所有旧命令失效。权力从印章的刻制权开始，不是从印章的使用权开始。赫迪利亚知道这一点。他只是暂时装作不知道。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_hedilla_serrano_meeting_resolved"), Not(HasCountryFlag("spa_falange_secretariat_resolved"))]),
+            mean_time_to_happen_days: 10,
+            immediate: [SetCountryFlag("spa_falange_secretariat_resolved")],
+            options: [
+                EventOption(name: "让长枪党掌握秘书处。", effects: [SetCountryFlag("spa_falange_secretariat_ascendant"), SetCountryFlag("spa_p9_candidate_falange_victory"), AddToVariable(name: "spa_falange_power", value: 4.0), AddToVariable(name: "spa_syndicalist_institutionalization", value: 2.0), AddToVariable(name: "spa_army_loyalty", value: -2.0), TriggerEvent("hidden.scw_nationalist_internal_pressure_tick")], ai_chance: 0.35),
+                EventOption(name: "把秘书处置于佛朗哥任命权之下。", effects: [SetCountryFlag("spa_falange_secretariat_subordinated"), AddToVariable(name: "spa_franco_authority", value: 3.0), AddToVariable(name: "spa_falange_power", value: -1.0), AddToVariable(name: "spa_army_loyalty", value: 1.0), TriggerEvent("hidden.scw_nationalist_internal_pressure_tick")], ai_chance: 0.65),
+            ],
+        ),
+        Event(
+            id: "spa.scw_carlist_demands",
+            title: "红贝雷的墨迹不沾水",
+            description: "法尔·孔德派来的代表是一名从纳瓦拉山区徒步走了两天才到布尔戈斯的退役上尉。他把一份用羊皮纸手写的要求清单摊在卡瓦内利亚斯的桌上。清单措辞客气，用了大量'请'和'恳请'，但最后一页是一份已经起草好只等签字的'王国临时宪章草案'——如果委员会签字，卡洛斯派的继承人便从流亡者变成被军政府承认的未来国王。
+
+卡洛斯派的筹码很简单：莫拉死前已经默许了红贝雷民兵的自治编制，教会支持卡洛斯派的王位主张，纳瓦拉和巴斯克乡间的红贝雷组织是目前北方最稳固的基层动员网络。他们要的回报也很简单：军政府公开承认这场战争是『为上帝和国王而战』，承认卡洛斯派民兵保留独立指挥体系和随军神父，承诺战后恢复传统王政的优先讨论权——不承诺一定恢复，只承诺『优先讨论』。
+
+法务军官看完清单说：『「优先讨论」在法律上不产生任何义务。』法尔·孔德的代表回答：『在政治上，「优先讨论」一旦被军政府公函写下来，就会变成我们每一次谈判的起点。我不要法律约束。我要政治锚点。』",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_mola_northern_plan_resolved"), Not(HasCountryFlag("spa_carlist_demands_resolved"))]),
+            mean_time_to_happen_days: 16,
+            immediate: [SetCountryFlag("spa_carlist_demands_resolved")],
+            options: [
+                EventOption(name: "承认红贝雷的宗教和王位承诺。", effects: [SetCountryFlag("spa_carlist_promises_made"), AddManpower(10000), AddToVariable(name: "spa_church_influence", value: 2.0), AddToVariable(name: "spa_carlist_anger", value: -3.0), ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0), ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0)], ai_chance: 0.45),
+                EventOption(name: "只承认军事贡献，不许他们预支王位。", effects: [SetCountryFlag("spa_carlist_demands_delayed"), AddManpower(5000), AddToVariable(name: "spa_carlist_anger", value: 3.0), AddToVariable(name: "spa_franco_authority", value: 1.0), ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0)], ai_chance: 0.55),
+            ],
+        ),
+        Event(
+            id: "spa.scw_requetes_at_the_front",
+            title: "圣歌在北方阵地上空",
+            description: "红贝雷民兵在巴斯克和纳瓦拉前线打了两场硬仗之后，开始在团级建制上要求两项被写入命令的权利：独立建制的民兵名册——区别于佛朗哥指挥的正规军序列；随军神父的正式驻扎权和阵地祈祷许可。这不是迷信。这是政治信号——红贝雷正在用战场上的牺牲证明忠诚，然后要求委员会用制度化的方式承认这种忠诚是不同于正规军的另一种武装合法性。
+
+一名北方军区的随军神父在寄回教区的家书中写道：'他们不是在接受军事纪律，他们在用每一次冲锋换取政治筹码。他们知道子弹耗尽之后，只有被写进法律的东西才能保护他们的王冠。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_carlist_demands_resolved"), Not(HasCountryFlag("spa_requetes_front_resolved"))]),
+            mean_time_to_happen_days: 8,
+            immediate: [SetCountryFlag("spa_requetes_front_resolved")],
+            options: [EventOption(name: "给红贝雷独立名册和随军神父。", effects: [SetCountryFlag("spa_requetes_autonomy"), AddManpower(8000), AddToVariable(name: "spa_carlist_anger", value: -1.0), AddToVariable(name: "spa_army_loyalty", value: -1.0), ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0), ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0)], ai_chance: 1.0)],
+        ),
+        Event(
+            id: "spa.scw_church_crusade",
+            title: "讲台上的十字军与公文里的国家",
+            description: "布尔戈斯大主教在圣诞弥撒中第一次使用了'十字军'这个词。它立刻被奎波的塞维利亚电台转播，又被长枪党传单印刷了三千份。主教没有和军政府商量措辞——他在讲台上宣布这件事是上帝的事业，就等于替军政府做了神学背书。法务军官第二天早上问卡瓦内利亚斯要不要发一份措辞更'世俗化'的官方声明，卡瓦内利亚斯反问：'你打算怎么世俗化十字军？'
+
+教会的叙事不是免费的，它附带了账单。它在国民军占领区重开了教区学校和救济院，给了乡村一种可以用神父、弥撒和圣日来维系的秩序感。但每一所重新开门的教区学校，每一份由主教推荐入选地方行政委员会的名单，都在把未来的西班牙国家变成一座神权建筑。长枪党最先感受到了威胁——蓝衫青年在纳瓦拉发现，一些乡村的征兵登记处正在被教区神父取代，因为农民更信任神父而不是长枪党干部。长枪党省党部给萨拉曼卡总部发了一封电报，语气近乎恐惧：'教会正在用救济替代革命，用神父替代蓝衫。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_requetes_front_resolved"), Not(HasCountryFlag("spa_church_crusade_resolved"))]),
+            mean_time_to_happen_days: 10,
+            immediate: [SetCountryFlag("spa_church_crusade_resolved")],
+            options: [
+                EventOption(name: "接受十字军叙事，换取基层秩序。", effects: [SetCountryFlag("spa_church_crusade_embraced"), SetCountryFlag("spa_p9_candidate_national_catholic_compromise"), AddStability(0.02), AddToVariable(name: "spa_church_influence", value: 4.0), AddToVariable(name: "spa_falange_power", value: -1.0), ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0), ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0)], ai_chance: 0.7),
+                EventOption(name: "让教会祝福军队，但别让讲台写法令。", effects: [SetCountryFlag("spa_church_crusade_limited"), AddStability(0.01), AddToVariable(name: "spa_franco_authority", value: 1.0), AddToVariable(name: "spa_church_influence", value: 1.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0), ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0)], ai_chance: 0.3),
+            ],
+        ),
+        Event(
+            id: "spa.scw_ceda_and_alfonsists",
+            title: "他们没有歌",
+            description: "CEDA前议会党团的几名律师带着内战前各省市的税务清单、银行联络记录和市政档案索引来到布尔戈斯。他们没有穿制服，没有带武器，拒绝在走廊里回答任何与意识形态有关的问题。领头的一名前议员把一叠厚厚的档案放在法务军官桌上说：'你们可以靠子弹占领一个镇，但你们靠子弹发不了粮食。我们需要这些旧账本，你们也需要我们这些旧人。'
+
+这些旧右翼精英代表的是国民军最尴尬的一种合法性来源：实用主义。他们不关心十字军叙事，不在乎长枪党的二十六条纲领，也不在乎卡洛斯派的王位谱系。他们只关心一件事——新政权能不能正常运转：税谁来收、粮食合同怎么延续、银行承兑汇票战后还认不认。长枪党看不起他们，教会不信任他们的世俗账簿，但他们手里的档案柜连接着西班牙最后一套可运行的民事行政网络。佛朗哥的一名参谋把他们的档案目录看了一遍，对联络官说：'这些纸比蓝衫的传单有用。但用完之后，这些人不会留在体制里——他们不属于任何运动。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_church_crusade_resolved"), Not(HasCountryFlag("spa_ceda_alfonsists_resolved"))]),
+            mean_time_to_happen_days: 10,
+            immediate: [SetCountryFlag("spa_ceda_alfonsists_resolved")],
+            options: [EventOption(name: "让旧保守精英接手行政账簿。", effects: [SetCountryFlag("spa_conservative_admin_network"), AddPoliticalPower(15.0), AddStability(0.01), AddToVariable(name: "spa_falange_power", value: -1.0), AddToVariable(name: "spa_church_influence", value: 1.0), ClampVariable(name: "spa_falange_power", min: 0.0, max: 100.0), ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0)], ai_chance: 1.0)],
+        ),
+        Event(
+            id: "spa.scw_varela_and_fal_conde",
+            title: "将军与律师",
+            description: "何塞·恩里克·巴雷拉是国民军北方战线最受普通士兵信赖的将军之一，同时也是一名虔诚的天主教徒。法尔·孔德是卡洛斯派的政治领袖，律师出身，从不在前线出现，但卡洛斯派的每一封致委员会函件都由他起草。两人在布尔戈斯的会面不是军事会议——是传统主义阵营内部的一次权力校准。
+
+巴雷拉开门见山。他告诉孔德，委员会可能不会立刻承诺王政恢复，但军队已经默认红贝雷民兵的独立编制是既成事实。只要卡洛斯派不在公共场合把王位要求变成政治攻势，军内的传统派将领可以保证民兵编制不受统一整编的冲击。孔德听完后，把一份已经起草好但还没送出的'王位问题公开质询函'从公文包里抽出来，当着巴雷拉的面撕掉了——然后撕掉的碎片被收进信封，意味着他只是暂时不送，不是放弃。两人握手时，孔德说了一句让巴雷拉在日记里反复斟酌的话：'将军，红贝雷的忠诚不需要写在法律里。但它需要写在时间的习惯里。习惯久了，就会变成法律。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_ceda_alfonsists_resolved"), Not(HasCountryFlag("spa_varela_fal_conde_resolved"))]),
+            mean_time_to_happen_days: 12,
+            immediate: [SetCountryFlag("spa_varela_fal_conde_resolved"), RecruitCharacter("spa_varela"), RecruitCharacter("spa_fal_conde")],
+            options: [
+                EventOption(name: "让巴雷拉调停，给传统派体面但不给王位日期。", effects: [SetCountryFlag("spa_varela_mediates_traditionalists"), AddToVariable(name: "spa_army_loyalty", value: 1.0), AddToVariable(name: "spa_carlist_anger", value: 1.0), AddToVariable(name: "spa_church_influence", value: 1.0), ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0), ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0), ClampVariable(name: "spa_church_influence", min: 0.0, max: 100.0)], ai_chance: 0.6),
+                EventOption(name: "压制法尔·孔德的政治要求。", effects: [SetCountryFlag("spa_fal_conde_checked"), AddToVariable(name: "spa_franco_authority", value: 2.0), AddToVariable(name: "spa_carlist_anger", value: 3.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0), ClampVariable(name: "spa_carlist_anger", min: 0.0, max: 100.0)], ai_chance: 0.4),
+            ],
+        ),
+        Event(
+            id: "spa.scw_german_dependency",
+            title: "柏林来的备忘录没有封面",
+            description: "德国军事顾问团团长在国民军司令部走廊里拦住佛朗哥的联络官，递过来一份没有封面的备忘录。备忘录第一页列的是秃鹰军团已经运抵的装备清单——容克Ju-52运输机、He-51战斗机、无线电通信设备、机床——每一项后面都标注了'已交付'。但翻到最后一页，有一行用铅笔写的德语附注：'期待西班牙方面就矿产开采优先权及海军基地合作意愿作出进一步回应。'
+
+这行附注的语法是条件句，不是命令句。但它的存在本身就构成了一个政治事实：德国已经把对国民军的援助理解为一笔可追溯的赊账。柏林不急着收账，因为它知道佛朗哥需要下一批飞机来打下一场战役，而下一批飞机需要同一份赊账关系继续存在。每一次续约都在把依赖编织得更密。
+
+国民军军需处的一名采购军官在清点德国机床时，发现机身上的铭牌刻着克虏伯公司的出口编号和一行小字——'仅供盟国军事用途'。他把铭牌拍了下来，但没有把照片交给任何人。后来他对后勤处同事说：'我们还不是他们的盟国。他们已经在叫我们盟国了。这就是债务的利息——不是钱，是称呼。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_german_airlift_memory"), Not(HasCountryFlag("spa_german_dependency_resolved"))]),
+            mean_time_to_happen_days: 14,
+            immediate: [SetCountryFlag("spa_german_dependency_resolved")],
+            options: [EventOption(name: "签下机床、顾问和矿产承诺。", effects: [SetCountryFlag("spa_german_dependency"), AddGovernmentOrder(equipment_category: "aircraft", daily_budget_rm: 0.70, duration_days: 120), AddTradeAgreement(partner: "GER", good_id: "iron", daily_quantity: 12.0), AddToVariable(name: "spa_foreign_dependency", value: 3.0), AddToVariable(name: "spa_franco_authority", value: 1.0), ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0), ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0)], ai_chance: 1.0)],
+        ),
+        Event(
+            id: "spa.scw_italian_dependency",
+            title: "罗马要价的方式是拍照",
+            description: "意大利志愿军团在马拉加战役后，由随军记者拍下了一组精心安排的照片：意大利军官与西班牙国民军将领并肩站在沦陷的市政厅前，身后挂着被子弹打穿的共和国三色旗。这组照片被罗马报纸刊登时，配文只写了四个字：'法西斯兄弟。'
+
+CTV指挥官给国防委员会发来的补给清单里，每一批燃油和弹药后面都附加了一个'建议事项'——意大利海军使用加的斯港的长期优先权、意大利企业在西班牙战后重建中的投标便利、以及一份关于'两国地中海战略伙伴关系'的意向书草稿。意向书不是条约，没有法律约束力；但它的每一句外交辞令，都在默认西班牙欠意大利一笔可以随时被要求偿还的政治债务。
+
+军需处一名参谋在清点意大利援助物时发现，CTV送来的部分步枪是埃塞俄比亚战役缴获的旧装备。他把这件事写进了一份内部备忘录，但佛朗哥的联络官把备忘录压下了——'现在不是挑剔盟友的时候。子弹不分国籍，债务也不分。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_italian_transport_memory"), Not(HasCountryFlag("spa_italian_dependency_resolved"))]),
+            mean_time_to_happen_days: 16,
+            immediate: [SetCountryFlag("spa_italian_dependency_resolved")],
+            options: [EventOption(name: "接受意大利兵力和宣传账单。", effects: [SetCountryFlag("spa_italian_dependency"), AddManpower(9000), AddFuel(180.0), AddTradeAgreement(partner: "ITA", good_id: "fuel", daily_quantity: 8.0), AddToVariable(name: "spa_foreign_dependency", value: 3.0), ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0)], ai_chance: 1.0)],
+        ),
+        Event(
+            id: "spa.scw_receive_condor_legion",
+            title: "接收秃鹰军团",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasGlobalFlag("ger_scw_condor_legion_sent_to_spain"),
+                Not(HasCountryFlag("spa_condor_legion_in_theater")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "接收德国飞机、燃油和顾问账单。",
+                    effects: [
+                        SetCountryFlag("spa_german_airlift_memory"),
+                        SetCountryFlag("spa_condor_legion_in_theater"),
+                        SetCountryFlag("spa_p9_weight_axis_debt"),
+                        AddFuel(260.0),
+                        AddGovernmentOrder(equipment_category: "aircraft", daily_budget_rm: 180000.0, duration_days: 75),
+                        AddTradeAgreement(partner: "GER", good_id: "fuel", daily_quantity: 8.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 2.0),
+                        AddToVariable(name: "spa_rear_supply", value: 1.0),
+                        AddToVariable(name: "spa_franco_authority", value: 1.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_franco_authority", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_german_air_war_bill",
+            title: "记录德国空战账单",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasGlobalFlag("ger_scw_air_war_laboratory_completed"),
+                Not(HasCountryFlag("spa_air_war_laboratory_used")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "把轰炸、实验和外交后果写入账簿。",
+                    effects: [
+                        SetCountryFlag("spa_guernica_bombing_memory"),
+                        SetCountryFlag("spa_air_war_laboratory_used"),
+                        SetCountryFlag("spa_p9_risk_axis_claims"),
+                        AirExperience(4.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                        AddToVariable(name: "spa_international_outrage", value: 3.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_international_outrage", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_condor_legion_returns_bill",
+            title: "秃鹰军团归国账单",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasGlobalFlag("ger_scw_condor_legion_returned_to_germany"),
+                Not(HasCountryFlag("spa_condor_legion_returned_bill_due")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "德国带走经验，留下矿产和采购期待。",
+                    effects: [
+                        SetCountryFlag("spa_condor_legion_returned_bill_due"),
+                        SetCountryFlag("spa_postwar_german_claims_seeded"),
+                        AddTradeAgreement(partner: "GER", good_id: "tungsten", daily_quantity: 6.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 2.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_receive_ctv",
+            title: "接收意大利志愿军团",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasGlobalFlag("ita_scw_ctv_sent_to_spain"),
+                Not(HasCountryFlag("spa_ctv_in_theater")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "意大利兵力、燃油和宣传账单进入后方。",
+                    effects: [
+                        SetCountryFlag("spa_italian_transport_memory"),
+                        SetCountryFlag("spa_ctv_in_theater"),
+                        AddManpower(11000),
+                        AddFuel(220.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 160000.0, duration_days: 70),
+                        AddTradeAgreement(partner: "ITA", good_id: "fuel", daily_quantity: 7.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 2.0),
+                        AddToVariable(name: "spa_rear_supply", value: 1.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_guadalajara_aftermath",
+            title: "瓜达拉哈拉之后的意大利账单",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasGlobalFlag("ita_scw_guadalajara_aftermath_ready"),
+                Not(HasCountryFlag("spa_guadalajara_italian_humiliation_memory")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "失败降低威望，却没有取消债务。",
+                    effects: [
+                        SetCountryFlag("spa_guadalajara_italian_humiliation_memory"),
+                        AddWarSupport(-0.01),
+                        AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                        AddToVariable(name: "spa_army_loyalty", value: -1.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_army_loyalty", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_receive_expanded_ctv",
+            title: "扩大意大利军事介入",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasGlobalFlag("ita_scw_expanded_ctv_ready"),
+                Not(HasCountryFlag("spa_italian_intervention_expanded")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "更多兵力意味着更重的地中海承诺。",
+                    effects: [
+                        SetCountryFlag("spa_italian_intervention_expanded"),
+                        AddManpower(7000),
+                        AddFuel(160.0),
+                        AddGovernmentOrder(equipment_category: "artillery", daily_budget_rm: 140000.0, duration_days: 55),
+                        AddToVariable(name: "spa_foreign_dependency", value: 2.0),
+                        AddToVariable(name: "spa_rear_supply", value: 1.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_british_non_intervention_readout",
+            title: "伦敦不干涉的西班牙读法",
+            description: "",
+            picture: "",
+            hidden: true,
+            trigger: And([
+                Tag("SPA"),
+                HasGlobalFlag("eng_scw_non_intervention_committee_called"),
+                Not(HasCountryFlag("spa_british_non_intervention_memory")),
+            ]),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "不干涉给了外援灰色通道，也给了直布罗陀警惕。",
+                    effects: [
+                        SetCountryFlag("spa_british_non_intervention_memory"),
+                        SetCountryFlag("spa_postwar_gibraltar_watch"),
+                        AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                        AddToVariable(name: "spa_international_outrage", value: -1.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_international_outrage", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "por.scw_nationalist_supply_routes",
+            title: "边境那头没有记号的卡车",
+            description: "萨拉查在里斯本宣布中立时，布尔戈斯的军需官已经在地图上圈出了埃尔瓦什、巴达霍斯和通往北方铁路的几段公路。卡车没有军旗，司机的证件写着粮食商人，海关登记栏里则是'人道救济'。等木箱卸到国民军仓库，里面有无线电零件、航空燃油、罐头和被法国禁运清单标红的备件。葡萄牙给佛朗哥的不是一支军队，而是一条可以否认的后方。它稳定了边境，也让每一批外援都多了一层债务和沉默。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                CountryExists("SPA"),
+                Date(year: 1936, month: 8, day: 15),
+                Not(HasCountryFlag("spa_portuguese_supply_routes_open")),
+            ]),
+            mean_time_to_happen_days: 7,
+            immediate: [SetCountryFlag("spa_portuguese_supply_routes_open")],
+            options: [
+                EventOption(
+                    name: "让葡萄牙通道成为国民军的侧门。",
+                    effects: [
+                        SetCountryFlag("spa_portuguese_border_channel"),
+                        SetCountryFlag("spa_p9_memory_portuguese_routes"),
+                        AddBuildingLevel(state: 169, building_id: "infrastructure", level: 1),
+                        AddTradeAgreement(partner: "GER", good_id: "machine_tools", daily_quantity: 4.0),
+                        AddTradeAgreement(partner: "ITA", good_id: "fuel", daily_quantity: 4.0),
+                        AddToVariable(name: "spa_rear_supply", value: 3.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 1.0),
+                        ClampVariable(name: "spa_rear_supply", min: 0.0, max: 100.0),
+                        ClampVariable(name: "spa_foreign_dependency", min: 0.0, max: 100.0),
+                        TriggerEvent("hidden.scw_nationalist_internal_pressure_tick"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_unification_decree_drafted",
+            title: "一份被涂改了十二遍的草稿",
+            description: "塞拉诺·苏涅尔在布尔戈斯法务处的一间小办公室里，用了一整夜起草统一法令的第七稿。每一稿都在试图把四样东西塞进同一个自然段：长枪党的国家工团主义纲领、卡洛斯派的天主教王政信仰、军政府的命令体系、以及旧保守派精英的行政经验。前面六稿没有一版能撑到第二天早上——不是红贝雷的人抗议'王位问题被降格为注脚'，就是蓝衫把'国家元首权力条款不足'的修订意见用红笔直接写满了页边。第七稿被改到凌晨三点，苏涅尔最终放弃了合并原则，改为合并名称——他创造了一个新词：'传统主义西班牙国家工团主义攻委会方阵'。这个词没人真正理解，所以每个人都能在它里面看见自己想看见的东西。佛朗哥看了一遍，批了两个字：'签字。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), HasCountryFlag("spa_falange_secretariat_resolved"), HasCountryFlag("spa_varela_fal_conde_resolved"), Not(HasCountryFlag("spa_unification_decree_drafted"))]),
+            mean_time_to_happen_days: 10,
+            immediate: [SetCountryFlag("spa_unification_decree_drafted")],
+            options: [EventOption(name: "把草案送交考迪罗办公室。", effects: [AddPoliticalPower(-10.0), AddToVariable(name: "spa_franco_authority", value: 1.0), TriggerEvent("spa.scw_unification_decree")], ai_chance: 1.0)],
+        ),
+        Event(
+            id: "spa.scw_unification_decree",
+            title: "缝线",
+            description: "法令公布那天，布尔戈斯下了一场雨。法务处的一等秘书把法令正文抄了三份——一份存档，一份送长枪党总部，一份张贴。每一份上，各派都能在字缝里读出不同的命运。卡洛斯派的代表发现'王位'这个词只出现在序言里，正文从未提过继承权——他们没被否定，但也没被承诺。蓝衫干部发现长枪党的二十六条纲领被简化为'引导原则'四个字，附在第三条末位——法律承认了他们的存在，但拒绝让他们的纲领变成国家的纲领。旧行政官们则发现新设立的国民运动中央书记处没有任何预算条款——他们的权力被体制化了，但体制没给他们钱。
+
+佛朗哥在签字时只停了一次：他问法务官，法令第五条末尾那句'国家元首对运动之一切机构享有最终管辖权'能不能再写粗一点。法务官回答：'字不能变粗，但可以在这一条后面加一个单独的附录——列出所有受此条款管辖的机构名称。名单越长，管辖越实。'佛朗哥点点头，把笔蘸了墨。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(name: "强制统一，所有右翼都归入国民运动。", effects: [SetCountryFlag("spa_unification_decree_enforced"), SetCountryFlag("spa_p9_candidate_franco_victory"), AddToVariable(name: "spa_franco_authority", value: 4.0), AddToVariable(name: "spa_carlist_anger", value: 3.0), AddToVariable(name: "spa_falange_power", value: -1.0), TriggerEvent("spa.scw_hedilla_arrested")], ai_chance: 0.6),
+                EventOption(name: "给长枪党秘书处保留谈判空间。", effects: [SetCountryFlag("spa_unification_decree_bargained"), AddToVariable(name: "spa_falange_power", value: 2.0), AddToVariable(name: "spa_franco_authority", value: 1.0), AddToVariable(name: "spa_carlist_anger", value: 2.0), TriggerEvent("spa.scw_hedilla_compromise")], ai_chance: 0.4),
+            ],
+        ),
+        Event(id: "spa.scw_hedilla_arrested", title: "萨拉曼卡的凌晨三点", description: "宪兵队敲开赫迪利亚寓所时，他正在修改一份准备第二天送交佛朗哥的秘书处章程草案。逮捕令由佛朗哥亲自签署，罪名栏写的是'危害国民运动之统一'——一个刚刚被同一支笔在法律上创造出来的新罪名。赫迪利亚被带出房间时，把一份未完成的章程草案塞进大衣口袋。他在囚室里对后来被派来审问他的法务官说了一句话：'你们可以把我关起来，但你们没法把长枪党每一个地方委员会的印章都锁进抽屉。那些印章不在我手里，在每一个省的蓝衫地方组织手里。它们不需要我的命令才会盖下去。'这句话后来被写进了军事情报局的内部评估报告，附录标题是'长枪党基层失控风险评估'。", picture: "GFX_event_spanish_civil_war", is_triggered_only: true, trigger: AlwaysTrue, mean_time_to_happen_days: 1, options: [EventOption(name: "秘书处服从考迪罗。", effects: [SetCountryFlag("spa_hedilla_arrested"), ImprisonCharacter("spa_manuel_hedilla"), AddToVariable(name: "spa_franco_authority", value: 3.0), AddToVariable(name: "spa_falange_power", value: -2.0), AddToVariable(name: "spa_army_loyalty", value: 1.0), TriggerEvent("hidden.scw_nationalist_internal_pressure_tick")], ai_chance: 1.0)]),
+        Event(id: "spa.scw_hedilla_compromise", title: "妥协的墨迹还没干", description: "赫迪利亚在被正式签署逮捕令之前，得到了塞拉诺·苏涅尔连夜传达的另一个选择：放弃公开对抗统一法令，接受佛朗哥对国民运动的最高领导权，作为交换——赫迪利亚个人不被起诉，长枪党秘书处的原有编制得到临时保留权，各省地方委员会的印章继续由蓝衫组织自行管理。赫迪利亚签了。签完之后他对法务官说：'今天佛朗哥赢了名字，十年后我们会赢回来所有他用名字控制的东西——因为名字会变老，但制度会习惯我们。'" , picture: "GFX_event_spanish_civil_war", is_triggered_only: true, trigger: AlwaysTrue, mean_time_to_happen_days: 1, options: [EventOption(name: "让赫迪利亚以服从换取秘书处席位。", effects: [SetCountryFlag("spa_hedilla_compromise_reached"), SetCountryFlag("spa_p9_candidate_falange_bargain"), AddToVariable(name: "spa_falange_power", value: 3.0), AddToVariable(name: "spa_syndicalist_institutionalization", value: 2.0), AddToVariable(name: "spa_franco_authority", value: 1.0), TriggerEvent("hidden.scw_nationalist_internal_pressure_tick")], ai_chance: 1.0)]),
+        Event(
+            id: "spa.scw_caudillo_or_revolution",
+            title: "考迪罗还是运动",
+            description: "统一法令实施后，佛朗哥在考迪罗办公室召见了塞拉诺·苏涅尔和长枪党秘书处剩余的三名高级干部。房间里没有别人。佛朗哥把两份文件并排摊在桌上——左边是军队指挥系统树状图，右边是国民运动组织架构草案。他用手指点着两张纸中间的那个空档说：'这里需要一个方向。'
+
+方向只有两个。第一个：佛朗哥宣布他是所有派系的最终仲裁者——长枪党只是运动的装饰品，军队才是国家的脊梁，一切由考迪罗签字。这条路通往个人独裁。第二个：长枪党秘书处被授权将国民运动的地方委员会系统扩展到每一个省、每一座城、每一个镇——以'运动'的名义逐步蚕食行政岗位，佛朗哥仍然是元首，但执行元首意志的人全是蓝衫。这条路通往党国。
+
+苏涅尔提醒佛朗哥：'如果您选第二条，二十年后您仍然是考迪罗，但决定谁继承您的人将是长枪党的书记处，不是您的继承人。'佛朗哥沉默了很久，最后说了一句话：'制度可以被习惯磨损。但一个人的签字，只有死亡才能让它失效。'",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([Tag("SPA"), Or([HasCountryFlag("spa_hedilla_arrested"), HasCountryFlag("spa_hedilla_compromise_reached")]), Not(HasCountryFlag("spa_caudillo_or_revolution_resolved"))]),
+            mean_time_to_happen_days: 12,
+            immediate: [SetCountryFlag("spa_caudillo_or_revolution_resolved")],
+            options: [
+                EventOption(name: "考迪罗仲裁一切。", effects: [SetCountryFlag("spa_caudillo_above_movement"), AddToVariable(name: "spa_franco_authority", value: 4.0), AddToVariable(name: "spa_syndicalist_institutionalization", value: -1.0), TriggerEvent("spa.scw_franco_caudillo")], ai_chance: 0.65),
+                EventOption(name: "让国民运动成为国家的骨架。", effects: [SetCountryFlag("spa_movement_state_skeleton"), AddToVariable(name: "spa_falange_power", value: 3.0), AddToVariable(name: "spa_syndicalist_institutionalization", value: 3.0), AddToVariable(name: "spa_army_loyalty", value: -1.0), TriggerEvent("spa.scw_franco_caudillo")], ai_chance: 0.35),
+            ],
+        ),
+        Event(id: "spa.scw_franco_caudillo", title: "考迪罗", description: "布尔戈斯大教堂偏厅被临时改为授衔仪式现场。站在佛朗哥身后的不是军政府全体委员，而是被精心挑选过的象征物——一名主教、一名蓝衫省干部、一名旧行政官、三名军区将领。每一个被选入镜头的人，都代表一个佛朗哥需要暂时安抚的力量。摄像机拍下了佛朗哥接受军刀和印章的画面，但没有拍到仪式开始前的一小时，他在更衣室里看着镜中的自己，对侍从官说了一句话：'我今天接过来的不是西班牙。是西班牙所有还没打完的内战。'他说得没错。这间屋子里没有一个人完全忠于他。主教忠于圣座，蓝衫忠于已死的何塞·安东尼奥，旧行政官忠于可执行的账簿，将领忠于各自的军区网络。佛朗哥签字成为西班牙的考迪罗，但他继承的不是一个被征服的国家，而是一团由妥协、恐惧、债务和未完成承诺暂时捏合在一起的泥土。他要在接下来几十年里，把这团泥土烧成砖，然后一块一块地建造一座没有人敢拆的纪念碑。", picture: "GFX_event_spanish_civil_war", is_triggered_only: true, trigger: AlwaysTrue, mean_time_to_happen_days: 1, options: [EventOption(name: "西班牙现在有了考迪罗。", effects: [SetCountryFlag("spa_franco_caudillo_proclaimed"), SetLeader("spa_francisco_franco"), AddWarSupport(0.03), AddToVariable(name: "spa_franco_authority", value: 5.0), TriggerEvent("spa.scw_kindelan_questions_the_caudillo"), TriggerEvent("hidden.scw_nationalist_internal_pressure_tick")], ai_chance: 1.0)]),
+        Event(
+            id: "spa.scw_kindelan_questions_the_caudillo",
+            title: "王位问题",
+            description: "阿尔弗雷多·金德兰是国民军空军司令、坚定的君主主义者，也是少数敢于在正式场合向佛朗哥提问题的人。仪式结束后，他在走廊里拦住了刚刚接受'考迪罗'头衔的佛朗哥，没有用敬语：'将军，您现在拥有了这个国家。告诉我，您打算什么时候把它还给国王？'
+
+这个问题在军事委员会内部已经私下讨论了无数次。金德兰代表的不是自己，而是整批传统君主派将领——他们接受佛朗哥作为战争领袖，但不接受佛朗哥作为王朝的替代品。佛朗哥可以立刻给出一份关于战后君主制恢复的时间表，但那意味着他在自己的权威之上安置了一个比他更高的法律存在。他也可以告诉金德兰：西班牙现在需要秩序，不是王冠，王位是未来的事，不是今天的事——这句话等于在说：我死之后，再说国王。
+
+侍从官后来在日记里写道，佛朗哥听完问题后在走廊里站了很长一段时间，最后用一个所有人都无法反驳的逻辑结束了对话：'国王回来需要宪法，宪法需要起草，起草需要和平，和平需要我赢。等我赢之后，我们再来讨论宪法。'他把王位问题拖进了战争的后半段，然后用'战后再说'四个字，把君主派将领的不满转换成了一种可以被时间稀释的等待。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(name: "承诺战后讨论王政，先保住军内体面。", effects: [SetCountryFlag("spa_kindelan_royal_question_deferred"), AddToVariable(name: "spa_army_loyalty", value: 2.0), AddToVariable(name: "spa_franco_authority", value: -1.0), TriggerEvent("hidden.scw_nationalist_internal_pressure_tick")], ai_chance: 0.45),
+                EventOption(name: "让金德兰明白：胜利者不会被旧王位裁决。", effects: [SetCountryFlag("spa_kindelan_royal_question_rebuffed"), SetCountryFlag("spa_p9_risk_royalist_distrust"), AddToVariable(name: "spa_franco_authority", value: 2.0), AddToVariable(name: "spa_army_loyalty", value: -2.0), TriggerEvent("hidden.scw_nationalist_internal_pressure_tick")], ai_chance: 0.55),
+            ],
+        ),
+        Event(
+            id: "spa.scw_victory",
+            title: "胜利日的账本",
+            description: "马德里的电台先读出停火命令，随后读出胜利宣言。布尔戈斯参谋部没有立刻欢呼，秘书们忙着把三种名单分开装订：投降部队登记、政治责任审查、外援债务凭据。前线军官要求复员，长枪党地方委员会要求接管街区，主教们要求重开学校和教产登记，德国与意大利顾问则提醒财政处，援助从来不是礼物。战争结束了，但胜利者还没有决定战后的国家究竟由军队、教会、党部、考迪罗，还是债主来书写。第一份和平命令必须同时回答所有人。",
+            picture: "GFX_event_spanish_civil_war",
+            trigger: And([
+                Tag("SPA"),
+                HasCountryFlag("spanish_civil_war_started"),
+                ControlsState(41),
+                ControlsState(165),
+                Not(HasCountryFlag("spa_scw_nationalist_victory_declared")),
+            ]),
+            mean_time_to_happen_days: 1,
+            immediate: [SetCountryFlag("spa_scw_nationalist_victory_declared")],
+            options: [
+                EventOption(
+                    name: "复员前线，把胜利写成国家重建。",
+                    effects: [
+                        SetCountryFlag("spa_scw_nationalist_victory"),
+                        SetCountryFlag("spa_scw_war_state_closed"),
+                        SetCountryFlag("spa_capital_madrid_restored"),
+                        SetCountryFlag("spa_postwar_demobilization_ordered"),
+                        SetGlobalFlag("scw_nationalist_victory"),
+                        ClearCountryFlag("spanish_civil_war_started"),
+                        If(trigger: CountryExists("SPR"), effects: [AnnexCountry("SPR")]),
+                        AddCoreTo(state: 41, country: "SPA"),
+                        AddCoreTo(state: 165, country: "SPA"),
+                        AddCoreTo(state: 790, country: "SPA"),
+                        AddCoreTo(state: 792, country: "SPA"),
+                        AddCoreTo(state: 793, country: "SPA"),
+                        AddCoreTo(state: 794, country: "SPA"),
+                        AddStability(0.04),
+                        AddWarSupport(-0.06),
+                        AddManpower(-45000),
+                        AddPoliticalPower(45.0),
+                        AddToVariable(name: "spa_postwar_debt_pressure", value: 3.0),
+                        AddToVariable(name: "spa_demobilization_pressure", value: 4.0),
+                        AddToVariable(name: "spa_occupation_resistance", value: 2.0),
+                        AddToVariable(name: "spa_rear_supply", value: -2.0),
+                        TriggerEvent("news.scw_nationalist_victory"),
+                        TriggerEvent("spa.scw_repression_after_victory"),
+                        TriggerEvent("spa.scw_church_and_state"),
+                        TriggerEvent("spa.scw_axis_or_neutrality"),
+                        TriggerEvent("hidden.scw_route_nationalist_victory"),
+                    ],
+                    ai_chance: 0.6,
+                ),
+                EventOption(
+                    name: "保持动员，先让新秩序站稳。",
+                    effects: [
+                        SetCountryFlag("spa_scw_nationalist_victory"),
+                        SetCountryFlag("spa_scw_war_state_closed"),
+                        SetCountryFlag("spa_capital_madrid_restored"),
+                        SetCountryFlag("spa_postwar_security_mobilization"),
+                        SetGlobalFlag("scw_nationalist_victory"),
+                        ClearCountryFlag("spanish_civil_war_started"),
+                        If(trigger: CountryExists("SPR"), effects: [AnnexCountry("SPR")]),
+                        AddCoreTo(state: 41, country: "SPA"),
+                        AddCoreTo(state: 165, country: "SPA"),
+                        AddCoreTo(state: 790, country: "SPA"),
+                        AddCoreTo(state: 792, country: "SPA"),
+                        AddCoreTo(state: 793, country: "SPA"),
+                        AddCoreTo(state: 794, country: "SPA"),
+                        AddStability(0.01),
+                        AddWarSupport(0.02),
+                        AddPoliticalPower(20.0),
+                        AddToVariable(name: "spa_franco_authority", value: 1.0),
+                        AddToVariable(name: "spa_army_loyalty", value: 1.0),
+                        AddToVariable(name: "spa_postwar_debt_pressure", value: 4.0),
+                        AddToVariable(name: "spa_demobilization_pressure", value: 2.0),
+                        AddToVariable(name: "spa_occupation_resistance", value: 4.0),
+                        AddGovernmentOrder(equipment_category: "infantry_equipment", daily_budget_rm: 120000.0, duration_days: 90),
+                        TriggerEvent("news.scw_nationalist_victory"),
+                        TriggerEvent("spa.scw_repression_after_victory"),
+                        TriggerEvent("spa.scw_church_and_state"),
+                        TriggerEvent("spa.scw_axis_or_neutrality"),
+                        TriggerEvent("hidden.scw_route_nationalist_victory"),
+                    ],
+                    ai_chance: 0.4,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_repression_after_victory",
+            title: "责任名单",
+            description: "内政处把各省送来的名单摊在长桌上：前市长、工会书记、教师、民兵军官、铁路工头、报纸编辑、曾给共和国仓库签过字的会计。白色恐怖在战争中已经有了自己的惯性，现在它要求被写成制度。军队希望用军法快速清场，长枪党希望把清洗变成地方组织权力，教会希望把惩罚和悔罪绑定，旧官僚则警告，如果每一座城都靠告密名单运转，税收和粮票会先崩。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "扩大政治责任法，清洗必须可见。",
+                    effects: [
+                        SetCountryFlag("spa_postwar_repression_expanded"),
+                        SetCountryFlag("spa_p9_memory_white_terror_institutionalized"),
+                        AddStability(-0.03),
+                        AddWarSupport(0.01),
+                        AddPoliticalPower(25.0),
+                        AddToVariable(name: "spa_occupation_resistance", value: 5.0),
+                        AddToVariable(name: "spa_international_outrage", value: 3.0),
+                        AddToVariable(name: "spa_falange_power", value: 1.0),
+                        TriggerEvent("hidden.scw_nationalist_occupation_order_tick"),
+                    ],
+                    ai_chance: 0.55,
+                ),
+                EventOption(
+                    name: "交给军法和省长，别让清算吞掉行政。",
+                    effects: [
+                        SetCountryFlag("spa_postwar_repression_bureaucratized"),
+                        SetCountryFlag("spa_p9_weight_military_bureaucracy"),
+                        AddStability(0.01),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spa_occupation_resistance", value: 2.0),
+                        AddToVariable(name: "spa_army_loyalty", value: 1.0),
+                        AddToVariable(name: "spa_junta_legitimacy", value: 1.0),
+                        TriggerEvent("hidden.scw_nationalist_occupation_order_tick"),
+                    ],
+                    ai_chance: 0.45,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_church_and_state",
+            title: "钟声和课本",
+            description: "战争结束后的第一个礼拜日，主教们要求的不只是感恩弥撒。教产、学校、婚姻登记、审查权、地方救济网络和战殁者纪念，都被放进同一份备忘录。国民军需要教会为胜利赋予意义，也需要国家机器保留最后裁决权。让教会重建社会秩序可以迅速填补被战争撕开的基层空洞，但每一间学校和每一本课本都会把战后国家推向更深的国民天主教。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "让教会负责学校、救济和悔罪登记。",
+                    effects: [
+                        SetCountryFlag("spa_postwar_national_catholic_compact"),
+                        SetCountryFlag("spa_p9_weight_national_catholic_order"),
+                        AddStability(0.03),
+                        AddPoliticalPower(-10.0),
+                        AddToVariable(name: "spa_church_influence", value: 4.0),
+                        AddToVariable(name: "spa_falange_power", value: -1.0),
+                        AddToVariable(name: "spa_carlist_anger", value: -1.0),
+                    ],
+                    ai_chance: 0.6,
+                ),
+                EventOption(
+                    name: "承认十字军叙事，但保留国家审查权。",
+                    effects: [
+                        SetCountryFlag("spa_postwar_state_controls_church_compact"),
+                        SetCountryFlag("spa_p9_weight_checked_caudillo"),
+                        AddStability(0.01),
+                        AddPoliticalPower(10.0),
+                        AddToVariable(name: "spa_church_influence", value: 1.0),
+                        AddToVariable(name: "spa_franco_authority", value: 1.0),
+                        AddToVariable(name: "spa_carlist_anger", value: 1.0),
+                    ],
+                    ai_chance: 0.4,
+                ),
+            ],
+        ),
+        Event(
+            id: "spa.scw_axis_or_neutrality",
+            title: "胜利者和债主",
+            description: "德国顾问离开前留下矿产清单，意大利代表留下燃油、炮弹和军费账目。外交部知道，西班牙没有力气立刻加入欧洲下一场战争；财政处也知道，拒绝所有索偿会让战时援助变成战后勒索。问题不在于是否欠债，而在于这份债务会被写成贸易、基地便利、外交靠拢，还是被拖进一份含糊的中立声明里。",
+            picture: "GFX_event_spanish_civil_war",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "承认债务，用钨矿和采购合同还账。",
+                    effects: [
+                        SetCountryFlag("spa_postwar_axis_debt_acknowledged"),
+                        SetCountryFlag("spa_p9_weight_axis_debt"),
+                        If(trigger: HasGlobalFlag("ger_scw_air_war_laboratory_completed"), effects: [SetCountryFlag("spa_postwar_german_air_claims"), AddToVariable(name: "spa_foreign_dependency", value: 1.0)]),
+                        If(trigger: HasGlobalFlag("ger_scw_condor_legion_returned_to_germany"), effects: [SetCountryFlag("spa_postwar_german_condor_claims"), AddToVariable(name: "spa_foreign_dependency", value: 1.0)]),
+                        If(trigger: HasGlobalFlag("ita_scw_expanded_ctv_ready"), effects: [SetCountryFlag("spa_postwar_italian_ctv_claims"), AddToVariable(name: "spa_foreign_dependency", value: 1.0)]),
+                        AddOpinion(target: "GER", amount: 15),
+                        AddOpinion(target: "ITA", amount: 12),
+                        AddTradeAgreement(partner: "GER", good_id: "tungsten", daily_quantity: 6.0),
+                        AddTradeAgreement(partner: "ITA", good_id: "steel", daily_quantity: 4.0),
+                        AddToVariable(name: "spa_postwar_debt_pressure", value: 3.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: 2.0),
+                        TriggerEvent("ger.scw_claims_after_franco_victory"),
+                        TriggerEvent("ita.scw_claims_after_franco_victory"),
+                    ],
+                    ai_chance: 0.55,
+                ),
+                EventOption(
+                    name: "宣布谨慎中立，债务逐项谈判。",
+                    effects: [
+                        SetCountryFlag("spa_postwar_neutrality_declared"),
+                        SetCountryFlag("spa_p9_weight_autonomous_victory"),
+                        AddOpinion(target: "GER", amount: -8),
+                        AddOpinion(target: "ITA", amount: -6),
+                        AddStability(0.01),
+                        AddToVariable(name: "spa_postwar_debt_pressure", value: 1.0),
+                        AddToVariable(name: "spa_foreign_dependency", value: -2.0),
+                        If(trigger: VariableAtLeast(name: "spa_foreign_dependency", value: 6.0), effects: [SetCountryFlag("spa_p9_risk_axis_claims"), TriggerEvent("ger.scw_claims_after_franco_victory"), TriggerEvent("ita.scw_claims_after_franco_victory")]),
+                    ],
+                    ai_chance: 0.45,
+                ),
+            ],
+        ),
+    ],
+)

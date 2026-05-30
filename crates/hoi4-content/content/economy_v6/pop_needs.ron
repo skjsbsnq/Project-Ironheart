@@ -1,0 +1,45 @@
+#![enable(implicit_some)]
+
+[
+    (
+        class: Peasant,
+        needs: [
+            (good_id: "grain", tier: Essential, amount_per_million: 18.0),
+            (good_id: "clothes", tier: Essential, amount_per_million: 8.0),
+        ],
+    ),
+    (
+        class: Worker,
+        needs: [
+            (good_id: "grain", tier: Essential, amount_per_million: 16.0),
+            (good_id: "clothes", tier: Essential, amount_per_million: 10.0),
+            (good_id: "meat", tier: Normal, amount_per_million: 6.0),
+            (good_id: "furniture", tier: Normal, amount_per_million: 3.0),
+        ],
+    ),
+    (
+        class: Clerk,
+        needs: [
+            (good_id: "grain", tier: Essential, amount_per_million: 14.0),
+            (good_id: "clothes", tier: Essential, amount_per_million: 12.0),
+            (good_id: "meat", tier: Normal, amount_per_million: 8.0),
+            (good_id: "furniture", tier: Normal, amount_per_million: 5.0),
+            (good_id: "liquor", tier: Normal, amount_per_million: 3.0),
+            (good_id: "tobacco", tier: Normal, amount_per_million: 2.0),
+            (good_id: "transport", tier: Normal, amount_per_million: 4.0),
+        ],
+    ),
+    (
+        class: Capitalist,
+        needs: [
+            (good_id: "grain", tier: Essential, amount_per_million: 10.0),
+            (good_id: "clothes", tier: Essential, amount_per_million: 18.0),
+            (good_id: "meat", tier: Normal, amount_per_million: 14.0),
+            (good_id: "furniture", tier: Normal, amount_per_million: 10.0),
+            (good_id: "liquor", tier: Normal, amount_per_million: 6.0),
+            (good_id: "tobacco", tier: Normal, amount_per_million: 4.0),
+            (good_id: "luxury_goods", tier: Luxury, amount_per_million: 5.0),
+            (good_id: "banking", tier: Luxury, amount_per_million: 4.0),
+        ],
+    ),
+]

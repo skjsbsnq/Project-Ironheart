@@ -1,0 +1,119 @@
+﻿45: use hoi4_assets::{GuiRuntime, Rect as GuiRect};
+47: mod ui_pass;
+48: use ui_pass::UiPass;
+57: mod panel_pass;
+60: mod politics_pass;
+65: use panel_pass::PanelPass;
+119: // 搂6.3 (`tabbedWindowType`) 涓綔涓?GuiRuntime 閫氱敤鍩虹璁炬柦瀹炵幇锛屼笉鍐嶇敱 main 鎸佹湁銆?
+187:     gui_runtime: GuiRuntime,
+188:     /// Phase 4.2: 褰撳墠鑿滃崟鍦烘櫙鐨?GuiRuntime锛堜笌 topbar gui_runtime 鍒嗗紑缁存姢锛?    /// 閬垮厤浜掔浉瑕嗙洊锛夈€傛瘡娆″垏鎹?GamePhase 鏃堕噸寤恒€?    menu_runtime: GuiRuntime,
+207:     // `politics_pass::draw_politics_panel` 鐨勭▼搴忓寲鍗?+ hit-test銆?    // 鏀挎不闈㈡澘瑙嗚璺緞宸茬粺涓€鍒?GuiRuntime + vanilla `countrypoliticsview.gui`锛?    // tab 鐘舵€佹満寤跺悗鍒?搂6.3锛宻croll 鐘舵€佹満寤跺悗鍒?搂6.2銆?}
+268:     ui_pass: UiPass,
+307:     /// Phase 4.2 (redesign): 绋嬪簭鍖?panel 娓叉煋锛堝渾瑙掔煩褰?+ SDF锛夈€?    panel_pass: PanelPass,
+309:     /// Phase 4.2 (redesign): 鍥芥棗娓叉煋 pipeline锛堝叡浜?ui_pass 鐨?layout 涓嶄究锛?    /// 杩欓噷鍋氫竴涓嫭绔嬬畝鍗?pipeline锛宻hader 涓?ui_pass 涓€鑷?浣?sampler / uniform 鐙珛锛夈€?    flag_pipeline: wgpu::RenderPipeline,
+405:             gui_runtime: GuiRuntime::new(1920.0, 1080.0),
+406:             menu_runtime: GuiRuntime::new(1920.0, 1080.0),
+439:         // logical_w / logical_h are consumed when we build UiPass / TextPass / PanelPass below.
+1771:         let ui_pass = UiPass::new(&device, format, logical_w, logical_h);
+1777:         let panel_pass = PanelPass::new(&device, format, logical_w, logical_h);
+2280:             ui_pass,
+2295:             panel_pass,
+2326:             s.ui_pass.load_topbar(&s.device, &s.queue, &self.path_cfg);
+2332:         // Phase 2.9: Build GuiRuntime from topbar .gui for hit-test
+2335:                 // 4.1.bis.6: GuiRuntime uses LOGICAL screen size (consistent with
+2336:                 // ui_pass / text_pass uniforms) so absolute coords from .gui files
+2341:                 self.rebuild_topbar_runtime(sw, sh);
+2346:         self.rebuild_menu_runtime();
+2349:     /// 4.1.bis.2/4.1.bis.7: Rebuild the topbar GuiRuntime from vanilla `.gui`.
+2351:     fn rebuild_topbar_runtime(&mut self, sw: f32, sh: f32) {
+2352:         use hoi4_assets::{FsAssetDb, GuiIndex};
+2354:         let mut gui = GuiIndex::new();
+2357:         self.gui_runtime = GuiRuntime::new(sw, sh);
+2361:             self.gui_runtime.build_from_node(topbar, 0, screen_rect);
+2366:             for name in ["minimap", "playable_state_view", "countrypoliticsview"] {
+2368:                     self.gui_runtime.build_from_node(w, 0, screen_rect);
+2373:                 vis.push("countrypoliticsview".into());
+2375:             self.gui_runtime.set_visible_windows(vis);
+2383:         // whose entire subtree we want suppressed (`hide_widgets_by_name`
+2385:         self.gui_runtime.hide_widgets_by_name(&[
+2416:             "[gui_runtime] built {} widgets at {}x{} (scale {:.3})",
+2417:             self.gui_runtime.widget_count(),
+2419:             self.gui_runtime.reference_scale(),
+2471:             if let Some(w) = self.gui_runtime.find(n) {
+2473:                     "[gui_runtime]   {:<22} rect=({:.1},{:.1},{:.1},{:.1}) sprite={:?} font={:?}",
+2478:                 println!("[gui_runtime]   {:<22} <not found>", n);
+2740:     /// Phase 2.9: Handle a click on a UI widget (from GuiRuntime hit-test).
+2742:         let widget_name = self.gui_runtime.get(widget_id)
+2760:                 // 鍦ㄤ笅涓€甯?set_visible_windows + move_widget 鎶?vanilla 闈㈡澘
+2766:                 println!("[gui_runtime] clicked widget: '{}' (id={})", widget_name, widget_id);
+2782:     /// 4.3 Step B (2026-05-18): 鏀挎不闈㈡澘 hit-test 宸茶縼绉诲埌 GuiRuntime銆傚師鏈?    /// 鐢?`last_politics_layout`锛堢▼搴忓寲鍗＄殑鐭╁舰锛夊仛 close / tab 鍛戒腑鐨勬浠ｇ爜
+2783:     /// 鍏ㄩ儴鍒犻櫎锛坙ayout 瀛楁浠庢湭琚～鍏咃紝鍒嗘敮姘歌繙 fall-through 鍒?`false`锛夈€?    /// 杩?`handle_ui_click` 鐨勮矾寰勪細浠?GuiRuntime 鎷垮埌鐐瑰嚮鐨?widget id 鈥?    /// 褰撳墠甯?vanilla `countrypoliticsview.gui` 鍐呯殑 widget锛堝 close_button锛?    /// 浼氭寜 widget name 娲惧彂銆?    ///
+2788:     /// Phase 4.2 (redesign): 鍒囨崲 GamePhase 鏃堕噸缃?hover 鐘舵€併€?    /// 鏃?GuiRuntime 璺緞宸插簾寮冿紱杩欓噷鍙仛鐘舵€佹竻鐞嗐€?    fn rebuild_menu_runtime(&mut self) {
+2803:         // 鏃?GuiRuntime 璺緞宸插簾寮冿紝鐣欑┖淇濇寔璋冪敤鐐逛笉鐖嗐€?    }
+2819:                             self.rebuild_menu_runtime();
+2840:                         self.rebuild_menu_runtime();
+2854:                             self.rebuild_menu_runtime();
+3396:         s.ui_pass.set_static_topbar_visible(self.game_phase == GamePhase::Playing);
+3397:         s.ui_pass.clear_dynamic();
+3398:         s.panel_pass.clear();
+3399:         s.panel_pass.update_screen_size(&s.queue, s.ui_pass.screen_width, s.ui_pass.screen_height);
+3401:         // 4.1.bis.6 fix (2026-05-16): DO NOT call `ui_pass.prepare` here 鈥?`dynamic_draws`
+3421:             let sw = s.ui_pass.screen_width;
+3422:             let sh = s.ui_pass.screen_height;
+3424:             // 涓昏儗鏅浘锛坴anilla `GFX_frontend_bg` 鈫?`gfx/loadingscreens/load_5.dds`锛?            // 鍏ㄥ睆鎷変几锛涘湪鑳屾櫙涓婄洊鏆楄壊钂欑増锛岃鏂囧瓧鍙銆?            s.ui_pass.draw_sprite(
+3426:                 "GFX_frontend_bg",
+3433:                         &mut s.panel_pass,
+3443:                         &mut s.panel_pass,
+3559:         // 4.1.bis.2/3: Render the entire topbar via GuiRuntime 鈫?UiCommand stream.
+3569:         if (self.gui_runtime.screen_width - logical_sw).abs() > 0.5
+3570:             || (self.gui_runtime.screen_height - logical_sh).abs() > 0.5
+3574:             use hoi4_assets::{FsAssetDb, GuiIndex};
+3576:             let mut gui = GuiIndex::new();
+3578:             self.gui_runtime = GuiRuntime::new(sw, sh);
+3581:                 self.gui_runtime.build_from_node(topbar, 0, screen_rect);
+3583:         for name in ["minimap", "playable_state_view", "countrypoliticsview"] {
+3585:                 self.gui_runtime.build_from_node(w, 0, screen_rect);
+3588:         self.gui_runtime.set_visible_windows(["topbar"]);
+3593:             self.gui_runtime.hide_widgets_by_name(&[
+3619:                 "[gui_runtime] inline-rebuilt at {:.0}x{:.0} (scale {:.3}) 鈥?{} widgets",
+3620:                 sw, sh, self.gui_runtime.reference_scale(), self.gui_runtime.widget_count()
+3627:                 vis.push("countrypoliticsview".into());
+3629:                 let scale = self.gui_runtime.reference_scale();
+3630:                 self.gui_runtime.move_widget("countrypoliticsview", -6.0 * scale, 78.0 * scale);
+3632:                 let scale = self.gui_runtime.reference_scale();
+3633:                 self.gui_runtime.move_widget("countrypoliticsview", -606.0 * scale, 78.0 * scale);
+3635:             self.gui_runtime.set_visible_windows(vis);
+3641:         let gfx_ref = s.ui_pass.gfx_index();
+3642:         let cmds = self.gui_runtime.collect_commands_with_gfx(&binding, interaction, gfx_ref);
+3643:         s.ui_pass
+3646:             if let hoi4_assets::UiCommand::Text {
+3675:                 if found_region.is_none() && mx >= s.ui_pass.screen_width - 200.0 {
+3699:                     let tooltip_x = mx.clamp(10.0, s.ui_pass.screen_width - 250.0);
+3752:         // 4.3 Step B (2026-05-18): 鍒犻櫎 `politics_pass::draw_politics_overlay`
+3754:         // 绛夛級鐢?vanilla `countrypoliticsview.gui` 鍐呯殑 textbox widget 娓叉煋锛?        // 鏂囧瓧鍐呭閫氳繃 `crate::binding::WorldBinding::query_string(widget_name)`
+3755:         // 鐢?GuiRuntime 鑷姩娉ㄥ叆銆傚喅璁?/ ideas 鍒楄〃锛坓ridBox锛夌殑濉厖绛夊緟 搂6.1銆?        let _ = player; // 涓婂眰鏁版嵁鍒囩墖浠嶅彲鑳借鍚庣画 UI 姝ラ娑堣垂锛屼繚鐣?player 涓嶆姤閿欍€?
+3757:         // Walks the GuiRuntime widget tree and pushes a 1-px outline + a name
+3761:             for (id, widget) in self.gui_runtime.iter_widgets() {
+3767:                 if !self.gui_runtime.is_widget_renderable(id) {
+3776:                     s.panel_pass.push(panel_pass::Panel::debug_outline(
+3781:                     s.panel_pass.push(panel_pass::Panel::debug_outline(
+3850:         s.panel_pass.prepare(&s.queue);
+3851:         // 4.1.bis.6 fix (2026-05-16): prepare ui_pass here, AFTER all sprite
+3854:         s.ui_pass.prepare(&s.queue);
+3861:             bytemuck::bytes_of(&[s.ui_pass.screen_width, s.ui_pass.screen_height]),
+3868:         // CountrySelect. The widget rect comes from `gui_runtime` so it
+3880:                 self.gui_runtime.find("player_flag").and_then(|w| {
+3925:                 label: Some("ui_pass"),
+3937:             s.ui_pass.render(&mut ui_rp);
+3938:             s.panel_pass.render(&mut ui_rp);
+3941:             // ui_pass 鈥?vanilla's `GFX_shield_medium` is the metallic shield
+4829:                     s.ui_pass.update_screen_size(&s.queue, logical_w, logical_h);
+4833:                 self.rebuild_menu_runtime();
+4835:                 // GuiRuntime so widget rects track the new logical size right
+4843:                     self.rebuild_topbar_runtime(sw, sh);
+4865:                                     self.rebuild_menu_runtime();
+4881:                                     self.rebuild_menu_runtime();
+4899:                                         self.rebuild_menu_runtime();
+5090:                             // 4.3 Step B (2026-05-18): 浠呭垏 open_panel锛涢潰鏉垮唴瀹?                            // / 婊戝叆鐢?GuiRuntime + countrypoliticsview.gui 娓叉煋銆?                            self.open_panel = Some(InGamePanel::Politics);
+5093:                         } else if let Some(widget_id) = self.gui_runtime.hit_test(mx, my) {
+5106:                 // LOGICAL space (built at scale_factor=1 in GuiRuntime / panel_pass).

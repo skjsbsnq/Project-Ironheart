@@ -1,0 +1,76 @@
+#![enable(implicit_some)]
+
+[
+    // ─── 志愿兵 ───
+    (
+        id: "volunteer_only",
+        name: "志愿兵役",
+        pp_cost: 50,
+        soldier_ratio: 0.01,
+        domestic_recruitable_ratio: 1.0,
+        colonial_recruitable_ratio: 0.05,
+        subject_force_contribution_ratio: 0.0,
+        political_cost_multiplier: 0.25,
+        radicalism_gain_multiplier: 0.25,
+        cooldown_days: 60,
+        conscription_conversion_rate: 0.05,
+        pop_modifiers: (
+            satisfaction: 0.05,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 有限征兵 ───
+    (
+        id: "limited_conscription",
+        name: "有限征兵",
+        pp_cost: 100,
+        soldier_ratio: 0.025,
+        domestic_recruitable_ratio: 1.0,
+        colonial_recruitable_ratio: 0.15,
+        subject_force_contribution_ratio: 0.0,
+        political_cost_multiplier: 0.75,
+        radicalism_gain_multiplier: 0.75,
+        cooldown_days: 90,
+        conscription_conversion_rate: 0.05,
+        pop_modifiers: (
+            satisfaction: 0.0,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 广泛征兵 ───
+    (
+        id: "extensive_conscription",
+        name: "广泛征兵",
+        pp_cost: 200,
+        soldier_ratio: 0.05,
+        domestic_recruitable_ratio: 1.0,
+        colonial_recruitable_ratio: 0.30,
+        subject_force_contribution_ratio: 0.05,
+        political_cost_multiplier: 1.25,
+        radicalism_gain_multiplier: 1.25,
+        cooldown_days: 120,
+        conscription_conversion_rate: 0.05,
+        pop_modifiers: (
+            satisfaction: -0.05,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 总动员 ───
+    (
+        id: "total_mobilization",
+        name: "总动员",
+        pp_cost: 400,
+        soldier_ratio: 0.10,
+        domestic_recruitable_ratio: 1.0,
+        colonial_recruitable_ratio: 0.50,
+        subject_force_contribution_ratio: 0.10,
+        political_cost_multiplier: 2.0,
+        radicalism_gain_multiplier: 2.0,
+        cooldown_days: 180,
+        conscription_conversion_rate: 0.15,
+        pop_modifiers: (
+            satisfaction: -0.15,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+]

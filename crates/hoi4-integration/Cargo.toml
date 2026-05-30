@@ -1,0 +1,87 @@
+[package]
+name = "hoi4-integration"
+version = "0.1.0"
+edition = "2021"
+
+# Phase 0.4：集成测试基础设施。
+#
+# 1d / 30d / 365d smoke：从真实 HOI4 安装目录加载世界、过 SystemSchedule 跑指定天数、
+# 不 panic、采集关键 metrics（GER PP / 工厂 / 人力 / focus / research）写到测试输出。
+#
+# Phase 1 起这些测试会变成"回归 ±5%"的真实回归测试；Phase 0 的所有系统都是 no-op，
+# 所以本 crate 当前只验证：
+#   1. 路径解析 / 数据加载链路完整
+#   2. 调度器能稳定跑 365 天不退化
+#   3. metrics 采集器能产出可比对的结构
+
+[features]
+default = []
+vanilla-audit = []
+
+[dependencies]
+hoi4-paths = { path = "../hoi4-paths" }
+hoi4-runtime = { path = "../hoi4-runtime" }
+hoi4-logic = { path = "../hoi4-logic" }
+hoi4-map = { path = "../hoi4-map" }
+hoi4-data = { path = "../hoi4-data" }
+hoi4-state = { path = "../hoi4-state" }
+hoi4-script = { path = "../hoi4-script" }
+hoi4-assets = { path = "../hoi4-assets" }
+hoi4-render = { path = "../hoi4-render" }
+hoi4-content = { path = "../hoi4-content" }
+clausewitz-parser = { path = "../clausewitz-parser" }
+
+[[test]]
+name = "defines_lua_smoke"
+path = "tests/defines_lua_smoke.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "e5_focus_chain"
+path = "tests/e5_focus_chain.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "leader_portrait"
+path = "tests/leader_portrait.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "oob_phase_1_1"
+path = "tests/oob_phase_1_1.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "phase_1_3"
+path = "tests/phase_1_3.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "phase_1_4"
+path = "tests/phase_1_4.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "phase_1_5"
+path = "tests/phase_1_5.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "smoke_1d"
+path = "tests/smoke_1d.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "smoke_30d"
+path = "tests/smoke_30d.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "smoke_365d"
+path = "tests/smoke_365d.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "stockpile_loop"
+path = "tests/stockpile_loop.rs"
+required-features = ["vanilla-audit"]

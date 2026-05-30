@@ -1,0 +1,60 @@
+#![enable(implicit_some)]
+
+[
+    // ─── 低税收 ───
+    (
+        id: "low_taxation",
+        name: "低税收",
+        pp_cost: 50,
+        cooldown_days: 60,
+        income_tax_rate: 0.10,
+        consumption_tax_rate: 0.05,
+        corporate_tax_rate: 0.10,
+        pop_modifiers: (
+            satisfaction: 0.05,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 中等税收 ───
+    (
+        id: "medium_taxation",
+        name: "中等税收",
+        pp_cost: 100,
+        cooldown_days: 90,
+        income_tax_rate: 0.20,
+        consumption_tax_rate: 0.10,
+        corporate_tax_rate: 0.20,
+        pop_modifiers: (
+            satisfaction: 0.0,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 高税收 ───
+    (
+        id: "high_taxation",
+        name: "高税收",
+        pp_cost: 200,
+        cooldown_days: 120,
+        income_tax_rate: 0.35,
+        consumption_tax_rate: 0.20,
+        corporate_tax_rate: 0.30,
+        pop_modifiers: (
+            satisfaction: -0.05,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 战争税 ───
+    (
+        id: "war_taxation",
+        name: "战争税",
+        pp_cost: 300,
+        cooldown_days: 120,
+        income_tax_rate: 0.50,
+        consumption_tax_rate: 0.30,
+        corporate_tax_rate: 0.45,
+        pop_modifiers: (
+            satisfaction: -0.15,
+            loyalty_coefficient: 0.8,
+        ),
+    ),
+]

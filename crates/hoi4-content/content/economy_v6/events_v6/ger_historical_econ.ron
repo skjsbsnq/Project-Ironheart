@@ -1,0 +1,82 @@
+#![enable(implicit_some)]
+
+[
+    // ─── 莱茵兰重新军事化（1936.3） ───
+    (
+        id: "rhineland_remil_econ",
+        title: "莱茵兰重新军事化——经济动员",
+        body: "进军莱茵兰需要大规模基建和驻军投入。建筑部门必须加速建设军营和铁路，同时消费品的供给受到压缩。国内民众对经济转向的反应尚可，但国际社会的反应可能导致贸易条件恶化。",
+        options: [
+            (
+                name: "加速军营和铁路建设",
+                effects: [
+                    ("construction_boost", "military_base,0.30"),
+                    ("construction_boost", "railway,0.20"),
+                    ("pop_satisfaction_penalty", "-0.03"),
+                    ("trade_penalty", "0.10"),
+                ],
+            ),
+        ],
+    ),
+    // ─── 四年计划启动（1936.10） ───
+    (
+        id: "four_year_plan",
+        title: "四年计划——自给自足运动",
+        body: "戈林被任命为四年计划全权代表。目标是让德国在原材料上实现自给自足，减少对进口的依赖。合成橡胶和合成燃油工厂获得国家优先资助，但代价是煤炭被大规模转移至合成工业，钢铁产出将受影响。",
+        options: [
+            (
+                name: "全面执行自给自足方案",
+                effects: [
+                    ("force_pm_synthetic", "synthetic_rubber,oil"),
+                    ("construction_boost", "synthetic_refinery,0.50"),
+                    ("coal_diversion", "0.2"),
+                    ("import_reduction", "0.30"),
+                ],
+            ),
+            (
+                name: "适度推进——保留部分进口",
+                effects: [
+                    ("construction_boost", "synthetic_refinery,0.25"),
+                    ("import_reduction", "0.15"),
+                ],
+            ),
+        ],
+    ),
+    // ─── MEFO 票据扩张（1937） ───
+    (
+        id: "mefo_expansion_1937",
+        title: "梅福票据扩张——隐性军费",
+        body: "为掩盖大规模重整军备的开支，政府通过梅福票据向军工企业支付。这些票据不在公开账本上出现，但累计金额已达到危险水平。继续扩张将推动军工生产，但爆雷风险也在增加。",
+        options: [
+            (
+                name: "继续扩张MEFO票据",
+                effects: [
+                    ("mefo_print_bonus", "0.5"),
+                    ("construction_boost", "arms_industry,0.20"),
+                ],
+            ),
+            (
+                name: "收敛——转向正规国债",
+                effects: [
+                    ("bond_issuance", "2000000000"),
+                ],
+            ),
+        ],
+    ),
+    // ─── 合并奥地利（Anschluss）经济冲击（1938.3） ───
+    (
+        id: "anschluss_economic",
+        title: "德奥合并——经济整合",
+        body: "奥地利并入第三帝国带来了新的工业产能和原材料，但也需要大规模基建投资来整合两国经济体系。奥地利的钢铁和铁矿将直接补充德国的工业基础，外汇储备因吸收奥地利央行而大幅增加。",
+        options: [
+            (
+                name: "全面整合奥地利经济",
+                effects: [
+                    ("annex_industry", "austria"),
+                    ("reserve_gbp_bonus", "50000000"),
+                    ("gold_bonus", "80000"),
+                ],
+            ),
+        ],
+    ),
+]

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48">
+  <!-- 00 unknown — 问号（情报缺失） -->
+  <g fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 20 16 Q 20 8 32 8 Q 44 8 44 16 Q 44 22 36 26 L 32 30"/>
+    <line x1="32" y1="36" x2="32" y2="40"/>
+  </g>
+</svg>

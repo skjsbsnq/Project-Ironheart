@@ -1,0 +1,167 @@
+EventDb(
+    events: [
+        Event(
+            id: "china.united_front_forms",
+            title: "中国统一战线形成",
+            description: "日本已经发动全面侵略。国民政府、地方实力派与共产党部队宣布共同抗战，但各战区之间仍存在深刻的政治分歧与指挥隔阂。",
+            picture: "GFX_event_chinese_united_front",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "全国进入抗战状态。",
+                    effects: [
+                        AddWarSupport(0.15),
+                        AddStability(0.03),
+                        SetCountryFlag("anti_japanese_united_front"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "china.regional_command_autonomy",
+            title: "地方军政系统保持自主",
+            description: "统一战线已经建立，但各地方军政集团仍保留高度自主权。前线协调、补给调度与战区命令传达都需要时间磨合。",
+            picture: "GFX_event_chinese_defense",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "先稳住各战区。",
+                    effects: [
+                        SetCountryFlag("regional_command_autonomy"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "china.defense_of_north_china",
+            title: "华北防御战",
+            description: "日军扩大华北作战后，中国各部必须在平津、山西与冀南方向组织迟滞防御，为全国动员争取时间。",
+            picture: "GFX_event_chinese_defense",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "守住华北防线。",
+                    effects: [
+                        SetCountryFlag("defense_of_north_china"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "china.defense_of_shandong",
+            title: "山东防御",
+            description: "山东战场承受日军重点压力。济南、青岛与胶济线的守军必须尽力迟滞日军南下。",
+            picture: "GFX_event_chinese_defense",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "山东不能轻易失守。",
+                    effects: [
+                        SetCountryFlag("defense_of_shandong"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "china.battle_of_shanghai",
+            title: "淞沪会战",
+            description: "上海战事已经扩大。中国决定在长江下游投入主力，向世界证明中国不会屈服。",
+            picture: "GFX_event_shanghai_battle",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "以血肉争取时间。",
+                    effects: [
+                        SetCountryFlag("battle_of_shanghai"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "china.defense_of_nanjing",
+            title: "南京保卫战",
+            description: "日军已经威胁首都圈。南京守军奉命组织防御，政府机关与民众开始紧急疏散。",
+            picture: "GFX_event_nanjing",
+            is_triggered_only: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "保卫首都。",
+                    effects: [
+                        SetCountryFlag("defense_of_nanjing"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "china.wartime_mobilization_1938",
+            title: "全国抗战动员",
+            description: "全面抗战进入第二年后，中国各战区的协同开始改善。后方动员、交通整补与军政协调逐步形成更稳定的抗战体系。",
+            picture: "GFX_event_chinese_united_front",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Or([Tag("CHI"), Tag("SND"), Tag("PRC"), Tag("SHX"), Tag("GXC"), Tag("GDC"), Tag("YUN"), Tag("XAJ"), Tag("SIC"), Tag("XSM"), Tag("SIK")]),
+                HasWarWith("JAP"),
+                Date(year: 1938, month: 1, day: 1),
+                Not(HasCountryFlag("wartime_mobilization_1938_applied")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "全国抗战动员展开。",
+                    effects: [
+                        SetCountryFlag("wartime_mobilization_1938_applied"),
+                        RemoveIdea("chi_theater_command_delay"),
+                        AddIdea("chi_national_war_mobilization"),
+                        AddIdea("chi_rear_industry_relocation"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
+            id: "china.protracted_war_policy_1939",
+            title: "持久抗战方针",
+            description: "随着战争进入长期阶段，中国进一步明确持久抗战方针。前线转向纵深防御，后方工业与人力动员逐步稳定。",
+            picture: "GFX_event_chinese_defense",
+            is_triggered_only: false,
+            hidden: true,
+            trigger: And([
+                Or([Tag("CHI"), Tag("SND"), Tag("PRC"), Tag("SHX"), Tag("GXC"), Tag("GDC"), Tag("YUN"), Tag("XAJ"), Tag("SIC"), Tag("XSM"), Tag("SIK")]),
+                HasWarWith("JAP"),
+                Date(year: 1939, month: 1, day: 1),
+                Not(HasCountryFlag("protracted_war_policy_1939_applied")),
+            ]),
+            mean_time_to_happen_days: 0,
+            options: [
+                EventOption(
+                    name: "坚持持久抗战。",
+                    effects: [
+                        SetCountryFlag("protracted_war_policy_1939_applied"),
+                        RemoveIdea("chi_united_front_coordination_difficulties"),
+                        AddIdea("chi_protracted_war_policy"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+    ],
+)

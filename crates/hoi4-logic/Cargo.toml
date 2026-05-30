@@ -1,0 +1,75 @@
+[package]
+name = "hoi4-logic"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+vanilla-audit = []
+
+[dependencies]
+hoi4-data = { path = "../hoi4-data" }
+hoi4-state = { path = "../hoi4-state" }
+hoi4-map = { path = "../hoi4-map" }
+hoi4-content = { path = "../hoi4-content" }
+clausewitz-parser = { path = "../clausewitz-parser" }
+tracing = "0.1"
+rayon = "1.10"
+
+[dev-dependencies]
+hoi4-paths = { path = "../hoi4-paths" }
+
+[[test]]
+name = "air_battle"
+path = "tests/air_battle.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "diplomacy"
+path = "tests/diplomacy.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "economy_year"
+path = "tests/economy_year.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "frontline_api"
+path = "tests/frontline_api.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "frontline_path_invariant"
+path = "tests/frontline_path_invariant.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "military_battle"
+path = "tests/military_battle.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "naval_battle"
+path = "tests/naval_battle.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "politics_year"
+path = "tests/politics_year.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "research_year"
+path = "tests/research_year.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "v6_economy_invariants"
+path = "tests/v6_economy_invariants.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "v6_f05_replay"
+path = "tests/v6_f05_replay.rs"
+required-features = ["vanilla-audit"]

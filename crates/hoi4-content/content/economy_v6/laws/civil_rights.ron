@@ -1,0 +1,56 @@
+#![enable(implicit_some)]
+
+[
+    // ─── 开放社会 ───
+    (
+        id: "open_society",
+        name: "开放社会",
+        pp_cost: 50,
+        cooldown_days: 60,
+        research_slots: 5,
+        welfare_rate: 0.002,
+        pop_modifiers: (
+            satisfaction: 0.10,
+            loyalty_coefficient: 1.5,
+        ),
+    ),
+    // ─── 有限权利 ───
+    (
+        id: "limited_rights",
+        name: "有限权利",
+        pp_cost: 100,
+        cooldown_days: 90,
+        research_slots: 4,
+        welfare_rate: 0.001,
+        pop_modifiers: (
+            satisfaction: 0.0,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 国家安全法 ───
+    (
+        id: "national_security_act",
+        name: "国家安全法",
+        pp_cost: 200,
+        cooldown_days: 120,
+        research_slots: 3,
+        welfare_rate: 0.0,
+        pop_modifiers: (
+            satisfaction: -0.05,
+            loyalty_coefficient: 0.7,
+        ),
+    ),
+    // ─── 警察国家 ───
+    (
+        id: "police_state",
+        name: "警察国家",
+        pp_cost: 400,
+        cooldown_days: 180,
+        research_slots: 2,
+        welfare_rate: 0.0,
+        pop_modifiers: (
+            satisfaction: -0.15,
+            loyalty_coefficient: 0.3,
+        ),
+    ),
+]

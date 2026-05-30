@@ -1,0 +1,462 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1000" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <!-- 地图背景 -->
+    <linearGradient id="mapBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5a6e4a"/>
+      <stop offset="100%" stop-color="#3d4d35"/>
+    </linearGradient>
+    <pattern id="terrain" x="0" y="0" width="40" height="40" patternUnits="userSpaceOnUse">
+      <rect width="40" height="40" fill="url(#mapBg)"/>
+      <circle cx="10" cy="15" r="1" fill="#4a5d3a" opacity="0.4"/>
+      <circle cx="30" cy="25" r="1.5" fill="#4a5d3a" opacity="0.3"/>
+    </pattern>
+
+    <!-- 国家色 -->
+    <linearGradient id="bgGerman" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5a5a5a"/>
+      <stop offset="100%" stop-color="#1f1f1f"/>
+    </linearGradient>
+    <linearGradient id="bgSoviet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#a83232"/>
+      <stop offset="100%" stop-color="#5e1818"/>
+    </linearGradient>
+    <linearGradient id="bgItaly" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3d8a5d"/>
+      <stop offset="100%" stop-color="#1f4a30"/>
+    </linearGradient>
+
+    <!-- 兵种符号 -->
+    <symbol id="sym_inf" viewBox="0 0 32 24">
+      <rect x="0.5" y="0.5" width="31" height="23" fill="none" stroke="#fff" stroke-width="1.5"/>
+      <line x1="0" y1="0" x2="32" y2="24" stroke="#fff" stroke-width="1.5"/>
+      <line x1="32" y1="0" x2="0" y2="24" stroke="#fff" stroke-width="1.5"/>
+    </symbol>
+    <symbol id="sym_arm" viewBox="0 0 32 24">
+      <rect x="0.5" y="0.5" width="31" height="23" fill="none" stroke="#fff" stroke-width="1.5"/>
+      <ellipse cx="16" cy="12" rx="10" ry="6" fill="none" stroke="#fff" stroke-width="1.8"/>
+    </symbol>
+    <symbol id="sym_mot" viewBox="0 0 32 24">
+      <rect x="0.5" y="0.5" width="31" height="23" fill="none" stroke="#fff" stroke-width="1.5"/>
+      <line x1="0" y1="0" x2="32" y2="24" stroke="#fff" stroke-width="1.2"/>
+      <line x1="32" y1="0" x2="0" y2="24" stroke="#fff" stroke-width="1.2"/>
+      <ellipse cx="16" cy="12" rx="6" ry="4" fill="none" stroke="#fff" stroke-width="1.5"/>
+    </symbol>
+    <symbol id="sym_mtn" viewBox="0 0 32 24">
+      <rect x="0.5" y="0.5" width="31" height="23" fill="none" stroke="#fff" stroke-width="1.5"/>
+      <polyline points="4,18 12,8 16,14 20,8 28,18" fill="none" stroke="#fff" stroke-width="1.8"/>
+    </symbol>
+
+    <!-- 战斗发光 -->
+    <filter id="combatGlow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5"/>
+    </filter>
+
+    <!-- 锚点指示 -->
+    <radialGradient id="anchorDot">
+      <stop offset="0%" stop-color="#ffd860"/>
+      <stop offset="100%" stop-color="#8a6f1f"/>
+    </radialGradient>
+  </defs>
+
+  <!-- 地图背景 -->
+  <rect width="1200" height="1000" fill="url(#terrain)"/>
+
+  <!-- 标题 -->
+  <text x="600" y="35" font-size="22" fill="#e8d8a8" text-anchor="middle" font-weight="bold">
+    HOI3 风格堆叠系统 — 4 种形态
+  </text>
+  <text x="600" y="58" font-size="13" fill="#c8b888" text-anchor="middle">
+    folded · expanded · multi-stack · battle-arrow
+  </text>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--  ① 折叠态 — 卡牌叠层 (HOI3 招牌之一)                  -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <g transform="translate(40, 100)">
+    <rect x="0" y="0" width="540" height="240" fill="#000" opacity="0.15" rx="6"/>
+    <text x="20" y="28" font-size="15" fill="#ffd860" font-weight="bold">① 折叠态 — 卡牌叠层 (Folded Stack)</text>
+    <text x="20" y="48" font-size="11" fill="#c8b888">同省 5 个师 → 顶层完整渲染 + 3 张错位底牌探出右下角，徽章数 = 5</text>
+    <text x="20" y="64" font-size="10" fill="#9aa080" font-style="italic">实现：CPU 端为 stack_count > 1 的 counter 多吐 min(N-1, 3) 个底层 instance，flags.bit4 = 1 → 只画底框 + 高光</text>
+
+    <!-- 5 个独立师（如果 HOI4 风格画法） -->
+    <g transform="translate(60, 110)">
+      <text x="0" y="-10" font-size="10" fill="#c8b888">HOI4 风格 (合并为 1 个数字):</text>
+      <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+      <use href="#sym_inf" x="22" y="6" width="36" height="24"/>
+      <circle cx="73" cy="7" r="6" fill="#1a1a1a" stroke="#c8a040" stroke-width="1"/>
+      <text x="73" y="10" font-size="8" fill="#e8d8a8" text-anchor="middle" font-weight="bold">5</text>
+      <rect x="6" y="36" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="36" width="40" height="3" fill="#5cb85c"/>
+      <rect x="6" y="42" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="42" width="48" height="3" fill="#d9b84a"/>
+      <text x="40" y="80" font-size="9" fill="#c8b888" text-anchor="middle">单一 counter</text>
+    </g>
+
+    <!-- 箭头 -->
+    <text x="180" y="140" font-size="20" fill="#ffd860" font-weight="bold">→</text>
+    <text x="180" y="160" font-size="9" fill="#c8b888">HOI3 风格</text>
+
+    <!-- HOI3 卡牌叠层 -->
+    <g transform="translate(240, 110)">
+      <text x="40" y="-10" font-size="10" fill="#c8b888" text-anchor="middle">HOI3 风格 (3 张底牌探出):</text>
+      <!-- 第 3 张底牌（最深） -->
+      <g transform="translate(6, 6)" opacity="0.45">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        <rect x="0" y="0" width="80" height="3" fill="#fff" opacity="0.2"/>
+      </g>
+      <!-- 第 2 张底牌 -->
+      <g transform="translate(4, 4)" opacity="0.65">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        <rect x="0" y="0" width="80" height="3" fill="#fff" opacity="0.2"/>
+      </g>
+      <!-- 第 1 张底牌 -->
+      <g transform="translate(2, 2)" opacity="0.85">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        <rect x="0" y="0" width="80" height="3" fill="#fff" opacity="0.2"/>
+      </g>
+      <!-- 顶牌（完整） -->
+      <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+      <rect x="0" y="0" width="80" height="4" fill="#fff" opacity="0.25"/>
+      <use href="#sym_inf" x="22" y="6" width="36" height="24"/>
+      <circle cx="73" cy="7" r="7" fill="#1a1a1a" stroke="#c8a040" stroke-width="1.5"/>
+      <text x="73" y="11" font-size="9" fill="#e8d8a8" text-anchor="middle" font-weight="bold">5</text>
+      <rect x="6" y="36" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="36" width="40" height="3" fill="#5cb85c"/>
+      <rect x="6" y="42" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="42" width="48" height="3" fill="#d9b84a"/>
+      <text x="40" y="80" font-size="9" fill="#c8b888" text-anchor="middle">视觉密度大幅提升</text>
+    </g>
+
+    <!-- 标注 -->
+    <g font-size="10" fill="#c8b888">
+      <line x1="334" y1="120" x2="380" y2="120" stroke="#c8b888" stroke-width="0.8"/>
+      <text x="385" y="124">① 顶牌 (完整)</text>
+      <line x1="334" y1="160" x2="380" y2="160" stroke="#c8b888" stroke-width="0.8"/>
+      <text x="385" y="164">② 错位底牌 (alpha 递减)</text>
+      <line x1="320" y1="118" x2="380" y2="100" stroke="#c8b888" stroke-width="0.8"/>
+      <text x="385" y="100">③ 徽章 = 总师数</text>
+    </g>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--  ② 展开态 — 横向 fan-out (HOI3 招牌之二)              -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <g transform="translate(620, 100)">
+    <rect x="0" y="0" width="540" height="240" fill="#000" opacity="0.15" rx="6"/>
+    <text x="20" y="28" font-size="15" fill="#ffd860" font-weight="bold">② 展开态 — 横向 Fan-out (Expanded)</text>
+    <text x="20" y="48" font-size="11" fill="#c8b888">单击堆叠 → 子单位横向铺开，引线指回原 anchor 位置</text>
+    <text x="20" y="64" font-size="10" fill="#9aa080" font-style="italic">实现：StackState::Expanded 时按 size.x + 4px 间距横向排开，再次点击锚点折回</text>
+
+    <!-- anchor 锚点（小圆点 + 引线） -->
+    <circle cx="60" cy="160" r="6" fill="url(#anchorDot)" stroke="#5a4a10" stroke-width="1"/>
+    <text x="60" y="185" font-size="9" fill="#ffd860" text-anchor="middle">anchor</text>
+    <text x="60" y="197" font-size="8" fill="#c8b888" text-anchor="middle">(原省份位置)</text>
+
+    <!-- 引线 -->
+    <path d="M 66 160 Q 90 140 110 130" stroke="#ffd860" stroke-width="1" fill="none" stroke-dasharray="3,3" opacity="0.7"/>
+
+    <!-- 子单位横向 fan-out（5 张师牌） -->
+    <g transform="translate(110, 105)">
+      <!-- 师 1 -->
+      <g>
+        <rect x="0" y="0" width="60" height="44" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        <use href="#sym_arm" x="14" y="4" width="32" height="20"/>
+        <circle cx="55" cy="6" r="5" fill="#1a1a1a" stroke="#c8a040" stroke-width="1"/>
+        <text x="55" y="9" font-size="7" fill="#e8d8a8" text-anchor="middle" font-weight="bold">1</text>
+        <rect x="4" y="30" width="40" height="2" fill="#1a1a1a"/>
+        <rect x="4" y="30" width="36" height="2" fill="#5cb85c"/>
+        <rect x="4" y="34" width="40" height="2" fill="#1a1a1a"/>
+        <rect x="4" y="34" width="38" height="2" fill="#d9b84a"/>
+        <text x="30" y="56" font-size="7" fill="#c8b888" text-anchor="middle">3.Pz.Div</text>
+      </g>
+      <!-- 师 2 -->
+      <g transform="translate(64, 0)">
+        <rect x="0" y="0" width="60" height="44" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        <use href="#sym_inf" x="14" y="4" width="32" height="20"/>
+        <circle cx="55" cy="6" r="5" fill="#1a1a1a" stroke="#c8a040" stroke-width="1"/>
+        <text x="55" y="9" font-size="7" fill="#e8d8a8" text-anchor="middle" font-weight="bold">1</text>
+        <rect x="4" y="30" width="40" height="2" fill="#1a1a1a"/>
+        <rect x="4" y="30" width="32" height="2" fill="#5cb85c"/>
+        <rect x="4" y="34" width="40" height="2" fill="#1a1a1a"/>
+        <rect x="4" y="34" width="38" height="2" fill="#d9b84a"/>
+        <text x="30" y="56" font-size="7" fill="#c8b888" text-anchor="middle">21.Inf</text>
+      </g>
+      <!-- 师 3 -->
+      <g transform="translate(128, 0)">
+        <rect x="0" y="0" width="60" height="44" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        <use href="#sym_mot" x="14" y="4" width="32" height="20"/>
+        <circle cx="55" cy="6" r="5" fill="#1a1a1a" stroke="#c8a040" stroke-width="1"/>
+        <text x="55" y="9" font-size="7" fill="#e8d8a8" text-anchor="middle" font-weight="bold">1</text>
+        <rect x="4" y="30" width="40" height="2" fill="#1a1a1a"/>
+        <rect x="4" y="30" width="38" height="2" fill="#5cb85c"/>
+        <rect x="4" y="34" width="40" height="2" fill="#1a1a1a"/>
+        <rect x="4" y="34" width="40" height="2" fill="#d9b84a"/>
+        <text x="30" y="56" font-size="7" fill="#c8b888" text-anchor="middle">14.Mot</text>
+      </g>
+      <!-- 师 4 -->
+      <g transform="translate(192, 0)">
+        <rect x="0" y="0" width="60" height="44" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        <use href="#sym_inf" x="14" y="4" width="32" height="20"/>
+        <circle cx="55" cy="6" r="5" fill="#1a1a1a" stroke="#c8a040" stroke-width="1"/>
+        <text x="55" y="9" font-size="7" fill="#e8d8a8" text-anchor="middle" font-weight="bold">1</text>
+        <rect x="4" y="30" width="40" height="2" fill="#1a1a1a"/>
+        <rect x="4" y="30" width="35" height="2" fill="#5cb85c"/>
+        <rect x="4" y="34" width="40" height="2" fill="#1a1a1a"/>
+        <rect x="4" y="34" width="36" height="2" fill="#d9b84a"/>
+        <text x="30" y="56" font-size="7" fill="#c8b888" text-anchor="middle">52.Inf</text>
+      </g>
+      <!-- 师 5 -->
+      <g transform="translate(256, 0)">
+        <rect x="0" y="0" width="60" height="44" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        <use href="#sym_arm" x="14" y="4" width="32" height="20"/>
+        <circle cx="55" cy="6" r="5" fill="#1a1a1a" stroke="#c8a040" stroke-width="1"/>
+        <text x="55" y="9" font-size="7" fill="#e8d8a8" text-anchor="middle" font-weight="bold">1</text>
+        <rect x="4" y="30" width="40" height="2" fill="#1a1a1a"/>
+        <rect x="4" y="30" width="38" height="2" fill="#5cb85c"/>
+        <rect x="4" y="34" width="40" height="2" fill="#1a1a1a"/>
+        <rect x="4" y="34" width="39" height="2" fill="#d9b84a"/>
+        <text x="30" y="56" font-size="7" fill="#c8b888" text-anchor="middle">7.Pz.Div</text>
+      </g>
+    </g>
+
+    <!-- 标注 -->
+    <g font-size="10" fill="#c8b888">
+      <line x1="60" y1="166" x2="60" y2="215" stroke="#c8b888" stroke-width="0.8" stroke-dasharray="2,2"/>
+      <text x="20" y="218" font-size="9">引线锚点 (单击折回)</text>
+
+      <line x1="80" y1="135" x2="80" y2="100" stroke="#c8b888" stroke-width="0.8"/>
+      <text x="20" y="100" font-size="9">引线连接到展开行中点</text>
+    </g>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--  ③ 多堆叠并存 — 同省按 Corps 分组 (HOI3 招牌之三)     -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <g transform="translate(40, 380)">
+    <rect x="0" y="0" width="1120" height="280" fill="#000" opacity="0.15" rx="6"/>
+    <text x="20" y="28" font-size="15" fill="#ffd860" font-weight="bold">③ 多堆叠并存 — 同省按 Corps 分组 (Multi-stack)</text>
+    <text x="20" y="48" font-size="11" fill="#c8b888">同省 2 个德军 Corps + 1 个意军 Corps + 1 个未编组散师 = 4 个独立堆叠并排</text>
+    <text x="20" y="64" font-size="10" fill="#9aa080" font-style="italic">实现：generate_hoi3_counters() 按 (country, corps_id) 二级分组；散师用虚拟 corps_id=None，灰色边框</text>
+
+    <!-- 省份轮廓示意 -->
+    <ellipse cx="560" cy="180" rx="450" ry="80" fill="none" stroke="#ffd860" stroke-width="1" stroke-dasharray="4,3" opacity="0.4"/>
+    <text x="560" y="262" font-size="10" fill="#ffd860" text-anchor="middle" opacity="0.7">同一省份内 4 个独立堆叠</text>
+
+    <!-- 堆叠 1: GER XIX. Korps (3 师装甲) -->
+    <g transform="translate(180, 140)">
+      <text x="40" y="-12" font-size="9" fill="#c8b888" text-anchor="middle">GER · XIX.Korps</text>
+      <text x="40" y="-2" font-size="8" fill="#9aa080" text-anchor="middle">(3 装甲师)</text>
+      <g transform="translate(4, 4)" opacity="0.65">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+      </g>
+      <g transform="translate(2, 2)" opacity="0.85">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+      </g>
+      <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+      <rect x="0" y="0" width="80" height="4" fill="#fff" opacity="0.25"/>
+      <!-- 顶部双横 = Corps 级 -->
+      <g transform="translate(40, -3)">
+        <line x1="-12" y1="0" x2="-4" y2="0" stroke="#e8d8a8" stroke-width="1.5"/>
+        <line x1="0" y1="0" x2="4" y2="0" stroke="#e8d8a8" stroke-width="1.5"/>
+        <line x1="8" y1="0" x2="16" y2="0" stroke="#e8d8a8" stroke-width="1.5"/>
+      </g>
+      <use href="#sym_arm" x="22" y="6" width="36" height="24"/>
+      <circle cx="73" cy="7" r="7" fill="#1a1a1a" stroke="#c8a040" stroke-width="1.5"/>
+      <text x="73" y="11" font-size="9" fill="#e8d8a8" text-anchor="middle" font-weight="bold">3</text>
+      <rect x="6" y="36" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="36" width="42" height="3" fill="#5cb85c"/>
+      <rect x="6" y="42" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="42" width="46" height="3" fill="#d9b84a"/>
+    </g>
+
+    <!-- 堆叠 2: GER VII. Korps (4 师步兵) -->
+    <g transform="translate(330, 140)">
+      <text x="40" y="-12" font-size="9" fill="#c8b888" text-anchor="middle">GER · VII.Korps</text>
+      <text x="40" y="-2" font-size="8" fill="#9aa080" text-anchor="middle">(4 步兵师)</text>
+      <g transform="translate(6, 6)" opacity="0.45">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+      </g>
+      <g transform="translate(4, 4)" opacity="0.65">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+      </g>
+      <g transform="translate(2, 2)" opacity="0.85">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+      </g>
+      <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+      <rect x="0" y="0" width="80" height="4" fill="#fff" opacity="0.25"/>
+      <g transform="translate(40, -3)">
+        <line x1="-12" y1="0" x2="-4" y2="0" stroke="#e8d8a8" stroke-width="1.5"/>
+        <line x1="0" y1="0" x2="4" y2="0" stroke="#e8d8a8" stroke-width="1.5"/>
+        <line x1="8" y1="0" x2="16" y2="0" stroke="#e8d8a8" stroke-width="1.5"/>
+      </g>
+      <use href="#sym_inf" x="22" y="6" width="36" height="24"/>
+      <circle cx="73" cy="7" r="7" fill="#1a1a1a" stroke="#c8a040" stroke-width="1.5"/>
+      <text x="73" y="11" font-size="9" fill="#e8d8a8" text-anchor="middle" font-weight="bold">4</text>
+      <rect x="6" y="36" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="36" width="38" height="3" fill="#5cb85c"/>
+      <rect x="6" y="42" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="42" width="44" height="3" fill="#d9b84a"/>
+    </g>
+
+    <!-- 堆叠 3: ITA Corpo Alpino (2 师山地) -->
+    <g transform="translate(480, 140)">
+      <text x="40" y="-12" font-size="9" fill="#c8b888" text-anchor="middle">ITA · Corpo Alpino</text>
+      <text x="40" y="-2" font-size="8" fill="#9aa080" text-anchor="middle">(2 山地师)</text>
+      <g transform="translate(2, 2)" opacity="0.85">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgItaly)" stroke="#0a0a0a" stroke-width="1"/>
+      </g>
+      <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgItaly)" stroke="#0a0a0a" stroke-width="1"/>
+      <rect x="0" y="0" width="80" height="4" fill="#fff" opacity="0.25"/>
+      <g transform="translate(40, -3)">
+        <line x1="-12" y1="0" x2="-4" y2="0" stroke="#e8d8a8" stroke-width="1.5"/>
+        <line x1="0" y1="0" x2="4" y2="0" stroke="#e8d8a8" stroke-width="1.5"/>
+        <line x1="8" y1="0" x2="16" y2="0" stroke="#e8d8a8" stroke-width="1.5"/>
+      </g>
+      <use href="#sym_mtn" x="22" y="6" width="36" height="24"/>
+      <circle cx="73" cy="7" r="7" fill="#1a1a1a" stroke="#c8a040" stroke-width="1.5"/>
+      <text x="73" y="11" font-size="9" fill="#e8d8a8" text-anchor="middle" font-weight="bold">2</text>
+      <rect x="6" y="36" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="36" width="44" height="3" fill="#5cb85c"/>
+      <rect x="6" y="42" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="42" width="48" height="3" fill="#d9b84a"/>
+    </g>
+
+    <!-- 堆叠 4: GER 散师（灰色边框，未编组） -->
+    <g transform="translate(630, 140)">
+      <text x="40" y="-12" font-size="9" fill="#888" text-anchor="middle">GER · Unattached</text>
+      <text x="40" y="-2" font-size="8" fill="#9aa080" text-anchor="middle" font-style="italic">(1 散师)</text>
+      <rect x="0" y="0" width="60" height="40" rx="3" fill="url(#bgGerman)" stroke="#666" stroke-width="2" stroke-dasharray="3,2"/>
+      <rect x="0" y="0" width="60" height="3" fill="#fff" opacity="0.2"/>
+      <use href="#sym_inf" x="14" y="4" width="32" height="20"/>
+      <circle cx="55" cy="6" r="5" fill="#1a1a1a" stroke="#888" stroke-width="1"/>
+      <text x="55" y="9" font-size="7" fill="#aaa" text-anchor="middle" font-weight="bold">1</text>
+      <rect x="4" y="28" width="40" height="2" fill="#1a1a1a"/>
+      <rect x="4" y="28" width="20" height="2" fill="#888"/>
+      <rect x="4" y="32" width="40" height="2" fill="#1a1a1a"/>
+      <rect x="4" y="32" width="32" height="2" fill="#888"/>
+    </g>
+
+    <!-- 标注 -->
+    <g font-size="10" fill="#c8b888">
+      <text x="20" y="120" font-size="10" fill="#e8d8a8" font-weight="bold">分组规则：</text>
+      <text x="20" y="138" font-size="10">• 同国同 Corps → 1 个堆叠</text>
+      <text x="20" y="154" font-size="10">• 同国不同 Corps → 多个堆叠</text>
+      <text x="20" y="170" font-size="10">• 不同国 → 永远不同堆叠</text>
+      <text x="20" y="186" font-size="10">• 散师 → 灰虚线边框 + 小一号</text>
+
+      <text x="780" y="120" font-size="10" fill="#e8d8a8" font-weight="bold">配置选项：</text>
+      <text x="780" y="138" font-size="10">"按 Corps 分" (HOI3 默认)</text>
+      <text x="780" y="154" font-size="10">"按国家合并" (HOI4 风格)</text>
+      <text x="780" y="170" font-size="10">在 settings 中切换，实时生效</text>
+    </g>
+  </g>
+
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <!--  ④ 战斗箭头连线 (HOI3 招牌之四)                       -->
+  <!-- ═══════════════════════════════════════════════════════ -->
+  <g transform="translate(40, 700)">
+    <rect x="0" y="0" width="1120" height="270" fill="#000" opacity="0.15" rx="6"/>
+    <text x="20" y="28" font-size="15" fill="#ffd860" font-weight="bold">④ 战斗箭头连线 — Attacker → Defender (Battle Arrow)</text>
+    <text x="20" y="48" font-size="11" fill="#c8b888">攻方堆叠"前倾"位置插值 30% + 红色虚线箭头沿途流动 + 防方红框发光</text>
+    <text x="20" y="64" font-size="10" fill="#9aa080" font-style="italic">实现：BattleArrowInstance (24B) 独立 line-list pipeline，pulse_phase = time × 1.5 决定虚线流向</text>
+
+    <!-- 模拟战场 -->
+    <!-- 河流 -->
+    <path d="M 400 80 Q 500 100 600 90 T 800 100" stroke="#4a7090" stroke-width="2" fill="none" opacity="0.6"/>
+
+    <!-- 攻方堆叠 1: GER XIX.Korps（前倾） -->
+    <g transform="translate(180, 120)">
+      <!-- 原 anchor 位置（虚影） -->
+      <g opacity="0.25">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        <text x="40" y="78" font-size="8" fill="#888" text-anchor="middle">原 anchor</text>
+      </g>
+
+      <!-- 实际渲染位置（前倾 30%） -->
+      <g transform="translate(60, 18)">
+        <!-- 红色发光外框 -->
+        <rect x="-3" y="-3" width="86" height="58" rx="4" fill="none" stroke="#e84040" stroke-width="2" filter="url(#combatGlow)"/>
+        <g transform="translate(4, 4)" opacity="0.65">
+          <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        </g>
+        <g transform="translate(2, 2)" opacity="0.85">
+          <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        </g>
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgGerman)" stroke="#0a0a0a" stroke-width="1"/>
+        <rect x="0" y="0" width="80" height="4" fill="#fff" opacity="0.25"/>
+        <use href="#sym_arm" x="22" y="6" width="36" height="24"/>
+        <circle cx="73" cy="7" r="7" fill="#1a1a1a" stroke="#c8a040" stroke-width="1.5"/>
+        <text x="73" y="11" font-size="9" fill="#e8d8a8" text-anchor="middle" font-weight="bold">3</text>
+        <!-- 交叉剑 -->
+        <g transform="translate(40, 22)" opacity="0.95">
+          <line x1="-7" y1="-7" x2="7" y2="7" stroke="#ffcc40" stroke-width="2.5"/>
+          <line x1="7" y1="-7" x2="-7" y2="7" stroke="#ffcc40" stroke-width="2.5"/>
+        </g>
+        <!-- ORG 暴跌 -->
+        <rect x="6" y="36" width="50" height="3" fill="#1a1a1a"/>
+        <rect x="6" y="36" width="20" height="3" fill="#e84040"/>
+        <rect x="6" y="42" width="50" height="3" fill="#1a1a1a"/>
+        <rect x="6" y="42" width="38" height="3" fill="#d9b84a"/>
+      </g>
+    </g>
+
+    <!-- 战斗箭头：攻方 → 防方 -->
+    <g>
+      <!-- 红色虚线 -->
+      <path d="M 350 162 Q 530 130 700 160" stroke="#e84040" stroke-width="2.5" fill="none" stroke-dasharray="6,4" opacity="0.85">
+        <animate attributeName="stroke-dashoffset" from="0" to="-20" dur="0.8s" repeatCount="indefinite"/>
+      </path>
+      <!-- 箭头头部 -->
+      <g transform="translate(700, 160) rotate(15)">
+        <polygon points="0,0 -14,-7 -10,0 -14,7" fill="#e84040" stroke="#8a1a1a" stroke-width="0.8"/>
+      </g>
+      <!-- 中段 "ATTACK" 标签 -->
+      <g transform="translate(525, 130)">
+        <rect x="-32" y="-10" width="64" height="18" rx="3" fill="#1a1a1a" stroke="#e84040" stroke-width="1"/>
+        <text x="0" y="3" font-size="10" fill="#e84040" text-anchor="middle" font-weight="bold">ATTACK</text>
+      </g>
+    </g>
+
+    <!-- 防方堆叠: SOV 步兵（红色发光防御） -->
+    <g transform="translate(700, 138)">
+      <rect x="-3" y="-3" width="86" height="58" rx="4" fill="none" stroke="#4080e8" stroke-width="2" filter="url(#combatGlow)"/>
+      <g transform="translate(4, 4)" opacity="0.65">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgSoviet)" stroke="#0a0a0a" stroke-width="1"/>
+      </g>
+      <g transform="translate(2, 2)" opacity="0.85">
+        <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgSoviet)" stroke="#0a0a0a" stroke-width="1"/>
+      </g>
+      <rect x="0" y="0" width="80" height="52" rx="3" fill="url(#bgSoviet)" stroke="#0a0a0a" stroke-width="1"/>
+      <rect x="0" y="0" width="80" height="4" fill="#fff" opacity="0.25"/>
+      <use href="#sym_inf" x="22" y="6" width="36" height="24"/>
+      <circle cx="73" cy="7" r="7" fill="#1a1a1a" stroke="#c8a040" stroke-width="1.5"/>
+      <text x="73" y="11" font-size="9" fill="#e8d8a8" text-anchor="middle" font-weight="bold">3</text>
+      <g transform="translate(40, 22)" opacity="0.95">
+        <line x1="-7" y1="-7" x2="7" y2="7" stroke="#ffcc40" stroke-width="2.5"/>
+        <line x1="7" y1="-7" x2="-7" y2="7" stroke="#ffcc40" stroke-width="2.5"/>
+      </g>
+      <rect x="6" y="36" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="36" width="22" height="3" fill="#e84040"/>
+      <rect x="6" y="42" width="50" height="3" fill="#1a1a1a"/>
+      <rect x="6" y="42" width="42" height="3" fill="#d9b84a"/>
+
+      <text x="40" y="76" font-size="9" fill="#4080e8" text-anchor="middle" font-weight="bold">DEFENDER</text>
+    </g>
+
+    <text x="240" y="200" font-size="9" fill="#e84040" text-anchor="middle" font-weight="bold">ATTACKER</text>
+    <text x="240" y="212" font-size="8" fill="#c8b888" text-anchor="middle">前倾 30% 位移</text>
+
+    <!-- 标注 -->
+    <g font-size="10" fill="#c8b888">
+      <text x="900" y="120" font-size="10" fill="#e8d8a8" font-weight="bold">视觉要素：</text>
+      <text x="900" y="138" font-size="10">• 攻方位置插值 30% 向防方</text>
+      <text x="900" y="154" font-size="10">• 红色虚线流动动画 (0.8s 周期)</text>
+      <text x="900" y="170" font-size="10">• 攻方红框 / 防方蓝框</text>
+      <text x="900" y="186" font-size="10">• 双方 ORG 暴跌为红色</text>
+      <text x="900" y="202" font-size="10">• 中段 "ATTACK" 标签可悬浮</text>
+      <text x="900" y="218" font-size="10">• 多对一 / 一对多 同时支持</text>
+      <text x="900" y="240" font-size="9" fill="#9aa080" font-style="italic">数据：BattleStore.active_battles</text>
+      <text x="900" y="252" font-size="9" fill="#9aa080" font-style="italic">  或从 frontline.rs 推断</text>
+    </g>
+  </g>
+</svg>

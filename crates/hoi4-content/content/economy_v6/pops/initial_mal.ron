@@ -1,0 +1,15 @@
+#![enable(implicit_some)]
+
+// British Malaya 1931 census ~4.3M; 1936 est ~5M | Peasant 50%, Worker 12%, Clerk 8%, Capitalist 0.4%, Aristocrat 0.3%, Soldier 1.3%
+// Rubber/tin economy. British colony. Multi-ethnic (Malay/Chinese/Indian).
+(
+    total_population: 5000000,
+    groups: [
+        (state_id: 702, class: Peasant,    size: 2500000, employed_at: None, wage_rm: 0.8, satisfaction: 0.35, political_loyalty: 0.05),
+        (state_id: 702, class: Worker,     size: 600000,  employed_at: None, wage_rm: 2.0, satisfaction: 0.35, political_loyalty: 0.02),
+        (state_id: 702, class: Clerk,      size: 400000,  employed_at: None, wage_rm: 3.5, satisfaction: 0.45, political_loyalty: 0.08),
+        (state_id: 702, class: Capitalist, size: 20000,   employed_at: None, wage_rm: 10.0, satisfaction: 0.50, political_loyalty: 0.12),
+        (state_id: 702, class: Aristocrat, size: 15000,   employed_at: None, wage_rm: 12.0, satisfaction: 0.45, political_loyalty: 0.15),
+        (state_id: 702, class: Soldier,    size: 65000,   employed_at: None, wage_rm: 1.8, satisfaction: 0.42, political_loyalty: 0.50),
+    ],
+)

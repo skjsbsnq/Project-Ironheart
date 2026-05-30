@@ -1,0 +1,40 @@
+#![enable(implicit_some)]
+
+// UK 1931 census (GB) ~47M | Peasant 4%, Worker 25%, Clerk 35%, Capitalist 2.0%, Aristocrat 1.2%, Soldier 5.8%
+// Highly industrialised / service economy. Significant aristocracy/nobility.
+(
+    total_population: 47000000,
+    groups: [
+        // ── 91 London / SE ~ 18M ──
+        (state_id: 91, class: Peasant,    size: 500000,   employed_at: None, wage_rm: 2.5, satisfaction: 0.55, political_loyalty: 0.08),
+        (state_id: 91, class: Worker,     size: 4200000,  employed_at: None, wage_rm: 4.2, satisfaction: 0.48, political_loyalty: 0.05),
+        (state_id: 91, class: Clerk,      size: 6800000,  employed_at: None, wage_rm: 7.8, satisfaction: 0.60, political_loyalty: 0.10),
+        (state_id: 91, class: Capitalist, size: 420000,   employed_at: None, wage_rm: 30.0, satisfaction: 0.70, political_loyalty: 0.25),
+        (state_id: 91, class: Aristocrat, size: 240000,   employed_at: None, wage_rm: 45.0, satisfaction: 0.68, political_loyalty: 0.40),
+        (state_id: 91, class: Soldier,    size: 680000,   employed_at: None, wage_rm: 3.0, satisfaction: 0.55, political_loyalty: 0.55),
+
+        // ── 92 Lancashire / Yorkshire ~ 12M ──
+        (state_id: 92, class: Peasant,    size: 600000,   employed_at: None, wage_rm: 2.0, satisfaction: 0.48, political_loyalty: 0.08),
+        (state_id: 92, class: Worker,     size: 4500000,  employed_at: None, wage_rm: 3.8, satisfaction: 0.42, political_loyalty: 0.02),
+        (state_id: 92, class: Clerk,      size: 3500000,  employed_at: None, wage_rm: 6.5, satisfaction: 0.55, political_loyalty: 0.08),
+        (state_id: 92, class: Capitalist, size: 220000,   employed_at: None, wage_rm: 24.0, satisfaction: 0.62, political_loyalty: 0.20),
+        (state_id: 92, class: Aristocrat, size: 90000,    employed_at: None, wage_rm: 35.0, satisfaction: 0.60, political_loyalty: 0.35),
+        (state_id: 92, class: Soldier,    size: 490000,   employed_at: None, wage_rm: 3.0, satisfaction: 0.50, political_loyalty: 0.52),
+
+        // ── 93 Scotland ~ 5M ──
+        (state_id: 93, class: Peasant,    size: 400000,   employed_at: None, wage_rm: 1.8, satisfaction: 0.48, political_loyalty: 0.12),
+        (state_id: 93, class: Worker,     size: 1800000,  employed_at: None, wage_rm: 3.5, satisfaction: 0.42, political_loyalty: 0.08),
+        (state_id: 93, class: Clerk,      size: 1300000,  employed_at: None, wage_rm: 6.0, satisfaction: 0.55, political_loyalty: 0.12),
+        (state_id: 93, class: Capitalist, size: 90000,    employed_at: None, wage_rm: 22.0, satisfaction: 0.62, political_loyalty: 0.20),
+        (state_id: 93, class: Aristocrat, size: 50000,    employed_at: None, wage_rm: 32.0, satisfaction: 0.58, political_loyalty: 0.32),
+        (state_id: 93, class: Soldier,    size: 310000,   employed_at: None, wage_rm: 3.0, satisfaction: 0.50, political_loyalty: 0.52),
+
+        // ── 126 ports / SW England ~ 3M ──
+        (state_id: 126, class: Peasant,    size: 200000,   employed_at: None, wage_rm: 2.2, satisfaction: 0.55, political_loyalty: 0.10),
+        (state_id: 126, class: Worker,     size: 800000,   employed_at: None, wage_rm: 4.0, satisfaction: 0.50, political_loyalty: 0.10),
+        (state_id: 126, class: Clerk,      size: 1000000,  employed_at: None, wage_rm: 7.5, satisfaction: 0.60, political_loyalty: 0.15),
+        (state_id: 126, class: Capitalist, size: 70000,    employed_at: None, wage_rm: 28.0, satisfaction: 0.65, political_loyalty: 0.25),
+        (state_id: 126, class: Aristocrat, size: 50000,    employed_at: None, wage_rm: 42.0, satisfaction: 0.65, political_loyalty: 0.38),
+        (state_id: 126, class: Soldier,    size: 180000,   employed_at: None, wage_rm: 3.0, satisfaction: 0.55, political_loyalty: 0.55),
+    ],
+)

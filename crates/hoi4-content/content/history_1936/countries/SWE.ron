@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "SWE",
+    population: 6200000,
+    gdp_1936_gbp: 4700000000.0,
+    gdp_quality: Estimated,
+    sector_shares: (agriculture: 0.12, mining: 0.18, heavy_industry: 0.22, light_industry: 0.11, services: 0.23, government: 0.08, military_industry: 0.06),
+    urbanization: 0.42,
+    literacy: 0.98,
+    unemployment: 0.07,
+    industrial_capacity_index: 7.0,
+    military_spending_share: 0.035,
+    construction_capacity_index: 6.0,
+    gold_reserve_gbp: 180000000.0,
+    foreign_exchange_reserve_gbp: 130000000.0,
+    public_debt_gbp: 800000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "export_focus", taxation: "medium_taxation", civil_rights: "open_society", information_control: "free_press"),
+)

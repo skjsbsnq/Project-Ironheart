@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "USA",
+    population: 128800000,
+    gdp_1936_gbp: 100000000000.0,
+    gdp_quality: Estimated,
+    sector_shares: (agriculture: 0.10, mining: 0.08, heavy_industry: 0.23, light_industry: 0.14, services: 0.31, government: 0.10, military_industry: 0.04),
+    urbanization: 0.56,
+    literacy: 0.96,
+    unemployment: 0.17,
+    industrial_capacity_index: 100.0,
+    military_spending_share: 0.015,
+    construction_capacity_index: 100.0,
+    gold_reserve_gbp: 7000000000.0,
+    foreign_exchange_reserve_gbp: 2500000000.0,
+    public_debt_gbp: 34000000000.0,
+    initial_laws: (conscription: "volunteer_only", economy: "interventionism", trade: "free_trade", taxation: "medium_taxation", civil_rights: "open_society", information_control: "free_press"),
+)

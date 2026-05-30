@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "PRC",
+    population: 3000000,
+    gdp_1936_gbp: 120000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.70, mining: 0.02, heavy_industry: 0.01, light_industry: 0.04, services: 0.10, government: 0.08, military_industry: 0.05),
+    urbanization: 0.04,
+    literacy: 0.12,
+    unemployment: 0.03,
+    industrial_capacity_index: 0.3,
+    military_spending_share: 0.18,
+    construction_capacity_index: 0.2,
+    gold_reserve_gbp: 1000000.0,
+    foreign_exchange_reserve_gbp: 500000.0,
+    public_debt_gbp: 15000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "autarky", taxation: "medium_taxation", civil_rights: "limited_rights", information_control: "state_media"),
+)

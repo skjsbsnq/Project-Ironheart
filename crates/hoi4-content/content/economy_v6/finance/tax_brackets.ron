@@ -1,0 +1,8 @@
+#![enable(implicit_some)]
+
+(
+    low_taxation: (income_tax_rate: 0.10, consumption_tax_rate: 0.05, corporate_tax_rate: 0.10),
+    medium_taxation: (income_tax_rate: 0.20, consumption_tax_rate: 0.10, corporate_tax_rate: 0.20),
+    high_taxation: (income_tax_rate: 0.35, consumption_tax_rate: 0.20, corporate_tax_rate: 0.30),
+    war_taxation: (income_tax_rate: 0.50, consumption_tax_rate: 0.30, corporate_tax_rate: 0.45),
+)

@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "ENG",
+    population: 47000000,
+    gdp_1936_gbp: 33000000000.0,
+    gdp_quality: Estimated,
+    sector_shares: (agriculture: 0.05, mining: 0.07, heavy_industry: 0.19, light_industry: 0.13, services: 0.38, government: 0.11, military_industry: 0.07),
+    urbanization: 0.80,
+    literacy: 0.98,
+    unemployment: 0.09,
+    industrial_capacity_index: 34.0,
+    military_spending_share: 0.06,
+    construction_capacity_index: 32.0,
+    gold_reserve_gbp: 1000000000.0,
+    foreign_exchange_reserve_gbp: 1200000000.0,
+    public_debt_gbp: 20000000000.0,
+    initial_laws: (conscription: "volunteer_only", economy: "interventionism", trade: "free_trade", taxation: "medium_taxation", civil_rights: "open_society", information_control: "free_press"),
+)

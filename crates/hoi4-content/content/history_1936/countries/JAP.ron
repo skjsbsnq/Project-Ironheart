@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "JAP",
+    population: 69300000,
+    gdp_1936_gbp: 21000000000.0,
+    gdp_quality: Estimated,
+    sector_shares: (agriculture: 0.19, mining: 0.04, heavy_industry: 0.20, light_industry: 0.18, services: 0.20, government: 0.09, military_industry: 0.10),
+    urbanization: 0.38,
+    literacy: 0.90,
+    unemployment: 0.05,
+    industrial_capacity_index: 21.0,
+    military_spending_share: 0.12,
+    construction_capacity_index: 20.0,
+    gold_reserve_gbp: 350000000.0,
+    foreign_exchange_reserve_gbp: 220000000.0,
+    public_debt_gbp: 7000000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "war_economy", trade: "import_substitution", taxation: "high_taxation", civil_rights: "limited_rights", information_control: "state_media"),
+)

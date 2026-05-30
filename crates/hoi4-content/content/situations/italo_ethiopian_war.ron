@@ -1,0 +1,35 @@
+SituationDb(
+    situations: [
+        SituationDef(
+            id: "italo_ethiopian_war",
+            title: "The Italo-Ethiopian War",
+            description: "Italy's invasion of Ethiopia continues. The League of Nations watches helplessly.",
+            sides: [
+                SituationSide(id: "italy", name: "Italy", color: (0, 128, 0), initial_progress: 65.0, default_supporters: []),
+                SituationSide(id: "ethiopia", name: "Ethiopia", color: (139, 0, 0), initial_progress: 35.0, default_supporters: []),
+            ],
+            interventions: [
+                Intervention(id: "impose_oil_embargo", name: "Impose Oil Embargo on Italy", side_index: 1, cost_pp: 75.0, cost_manpower: 0, cost_equipment: [], cooldown_days: 9999, progress_boost: 8.0, army_xp: 0.0, air_xp: 0.0, effects: []),
+                Intervention(id: "smuggle_weapons", name: "Smuggle Weapons to Ethiopia", side_index: 1, cost_pp: 0.0, cost_manpower: 0, cost_equipment: [("infantry_equipment", 1000.0)], cooldown_days: 60, progress_boost: 0.0, army_xp: 0.0, air_xp: 0.0, effects: [SendEquipment(from: "{caller}", to: "ETH", equipment: "infantry_equipment", amount: 1000.0)]),
+                Intervention(id: "diplomatic_support_italy", name: "Diplomatic Support for Italy", side_index: 0, cost_pp: 25.0, cost_manpower: 0, cost_equipment: [], cooldown_days: 9999, progress_boost: 2.0, army_xp: 0.0, air_xp: 0.0, effects: []),
+            ],
+            base_progress: [0.23, 0.05],
+            progress_source: TerritorialControl(side_country_tags: [["ITA"], ["ETH"]]),
+            milestones: [(0, 75.0, "news.eth_mustard_gas"), (0, 85.0, "news.eth_addis_ababa_threatened"), (0, 95.0, "news.eth_selassie_exile"), (0, 100.0, "news.eth_italy_victory"), (1, 100.0, "news.eth_italy_defeat")],
+            milestone_effects: [
+                [TriggerEvent("news.eth_mustard_gas")],
+                [TriggerEvent("news.eth_addis_ababa_threatened")],
+                [TriggerEvent("news.eth_selassie_exile")],
+                [],
+                [],
+            ],
+            start_date: (0, 0, 0),
+            end_date: (1937, 6, 1),
+            on_start: [CreateWar(attacker: "ITA", defender: "ETH")],
+            on_end: [
+                [AnnexCountry(annexer: "ITA", target: "ETH"), AddIdea(country: "ITA", idea: "east_african_empire"), TriggerEvent("news.eth_italy_victory"), TriggerEvent("germany.stresa_front_collapses")],
+                [AddStability(country: "ITA", amount: -0.20), AddWarSupport(country: "ITA", amount: -0.30), TriggerEvent("news.eth_italy_defeat")],
+            ],
+        ),
+    ],
+)

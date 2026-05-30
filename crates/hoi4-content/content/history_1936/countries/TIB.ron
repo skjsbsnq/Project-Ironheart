@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "TIB",
+    population: 3000000,
+    gdp_1936_gbp: 90000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.72, mining: 0.02, heavy_industry: 0.00, light_industry: 0.03, services: 0.08, government: 0.12, military_industry: 0.03),
+    urbanization: 0.04,
+    literacy: 0.10,
+    unemployment: 0.02,
+    industrial_capacity_index: 0.2,
+    military_spending_share: 0.08,
+    construction_capacity_index: 0.2,
+    gold_reserve_gbp: 1000000.0,
+    foreign_exchange_reserve_gbp: 300000.0,
+    public_debt_gbp: 5000000.0,
+    initial_laws: (conscription: "volunteer_only", economy: "interventionism", trade: "autarky", taxation: "low_taxation", civil_rights: "limited_rights", information_control: "state_media"),
+)

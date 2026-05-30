@@ -1,0 +1,15 @@
+#![enable(implicit_some)]
+
+// South Africa 1936 census ~10.2M (incl. 80% black African, 20% white/coloured/Indian) | Peasant 65%, Worker 8%, Clerk 8%, Capitalist 0.5%, Aristocrat 0.15%, Soldier 1.35%
+// Mining/livestock economy. Dominion. White minority political control.
+(
+    total_population: 10200000,
+    groups: [
+        (state_id: 307, class: Peasant,    size: 6600000, employed_at: None, wage_rm: 0.7, satisfaction: 0.22, political_loyalty: 0.02),
+        (state_id: 307, class: Worker,     size: 800000,  employed_at: None, wage_rm: 2.5, satisfaction: 0.32, political_loyalty: 0.08),
+        (state_id: 307, class: Clerk,      size: 800000,  employed_at: None, wage_rm: 4.5, satisfaction: 0.42, political_loyalty: 0.12),
+        (state_id: 307, class: Capitalist, size: 50000,   employed_at: None, wage_rm: 18.0, satisfaction: 0.55, political_loyalty: 0.22),
+        (state_id: 307, class: Aristocrat, size: 15000,   employed_at: None, wage_rm: 25.0, satisfaction: 0.52, political_loyalty: 0.30),
+        (state_id: 307, class: Soldier,    size: 140000,  employed_at: None, wage_rm: 2.2, satisfaction: 0.42, political_loyalty: 0.50),
+    ],
+)

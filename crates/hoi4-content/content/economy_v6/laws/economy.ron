@@ -1,0 +1,84 @@
+#![enable(implicit_some)]
+
+[
+    // ─── 自由放任 ───
+    (
+        id: "laissez_faire",
+        name: "自由放任",
+        pp_cost: 50,
+        cooldown_days: 60,
+        wage_multiplier_worker: 0.8,
+        wage_multiplier_capitalist: 1.5,
+        consumer_goods_factor: 1.0,
+        construction_speed_modifier: 0.0,
+        forces_trade_law: None,
+        pop_modifiers: (
+            satisfaction: 0.0,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 干预经济 ───
+    (
+        id: "interventionism",
+        name: "干预经济",
+        pp_cost: 150,
+        cooldown_days: 90,
+        wage_multiplier_worker: 1.0,
+        wage_multiplier_capitalist: 1.0,
+        consumer_goods_factor: 1.0,
+        construction_speed_modifier: 0.1,
+        forces_trade_law: None,
+        pop_modifiers: (
+            satisfaction: 0.05,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 战时经济 ───
+    (
+        id: "war_economy",
+        name: "战时经济",
+        pp_cost: 300,
+        cooldown_days: 120,
+        wage_multiplier_worker: 0.7,
+        wage_multiplier_capitalist: 0.8,
+        consumer_goods_factor: 0.7,
+        construction_speed_modifier: 0.3,
+        forces_trade_law: None,
+        pop_modifiers: (
+            satisfaction: -0.05,
+            loyalty_coefficient: 1.0,
+        ),
+    ),
+    // ─── 德国法团战备经济 ───
+    (
+        id: "corporatist_war_economy",
+        name: "法团战备经济",
+        pp_cost: 250,
+        cooldown_days: 90,
+        wage_multiplier_worker: 0.9,
+        wage_multiplier_capitalist: 1.2,
+        consumer_goods_factor: 0.8,
+        construction_speed_modifier: 0.25,
+        forces_trade_law: None,
+        pop_modifiers: (
+            satisfaction: -0.02,
+            loyalty_coefficient: 1.1,
+        ),
+    ),
+    // ─── 计划经济 ───
+    (
+        id: "planned_economy",
+        name: "计划经济",
+        pp_cost: 600,
+        cooldown_days: 180,
+        wage_multiplier_worker: 0.9,
+        wage_multiplier_capitalist: 0.5,
+        consumer_goods_factor: 0.5,
+        construction_speed_modifier: 0.5,
+        forces_trade_law: Some("state_trade_monopoly"),
+        pop_modifiers: (
+            satisfaction: -0.10,
+            loyalty_coefficient: 0.8,
+        ),
+    ),
+]

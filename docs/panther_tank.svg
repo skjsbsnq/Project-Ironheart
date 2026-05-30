@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <radialGradient id="bgGrad" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#3a3a3a"/>
+      <stop offset="100%" stop-color="#1a1a1a"/>
+    </radialGradient>
+    <linearGradient id="tankGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c8c8c8"/>
+      <stop offset="100%" stop-color="#969696"/>
+    </linearGradient>
+    <linearGradient id="turretGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#d4d4d4"/>
+      <stop offset="100%" stop-color="#a0a0a0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle frame -->
+  <circle cx="64" cy="64" r="60" fill="url(#bgGrad)" stroke="#505050" stroke-width="2.5"/>
+  <circle cx="64" cy="64" r="57" fill="none" stroke="#2a2a2a" stroke-width="1"/>
+
+  <!-- Track assembly - bottom base -->
+  <path d="M16,84 L108,84 L108,96 Q108,102 102,102 L22,102 Q16,102 16,96 Z" fill="#585858" stroke="#6e6e6e" stroke-width="1.2"/>
+
+  <!-- Track wheels - simplified HOI4 style -->
+  <g fill="#4a4a4a" stroke="#6e6e6e" stroke-width="0.8">
+    <circle cx="26" cy="90" r="5.5"/>
+    <circle cx="39" cy="90" r="5.5"/>
+    <circle cx="52" cy="90" r="5.5"/>
+    <circle cx="65" cy="90" r="5.5"/>
+    <circle cx="78" cy="90" r="5.5"/>
+    <circle cx="91" cy="90" r="5.5"/>
+  </g>
+  <g fill="#3a3a3a">
+    <circle cx="26" cy="90" r="2.2"/>
+    <circle cx="39" cy="90" r="2.2"/>
+    <circle cx="52" cy="90" r="2.2"/>
+    <circle cx="65" cy="90" r="2.2"/>
+    <circle cx="78" cy="90" r="2.2"/>
+    <circle cx="91" cy="90" r="2.2"/>
+  </g>
+  <!-- Sprocket & idler -->
+  <circle cx="18" cy="88" r="7" fill="#4a4a4a" stroke="#6e6e6e" stroke-width="1"/>
+  <circle cx="18" cy="88" r="3" fill="#3a3a3a"/>
+  <circle cx="106" cy="88" r="6.5" fill="#4a4a4a" stroke="#6e6e6e" stroke-width="1"/>
+  <circle cx="106" cy="88" r="2.8" fill="#3a3a3a"/>
+
+  <!-- Hull - sloped Panther glacis -->
+  <path d="M20,84 L20,74 L46,62 L106,62 L106,84 Z" fill="url(#tankGrad)" stroke="#6e6e6e" stroke-width="1.5" stroke-linejoin="round"/>
+
+  <!-- Turret - Panther's distinctive curved turret -->
+  <path d="M42,62 L54,40 L92,38 L104,44 L108,62 Z" fill="url(#turretGrad)" stroke="#6e6e6e" stroke-width="1.5" stroke-linejoin="round"/>
+
+  <!-- Mantlet -->
+  <path d="M46,62 Q46,44 54,40 L48,40 Q38,44 38,62 Z" fill="#b0b0b0" stroke="#6e6e6e" stroke-width="1"/>
+
+  <!-- Gun barrel -->
+  <rect x="4" y="45" width="46" height="4.5" rx="1.5" fill="#a8a8a8" stroke="#6e6e6e" stroke-width="1"/>
+  <!-- Muzzle brake -->
+  <rect x="2" y="43" width="7" height="9" rx="2" fill="#969696" stroke="#6e6e6e" stroke-width="0.8"/>
+
+  <!-- Commander cupola -->
+  <ellipse cx="92" cy="40" rx="5" ry="3.5" fill="#b0b0b0" stroke="#6e6e6e" stroke-width="0.8"/>
+
+  <!-- Fender line -->
+  <line x1="20" y1="84" x2="106" y2="84" stroke="#6e6e6e" stroke-width="1.2"/>
+
+  <!-- Subtle highlight on turret top -->
+  <path d="M56,41 L90,39 L92,40 L56,42 Z" fill="#ddd" opacity="0.2"/>
+
+  <!-- Hull front highlight -->
+  <path d="M22,74 L46,63 L48,63 L24,74 Z" fill="#ddd" opacity="0.15"/>
+</svg>

@@ -1,0 +1,35 @@
+[package]
+name = "hoi4-assets"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+vanilla-audit = []
+
+# Phase 2：统一资产管线。
+#
+# 2.1 骨架（AssetDb / FsAssetDb / AssetError / Cache）
+# 2.2 .gfx 解析（GfxIdx-removed / SpriteDef）
+# 2.3 DDS 管线（mip 链 / BC1/BC3/BC5/BGRA8 / TextureBank）
+# 2.4 字体管线（.fnt BM-font 解析 / glyph atlas / TextRenderer）
+# 2.5 .gui 解析器与 AST
+# 2.6 .gui 控件运行时（layout / hit-test / 数据绑定）
+# 2.7 .mesh 升级（normals / UVs / bone / material）
+# 2.8 .asset 元数据
+
+[dependencies]
+hoi4-paths = { path = "../hoi4-paths" }
+clausewitz-parser = { path = "../clausewitz-parser" }
+wgpu = "24.0.1"
+png = "0.17"
+
+[[test]]
+name = "vanilla_dds"
+path = "tests/vanilla_dds.rs"
+required-features = ["vanilla-audit"]
+
+[[test]]
+name = "vanilla_mesh"
+path = "tests/vanilla_mesh.rs"
+required-features = ["vanilla-audit"]

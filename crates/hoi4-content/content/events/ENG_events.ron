@@ -1,0 +1,116 @@
+EventDb(
+    events: [
+        Event(
+            id: "england.poland_guarantee_hardened",
+            title: "Guarantee to Poland Reaffirmed",
+            description: "German pressure on Danzig has ended the policy of appeasement. The Cabinet confirms that Britain will stand by Poland if war comes.",
+            picture: "GFX_event_uk_guarantee",
+            trigger: Date(year: 1939, month: 3, day: 31),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "We will honour our word.",
+                    effects: [
+                        AddWarSupport(0.08),
+                        AddStability(-0.02),
+                        SetCountryFlag("poland_guarantee_hardened"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "england.war_with_germany",
+            title: "Britain at War",
+            description: "Germany has invaded Poland. The ultimatum has expired, and Britain is now at war with the Reich.",
+            picture: "GFX_event_uk_dow",
+            trigger: Date(year: 1939, month: 9, day: 3),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "This is a war for Europe.",
+                    effects: [
+                        AddWarSupport(0.15),
+                        AddStability(0.03),
+                        SetCountryFlag("ww2_started"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "england.norway_campaign",
+            title: "Norway Campaign",
+            description: "German landings in Denmark and Norway threaten the North Sea and the iron ore route from Sweden. The Royal Navy prepares a response.",
+            picture: "GFX_event_norway_campaign",
+            trigger: Date(year: 1940, month: 4, day: 9),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Contest the landings.",
+                    effects: [
+                        NavyExperience(15.0),
+                        SetCountryFlag("norway_campaign_active"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "england.battle_of_britain",
+            title: "The Battle of Britain",
+            description: "France has fallen and German bombers cross the Channel. Fighter Command must hold the skies over Britain.",
+            picture: "GFX_event_battle_of_britain",
+            trigger: Date(year: 1940, month: 7, day: 10),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Never surrender.",
+                    effects: [
+                        AddWarSupport(0.10),
+                        AirExperience(20.0),
+                        SetCountryFlag("battle_of_britain"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "eng.scw_non_intervention_committee",
+            title: "不干涉委员会",
+            description: "伦敦的会议室里，各国代表用同一种词回避不同的事实：不干涉。英国外交部需要西班牙战争不要点燃欧洲，海军部需要直布罗陀和地中海航道保持可控，内阁则需要向议会证明英国没有在大陆内战里选择阵营。问题在于，不干涉从来不是空白。它会关闭共和国购买武器的公开窗口，也会把德国、意大利和葡萄牙的灰色通道变成所有人都看见却没人承认的现实。",
+            picture: "GFX_event_uk_guarantee",
+            trigger: And([
+                Tag("ENG"),
+                CountryExists("SPA"),
+                Date(year: 1936, month: 8, day: 20),
+                Not(HasCountryFlag("eng_scw_non_intervention_committee")),
+            ]),
+            mean_time_to_happen_days: 5,
+            immediate: [SetCountryFlag("eng_scw_non_intervention_committee")],
+            options: [
+                EventOption(
+                    name: "维持不干涉，盯紧直布罗陀。",
+                    effects: [
+                        SetCountryFlag("eng_scw_non_intervention_line"),
+                        SetCountryFlag("eng_scw_gibraltar_watch"),
+                        SetGlobalFlag("eng_scw_non_intervention_committee_called"),
+                        SetGlobalFlag("news_scw_foreign_volunteers_questioned_ready"),
+                        AddWarSupport(-0.01),
+                        AddOpinion(target: "SPR", amount: -10),
+                        AddOpinion(target: "SPA", amount: 5),
+                    ],
+                    ai_chance: 0.8,
+                ),
+                EventOption(
+                    name: "加强海峡巡查，别让不干涉变成轴心走廊。",
+                    effects: [
+                        SetCountryFlag("eng_scw_patrols_tightened"),
+                        SetCountryFlag("eng_scw_gibraltar_watch"),
+                        SetGlobalFlag("news_scw_foreign_volunteers_questioned_ready"),
+                        NavyExperience(5.0),
+                        AddOpinion(target: "SPA", amount: -5),
+                        AddOpinion(target: "SPR", amount: 5),
+                    ],
+                    ai_chance: 0.2,
+                ),
+            ],
+        ),
+    ],
+)

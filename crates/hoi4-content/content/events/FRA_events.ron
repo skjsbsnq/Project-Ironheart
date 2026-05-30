@@ -1,0 +1,57 @@
+EventDb(
+    events: [
+        Event(
+            id: "france.mobilizes_for_poland",
+            title: "France Mobilizes",
+            description: "Germany has attacked Poland. French reserves are called up and the Maginot Line prepares for a new European war.",
+            picture: "GFX_event_french_mobilization",
+            trigger: Date(year: 1939, month: 9, day: 3),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Stand with Poland.",
+                    effects: [
+                        AddWarSupport(0.12),
+                        AddStability(-0.03),
+                        SetCountryFlag("ww2_started"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "france.battle_for_france",
+            title: "The Battle for France",
+            description: "German armoured columns have struck through the Low Countries. France faces the decisive battle of the west.",
+            picture: "GFX_event_fall_of_france",
+            trigger: Date(year: 1940, month: 5, day: 10),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "Hold the line.",
+                    effects: [
+                        AddWarSupport(0.08),
+                        ArmyExperience(10.0),
+                        SetCountryFlag("battle_for_france"),
+                    ],
+                ),
+            ],
+        ),
+        Event(
+            id: "france.paris_threatened",
+            title: "Paris Threatened",
+            description: "The German breakthrough has torn open the front. Paris prepares evacuation while the army tries to regroup south of the Seine.",
+            picture: "GFX_event_paris",
+            trigger: Date(year: 1940, month: 6, day: 10),
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "The Republic must endure.",
+                    effects: [
+                        AddStability(-0.08),
+                        SetCountryFlag("paris_threatened"),
+                    ],
+                ),
+            ],
+        ),
+    ],
+)

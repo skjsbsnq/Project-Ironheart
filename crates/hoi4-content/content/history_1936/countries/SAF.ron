@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "SAF",
+    population: 9200000,
+    gdp_1936_gbp: 2600000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.18, mining: 0.24, heavy_industry: 0.10, light_industry: 0.08, services: 0.24, government: 0.10, military_industry: 0.06),
+    urbanization: 0.38,
+    literacy: 0.62,
+    unemployment: 0.10,
+    industrial_capacity_index: 4.0,
+    military_spending_share: 0.025,
+    construction_capacity_index: 4.0,
+    gold_reserve_gbp: 200000000.0,
+    foreign_exchange_reserve_gbp: 120000000.0,
+    public_debt_gbp: 600000000.0,
+    initial_laws: (conscription: "volunteer_only", economy: "interventionism", trade: "export_focus", taxation: "medium_taxation", civil_rights: "limited_rights", information_control: "regulated_press"),
+)

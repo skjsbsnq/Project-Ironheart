@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "MAN",
+    population: 30000000,
+    gdp_1936_gbp: 3800000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.34, mining: 0.16, heavy_industry: 0.14, light_industry: 0.08, services: 0.14, government: 0.08, military_industry: 0.06),
+    urbanization: 0.18,
+    literacy: 0.35,
+    unemployment: 0.05,
+    industrial_capacity_index: 5.0,
+    military_spending_share: 0.04,
+    construction_capacity_index: 4.0,
+    gold_reserve_gbp: 40000000.0,
+    foreign_exchange_reserve_gbp: 35000000.0,
+    public_debt_gbp: 400000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "export_focus", taxation: "medium_taxation", civil_rights: "limited_rights", information_control: "state_media"),
+)

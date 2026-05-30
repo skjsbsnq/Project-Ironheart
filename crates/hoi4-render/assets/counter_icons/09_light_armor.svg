@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 48">
+  <!-- 09 light_armor — 小椭圆（轻装甲） -->
+  <g fill="none" stroke="#ffffff" stroke-width="2">
+    <ellipse cx="32" cy="24" rx="14" ry="7"/>
+  </g>
+</svg>

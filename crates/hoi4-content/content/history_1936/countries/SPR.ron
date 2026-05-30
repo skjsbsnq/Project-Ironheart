@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "SPR",
+    population: 24700000,
+    gdp_1936_gbp: 5600000000.0,
+    gdp_quality: Estimated,
+    sector_shares: (agriculture: 0.30, mining: 0.06, heavy_industry: 0.12, light_industry: 0.16, services: 0.22, government: 0.08, military_industry: 0.06),
+    urbanization: 0.43,
+    literacy: 0.72,
+    unemployment: 0.12,
+    industrial_capacity_index: 7.5,
+    military_spending_share: 0.055,
+    construction_capacity_index: 8.0,
+    gold_reserve_gbp: 550000000.0,
+    foreign_exchange_reserve_gbp: 120000000.0,
+    public_debt_gbp: 1700000000.0,
+    initial_laws: (conscription: "volunteer_only", economy: "interventionism", trade: "export_focus", taxation: "medium_taxation", civil_rights: "open_society", information_control: "regulated_press"),
+)

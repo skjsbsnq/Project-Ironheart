@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "SIK",
+    population: 4200000,
+    gdp_1936_gbp: 180000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.60, mining: 0.08, heavy_industry: 0.02, light_industry: 0.04, services: 0.10, government: 0.12, military_industry: 0.04),
+    urbanization: 0.07,
+    literacy: 0.18,
+    unemployment: 0.03,
+    industrial_capacity_index: 0.4,
+    military_spending_share: 0.10,
+    construction_capacity_index: 0.3,
+    gold_reserve_gbp: 1500000.0,
+    foreign_exchange_reserve_gbp: 1000000.0,
+    public_debt_gbp: 20000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "autarky", taxation: "medium_taxation", civil_rights: "limited_rights", information_control: "state_media"),
+)

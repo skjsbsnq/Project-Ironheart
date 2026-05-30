@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "NZL",
+    population: 1600000,
+    gdp_1936_gbp: 900000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.32, mining: 0.04, heavy_industry: 0.08, light_industry: 0.10, services: 0.27, government: 0.13, military_industry: 0.06),
+    urbanization: 0.48,
+    literacy: 0.95,
+    unemployment: 0.08,
+    industrial_capacity_index: 2.0,
+    military_spending_share: 0.025,
+    construction_capacity_index: 2.0,
+    gold_reserve_gbp: 30000000.0,
+    foreign_exchange_reserve_gbp: 45000000.0,
+    public_debt_gbp: 350000000.0,
+    initial_laws: (conscription: "volunteer_only", economy: "interventionism", trade: "free_trade", taxation: "medium_taxation", civil_rights: "open_society", information_control: "free_press"),
+)

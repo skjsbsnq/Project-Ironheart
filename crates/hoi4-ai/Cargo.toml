@@ -1,0 +1,16 @@
+[package]
+name = "hoi4-ai"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+hoi4-content = { path = "../hoi4-content" }
+hoi4-data = { path = "../hoi4-data" }
+hoi4-map = { path = "../hoi4-map" }
+hoi4-state = { path = "../hoi4-state" }
+hoi4-logic = { path = "../hoi4-logic" }
+clausewitz-parser = { path = "../clausewitz-parser" }
+rayon = "1.10"
+
+[dev-dependencies]
+clausewitz-parser = { path = "../clausewitz-parser" }
