@@ -25,12 +25,39 @@ pub enum PanelClass {
 impl PanelClass {
     fn width(self) -> f32 {
         match self {
-            Self::Compact => 720.0,
+            Self::Compact => 560.0,
             Self::MilitaryDiplomacy => 960.0,
             Self::Economy => 1080.0,
             Self::Detail => 1200.0,
             Self::Settings => 720.0,
         }
+    }
+
+    fn height_ratio(self) -> f32 {
+        match self {
+            Self::Compact => 0.58,
+            Self::MilitaryDiplomacy => 0.72,
+            Self::Economy => 0.74,
+            Self::Detail => 0.80,
+            Self::Settings => 0.66,
+        }
+    }
+
+    fn height_bounds(self) -> (f32, f32) {
+        match self {
+            Self::Compact => (360.0, 620.0),
+            Self::MilitaryDiplomacy => (500.0, 820.0),
+            Self::Economy => (540.0, 860.0),
+            Self::Detail => (560.0, 920.0),
+            Self::Settings => (460.0, 720.0),
+        }
+    }
+
+    fn left_docked(self) -> bool {
+        matches!(
+            self,
+            Self::Compact | Self::MilitaryDiplomacy | Self::Economy
+        )
     }
 }
 
@@ -93,10 +120,7 @@ impl<'a> PanelShell<'a> {
     ) -> (bool, Option<R>) {
         let screen = ctx.screen_rect();
         let size = self.panel_size(screen);
-        let pos = Pos2::new(
-            screen.center().x - size.x * 0.5,
-            screen.center().y - size.y * 0.5,
-        );
+        let pos = self.panel_pos(screen, size);
 
         let mut close = false;
         let mut output = None;
@@ -115,7 +139,7 @@ impl<'a> PanelShell<'a> {
                 let grid = GridLayout::new(
                     vec![
                         Track::Fixed(48.0),
-                        Track::Fixed(56.0),
+                        Track::Fixed(64.0),
                         Track::Fixed(36.0),
                         Track::Fr(1.0),
                         Track::Fixed(32.0),
@@ -152,10 +176,45 @@ impl<'a> PanelShell<'a> {
     }
 
     fn panel_size(&self, screen: Rect) -> Vec2 {
-        let max_w = (screen.width() - spacing::S8).max(360.0);
-        let max_h = (screen.height() - spacing::S8).max(360.0);
-        let h = (screen.height() * 0.78).clamp(540.0, 920.0).min(max_h);
+        let horizontal_reserve = if self.class.left_docked() && screen.width() >= 900.0 {
+            112.0
+        } else {
+            spacing::S8
+        };
+        let max_w = (screen.width() - horizontal_reserve - spacing::S5).max(360.0);
+        let max_h = (screen.height() - 132.0).max(360.0);
+        let (min_h, max_h_class) = self.class.height_bounds();
+        let h = (screen.height() * self.class.height_ratio())
+            .clamp(min_h, max_h_class)
+            .min(max_h);
         Vec2::new(self.class.width().min(max_w), h)
+    }
+
+    fn panel_pos(&self, screen: Rect, size: Vec2) -> Pos2 {
+        let top_gap = if screen.height() >= 760.0 { 96.0 } else { 72.0 };
+        let left_gap = if screen.width() >= 900.0 {
+            88.0
+        } else {
+            spacing::S4
+        };
+        let ideal = if self.class.left_docked() {
+            Pos2::new(screen.left() + left_gap, screen.top() + top_gap)
+        } else {
+            Pos2::new(
+                screen.center().x - size.x * 0.5,
+                screen.center().y - size.y * 0.5,
+            )
+        };
+        Pos2::new(
+            ideal.x.clamp(
+                screen.left() + spacing::S4,
+                screen.right() - size.x - spacing::S4,
+            ),
+            ideal.y.clamp(
+                screen.top() + spacing::S4,
+                screen.bottom() - size.y - spacing::S4,
+            ),
+        )
     }
 
     fn draw_header(&self, ui: &mut egui::Ui, rect: Rect) -> bool {
@@ -164,6 +223,11 @@ impl<'a> PanelShell<'a> {
             rect.left()..=rect.right(),
             rect.bottom() - 1.0,
             Stroke::new(1.0, self.accent),
+        );
+        ui.painter().rect_filled(
+            Rect::from_min_max(rect.left_top(), Pos2::new(rect.left() + 4.0, rect.bottom())),
+            0.0,
+            self.accent,
         );
         let close_rect = Rect::from_min_size(
             Pos2::new(rect.right() - 32.0, rect.top() + 8.0),

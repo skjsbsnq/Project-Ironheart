@@ -327,18 +327,33 @@ fn v9_leader_card(
         } else {
             data.party_full_name.clone()
         };
-        ui.painter().text(
+        let leader_clip = Rect::from_min_max(
+            detail.left_top(),
+            Pos2::new(detail.right(), detail.top() + 56.0),
+        );
+        let leader_painter = ui.painter().with_clip_rect(leader_clip);
+        let mut leader_font = TextRole::Display.font_id();
+        let leader_w = leader.chars().count() as f32 * leader_font.size * 0.56;
+        if leader_w > detail.width() {
+            leader_font.size *= (detail.width() / leader_w).clamp(0.78, 1.0);
+        }
+        leader_painter.text(
             Pos2::new(detail.left(), detail.top() + 4.0),
             egui::Align2::LEFT_TOP,
             leader,
-            TextRole::Display.font_id(),
+            leader_font,
             palette::GOLD_HOT,
         );
-        ui.painter().text(
+        let mut party_font = TextRole::Subheading.font_id();
+        let party_w = party.chars().count() as f32 * party_font.size * 0.56;
+        if party_w > detail.width() {
+            party_font.size *= (detail.width() / party_w).clamp(0.72, 1.0);
+        }
+        leader_painter.text(
             Pos2::new(detail.left(), detail.top() + 32.0),
             egui::Align2::LEFT_TOP,
             party,
-            TextRole::Subheading.font_id(),
+            party_font,
             v9_ideology_color(&data.ruling_party),
         );
         v9_badge(
@@ -365,7 +380,11 @@ fn v9_leader_card(
         );
 
         let focus_label = data.current_focus_name.as_deref().unwrap_or("未选择国策");
-        ui.painter().text(
+        let focus_clip = Rect::from_min_max(
+            Pos2::new(detail.left(), detail.top() + 90.0),
+            Pos2::new(detail.right() - 132.0, detail.top() + 114.0),
+        );
+        ui.painter().with_clip_rect(focus_clip).text(
             Pos2::new(detail.left(), detail.top() + 96.0),
             egui::Align2::LEFT_TOP,
             focus_label,
