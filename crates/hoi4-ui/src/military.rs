@@ -704,7 +704,7 @@ fn v9_show_military(ctx: &egui::Context, data: &MilitaryData) -> (bool, Vec<Mili
     };
 
     let (close, _) = PanelShell::new("military_panel_v9", tr("military"))
-        .subtitle("Army List / Division DataTable / Order Ribbon")
+        .subtitle("军团列表 / 师团表 / 命令条")
         .class(PanelClass::MilitaryDiplomacy)
         .accent(accent)
         .footer("Q Close  |  Ctrl click division  |  Right click army to attach")
@@ -740,12 +740,7 @@ fn v9_show_military(ctx: &egui::Context, data: &MilitaryData) -> (bool, Vec<Mili
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "Army List / Division DataTable / Order Ribbon",
-                accent,
-            );
+            draw_tab_strip(ui, layout.tabs, "军团列表 / 师团表 / 命令条", accent);
             v9_military_body(ui, layout.body, data, &mut cmds);
         });
 
@@ -903,7 +898,7 @@ fn v9_military_division_table(
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "师团 DataTable",
+        "师团表",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );

@@ -170,7 +170,7 @@ fn v9_show_country_info(
                         format!("{:+}", data.opinion),
                         opinion_color(data.opinion),
                     ),
-                    ("GDP", format_gbp(data.gdp_gbp), palette::GOLD),
+                    (tr("gdp"), format_gbp(data.gdp_gbp), palette::GOLD),
                     (
                         tr("divisions"),
                         data.division_count.to_string(),
@@ -186,7 +186,7 @@ fn v9_show_country_info(
             draw_tab_strip(
                 ui,
                 layout.tabs,
-                "Country / Industry / Diplomacy",
+                "国家 / 工业 / 外交",
                 country_relation_accent(data),
             );
             let mut inner_cmds = Vec::new();
@@ -294,13 +294,13 @@ fn v9_country_hero(
         palette::PARCHMENT_DIM,
     );
     let status = if data.at_war {
-        "At war"
+        "交战"
     } else if data.same_faction {
-        "Same faction"
+        "同阵营"
     } else if data.has_wargoal {
-        "Wargoal"
+        "战争目标"
     } else {
-        "Intel"
+        "情报"
     };
     v9_country_badge(
         ui,
@@ -339,29 +339,25 @@ fn v9_country_metrics(ui: &mut egui::Ui, data: &CountryInfoData) {
         inner.right_bottom(),
     ));
     let items = [
-        ("Industry", data.industrial_level.to_string(), palette::GOOD),
+        ("工业", data.industrial_level.to_string(), palette::GOOD),
         (
-            "Mil-Industry",
+            "军工",
             data.military_industrial_level.to_string(),
             palette::WARN,
         ),
-        (
-            "Construction",
-            data.construction_points.to_string(),
-            palette::GOLD,
-        ),
+        ("建设", data.construction_points.to_string(), palette::GOLD),
         (
             tr("manpower"),
             format_manpower(data.manpower),
             palette::GOOD,
         ),
         (
-            "Population",
+            "人口",
             format_population(data.population),
             palette::PARCHMENT,
         ),
         (
-            "Imperial",
+            "帝国人口",
             format_population(data.imperial_population),
             palette::BRASS_BRIGHT,
         ),
@@ -411,7 +407,7 @@ fn v9_country_diplomacy(
         y += 22.0;
     }
     if let Some(overlord) = &data.overlord_name {
-        v9_country_line(ui, inner.left(), y, "Overlord", overlord, palette::WARN);
+        v9_country_line(ui, inner.left(), y, "宗主国", overlord, palette::WARN);
         y += 22.0;
     }
     if data.justifying_wargoal {
@@ -434,7 +430,7 @@ fn v9_country_diplomacy(
             ui,
             inner.left(),
             y,
-            "Wargoal",
+            "战争目标",
             tr("wargoal_ready"),
             palette::GOOD,
         );

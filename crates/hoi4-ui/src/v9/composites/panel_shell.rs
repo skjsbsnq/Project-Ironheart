@@ -2,12 +2,15 @@
 
 use egui::{Align2, Area, Color32, Context, Id, Order, Pos2, Rect, Sense, Stroke, Vec2};
 
-use crate::v9::{
-    frame::{FrameStyle, PanelFrame},
-    layout::{GridLayout, Track},
-    paint,
-    primitives::{Button, ButtonSize, ButtonVariant, Tile, TileTrend},
-    tokens::{palette, spacing, Elevation, TextRole},
+use crate::{
+    i18n::{current_language, tr, Language},
+    v9::{
+        frame::{FrameStyle, PanelFrame},
+        layout::{GridLayout, Track},
+        paint,
+        primitives::{Button, ButtonSize, ButtonVariant, Tile, TileTrend},
+        tokens::{palette, spacing, Elevation, TextRole},
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -131,9 +134,18 @@ impl<'a> PanelShell<'a> {
                     footer: GridLayout::cell(&cells, 4, 0),
                 };
 
-                close = self.draw_header(ui, layout.header);
-                self.draw_footer(ui, layout.footer);
-                output = Some(add_contents(ui, layout));
+                let mut content_ui = ui.new_child(
+                    egui::UiBuilder::new()
+                        .id_salt(self.id.with("content"))
+                        .max_rect(inner)
+                        .layout(egui::Layout::top_down(egui::Align::Min))
+                        .sense(Sense::hover()),
+                );
+                content_ui.set_clip_rect(inner);
+
+                close = self.draw_header(&mut content_ui, layout.header);
+                self.draw_footer(&mut content_ui, layout.footer);
+                output = Some(add_contents(&mut content_ui, layout));
             });
 
         (close, output)
@@ -153,7 +165,16 @@ impl<'a> PanelShell<'a> {
             rect.bottom() - 1.0,
             Stroke::new(1.0, self.accent),
         );
-        ui.painter().text(
+        let close_rect = Rect::from_min_size(
+            Pos2::new(rect.right() - 32.0, rect.top() + 8.0),
+            Vec2::new(24.0, 24.0),
+        );
+        let text_clip = Rect::from_min_max(
+            rect.left_top(),
+            Pos2::new(close_rect.left() - spacing::S3, rect.bottom()),
+        );
+        let text_painter = ui.painter().with_clip_rect(text_clip);
+        text_painter.text(
             Pos2::new(rect.left() + spacing::S5, rect.center().y - 2.0),
             Align2::LEFT_CENTER,
             self.title,
@@ -161,7 +182,7 @@ impl<'a> PanelShell<'a> {
             palette::GOLD_HOT,
         );
         if let Some(subtitle) = self.subtitle {
-            ui.painter().text(
+            text_painter.text(
                 Pos2::new(rect.left() + spacing::S5, rect.bottom() - spacing::S2),
                 Align2::LEFT_BOTTOM,
                 subtitle,
@@ -169,14 +190,11 @@ impl<'a> PanelShell<'a> {
                 palette::PARCHMENT_DIM,
             );
         }
-        let close_rect = Rect::from_min_size(
-            Pos2::new(rect.right() - 32.0, rect.top() + 8.0),
-            Vec2::new(24.0, 24.0),
-        );
-        Button::new("X")
+        Button::new("×")
             .size(ButtonSize::Sm)
             .variant(ButtonVariant::Ghost)
             .show_at(ui, close_rect)
+            .on_hover_text(tr("panel_close_hint"))
             .clicked()
     }
 
@@ -186,8 +204,9 @@ impl<'a> PanelShell<'a> {
             rect.top(),
             Stroke::new(1.0, Color32::from_black_alpha(220)),
         );
-        let footer = self.footer.unwrap_or("Q Close  |  Tab Switch");
-        ui.painter().text(
+        let footer = localized_footer(self.footer);
+        let text_painter = ui.painter().with_clip_rect(rect);
+        text_painter.text(
             Pos2::new(rect.left() + spacing::S3, rect.center().y),
             Align2::LEFT_CENTER,
             footer,
@@ -195,6 +214,16 @@ impl<'a> PanelShell<'a> {
             palette::MUTED,
         );
     }
+}
+
+fn localized_footer(custom: Option<&str>) -> &str {
+    if current_language() == Language::Chinese {
+        return match custom {
+            Some("Q Close  |  Apply writes settings.toml") => tr("panel_footer_settings"),
+            _ => tr("panel_footer_default"),
+        };
+    }
+    custom.unwrap_or_else(|| tr("panel_footer_default"))
 }
 
 pub fn draw_summary_tiles(ui: &mut egui::Ui, rect: Rect, items: &[(&str, String, Color32)]) {
@@ -222,7 +251,8 @@ pub fn draw_tab_strip(ui: &mut egui::Ui, rect: Rect, label: &str, accent: Color3
         palette::EDGE_DARK,
         1.0,
     );
-    ui.painter().text(
+    let text_painter = ui.painter().with_clip_rect(rect);
+    text_painter.text(
         Pos2::new(rect.left() + spacing::S5, rect.center().y),
         Align2::LEFT_CENTER,
         label,
@@ -233,14 +263,15 @@ pub fn draw_tab_strip(ui: &mut egui::Ui, rect: Rect, label: &str, accent: Color3
 
 pub fn draw_empty_state(ui: &mut egui::Ui, rect: Rect, title: &str, body: &str) {
     paint::paint_recessed_panel(ui.painter(), rect, 1.0);
-    ui.painter().text(
+    let text_painter = ui.painter().with_clip_rect(rect);
+    text_painter.text(
         Pos2::new(rect.center().x, rect.center().y - spacing::S4),
         Align2::CENTER_CENTER,
         title,
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
-    ui.painter().text(
+    text_painter.text(
         Pos2::new(rect.center().x, rect.center().y + spacing::S5),
         Align2::CENTER_CENTER,
         body,

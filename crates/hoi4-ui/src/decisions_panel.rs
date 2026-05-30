@@ -92,7 +92,7 @@ fn v9_show_decisions(ctx: &egui::Context, data: &DecisionsData) -> (bool, Vec<De
         .count();
     let (close, output) = PanelShell::new("decisions_panel_v9", tr("decisions"))
         .subtitle(if data.country_tag.is_empty() {
-            "Country"
+            "国家"
         } else {
             &data.country_tag
         })
@@ -104,15 +104,15 @@ fn v9_show_decisions(ctx: &egui::Context, data: &DecisionsData) -> (bool, Vec<De
                 ui,
                 layout.summary,
                 &[
-                    ("Country", data.country_tag.clone(), palette::BRASS_BRIGHT),
+                    ("国家", data.country_tag.clone(), palette::BRASS_BRIGHT),
                     (
                         tr("political_power"),
                         format!("{:.0}", data.political_power),
                         palette::GOLD,
                     ),
-                    ("Visible", visible.to_string(), palette::PARCHMENT),
+                    ("可见", visible.to_string(), palette::PARCHMENT),
                     (
-                        "Ready",
+                        tr("available"),
                         available.to_string(),
                         if available > 0 {
                             palette::GOOD
@@ -125,7 +125,7 @@ fn v9_show_decisions(ctx: &egui::Context, data: &DecisionsData) -> (bool, Vec<De
             draw_tab_strip(
                 ui,
                 layout.tabs,
-                "Card grid / Impact preview / Mechanics",
+                "决议卡片 / 影响预览 / 机制",
                 palette::BRASS_BRIGHT,
             );
             let mut cmds = Vec::new();
@@ -169,8 +169,8 @@ fn v9_decision_grid(
                     v9_draw_empty(
                         ui,
                         ui.available_rect_before_wrap(),
-                        "No decisions",
-                        "No visible decisions for this country.",
+                        "暂无决议",
+                        "该国家当前没有可见决议。",
                     );
                     return;
                 }
@@ -254,7 +254,7 @@ fn v9_decision_card(
         Pos2::new(inner.right() - 82.0, inner.bottom() - 34.0),
         Vec2::new(78.0, 26.0),
     );
-    if Button::new("Run")
+    if Button::new(tr("execute"))
         .size(ButtonSize::Sm)
         .variant(ButtonVariant::Secondary)
         .enabled(entry.clickable)
@@ -289,7 +289,7 @@ fn v9_impact_sidebar(ui: &mut egui::Ui, rect: Rect, data: &DecisionsData) {
     ui.painter().text(
         Pos2::new(inner.left(), inner.top()),
         egui::Align2::LEFT_TOP,
-        "Impact preview",
+        "影响预览",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -304,7 +304,7 @@ fn v9_impact_sidebar(ui: &mut egui::Ui, rect: Rect, data: &DecisionsData) {
         );
         y += 24.0;
         let effect = if entry.effect_preview.is_empty() {
-            "No immediate effect preview."
+            "暂无即时效果预览。"
         } else {
             &entry.effect_preview
         };
@@ -321,7 +321,7 @@ fn v9_impact_sidebar(ui: &mut egui::Ui, rect: Rect, data: &DecisionsData) {
         v9_sidebar_row(
             ui,
             Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 24.0)),
-            "State",
+            "状态",
             state,
             color,
         );
@@ -329,7 +329,7 @@ fn v9_impact_sidebar(ui: &mut egui::Ui, rect: Rect, data: &DecisionsData) {
         v9_sidebar_row(
             ui,
             Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 24.0)),
-            "Cost",
+            "消耗",
             &format!("PP {:.0}", entry.cost_political_power),
             palette::BRASS_BRIGHT,
         );
@@ -338,8 +338,8 @@ fn v9_impact_sidebar(ui: &mut egui::Ui, rect: Rect, data: &DecisionsData) {
         v9_draw_empty(
             ui,
             Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 92.0)),
-            "No decisions",
-            "Nothing is visible right now.",
+            "暂无决议",
+            "当前没有可见决议。",
         );
         y += 104.0;
     }
@@ -348,7 +348,7 @@ fn v9_impact_sidebar(ui: &mut egui::Ui, rect: Rect, data: &DecisionsData) {
         ui.painter().text(
             Pos2::new(inner.left(), y),
             egui::Align2::LEFT_TOP,
-            "Mechanics",
+            "机制",
             TextRole::Heading.font_id(),
             palette::BRASS_BRIGHT,
         );
@@ -410,15 +410,15 @@ fn v9_draw_empty(ui: &mut egui::Ui, rect: Rect, title: &str, body: &str) {
 
 fn v9_decision_state(entry: &DecisionEntry) -> (&'static str, Color32) {
     if entry.mission_remaining.is_some() {
-        ("Running", crate::v9::palette::WARN)
+        (tr("active"), crate::v9::palette::WARN)
     } else if entry.cooldown_remaining.is_some() {
-        ("Cooldown", crate::v9::palette::MUTED)
+        (tr("cooldown"), crate::v9::palette::MUTED)
     } else if entry.already_fired {
-        ("Used", crate::v9::palette::GOOD)
+        (tr("done"), crate::v9::palette::GOOD)
     } else if entry.clickable {
-        ("Ready", crate::v9::palette::GOOD)
+        (tr("available"), crate::v9::palette::GOOD)
     } else {
-        ("Locked", crate::v9::palette::MUTED)
+        (tr("locked"), crate::v9::palette::MUTED)
     }
 }
 

@@ -12,7 +12,7 @@ pub enum Language {
 
 impl Language {
     pub fn all() -> &'static [Self] {
-        &[Self::English, Self::Chinese]
+        &[Self::Chinese, Self::English]
     }
 
     pub fn display_name(self) -> &'static str {
@@ -39,12 +39,12 @@ impl Language {
 
 impl Default for Language {
     fn default() -> Self {
-        Self::English
+        Self::Chinese
     }
 }
 
 /// 全局当前语言（简单 static；单线程游戏无竞争）。
-static mut CURRENT_LANG: Language = Language::English;
+static mut CURRENT_LANG: Language = Language::Chinese;
 
 /// 设置当前语言。
 pub fn set_language(lang: Language) {
@@ -103,6 +103,19 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     ("apply_save", ["Apply & Save", "应用并保存"]),
     ("revert", ["Revert", "撤销"]),
     ("close", ["Close", "关闭"]),
+    ("current", ["Current", "当前"]),
+    ("on", ["On", "开启"]),
+    ("off", ["Off", "关闭"]),
+    ("legacy", ["Legacy", "旧版"]),
+    ("color_mode", ["Color mode", "色觉模式"]),
+    ("font_scale", ["Font scale", "字体缩放"]),
+    ("font", ["Font", "字体"]),
+    ("terrain", ["Terrain", "地形"]),
+    ("settings_subtitle", ["Display / Audio / Gameplay", "显示 / 音频 / 游戏"]),
+    ("settings_tabs", ["Settings / Debug / Auto-pause", "设置 / 调试 / 自动暂停"]),
+    ("panel_footer_default", ["Q Close  |  Tab Switch", "Q 关闭  |  Tab 切换"]),
+    ("panel_footer_settings", ["Q Close  |  Apply writes settings.toml", "Q 关闭  |  应用会保存设置"]),
+    ("panel_close_hint", ["Close panel", "关闭面板"]),
     // ─── Main menu ────────────────────────────────────────────
     ("new_game", ["NEW GAME", "新游戏"]),
     ("continue_game", ["CONTINUE", "继续"]),
@@ -134,7 +147,12 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     // J.1.6: leader header fallback
     ("leader_unknown", ["Unknown leader", "未知元首"]),
     ("activate", ["Activate", "激活"]),
+    ("execute", ["Run", "执行"]),
+    ("intervene", ["Act", "介入"]),
+    ("interventions", ["Interventions", "介入"]),
+    ("intervention_log", ["Intervention log", "介入记录"]),
     ("active", ["Active", "进行中"]),
+    ("ended", ["Ended", "已结束"]),
     ("done", ["Done", "已完成"]),
     ("cooldown", ["Cooldown", "冷却中"]),
     ("available", ["Available", "可用"]),
@@ -185,6 +203,13 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     ("gdp", ["GDP", "GDP"]),
     ("gdp_growth", ["GDP Growth", "GDP 增速"]),
     ("construction_points", ["Construction", "建造力"]),
+    ("tooltip_political_power", ["Political power: advisors, focuses, and events feed this pool.", "政治力量：顾问、国策和事件都会影响这一资源。"]),
+    ("tooltip_stability", ["Stability affects output, surrender pressure, and internal risk.", "稳定度影响产出、投降压力和内部风险。"]),
+    ("tooltip_war_support", ["War support affects mobilization, laws, and wartime resilience.", "战争支持影响动员、法案和战时韧性。"]),
+    ("tooltip_manpower", ["Recruitable manpower available for divisions and reserves.", "可用于师团和预备队的可征召人力。"]),
+    ("tooltip_gdp", ["Total national economic output in GBP terms.", "以英镑计价的全国经济总量。"]),
+    ("tooltip_gdp_growth", ["Year-over-year national economic growth.", "全国经济同比增幅。"]),
+    ("tooltip_construction_points", ["Available national construction power.", "当前可用的国家建造力。"]),
     ("consumer_goods", ["Consumer Goods", "消费品"]),
     ("efficiency", ["Efficiency", "效率"]),
     ("produced", ["Produced", "已生产"]),

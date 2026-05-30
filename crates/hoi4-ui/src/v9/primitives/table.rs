@@ -196,11 +196,13 @@ impl<'a> DataTable<'a> {
                 Pos2::new(col_rects[idx].right(), header.bottom()),
             )
             .shrink2(Vec2::new(2.0, 0.0));
-            ui.painter().text(
+            let font = fit_font(column.label, TextRole::Subheading.font_id(), cell.width());
+            let painter = ui.painter().with_clip_rect(cell);
+            painter.text(
                 Pos2::new(column.align.x(cell), cell.center().y),
                 column.align.anchor(),
                 column.label,
-                TextRole::Subheading.font_id(),
+                font,
                 palette::GOLD,
             );
         }
@@ -244,18 +246,30 @@ impl<'a> DataTable<'a> {
                     Pos2::new(col_rects[idx].right(), row_rect.bottom()),
                 )
                 .shrink2(Vec2::new(2.0, 0.0));
-                ui.painter().text(
+                let font = if matches!(align, TableAlign::Right) {
+                    TextRole::Numeric.font_id()
+                } else {
+                    TextRole::Body.font_id()
+                };
+                let font = fit_font(&cell_data.text, font, cell.width());
+                let painter = ui.painter().with_clip_rect(cell);
+                painter.text(
                     Pos2::new(align.x(cell), cell.center().y),
                     align.anchor(),
                     &cell_data.text,
-                    if matches!(align, TableAlign::Right) {
-                        TextRole::Numeric.font_id()
-                    } else {
-                        TextRole::Body.font_id()
-                    },
+                    font,
                     cell_data.color,
                 );
             }
         }
     }
+}
+
+fn fit_font(text: &str, mut font: egui::FontId, available_w: f32) -> egui::FontId {
+    let available_w = available_w.max(8.0);
+    let approx_w = text.chars().count() as f32 * font.size * 0.58;
+    if approx_w > available_w {
+        font.size *= (available_w / approx_w).clamp(0.72, 1.0);
+    }
+    font
 }

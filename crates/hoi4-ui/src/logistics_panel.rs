@@ -99,7 +99,7 @@ fn v9_show_logistics(ctx: &egui::Context, data: &LogisticsData) -> bool {
         palette::GOOD
     };
     let (close, _) = PanelShell::new("logistics_panel_v9", tr("logistics"))
-        .subtitle("Equipment stockpile / deficit pressure")
+        .subtitle("装备库存 / 缺口压力")
         .class(PanelClass::Economy)
         .accent(accent)
         .footer("Q Close  |  Equipment table / Deficit bars")
@@ -108,9 +108,9 @@ fn v9_show_logistics(ctx: &egui::Context, data: &LogisticsData) -> bool {
                 ui,
                 layout.summary,
                 &[
-                    ("Types", data.total_types.to_string(), palette::GOLD),
+                    ("类型", data.total_types.to_string(), palette::GOLD),
                     (
-                        "Deficits",
+                        "缺口",
                         data.deficit_types.to_string(),
                         if data.deficit_types > 0 {
                             palette::BAD
@@ -119,33 +119,28 @@ fn v9_show_logistics(ctx: &egui::Context, data: &LogisticsData) -> bool {
                         },
                     ),
                     (
-                        "Production",
+                        "生产",
                         signed_one_decimal(data.total_daily_production),
                         palette::GOOD,
                     ),
                     (
-                        "Need",
+                        "需求",
                         format!("-{:.1}/d", data.total_daily_need),
                         palette::WARN,
                     ),
                     (
-                        "Net",
+                        "净值",
                         signed_one_decimal(net),
                         v9_logistics_signed_color(net),
                     ),
                     (
-                        "Procurement",
+                        "军购",
                         format_rm(data.military_procurement_rm),
                         palette::GOLD,
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "Equipment DataTable / Deficit ProgressBar",
-                accent,
-            );
+            draw_tab_strip(ui, layout.tabs, "装备表 / 缺口进度", accent);
             v9_logistics_body(ui, layout.body, data);
         });
     close
@@ -173,7 +168,7 @@ fn v9_logistics_equipment_table(ui: &mut egui::Ui, rect: egui::Rect, data: &Logi
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Equipment stockpile",
+        "装备库存",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -235,13 +230,13 @@ fn v9_logistics_equipment_table(ui: &mut egui::Ui, rect: egui::Rect, data: &Logi
 
     DataTable::new(
         vec![
-            TableColumn::new("Equipment", 1.25),
-            TableColumn::new("Stock", 0.65).right(),
-            TableColumn::new("Prod", 0.65).right(),
-            TableColumn::new("Need", 0.65).right(),
-            TableColumn::new("Net", 0.65).right(),
-            TableColumn::new("Gap", 0.65).right(),
-            TableColumn::new("Empty", 0.65).right(),
+            TableColumn::new("装备", 1.25),
+            TableColumn::new("库存", 0.65).right(),
+            TableColumn::new("生产", 0.65).right(),
+            TableColumn::new("需求", 0.65).right(),
+            TableColumn::new("净值", 0.65).right(),
+            TableColumn::new("缺口", 0.65).right(),
+            TableColumn::new("耗尽", 0.65).right(),
         ],
         rows,
     )
@@ -266,7 +261,7 @@ fn v9_logistics_side(ui: &mut egui::Ui, rect: egui::Rect, data: &LogisticsData) 
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Deficit pressure",
+        "缺口压力",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -293,8 +288,8 @@ fn v9_logistics_side(ui: &mut egui::Ui, rect: egui::Rect, data: &LogisticsData) 
         crate::v9::composites::panel_shell::draw_empty_state(
             ui,
             Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 112.0)),
-            "Stockpile stable",
-            "No equipment deficit is currently active.",
+            "库存稳定",
+            "当前没有装备缺口。",
         );
         y += 124.0;
     } else {
@@ -342,15 +337,15 @@ fn v9_logistics_side(ui: &mut egui::Ui, rect: egui::Rect, data: &LogisticsData) 
     ui.painter().text(
         Pos2::new(inner.left(), y + spacing::S4),
         Align2::LEFT_TOP,
-        "Strategic resources",
+        "战略资源",
         TextRole::Subheading.font_id(),
         palette::BRASS_BRIGHT,
     );
     DataTable::new(
         vec![
-            TableColumn::new("Resource", 1.1),
-            TableColumn::new("Stored", 0.7).right(),
-            TableColumn::new("Net", 0.7).right(),
+            TableColumn::new("资源", 1.1),
+            TableColumn::new("库存", 0.7).right(),
+            TableColumn::new("净值", 0.7).right(),
         ],
         rows,
     )

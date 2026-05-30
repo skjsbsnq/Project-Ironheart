@@ -2,7 +2,10 @@
 
 use egui::{Color32, Context, FontFamily, FontId, Id, Stroke, TextStyle};
 
-use crate::v9::tokens::{self, palette, TextRole};
+use crate::{
+    i18n::{current_language, Language},
+    v9::tokens::{self, palette, TextRole},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorBlindMode {
@@ -68,11 +71,15 @@ impl ColorBlindMode {
     }
 
     pub fn label(self) -> &'static str {
-        match self {
-            Self::Off => "Off",
-            Self::Deuteranopia => "Deuteranopia",
-            Self::Protanopia => "Protanopia",
-            Self::Tritanopia => "Tritanopia",
+        match (current_language(), self) {
+            (Language::Chinese, Self::Off) => "关闭",
+            (Language::Chinese, Self::Deuteranopia) => "绿色弱辅助",
+            (Language::Chinese, Self::Protanopia) => "红色弱辅助",
+            (Language::Chinese, Self::Tritanopia) => "蓝黄色弱辅助",
+            (_, Self::Off) => "Off",
+            (_, Self::Deuteranopia) => "Deuteranopia",
+            (_, Self::Protanopia) => "Protanopia",
+            (_, Self::Tritanopia) => "Tritanopia",
         }
     }
 

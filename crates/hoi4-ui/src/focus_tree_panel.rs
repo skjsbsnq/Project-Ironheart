@@ -253,22 +253,17 @@ fn v9_show_focus_tree(
                 ui,
                 layout.summary,
                 &[
-                    ("Total", tree.focuses.len().to_string(), palette::PARCHMENT),
-                    ("Completed", completed.len().to_string(), palette::GOOD),
-                    ("Available", available_count.to_string(), palette::GOLD),
+                    ("总数", tree.focuses.len().to_string(), palette::PARCHMENT),
+                    (tr("completed"), completed.len().to_string(), palette::GOOD),
+                    (tr("available"), available_count.to_string(), palette::GOLD),
                     (
-                        "Zoom",
+                        "缩放",
                         format!("{:.0}%", panel.zoom * 100.0),
                         palette::BRASS_BRIGHT,
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "TreeLayout / 32x32 nodes / Status outline",
-                palette::GOLD,
-            );
+            draw_tab_strip(ui, layout.tabs, "国策树 / 节点状态", palette::GOLD);
             v9_focus_tree_body(
                 ui,
                 layout.body,

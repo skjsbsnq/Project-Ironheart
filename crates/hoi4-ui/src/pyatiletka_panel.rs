@@ -150,11 +150,11 @@ fn v9_show_pyatiletka(ctx: &egui::Context, data: &PyatiletkaPanelData) -> bool {
                 ui,
                 layout.summary,
                 &[
-                    ("Period", data.plan_period.clone(), palette::GOLD),
-                    ("Targets", data.targets.len().to_string(), palette::INFO),
-                    ("Progress", v9_plan_percent(average_progress), accent),
+                    ("周期", data.plan_period.clone(), palette::GOLD),
+                    ("目标", data.targets.len().to_string(), palette::INFO),
+                    (tr("progress"), v9_plan_percent(average_progress), accent),
                     (
-                        "Shortages",
+                        tr("v6_shortage"),
                         shortage_count.to_string(),
                         if shortage_count > 0 {
                             palette::WARN
@@ -163,23 +163,18 @@ fn v9_show_pyatiletka(ctx: &egui::Context, data: &PyatiletkaPanelData) -> bool {
                         },
                     ),
                     (
-                        "Focus bonus",
+                        "国策加成",
                         v9_plan_signed_percent(data.focus_bonus),
                         palette::GOOD,
                     ),
                     (
-                        "Off focus",
+                        "偏离惩罚",
                         v9_plan_signed_percent(data.off_focus_penalty),
                         palette::BAD,
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "Target DataTable / Focus ImpactPreview",
-                accent,
-            );
+            draw_tab_strip(ui, layout.tabs, "目标表 / 国策影响", accent);
             v9_pyatiletka_body(ui, layout.body, data);
         });
 
@@ -208,7 +203,7 @@ fn v9_plan_target_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PyatiletkaPa
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Production targets",
+        "生产目标",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -220,8 +215,8 @@ fn v9_plan_target_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PyatiletkaPa
                 Pos2::new(inner.left(), inner.top() + 34.0),
                 inner.right_bottom(),
             ),
-            "No plan targets",
-            "The planned economy has no active target goods.",
+            "暂无计划目标",
+            "计划经济当前没有启用目标商品。",
         );
         return;
     }
@@ -250,11 +245,11 @@ fn v9_plan_target_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PyatiletkaPa
 
     DataTable::new(
         vec![
-            TableColumn::new("Good", 1.35),
-            TableColumn::new("Actual", 0.72).right(),
-            TableColumn::new("Target", 0.72).right(),
-            TableColumn::new("Done", 0.58).right(),
-            TableColumn::new("Ration", 0.62).right(),
+            TableColumn::new("商品", 1.35),
+            TableColumn::new("实际", 0.72).right(),
+            TableColumn::new("目标", 0.72).right(),
+            TableColumn::new("完成", 0.58).right(),
+            TableColumn::new("配给", 0.62).right(),
         ],
         rows,
     )
@@ -279,7 +274,7 @@ fn v9_plan_focus_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &PyatiletkaPan
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Focus preview",
+        "国策预览",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -290,8 +285,8 @@ fn v9_plan_focus_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &PyatiletkaPan
         crate::v9::composites::panel_shell::draw_empty_state(
             ui,
             Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 110.0)),
-            "No targets",
-            "Target progress bars will appear here.",
+            "暂无目标",
+            "目标进度条会显示在这里。",
         );
         y += 122.0;
     } else {
@@ -327,12 +322,12 @@ fn v9_plan_focus_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &PyatiletkaPan
 
     let impact_rows = vec![
         TableRow::new(vec![
-            TableCell::strong(tr("v6_pyatiletka_focus_bonus")),
+            TableCell::strong("国策加成"),
             TableCell::colored(v9_plan_signed_percent(data.focus_bonus), palette::GOOD).right(),
         ])
         .accent(palette::GOOD),
         TableRow::new(vec![
-            TableCell::strong(tr("v6_pyatiletka_off_penalty")),
+            TableCell::strong("偏离惩罚"),
             TableCell::colored(v9_plan_signed_percent(data.off_focus_penalty), palette::BAD)
                 .right(),
         ])
@@ -340,8 +335,8 @@ fn v9_plan_focus_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &PyatiletkaPan
     ];
     DataTable::new(
         vec![
-            TableColumn::new("Modifier", 1.2),
-            TableColumn::new("Value", 0.7).right(),
+            TableColumn::new("修正", 1.2),
+            TableColumn::new("数值", 0.7).right(),
         ],
         impact_rows,
     )
@@ -367,7 +362,7 @@ fn v9_plan_focus_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &PyatiletkaPan
         ui.painter().text(
             Pos2::new(inner.left(), y),
             Align2::LEFT_TOP,
-            "No research focus directions selected.",
+            "尚未选择科研侧重方向。",
             TextRole::Caption.font_id(),
             palette::PARCHMENT_DIM,
         );

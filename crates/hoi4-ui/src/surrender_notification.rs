@@ -255,12 +255,12 @@ fn surrender_title(
 
 fn surrender_result_label(kind: SurrenderResultKind) -> &'static str {
     match kind {
-        SurrenderResultKind::Annexed => "Annexed",
-        SurrenderResultKind::Puppeted => "Puppeted",
-        SurrenderResultKind::StateTransferred => "State",
-        SurrenderResultKind::GovernmentToppled => "Government",
-        SurrenderResultKind::WhitePeace => "White peace",
-        SurrenderResultKind::WarRemoved => "War removed",
+        SurrenderResultKind::Annexed => "吞并",
+        SurrenderResultKind::Puppeted => "傀儡",
+        SurrenderResultKind::StateTransferred => "割让州",
+        SurrenderResultKind::GovernmentToppled => "推翻政府",
+        SurrenderResultKind::WhitePeace => "无条件停战",
+        SurrenderResultKind::WarRemoved => "战争移除",
     }
 }
 

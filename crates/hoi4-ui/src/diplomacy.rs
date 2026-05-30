@@ -228,7 +228,7 @@ fn v9_show_diplomacy(
         .player_faction
         .as_ref()
         .map(|f| f.name.clone())
-        .unwrap_or_else(|| "None".to_owned());
+        .unwrap_or_else(|| tr("none").to_owned());
     let (close, output) = PanelShell::new("diplomacy_panel_v9", tr("diplomacy"))
         .subtitle(&data.player_tag)
         .class(PanelClass::MilitaryDiplomacy)
@@ -245,7 +245,7 @@ fn v9_show_diplomacy(
                         palette::WARN,
                     ),
                     (
-                        "Wars",
+                        "战争",
                         data.active_wars.len().to_string(),
                         if data.active_wars.is_empty() {
                             palette::GOOD
@@ -255,18 +255,13 @@ fn v9_show_diplomacy(
                     ),
                     (tr("faction"), faction, palette::BRASS_BRIGHT),
                     (
-                        "Countries",
+                        tr("countries"),
                         data.countries.len().to_string(),
                         palette::PARCHMENT,
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "Country detail / Flag frame / Faction badge",
-                palette::INFO,
-            );
+            draw_tab_strip(ui, layout.tabs, "国家详情 / 国旗 / 阵营标识", palette::INFO);
             let mut cmds = Vec::new();
             v9_diplomacy_body(
                 ui,
@@ -332,7 +327,7 @@ fn v9_diplomacy_country_list(
     ui.painter().text(
         Pos2::new(inner.left(), inner.top()),
         egui::Align2::LEFT_TOP,
-        "Countries",
+        "国家",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -340,7 +335,7 @@ fn v9_diplomacy_country_list(
         Pos2::new(inner.right() - 168.0, inner.top()),
         Vec2::new(76.0, 24.0),
     );
-    if Button::new("A-Z")
+    if Button::new("名称")
         .size(ButtonSize::Sm)
         .variant(if *sort_by_opinion {
             ButtonVariant::Ghost
@@ -356,7 +351,7 @@ fn v9_diplomacy_country_list(
         Pos2::new(inner.right() - 84.0, inner.top()),
         Vec2::new(80.0, 24.0),
     );
-    if Button::new("Opinion")
+    if Button::new("关系")
         .size(ButtonSize::Sm)
         .variant(if *sort_by_opinion {
             ButtonVariant::Secondary
@@ -487,8 +482,8 @@ fn v9_diplomacy_detail(
         crate::v9::composites::panel_shell::draw_empty_state(
             ui,
             inner,
-            "No country",
-            "Select a country from the list.",
+            "未选择国家",
+            "请从列表中选择一个国家。",
         );
         return;
     };
@@ -497,7 +492,7 @@ fn v9_diplomacy_detail(
             ui,
             inner,
             &country.tag,
-            "No diplomacy detail is available.",
+            "暂无外交详情。",
         );
         return;
     };
@@ -520,14 +515,14 @@ fn v9_diplomacy_detail(
             Pos2::new(flag_rect.right() + spacing::S5, inner.top() + 34.0),
             Vec2::new(140.0, 24.0),
         ),
-        if detail.at_war { "At war" } else { "Peace" },
+        if detail.at_war { "交战" } else { "和平" },
         if detail.at_war {
             palette::BAD
         } else {
             palette::GOOD
         },
     );
-    let faction_label = detail.faction_name.as_deref().unwrap_or("No faction");
+    let faction_label = detail.faction_name.as_deref().unwrap_or("无阵营");
     v9_diplomacy_badge(
         ui,
         Rect::from_min_size(
@@ -556,7 +551,7 @@ fn v9_diplomacy_detail(
             Pos2::new(inner.left() + 140.0, metric_y),
             Vec2::new(150.0, 48.0),
         ),
-        "Domestic",
+        "本土人口",
         &format_population(detail.domestic_population),
         palette::GOOD,
     );
@@ -566,14 +561,14 @@ fn v9_diplomacy_detail(
             Pos2::new(inner.left() + 300.0, metric_y),
             Vec2::new(150.0, 48.0),
         ),
-        "Governed",
+        "统治人口",
         &format_population(detail.governed_population),
         palette::GOLD,
     );
 
     let mut y = metric_y + 64.0;
     if let Some(overlord) = &detail.overlord_name {
-        v9_text_line(ui, inner.left(), y, "Overlord", overlord, palette::WARN);
+        v9_text_line(ui, inner.left(), y, "宗主国", overlord, palette::WARN);
         y += 22.0;
     }
     if !detail.subject_names.is_empty() {
@@ -581,7 +576,7 @@ fn v9_diplomacy_detail(
             ui,
             inner.left(),
             y,
-            "Subjects",
+            "附属国",
             &detail.subject_names.join(", "),
             palette::INFO,
         );
@@ -606,7 +601,7 @@ fn v9_diplomacy_detail(
             ui,
             inner.left(),
             y,
-            "Wargoal",
+            "战争目标",
             tr("wargoal_ready"),
             palette::GOOD,
         );
@@ -616,7 +611,7 @@ fn v9_diplomacy_detail(
         ui.painter().text(
             Pos2::new(inner.left(), y),
             egui::Align2::LEFT_TOP,
-            "Wargoals",
+            "战争目标",
             TextRole::Heading.font_id(),
             palette::BRASS_BRIGHT,
         );
@@ -624,7 +619,7 @@ fn v9_diplomacy_detail(
         for goal in detail.wargoals.iter().take(4) {
             let state = goal
                 .target_state
-                .map(|s| format!(" state {}", s))
+                .map(|s| format!(" 州 {}", s))
                 .unwrap_or_default();
             v9_text_line(
                 ui,
@@ -645,7 +640,7 @@ fn v9_diplomacy_detail(
         ui.painter().text(
             Pos2::new(inner.left(), y + 4.0),
             egui::Align2::LEFT_TOP,
-            "Relation factors",
+            "关系因素",
             TextRole::Heading.font_id(),
             palette::BRASS_BRIGHT,
         );

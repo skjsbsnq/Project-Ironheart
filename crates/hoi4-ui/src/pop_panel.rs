@@ -509,7 +509,7 @@ fn v9_show_pop(ctx: &egui::Context, data: &PopPanelData) -> (bool, Vec<()>) {
     };
 
     let (close, _) = PanelShell::new("pop_panel_v9", tr("pops"))
-        .subtitle("Population structure / states / political pressure")
+        .subtitle("人口结构 / 州 / 政治压力")
         .class(PanelClass::Economy)
         .accent(accent)
         .footer("Q Close  |  Select integration filter")
@@ -518,25 +518,25 @@ fn v9_show_pop(ctx: &egui::Context, data: &PopPanelData) -> (bool, Vec<()>) {
                 ui,
                 layout.summary,
                 &[
-                    ("Population", v9_count(data.total_population), palette::GOLD),
-                    ("Workforce", v9_count(data.workforce), palette::INFO),
+                    ("人口", v9_count(data.total_population), palette::GOLD),
+                    ("劳动力", v9_count(data.workforce), palette::INFO),
                     (
-                        "Unemployed",
+                        "失业",
                         v9_count(data.unemployed),
                         v9_bad_percent_color(data.unemployment_rate),
                     ),
                     (
-                        "Satisfaction",
+                        "满意度",
                         v9_percent(data.average_satisfaction),
                         v9_good_percent_color(data.average_satisfaction),
                     ),
                     (
-                        "Literacy",
+                        "识字率",
                         v9_percent(data.literacy),
                         v9_good_percent_color(data.literacy),
                     ),
                     (
-                        "Alerts",
+                        "警报",
                         data.alerts.len().to_string(),
                         if data.alerts.is_empty() {
                             palette::GOOD
@@ -546,12 +546,7 @@ fn v9_show_pop(ctx: &egui::Context, data: &PopPanelData) -> (bool, Vec<()>) {
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "Class DataTable / State DataTable / Needs Progress",
-                accent,
-            );
+            draw_tab_strip(ui, layout.tabs, "阶层表 / 州表 / 需求进度", accent);
             v9_pop_body(ui, layout.body, data, &mut filter);
         });
 
@@ -598,7 +593,7 @@ fn v9_pop_class_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PopPanelData) 
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Class structure",
+        "阶层结构",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -610,8 +605,8 @@ fn v9_pop_class_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PopPanelData) 
                 Pos2::new(inner.left(), inner.top() + 34.0),
                 inner.right_bottom(),
             ),
-            "No POP data",
-            "Population classes have not been generated yet.",
+            "暂无人口数据",
+            "人口阶层尚未生成。",
         );
         return;
     }
@@ -656,14 +651,14 @@ fn v9_pop_class_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PopPanelData) 
 
     DataTable::new(
         vec![
-            TableColumn::new("Class", 1.05),
-            TableColumn::new("Pop", 0.72).right(),
-            TableColumn::new("Unemp", 0.72).right(),
-            TableColumn::new("Wage", 0.58).right(),
-            TableColumn::new("Income", 0.66).right(),
-            TableColumn::new("Sat", 0.52).right(),
-            TableColumn::new("Needs", 0.58).right(),
-            TableColumn::new("Rad", 0.52).right(),
+            TableColumn::new("阶层", 1.05),
+            TableColumn::new("人口", 0.72).right(),
+            TableColumn::new("失业", 0.72).right(),
+            TableColumn::new("工资", 0.58).right(),
+            TableColumn::new("收入", 0.66).right(),
+            TableColumn::new("满意", 0.52).right(),
+            TableColumn::new("需求", 0.58).right(),
+            TableColumn::new("激进", 0.52).right(),
         ],
         rows,
     )
@@ -686,7 +681,7 @@ fn v9_pop_pressure_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PopPanelDat
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Political pressure",
+        "政治压力",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -698,8 +693,8 @@ fn v9_pop_pressure_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PopPanelDat
                 Pos2::new(inner.left(), inner.top() + 34.0),
                 inner.right_bottom(),
             ),
-            "No pressure",
-            "POP radicalization is currently controlled.",
+            "暂无压力",
+            "当前人口激进化处于可控状态。",
         );
         return;
     }
@@ -721,9 +716,9 @@ fn v9_pop_pressure_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PopPanelDat
 
     DataTable::new(
         vec![
-            TableColumn::new("Source", 0.9),
-            TableColumn::new("Pressure", 0.55).right(),
-            TableColumn::new("Detail", 1.55),
+            TableColumn::new("来源", 0.9),
+            TableColumn::new("压力", 0.55).right(),
+            TableColumn::new("详情", 1.55),
         ],
         rows,
     )
@@ -753,15 +748,15 @@ fn v9_pop_state_table(
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "State distribution",
+        "州分布",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
 
     for (idx, (next, label)) in [
-        (PopIntegrationFilter::All, "All"),
-        (PopIntegrationFilter::Domestic, "Core"),
-        (PopIntegrationFilter::Colonial, "Colonial"),
+        (PopIntegrationFilter::All, "全部"),
+        (PopIntegrationFilter::Domestic, "核心"),
+        (PopIntegrationFilter::Colonial, "殖民地"),
     ]
     .iter()
     .enumerate()
@@ -796,8 +791,8 @@ fn v9_pop_state_table(
                 Pos2::new(inner.left(), inner.top() + 62.0),
                 inner.right_bottom(),
             ),
-            "No states",
-            "No state population matches the current filter.",
+            "暂无州",
+            "没有州人口符合当前筛选。",
         );
         return;
     }
@@ -835,14 +830,14 @@ fn v9_pop_state_table(
 
     DataTable::new(
         vec![
-            TableColumn::new("State", 1.0),
-            TableColumn::new("Type", 0.72),
-            TableColumn::new("Pop", 0.74).right(),
-            TableColumn::new("Emp", 0.70).right(),
-            TableColumn::new("Unemp", 0.58).right(),
-            TableColumn::new("Wage", 0.58).right(),
-            TableColumn::new("Sat", 0.52).right(),
-            TableColumn::new("Class", 0.9),
+            TableColumn::new("州", 1.0),
+            TableColumn::new("类型", 0.72),
+            TableColumn::new("人口", 0.74).right(),
+            TableColumn::new("就业", 0.70).right(),
+            TableColumn::new("失业", 0.58).right(),
+            TableColumn::new("工资", 0.58).right(),
+            TableColumn::new("满意", 0.52).right(),
+            TableColumn::new("阶层", 0.9),
         ],
         rows,
     )
@@ -867,22 +862,22 @@ fn v9_pop_needs_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &PopPanelData) 
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Needs and cohesion",
+        "需求与凝聚",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
 
     let bars = [
-        ("Essential", data.essential_needs_fulfillment),
-        ("Normal", data.normal_needs_fulfillment),
-        ("Luxury", data.luxury_needs_fulfillment),
-        ("Loyalty", data.average_loyalty),
-        ("Living standard", data.average_standard_of_living),
-        ("Draft resistance", data.draft_resistance),
+        ("基本需求", data.essential_needs_fulfillment),
+        ("普通需求", data.normal_needs_fulfillment),
+        ("奢侈需求", data.luxury_needs_fulfillment),
+        ("忠诚度", data.average_loyalty),
+        ("生活标准", data.average_standard_of_living),
+        ("征兵抵触", data.draft_resistance),
     ];
     let mut y = inner.top() + 34.0;
     for (label, value) in bars {
-        let color = if label == "Draft resistance" {
+        let color = if label == "征兵抵触" {
             v9_bad_percent_color(value)
         } else {
             v9_good_percent_color(value)
@@ -931,9 +926,9 @@ fn v9_pop_needs_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &PopPanelData) 
     if !rows.is_empty() {
         DataTable::new(
             vec![
-                TableColumn::new("Need", 0.72),
-                TableColumn::new("Fill", 0.42).right(),
-                TableColumn::new("Detail", 1.36),
+                TableColumn::new("需求", 0.72),
+                TableColumn::new("满足", 0.42).right(),
+                TableColumn::new("详情", 1.36),
             ],
             rows,
         )

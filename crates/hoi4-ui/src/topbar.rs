@@ -51,7 +51,7 @@ pub struct TopBarData {
 struct StatTile {
     key: &'static str,
     value: String,
-    tooltip: &'static str,
+    tooltip_key: &'static str,
 }
 
 /// Stateless top bar renderer.
@@ -184,37 +184,37 @@ impl TopBar {
             StatTile {
                 key: "political_power",
                 value: format!("{:.0}", data.political_power),
-                tooltip: "Political power: advisors, focuses, and events feed this pool.",
+                tooltip_key: "tooltip_political_power",
             },
             StatTile {
                 key: "stability",
                 value: format!("{:.0}%", data.stability * 100.0),
-                tooltip: "Stability affects output, surrender pressure, and internal risk.",
+                tooltip_key: "tooltip_stability",
             },
             StatTile {
                 key: "war_support",
                 value: format!("{:.0}%", data.war_support * 100.0),
-                tooltip: "War support affects mobilization, laws, and wartime resilience.",
+                tooltip_key: "tooltip_war_support",
             },
             StatTile {
                 key: "manpower",
                 value: Self::fmt_manpower(data.manpower),
-                tooltip: "Recruitable manpower available for divisions and reserves.",
+                tooltip_key: "tooltip_manpower",
             },
             StatTile {
                 key: "gdp",
                 value: Self::fmt_gbp_short(data.gdp_gbp),
-                tooltip: "Total national economic output in GBP terms.",
+                tooltip_key: "tooltip_gdp",
             },
             StatTile {
                 key: "gdp_growth",
                 value: Self::fmt_pct_signed(data.gdp_growth_yoy),
-                tooltip: "Year-over-year national economic growth.",
+                tooltip_key: "tooltip_gdp_growth",
             },
             StatTile {
                 key: "construction_points",
                 value: format!("{:.0}", data.construction_points),
-                tooltip: "Available national construction power.",
+                tooltip_key: "tooltip_construction_points",
             },
         ]
     }
@@ -335,7 +335,7 @@ impl TopBar {
         );
 
         draw_vertical_divider(ui, rect.right(), rect);
-        resp.on_hover_text(stat.tooltip);
+        resp.on_hover_text(tr(stat.tooltip_key));
     }
 
     fn date_block_at(ui: &mut Ui, rect: Rect, text: String) {
@@ -398,7 +398,7 @@ impl TopBar {
 
     fn fmt_date(year: u16, month: u8, day: u8) -> String {
         if current_language() == Language::Chinese {
-            return format!("{}\u{6708} {}\u{65e5}, {}", month, day, year);
+            return format!("{}年{}月{}日", year, month, day);
         }
 
         let month_key = match month {

@@ -405,15 +405,15 @@ impl SettingsPanel {
             .draft
             .resolution
             .map(|(w, h)| format!("{}x{}", w, h))
-            .unwrap_or_else(|| "Current".to_owned());
+            .unwrap_or_else(|| tr("current").to_owned());
         let terrain = if self.draft.enable_3d_terrain {
-            "3D"
+            "3D".to_owned()
         } else {
-            "Legacy"
+            tr("legacy").to_owned()
         };
 
         let (shell_close, _) = PanelShell::new("settings_panel_v9", tr("settings_title"))
-            .subtitle("Display / Audio / Gameplay")
+            .subtitle(tr("settings_subtitle"))
             .class(PanelClass::Settings)
             .accent(palette::INFO)
             .footer("Q Close  |  Apply writes settings.toml")
@@ -423,14 +423,19 @@ impl SettingsPanel {
                     layout.summary,
                     &[
                         (
-                            "Language",
-                            self.draft.language.code().to_owned(),
+                            tr("language"),
+                            self.draft.language.display_name().to_owned(),
                             palette::GOLD,
                         ),
-                        ("Resolution", resolution, palette::INFO),
+                        (tr("resolution"), resolution, palette::INFO),
                         (
-                            "Fullscreen",
-                            if self.draft.fullscreen { "On" } else { "Off" }.to_owned(),
+                            tr("fullscreen"),
+                            if self.draft.fullscreen {
+                                tr("on")
+                            } else {
+                                tr("off")
+                            }
+                            .to_owned(),
                             if self.draft.fullscreen {
                                 palette::GOOD
                             } else {
@@ -438,24 +443,19 @@ impl SettingsPanel {
                             },
                         ),
                         (
-                            "Speed",
+                            tr("speed"),
                             self.draft.max_speed.to_string(),
                             palette::BRASS_BRIGHT,
                         ),
                         (
-                            "Font",
+                            tr("font"),
                             self.draft.font_scale.label().to_owned(),
                             palette::INFO,
                         ),
-                        ("Terrain", terrain.to_owned(), palette::GOLD),
+                        (tr("terrain"), terrain, palette::GOLD),
                     ],
                 );
-                draw_tab_strip(
-                    ui,
-                    layout.tabs,
-                    "Settings / Debug / Auto-pause",
-                    palette::INFO,
-                );
+                draw_tab_strip(ui, layout.tabs, tr("settings_tabs"), palette::INFO);
                 v9_settings_body(ui, layout.body, self, &mut cmds, &mut close_requested);
             });
 
@@ -729,7 +729,7 @@ fn v9_settings_body(
 
             let prev_accessibility = panel.draft.accessibility();
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Color mode").color(palette::MUTED));
+                ui.label(egui::RichText::new(tr("color_mode")).color(palette::MUTED));
                 egui::ComboBox::from_id_salt("settings_color_mode_v9")
                     .selected_text(panel.draft.color_blind_mode.label())
                     .show_ui(ui, |ui| {
@@ -743,7 +743,7 @@ fn v9_settings_body(
                     });
             });
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Font scale").color(palette::MUTED));
+                ui.label(egui::RichText::new(tr("font_scale")).color(palette::MUTED));
                 for &scale in FontScale::all() {
                     ui.selectable_value(&mut panel.draft.font_scale, scale, scale.label());
                 }

@@ -117,7 +117,11 @@ impl<'a> Button<'a> {
 
     /// 在指定 `rect` 内绘制（用于 `GridLayout::cell` 路径）。
     pub fn show_at(self, ui: &mut Ui, rect: Rect) -> Response {
-        let resp = ui.interact(rect, ui.id().with(self.label), Sense::click());
+        let resp = ui.interact(
+            rect,
+            ui.id().with(("button", self.label, rect_id_key(rect))),
+            Sense::click(),
+        );
         let state = derive_state(&resp, self.enabled);
         let hover_t = motion::animate_bool(
             ui.ctx(),
@@ -244,14 +248,30 @@ impl<'a> Button<'a> {
             egui::Stroke::new(1.0, Color32::from_black_alpha(168)),
             StrokeKind::Inside,
         );
-        painter.text(
+        let mut font = self.size.text_role().font_id();
+        let available_w = (rect.width() - 18.0).max(10.0);
+        let approx_w = self.label.chars().count() as f32 * font.size * 0.58;
+        if approx_w > available_w {
+            font.size *= (available_w / approx_w).clamp(0.78, 1.0);
+        }
+        let text_painter = painter.with_clip_rect(rect.shrink2(Vec2::new(7.0, 2.0)));
+        text_painter.text(
             rect.center(),
             Align2::CENTER_CENTER,
             self.label,
-            self.size.text_role().font_id(),
+            font,
             text_color,
         );
     }
+}
+
+fn rect_id_key(rect: Rect) -> (i32, i32, i32, i32) {
+    (
+        rect.min.x.round() as i32,
+        rect.min.y.round() as i32,
+        rect.width().round() as i32,
+        rect.height().round() as i32,
+    )
 }
 
 fn derive_state(resp: &Response, enabled: bool) -> ButtonState {

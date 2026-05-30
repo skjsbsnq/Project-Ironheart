@@ -344,7 +344,7 @@ fn v9_show_trade(ctx: &egui::Context, data: &TradePanelData) -> (bool, Vec<()>) 
                         },
                     ),
                     (
-                        "Capacity",
+                        "运力",
                         if data.trade_capacity > 0.0 {
                             format!("{:.0}/{:.0}", data.trade_capacity_used, data.trade_capacity)
                         } else {
@@ -369,12 +369,7 @@ fn v9_show_trade(ctx: &egui::Context, data: &TradePanelData) -> (bool, Vec<()>) 
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "Routes / Trade flows / Impact preview",
-                accent,
-            );
+            draw_tab_strip(ui, layout.tabs, "贸易路线 / 贸易流 / 影响预览", accent);
             v9_trade_body(ui, layout.body, data, cap);
         });
     (close, Vec::new())
@@ -444,8 +439,8 @@ fn v9_trade_routes(ui: &mut egui::Ui, rect: egui::Rect, data: &TradePanelData, c
                     crate::v9::composites::panel_shell::draw_empty_state(
                         ui,
                         ui.available_rect_before_wrap(),
-                        "No routes",
-                        "No active trade route is registered.",
+                        "暂无路线",
+                        "当前没有登记的贸易路线。",
                     );
                     return;
                 }
@@ -591,7 +586,7 @@ fn v9_trade_impact(ui: &mut egui::Ui, rect: egui::Rect, data: &TradePanelData) {
     ui.painter().text(
         side_inner.left_top(),
         Align2::LEFT_TOP,
-        "Impact preview",
+        "影响预览",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -655,14 +650,14 @@ fn v9_trade_impact(ui: &mut egui::Ui, rect: egui::Rect, data: &TradePanelData) {
             TableCell::colored(&data.current_trade_law_name, palette::GOLD),
         ]),
         TableRow::new(vec![
-            TableCell::strong("Routes"),
+            TableCell::strong("路线数"),
             TableCell::new(data.routes.len().to_string()).right(),
         ]),
     ];
     DataTable::new(
         vec![
-            TableColumn::new("Metric", 1.0),
-            TableColumn::new("Value", 1.0).right(),
+            TableColumn::new("指标", 1.0),
+            TableColumn::new("数值", 1.0).right(),
         ],
         rows,
     )

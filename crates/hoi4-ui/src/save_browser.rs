@@ -45,21 +45,21 @@ pub struct SaveEntry {
 }
 
 impl SaveEntry {
-    /// 修改时间相对当前的近似描述。`None` 时返回 "unknown"。
+    /// 修改时间相对当前的近似描述。
     pub fn modified_str(&self) -> String {
         let Some(t) = self.modified else {
-            return "unknown".into();
+            return "未知".into();
         };
         let dur = SystemTime::now().duration_since(t).unwrap_or_default();
         let secs = dur.as_secs();
         if secs < 60 {
-            format!("{}s ago", secs)
+            format!("{}秒前", secs)
         } else if secs < 3600 {
-            format!("{}m ago", secs / 60)
+            format!("{}分钟前", secs / 60)
         } else if secs < 86_400 {
-            format!("{}h ago", secs / 3600)
+            format!("{}小时前", secs / 3600)
         } else {
-            format!("{}d ago", secs / 86_400)
+            format!("{}天前", secs / 86_400)
         }
     }
 
@@ -203,7 +203,7 @@ impl SaveBrowser {
             .unwrap_or_else(|| "?".to_owned());
 
         let (shell_close, _) = PanelShell::new("save_browser_v9", tr("saves_title"))
-            .subtitle("Save list / load / rename / delete")
+            .subtitle("存档列表 / 读取 / 重命名 / 删除")
             .class(PanelClass::Settings)
             .accent(palette::BRASS_BRIGHT)
             .footer("Q Close  |  Double click save to load")
@@ -212,13 +212,17 @@ impl SaveBrowser {
                     ui,
                     layout.summary,
                     &[
-                        ("Saves", self.saves.len().to_string(), palette::GOLD),
-                        ("Selected", selected_name, palette::BRASS_BRIGHT),
-                        ("Date", selected_date, palette::INFO),
-                        ("Size", selected_size, palette::PARCHMENT_DIM),
+                        (
+                            tr("saves_title"),
+                            self.saves.len().to_string(),
+                            palette::GOLD,
+                        ),
+                        ("选中", selected_name, palette::BRASS_BRIGHT),
+                        (tr("date"), selected_date, palette::INFO),
+                        ("大小", selected_size, palette::PARCHMENT_DIM),
                     ],
                 );
-                draw_tab_strip(ui, layout.tabs, "Save browser", palette::BRASS_BRIGHT);
+                draw_tab_strip(ui, layout.tabs, "存档浏览器", palette::BRASS_BRIGHT);
                 v9_save_browser_body(ui, layout.body, self, &mut cmds, &mut close_requested);
             });
 
@@ -255,7 +259,7 @@ impl SaveBrowser {
                     if ui.button(tr("refresh")).clicked() {
                         cmds.push(SaveCommand::Rescan);
                     }
-                    ui.label(format!("({} saves)", self.saves.len()));
+                    ui.label(format!("（{} 个存档）", self.saves.len()));
                 });
                 ui.separator();
 
@@ -328,9 +332,9 @@ impl SaveBrowser {
                             if let Some(s) = self.current() {
                                 let trimmed = self.rename_buffer.trim();
                                 if trimmed.is_empty() {
-                                    self.last_error = Some("name cannot be empty".into());
+                                    self.last_error = Some("名称不能为空".into());
                                 } else if !is_safe_filename(trimmed) {
-                                    self.last_error = Some("invalid characters in name".into());
+                                    self.last_error = Some("名称包含非法字符".into());
                                 } else {
                                     let ext = s
                                         .path
@@ -342,7 +346,7 @@ impl SaveBrowser {
                                         // No-op rename.
                                         self.renaming = false;
                                     } else if to.exists() {
-                                        self.last_error = Some("target name already exists".into());
+                                        self.last_error = Some("目标名称已存在".into());
                                     } else {
                                         cmds.push(SaveCommand::Rename {
                                             from: s.path.clone(),
@@ -465,7 +469,7 @@ fn v9_save_browser_body(
         ui.painter().text(
             Pos2::new(list.right(), list.top()),
             Align2::RIGHT_TOP,
-            format!("{} saves", browser.saves.len()),
+            format!("{} 个存档", browser.saves.len()),
             TextRole::Caption.font_id(),
             palette::MUTED,
         );
@@ -479,7 +483,7 @@ fn v9_save_browser_body(
                     ui,
                     list_body,
                     tr("no_saves"),
-                    "No files were found in the saves directory.",
+                    "存档目录中没有发现文件。",
                 );
                 return;
             }
@@ -524,7 +528,7 @@ fn v9_save_browser_body(
         );
         ui.allocate_ui_at_rect(detail_body, |ui| {
             ui.label(
-                egui::RichText::new(format!("Folder: {}", browser.saves_dir.display()))
+                egui::RichText::new(format!("目录：{}", browser.saves_dir.display()))
                     .small()
                     .color(palette::MUTED),
             );
@@ -608,9 +612,9 @@ fn v9_save_browser_body(
                         {
                             let trimmed = browser.rename_buffer.trim();
                             if trimmed.is_empty() {
-                                browser.last_error = Some("name cannot be empty".into());
+                                browser.last_error = Some("名称不能为空".into());
                             } else if !is_safe_filename(trimmed) {
-                                browser.last_error = Some("invalid characters in name".into());
+                                browser.last_error = Some("名称包含非法字符".into());
                             } else {
                                 let ext =
                                     path.extension().and_then(|e| e.to_str()).unwrap_or("save");
@@ -618,7 +622,7 @@ fn v9_save_browser_body(
                                 if to == path {
                                     browser.renaming = false;
                                 } else if to.exists() {
-                                    browser.last_error = Some("target name already exists".into());
+                                    browser.last_error = Some("目标名称已存在".into());
                                 } else {
                                     cmds.push(SaveCommand::Rename {
                                         from: path.clone(),

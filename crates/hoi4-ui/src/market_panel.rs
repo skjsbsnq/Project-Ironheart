@@ -299,7 +299,7 @@ fn v9_show_market(ctx: &egui::Context, data: &MarketPanelData) -> (bool, Vec<()>
     };
 
     let (close, _) = PanelShell::new("market_panel_v9", tr("v6_market_panel_title"))
-        .subtitle("Goods clearing / shortages / supply chains")
+        .subtitle("商品清算 / 短缺 / 供应链")
         .class(PanelClass::Economy)
         .accent(accent)
         .footer("Q Close  |  Goods table / Commodity detail")
@@ -315,7 +315,7 @@ fn v9_show_market(ctx: &egui::Context, data: &MarketPanelData) -> (bool, Vec<()>
                     ),
                     (tr("v6_cash_rm"), v9_money_rm(data.cash_rm), palette::GOLD),
                     (
-                        "Shortage",
+                        "短缺",
                         format!(
                             "{} / {}",
                             shortage_count,
@@ -328,28 +328,23 @@ fn v9_show_market(ctx: &egui::Context, data: &MarketPanelData) -> (bool, Vec<()>
                         },
                     ),
                     (
-                        "POP needs",
+                        "人口需求",
                         format!("{:.0}%", data.pop_needs_fulfillment * 100.0),
                         v9_ratio_color(data.pop_needs_fulfillment),
                     ),
                     (
-                        "Imports",
+                        "进口",
                         v9_money_gbp(data.total_import_value_gbp),
                         palette::INFO,
                     ),
                     (
-                        "Exports",
+                        tr("v6_exports"),
                         v9_money_gbp(data.total_export_value_gbp),
                         palette::GOOD,
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "Goods / Shortage pills / Detail sidebar",
-                accent,
-            );
+            draw_tab_strip(ui, layout.tabs, "商品 / 短缺 / 详情侧栏", accent);
             v9_market_body(ui, layout.body, data);
         });
 
@@ -401,9 +396,9 @@ fn v9_market_goods_table(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanel
         .filter(|good| shortage_amount(good) > 0.0)
         .count();
     let pill_label = if shortage_count > 0 {
-        format!("{} shortage", shortage_count)
+        format!("{} 项短缺", shortage_count)
     } else {
-        "stable clearing".to_owned()
+        "清算稳定".to_owned()
     };
     Pill::new(pill_label.as_str())
         .tone(if shortage_count > 0 {
@@ -471,12 +466,12 @@ fn v9_market_goods_table(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanel
     DataTable::new(
         vec![
             TableColumn::new(tr("v6_good"), 1.35),
-            TableColumn::new("Category", 1.0),
-            TableColumn::new("Price", 0.58).right(),
+            TableColumn::new("类别", 1.0),
+            TableColumn::new("价格", 0.58).right(),
             TableColumn::new(tr("v6_supply"), 0.62).right(),
             TableColumn::new(tr("v6_demand"), 0.62).right(),
             TableColumn::new(tr("v6_shortage"), 0.72).right(),
-            TableColumn::new("Cover", 0.62).right(),
+            TableColumn::new("覆盖", 0.62).right(),
         ],
         rows,
     )
@@ -506,7 +501,7 @@ fn v9_market_detail_sidebar(
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Commodity detail",
+        "商品详情",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -518,14 +513,14 @@ fn v9_market_detail_sidebar(
                 Pos2::new(inner.left(), inner.top() + 34.0),
                 inner.right_bottom(),
             ),
-            "No goods",
-            "The market has no goods to display.",
+            "暂无商品",
+            "市场中没有可显示的商品。",
         );
         return;
     };
 
     let shortage = shortage_amount(good);
-    let status_label = if shortage > 0.0 { "SHORTAGE" } else { "STABLE" };
+    let status_label = if shortage > 0.0 { "短缺" } else { "稳定" };
     Pill::new(status_label)
         .tone(if shortage > 0.0 {
             PillTone::Bad
@@ -571,15 +566,15 @@ fn v9_market_detail_sidebar(
 
     let detail_rows = vec![
         TableRow::new(vec![
-            TableCell::strong("Supply"),
+            TableCell::strong("供给"),
             TableCell::new(format!("{:.1}", good.supply)).right(),
         ]),
         TableRow::new(vec![
-            TableCell::strong("Demand"),
+            TableCell::strong("需求"),
             TableCell::new(format!("{:.1}", good.demand)).right(),
         ]),
         TableRow::new(vec![
-            TableCell::strong("Shortage"),
+            TableCell::strong("短缺"),
             TableCell::colored(
                 format!("{:.1}", shortage),
                 if shortage > 0.0 {
@@ -591,18 +586,18 @@ fn v9_market_detail_sidebar(
             .right(),
         ]),
         TableRow::new(vec![
-            TableCell::strong("Stockpile"),
+            TableCell::strong("库存"),
             TableCell::new(format!("{:.1}", good.stockpile)).right(),
         ]),
         TableRow::new(vec![
-            TableCell::strong("Paid RM"),
+            TableCell::strong("已支付 RM"),
             TableCell::new(v9_money_rm(good.paid_rm)).right(),
         ]),
     ];
     DataTable::new(
         vec![
-            TableColumn::new("Metric", 1.0),
-            TableColumn::new("Value", 1.0).right(),
+            TableColumn::new("指标", 1.0),
+            TableColumn::new("数值", 1.0).right(),
         ],
         detail_rows,
     )
@@ -616,30 +611,30 @@ fn v9_market_detail_sidebar(
     let mut flow_rows: Vec<TableRow> = Vec::new();
     for source in good.producers.iter().take(3) {
         flow_rows.push(TableRow::new(vec![
-            TableCell::colored("Producer", palette::GOOD),
+            TableCell::colored("生产方", palette::GOOD),
             TableCell::new(source.name.as_str()),
             TableCell::new(format!("{:.1}", source.amount)).right(),
         ]));
     }
     for source in good.consumers.iter().take(3) {
         flow_rows.push(TableRow::new(vec![
-            TableCell::colored("Consumer", palette::WARN),
+            TableCell::colored("消费方", palette::WARN),
             TableCell::new(source.name.as_str()),
             TableCell::new(format!("{:.1}", source.amount)).right(),
         ]));
     }
     for source in good.government_orders.iter().take(2) {
         flow_rows.push(TableRow::new(vec![
-            TableCell::colored("Order", palette::GOLD),
+            TableCell::colored("订单", palette::GOLD),
             TableCell::new(source.name.as_str()),
             TableCell::new(format!("{:.1}", source.amount)).right(),
         ]));
     }
     DataTable::new(
         vec![
-            TableColumn::new("Side", 0.8),
-            TableColumn::new("Source", 1.4),
-            TableColumn::new("Flow", 0.7).right(),
+            TableColumn::new("方向", 0.8),
+            TableColumn::new("来源", 1.4),
+            TableColumn::new("流量", 0.7).right(),
         ],
         flow_rows,
     )

@@ -153,7 +153,7 @@ fn v9_show_air(ctx: &egui::Context, data: &AirData) -> (bool, Vec<AirCommand>) {
     };
 
     let (close, _) = PanelShell::new("air_panel_v9", "空军司令部")
-        .subtitle("Wing List / Mission Ribbon")
+        .subtitle("联队列表 / 任务指令")
         .class(PanelClass::MilitaryDiplomacy)
         .accent(accent)
         .footer("Q Close  |  Wing DataTable / Mission orders")
@@ -181,7 +181,7 @@ fn v9_show_air(ctx: &egui::Context, data: &AirData) -> (bool, Vec<AirCommand>) {
                     ),
                 ],
             );
-            draw_tab_strip(ui, layout.tabs, "Wing DataTable / Mission Ribbon", accent);
+            draw_tab_strip(ui, layout.tabs, "联队表 / 任务指令", accent);
             v9_air_body(ui, layout.body, data, &mut commands);
         });
     (close, commands)
@@ -214,7 +214,7 @@ fn v9_air_table(ui: &mut egui::Ui, rect: egui::Rect, data: &AirData) {
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "联队 DataTable",
+        "联队表",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );

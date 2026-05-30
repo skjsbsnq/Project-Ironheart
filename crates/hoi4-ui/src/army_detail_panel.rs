@@ -80,12 +80,7 @@ fn v9_show_army_detail(ctx: &egui::Context, data: &MilitaryData) -> Vec<Military
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "PanelShell / CounterIcon 师徽 / Readiness",
-                accent,
-            );
+            draw_tab_strip(ui, layout.tabs, "面板 / 师徽 / 战备", accent);
             v9_army_detail_body(ui, layout.body, army, &divisions, &mut cmds);
         });
     if close {

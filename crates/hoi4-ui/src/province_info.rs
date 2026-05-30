@@ -131,7 +131,7 @@ impl ProvinceInfoCard {
                     Pos2::new(header.right() - 26.0, header.top() + 3.0),
                     Vec2::new(24.0, 24.0),
                 );
-                if Button::new("X")
+                if Button::new("×")
                     .size(ButtonSize::Sm)
                     .variant(ButtonVariant::Ghost)
                     .show_at(ui, close_rect)
@@ -360,7 +360,7 @@ fn v9_province_tactical(ui: &mut egui::Ui, data: &ProvinceInfoData) {
                 );
                 v9_key_value(ui, tr("supply"), format!("{:.0}", data.province.supply));
                 if data.province.coastal {
-                    v9_key_value(ui, "Coast", tr("coastal_province"));
+                    v9_key_value(ui, "海岸", tr("coastal_province"));
                 }
                 if data.province.victory_points > 0 {
                     v9_key_value(
@@ -401,12 +401,12 @@ fn v9_province_state(ui: &mut egui::Ui, data: &ProvinceInfoData) {
             .spacing([18.0, spacing::S2])
             .striped(true)
             .show(ui, |ui| {
-                v9_key_value(ui, "State", &data.state.state_name);
+                v9_key_value(ui, "州", &data.state.state_name);
                 v9_key_value(ui, tr("owner"), &data.state.owner_tag);
                 if data.state.owner_tag != data.state.controller_tag {
                     v9_key_value(ui, tr("controller"), &data.state.controller_tag);
                 }
-                v9_key_value(ui, "Population", format_population(data.state.population));
+                v9_key_value(ui, "人口", format_population(data.state.population));
                 v9_key_value(ui, tr("state_category_label"), &data.state.state_category);
                 v9_key_value(
                     ui,
@@ -441,7 +441,7 @@ fn v9_province_buildings(ui: &mut egui::Ui, data: &ProvinceInfoData) {
             .map(|building| {
                 let profit = building.profit_rm_weekly / 1_000_000.0;
                 let warnings = if building.warnings.is_empty() {
-                    TableCell::colored("None", palette::MUTED)
+                    TableCell::colored("无", palette::MUTED)
                 } else {
                     TableCell::colored(building.warnings.join("; "), palette::WARN)
                 };
@@ -465,11 +465,11 @@ fn v9_province_buildings(ui: &mut egui::Ui, data: &ProvinceInfoData) {
 
         DataTable::new(
             vec![
-                TableColumn::new("Building", 1.8),
-                TableColumn::new("Lv", 0.6).center(),
+                TableColumn::new("建筑", 1.8),
+                TableColumn::new("等级", 0.6).center(),
                 TableColumn::new(tr("employment_rate"), 0.9).right(),
-                TableColumn::new("Profit", 0.9).right(),
-                TableColumn::new("Warnings", 1.5),
+                TableColumn::new("利润", 0.9).right(),
+                TableColumn::new("警告", 1.5),
             ],
             rows,
         )
@@ -506,8 +506,8 @@ fn v9_province_projects(ui: &mut egui::Ui, data: &ProvinceInfoData) {
             );
             let eta = item
                 .estimated_days_remaining
-                .map(|days| format!("ETA {}d", days))
-                .unwrap_or_else(|| "ETA unknown".to_owned());
+                .map(|days| format!("预计 {}天", days))
+                .unwrap_or_else(|| "预计时间未知".to_owned());
             ui.painter().text(
                 Pos2::new(row.right(), row.top()),
                 Align2::RIGHT_TOP,
@@ -542,7 +542,7 @@ fn v9_province_resources(ui: &mut egui::Ui, data: &ProvinceInfoData) {
     v9_section(ui, tr("resources_label"), height, |ui, _| {
         ui.colored_label(
             palette::MUTED,
-            "State resource output feeds the national market. Consumption is shown in market details.",
+            "州资源产出会进入全国市场，消耗量可在市场详情中查看。",
         );
         if data.state.resources.is_empty() {
             ui.colored_label(palette::MUTED, tr("no_resources"));
@@ -565,17 +565,17 @@ fn v9_province_resources(ui: &mut egui::Ui, data: &ProvinceInfoData) {
                     TableCell::strong(name.clone()),
                     TableCell::new(format!("{:.0}", level)).right(),
                     TableCell::new(format!("{:.0}/day", output)).right(),
-                    TableCell::colored("Market details", palette::BRASS_BRIGHT),
+                    TableCell::colored("市场详情", palette::BRASS_BRIGHT),
                 ])
             })
             .collect();
 
         DataTable::new(
             vec![
-                TableColumn::new("Resource", 1.2),
-                TableColumn::new("Base", 0.8).right(),
-                TableColumn::new("Output", 0.9).right(),
-                TableColumn::new("Link", 1.1),
+                TableColumn::new("资源", 1.2),
+                TableColumn::new("基础", 0.8).right(),
+                TableColumn::new("产出", 0.9).right(),
+                TableColumn::new("链接", 1.1),
             ],
             rows,
         )

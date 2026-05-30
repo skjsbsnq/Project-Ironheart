@@ -217,18 +217,18 @@ fn v9_show_research(ctx: &egui::Context, data: &ResearchData) -> (bool, Vec<Rese
     };
 
     let (close, output) = PanelShell::new("research_panel_v9", tr("research"))
-        .subtitle("TreeLayout / unlock impact preview")
+        .subtitle("科研树 / 解锁影响预览")
         .class(PanelClass::Detail)
         .accent(accent)
-        .footer("Q Close  |  Select technology / Start research")
+        .footer("Q 关闭  |  选择科技 / 开始科研")
         .show(ctx, |ui, layout| {
             draw_summary_tiles(
                 ui,
                 layout.summary,
                 &[
-                    ("Year", data.current_year.to_string(), palette::GOLD),
+                    ("年份", data.current_year.to_string(), palette::GOLD),
                     (
-                        "Slots",
+                        "槽位",
                         format!("{}/{}", data.slots.len(), data.slot_count),
                         if idle_slots > 0 {
                             palette::WARN
@@ -237,7 +237,7 @@ fn v9_show_research(ctx: &egui::Context, data: &ResearchData) -> (bool, Vec<Rese
                         },
                     ),
                     (
-                        "Idle",
+                        "空闲",
                         idle_slots.to_string(),
                         if idle_slots > 0 {
                             palette::WARN
@@ -246,12 +246,12 @@ fn v9_show_research(ctx: &egui::Context, data: &ResearchData) -> (bool, Vec<Rese
                         },
                     ),
                     (
-                        "Completed",
+                        tr("completed"),
                         format!("{}/{}", completed, data.techs.len()),
                         palette::GOOD,
                     ),
                     (
-                        "Ahead",
+                        "超前",
                         ahead.to_string(),
                         if ahead > 0 {
                             palette::WARN
@@ -259,15 +259,14 @@ fn v9_show_research(ctx: &egui::Context, data: &ResearchData) -> (bool, Vec<Rese
                             palette::MUTED
                         },
                     ),
-                    ("Categories", CATEGORIES.len().to_string(), palette::INFO),
+                    (
+                        tr("tech_categories"),
+                        CATEGORIES.len().to_string(),
+                        palette::INFO,
+                    ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "Research TreeLayout / ImpactPreview",
-                accent,
-            );
+            draw_tab_strip(ui, layout.tabs, "科研树 / 影响预览", accent);
             let mut cmds = Vec::new();
             v9_research_body(
                 ui,
@@ -329,7 +328,7 @@ fn v9_research_tree(
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Technology tree",
+        "科技树",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -435,14 +434,14 @@ fn v9_research_detail(
         draw_progress_bar, Button, ButtonSize, ButtonVariant, Card, DataTable, TableCell,
         TableColumn, TableRow,
     };
-    use crate::v9::tokens::{palette, spacing, TextRole};
+    use crate::v9::tokens::{palette, TextRole};
     use egui::{Align2, Pos2, Rect, Vec2};
 
     let inner = Card::new().as_panel().show_at(ui, rect);
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Impact preview",
+        "科研预览",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -453,8 +452,8 @@ fn v9_research_detail(
                 Pos2::new(inner.left(), inner.top() + 34.0),
                 inner.right_bottom(),
             ),
-            "No technology",
-            "No technology nodes are available.",
+            "未选择科技",
+            "请选择一个科技节点查看详情。",
         );
         return;
     };
@@ -469,13 +468,13 @@ fn v9_research_detail(
     );
     y += 26.0;
     let status = if tech.completed {
-        "Completed"
+        "已完成"
     } else if tech.researching {
-        "Researching"
+        "研究中"
     } else if tech.start_year > data.current_year {
-        "Ahead of time"
+        "超前"
     } else {
-        "Available"
+        "可研究"
     };
     ui.painter().text(
         Pos2::new(inner.left(), y),
@@ -506,9 +505,9 @@ fn v9_research_detail(
     y += 26.0;
 
     let prereq = if tech.prerequisites.is_empty() {
-        "Prerequisites: none".to_owned()
+        "前置科技：无".to_owned()
     } else {
-        format!("Prerequisites: {}", tech.prerequisites.join(", "))
+        format!("前置科技：{}", tech.prerequisites.join(", "))
     };
     let galley = ui.painter().layout(
         prereq,
@@ -522,8 +521,8 @@ fn v9_research_detail(
 
     let unlock_rows: Vec<TableRow> = if tech.unlock_summary.is_empty() {
         vec![TableRow::new(vec![
-            TableCell::strong("Unlock"),
-            TableCell::new("No direct unlock preview"),
+            TableCell::strong("解锁"),
+            TableCell::new("无直接解锁预览"),
         ])]
     } else {
         tech.unlock_summary
@@ -531,7 +530,7 @@ fn v9_research_detail(
             .take(7)
             .map(|unlock| {
                 TableRow::new(vec![
-                    TableCell::strong("Unlock"),
+                    TableCell::strong("解锁"),
                     TableCell::new(unlock.as_str()),
                 ])
             })
@@ -539,8 +538,8 @@ fn v9_research_detail(
     };
     DataTable::new(
         vec![
-            TableColumn::new("Type", 0.55),
-            TableColumn::new("Effect", 1.45),
+            TableColumn::new("类型", 0.55),
+            TableColumn::new("效果", 1.45),
         ],
         unlock_rows,
     )
@@ -566,11 +565,11 @@ fn v9_research_detail(
         cmds.push(ResearchCommand::StartResearch(tech.key.clone()));
     } else if !can_start {
         Button::new(if tech.completed {
-            "Completed"
+            "已完成"
         } else if tech.researching {
-            "Researching"
+            "研究中"
         } else {
-            "No idle slot"
+            "无空闲槽位"
         })
         .size(ButtonSize::Md)
         .variant(ButtonVariant::Ghost)
@@ -591,8 +590,8 @@ fn v9_research_detail(
         .collect();
     DataTable::new(
         vec![
-            TableColumn::new("Active slot", 1.2),
-            TableColumn::new("Progress", 0.8).right(),
+            TableColumn::new(tr("active_research"), 1.2),
+            TableColumn::new(tr("progress"), 0.8).right(),
         ],
         slot_rows,
     )

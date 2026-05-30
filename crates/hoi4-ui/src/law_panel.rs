@@ -163,7 +163,7 @@ fn v9_show_law(ctx: &egui::Context, data: &LawPanelData) -> (bool, Vec<LawComman
     };
 
     let (close, output) = PanelShell::new("law_panel_v9", tr("v6_law_panel_title"))
-        .subtitle("Law groups / switch impact preview")
+        .subtitle("法律类别 / 切换影响预览")
         .class(PanelClass::Economy)
         .accent(accent)
         .footer("Q Close  |  Select law group / Switch")
@@ -177,9 +177,9 @@ fn v9_show_law(ctx: &egui::Context, data: &LawPanelData) -> (bool, Vec<LawComman
                         format!("{:.0}", data.political_power),
                         palette::GOLD,
                     ),
-                    ("Groups", data.slots.len().to_string(), palette::INFO),
+                    ("类别", data.slots.len().to_string(), palette::INFO),
                     (
-                        "Switchable",
+                        "可切换",
                         affordable.to_string(),
                         if affordable > 0 {
                             palette::GOOD
@@ -188,7 +188,7 @@ fn v9_show_law(ctx: &egui::Context, data: &LawPanelData) -> (bool, Vec<LawComman
                         },
                     ),
                     (
-                        "Cooldown",
+                        tr("cooldown"),
                         cooling.to_string(),
                         if cooling > 0 {
                             palette::WARN
@@ -197,7 +197,7 @@ fn v9_show_law(ctx: &egui::Context, data: &LawPanelData) -> (bool, Vec<LawComman
                         },
                     ),
                     (
-                        "Locked",
+                        tr("locked"),
                         locked.to_string(),
                         if locked > 0 {
                             palette::BAD
@@ -206,7 +206,7 @@ fn v9_show_law(ctx: &egui::Context, data: &LawPanelData) -> (bool, Vec<LawComman
                         },
                     ),
                     (
-                        "Pending",
+                        tr("v6_law_pending"),
                         pending.to_string(),
                         if pending > 0 {
                             palette::WARN
@@ -216,7 +216,7 @@ fn v9_show_law(ctx: &egui::Context, data: &LawPanelData) -> (bool, Vec<LawComman
                     ),
                 ],
             );
-            draw_tab_strip(ui, layout.tabs, "Law group List / ImpactPreview", accent);
+            draw_tab_strip(ui, layout.tabs, "法律类别 / 影响预览", accent);
             let mut cmds = Vec::new();
             v9_law_body(ui, layout.body, data, &mut selected_category, &mut cmds);
             cmds
@@ -268,7 +268,7 @@ fn v9_law_group_list(
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Law groups",
+        "法律组",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -331,13 +331,13 @@ fn v9_law_group_list(
             palette::PARCHMENT_DIM,
         );
         let status = if slot.is_locked {
-            "Locked"
+            tr("locked")
         } else if slot.pending.is_some() {
-            "Pending"
+            tr("v6_law_pending")
         } else if slot.cooldown_days > 0 {
-            "Cooldown"
+            tr("cooldown")
         } else {
-            "Ready"
+            tr("available")
         };
         ui.painter().text(
             Pos2::new(row.right() - spacing::S4, row.center().y),
@@ -357,7 +357,7 @@ fn v9_law_impact_preview(
     political_power: f32,
     cmds: &mut Vec<LawCommand>,
 ) {
-    use crate::v9::primitives::{Button, ButtonSize, ButtonVariant, Card, Pill, PillTone};
+    use crate::v9::primitives::{Card, Pill, PillTone};
     use crate::v9::tokens::{palette, spacing, TextRole};
     use egui::{Align2, Pos2, Rect, Vec2};
 
@@ -365,7 +365,7 @@ fn v9_law_impact_preview(
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Impact preview",
+        "影响预览",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -376,8 +376,8 @@ fn v9_law_impact_preview(
                 Pos2::new(inner.left(), inner.top() + 34.0),
                 inner.right_bottom(),
             ),
-            "No laws",
-            "No law groups are available.",
+            "暂无法律",
+            "当前没有可用法律类别。",
         );
         return;
     };
@@ -403,7 +403,7 @@ fn v9_law_impact_preview(
     ui.painter().text(
         Pos2::new(inner.left(), y),
         Align2::LEFT_TOP,
-        format!("Current: {}", slot.current_name),
+        format!("{}: {}", tr("current"), slot.current_name),
         TextRole::Subheading.font_id(),
         palette::PARCHMENT,
     );
@@ -422,7 +422,7 @@ fn v9_law_impact_preview(
         ui.painter().text(
             Pos2::new(inner.left(), y),
             Align2::LEFT_TOP,
-            format!("Switching to {}: {} days", target, days),
+            format!("{} {}: {}天", tr("v6_law_pending"), target, days),
             TextRole::Caption.font_id(),
             palette::WARN,
         );
@@ -431,7 +431,7 @@ fn v9_law_impact_preview(
         ui.painter().text(
             Pos2::new(inner.left(), y),
             Align2::LEFT_TOP,
-            format!("Cooldown: {} days", slot.cooldown_days),
+            format!("{}: {}天", tr("cooldown"), slot.cooldown_days),
             TextRole::Caption.font_id(),
             palette::WARN,
         );
@@ -509,7 +509,7 @@ fn v9_law_tier_row(
         Pos2::new(row.left() + spacing::S5, row.top() + 28.0),
         Align2::LEFT_TOP,
         format!(
-            "Cost {} PP  |  Cooldown {} days",
+            "花费 {} PP  |  冷却 {} 天",
             tier.pp_cost, tier.cooldown_days
         ),
         TextRole::Caption.font_id(),
@@ -534,7 +534,7 @@ fn v9_law_tier_row(
         ui.painter().text(
             button_rect.center(),
             Align2::CENTER_CENTER,
-            "Current",
+            tr("current"),
             TextRole::Caption.font_id(),
             palette::GOOD,
         );
@@ -550,7 +550,7 @@ fn v9_law_tier_row(
             target_law_id: tier.id.clone(),
         });
     } else if !can_switch {
-        Button::new("Locked")
+        Button::new(tr("locked"))
             .size(ButtonSize::Sm)
             .variant(ButtonVariant::Ghost)
             .enabled(false)

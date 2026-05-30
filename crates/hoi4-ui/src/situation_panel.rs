@@ -391,7 +391,7 @@ fn v9_show_situations(
                 layout.summary,
                 &[
                     (
-                        "Active",
+                        tr("active"),
                         active_count.to_string(),
                         if active_count > 0 {
                             palette::WARN
@@ -399,9 +399,9 @@ fn v9_show_situations(
                             palette::GOOD
                         },
                     ),
-                    ("Ended", ended_count.to_string(), palette::MUTED),
+                    (tr("ended"), ended_count.to_string(), palette::MUTED),
                     (
-                        "Interventions",
+                        tr("interventions"),
                         intervention_count.to_string(),
                         if intervention_count > 0 {
                             palette::GOLD
@@ -414,7 +414,7 @@ fn v9_show_situations(
             draw_tab_strip(
                 ui,
                 layout.tabs,
-                "Situation / Phase progress / Intervention",
+                "局势 / 阶段进度 / 介入",
                 palette::BRASS_BRIGHT,
             );
             let mut cmds = Vec::new();
@@ -423,7 +423,7 @@ fn v9_show_situations(
                     ui,
                     layout.body,
                     tr("no_active_situations"),
-                    "No active international situations.",
+                    "当前没有活跃国际局势。",
                 );
             } else {
                 v9_situations_body(ui, layout.body, data, &mut cmds);
@@ -479,7 +479,7 @@ fn v9_situation_card(ui: &mut egui::Ui, sit: &SituationEntry, cmds: &mut Vec<Sit
         TextRole::Display.font_id(),
         palette::GOLD_HOT,
     );
-    let stage = if sit.ended { "Ended" } else { "Active" };
+    let stage = if sit.ended { tr("ended") } else { tr("active") };
     v9_situation_badge(
         ui,
         Rect::from_min_size(
@@ -519,7 +519,7 @@ fn v9_situation_card(ui: &mut egui::Ui, sit: &SituationEntry, cmds: &mut Vec<Sit
     }
     y += 84.0;
     if let Some(winner) = &sit.winner {
-        v9_situation_line(ui, inner.left(), y, "Winner", winner, palette::GOOD);
+        v9_situation_line(ui, inner.left(), y, "胜方", winner, palette::GOOD);
         y += 24.0;
     }
     if let Some(overview) = &sit.military_overview {
@@ -535,7 +535,7 @@ fn v9_situation_card(ui: &mut egui::Ui, sit: &SituationEntry, cmds: &mut Vec<Sit
         ui.painter().text(
             Pos2::new(inner.left(), y),
             egui::Align2::LEFT_TOP,
-            "Interventions",
+            tr("interventions"),
             TextRole::Heading.font_id(),
             palette::BRASS_BRIGHT,
         );
@@ -577,7 +577,7 @@ fn v9_situation_card(ui: &mut egui::Ui, sit: &SituationEntry, cmds: &mut Vec<Sit
                 Pos2::new(row.right() - 92.0, row.top() + 5.0),
                 Vec2::new(84.0, 26.0),
             );
-            if Button::new("Act")
+            if Button::new(tr("intervene"))
                 .size(ButtonSize::Sm)
                 .variant(ButtonVariant::Secondary)
                 .enabled(enabled)
@@ -596,7 +596,7 @@ fn v9_situation_card(ui: &mut egui::Ui, sit: &SituationEntry, cmds: &mut Vec<Sit
         ui.painter().text(
             Pos2::new(inner.left(), y + 4.0),
             egui::Align2::LEFT_TOP,
-            "Intervention log",
+            tr("intervention_log"),
             TextRole::Heading.font_id(),
             palette::BRASS_BRIGHT,
         );
@@ -606,7 +606,7 @@ fn v9_situation_card(ui: &mut egui::Ui, sit: &SituationEntry, cmds: &mut Vec<Sit
                 "{}: {} -> {} +{:.0}",
                 log.country_tag, log.intervention_name, log.side_name, log.progress_boost
             );
-            v9_situation_line(ui, inner.left(), y, "Log", &text, palette::PARCHMENT_DIM);
+            v9_situation_line(ui, inner.left(), y, "日志", &text, palette::PARCHMENT_DIM);
             y += 22.0;
         }
     }

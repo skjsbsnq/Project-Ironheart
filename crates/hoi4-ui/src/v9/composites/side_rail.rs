@@ -189,21 +189,21 @@ fn default_entries() -> &'static [SideRailEntry; 15] {
 }
 
 const DEFAULT_ENTRIES: [SideRailEntry; 15] = [
-    SideRailEntry::new(PanelKind::Politics, "POL", "Politics", "Q"),
-    SideRailEntry::new(PanelKind::Decisions, "DEC", "Decisions", "D"),
-    SideRailEntry::new(PanelKind::Laws, "LAW", "Laws", "P"),
-    SideRailEntry::new(PanelKind::Pops, "POP", "Population", "F9"),
-    SideRailEntry::new(PanelKind::Market, "MKT", "Market", "K"),
-    SideRailEntry::new(PanelKind::Finance, "FIN", "Finance", "F"),
-    SideRailEntry::new(PanelKind::Trade, "TRD", "Trade", "G"),
-    SideRailEntry::new(PanelKind::Construction, "BLD", "Construction", "B"),
-    SideRailEntry::new(PanelKind::Research, "RES", "Research", "Y"),
-    SideRailEntry::new(PanelKind::Diplomacy, "DIP", "Diplomacy", "U"),
-    SideRailEntry::new(PanelKind::Military, "ARM", "Army", "I"),
-    SideRailEntry::new(PanelKind::Naval, "NAV", "Navy", "O"),
-    SideRailEntry::new(PanelKind::Air, "AIR", "Air", "A"),
-    SideRailEntry::new(PanelKind::Logistics, "LOG", "Logistics", "L"),
-    SideRailEntry::new(PanelKind::Situation, "SIT", "Situation", "J"),
+    SideRailEntry::new(PanelKind::Politics, "政", "政治", "Q"),
+    SideRailEntry::new(PanelKind::Decisions, "决", "决议", "D"),
+    SideRailEntry::new(PanelKind::Laws, "法", "法案", "P"),
+    SideRailEntry::new(PanelKind::Pops, "民", "人口", "F9"),
+    SideRailEntry::new(PanelKind::Market, "市", "市场", "K"),
+    SideRailEntry::new(PanelKind::Finance, "财", "财政", "F"),
+    SideRailEntry::new(PanelKind::Trade, "贸", "贸易", "G"),
+    SideRailEntry::new(PanelKind::Construction, "建", "建设", "B"),
+    SideRailEntry::new(PanelKind::Research, "研", "科研", "Y"),
+    SideRailEntry::new(PanelKind::Diplomacy, "外", "外交", "U"),
+    SideRailEntry::new(PanelKind::Military, "陆", "陆军", "I"),
+    SideRailEntry::new(PanelKind::Naval, "海", "海军", "O"),
+    SideRailEntry::new(PanelKind::Air, "空", "空军", "A"),
+    SideRailEntry::new(PanelKind::Logistics, "物", "后勤", "L"),
+    SideRailEntry::new(PanelKind::Situation, "局", "局势", "J"),
 ];
 
 #[cfg(test)]

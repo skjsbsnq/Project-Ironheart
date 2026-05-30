@@ -307,7 +307,7 @@ fn v9_show_construction(
         palette::GOLD
     };
     let (close, output) = PanelShell::new("construction_v6_panel_v9", tr("buildings_panel_title"))
-        .subtitle("V6 economy")
+        .subtitle("V6 经济")
         .class(PanelClass::Economy)
         .accent(accent)
         .footer("Q Close  |  Queue / Buildings / Investment")
@@ -325,7 +325,7 @@ fn v9_show_construction(
                             accent
                         },
                     ),
-                    ("GDP", format_gbp(data.gdp_gbp), palette::GOLD),
+                    (tr("gdp"), format_gbp(data.gdp_gbp), palette::GOLD),
                     (
                         tr("gdp_growth"),
                         format!("{:+.1}%", data.gdp_growth_yoy * 100.0),
@@ -356,12 +356,7 @@ fn v9_show_construction(
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "Queue / Existing buildings / Investment pool",
-                accent,
-            );
+            draw_tab_strip(ui, layout.tabs, "队列 / 现有建筑 / 投资池", accent);
             let mut cmds = Vec::new();
             v9_construction_body(ui, layout.body, data, cp_ratio, &mut cmds);
             cmds
@@ -437,11 +432,11 @@ fn v9_construction_queue(ui: &mut egui::Ui, rect: egui::Rect, data: &Constructio
     DataTable::new(
         vec![
             TableColumn::new(tr("buildable_buildings"), 1.3),
-            TableColumn::new("State", 1.0),
+            TableColumn::new("州", 1.0),
             TableColumn::new(tr("progress"), 0.7).right(),
-            TableColumn::new("Mat", 0.6).right(),
-            TableColumn::new("Fund", 0.6).right(),
-            TableColumn::new("Source", 1.0),
+            TableColumn::new("材料", 0.6).right(),
+            TableColumn::new("资金", 0.6).right(),
+            TableColumn::new("来源", 1.0),
         ],
         rows,
     )
@@ -496,11 +491,11 @@ fn v9_construction_buildings(ui: &mut egui::Ui, rect: egui::Rect, data: &Constru
     DataTable::new(
         vec![
             TableColumn::new(tr("existing_buildings"), 1.4),
-            TableColumn::new("Lv", 0.4).right(),
+            TableColumn::new("等级", 0.4).right(),
             TableColumn::new(tr("employment_rate"), 0.7).right(),
             TableColumn::new(tr("building_profit_weekly"), 0.8).right(),
             TableColumn::new(tr("building_outputs"), 1.2),
-            TableColumn::new("Warn", 0.5).center(),
+            TableColumn::new("警告", 0.5).center(),
         ],
         rows,
     )
@@ -532,7 +527,7 @@ fn v9_construction_side(
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Investment pool",
+        "投资池",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -563,20 +558,20 @@ fn v9_construction_side(
     let cells = grid.measure(tile_rect);
     let pool = &data.investment_pool;
     let tiles = [
-        ("Total", format_rm_stock(pool.total_rm), palette::GOLD),
-        ("Private", format_rm_stock(pool.private_rm), palette::GOOD),
-        ("Cartel", format_rm_stock(pool.cartel_rm), palette::WARN),
+        ("总额", format_rm_stock(pool.total_rm), palette::GOLD),
+        ("私人", format_rm_stock(pool.private_rm), palette::GOOD),
+        ("卡特尔", format_rm_stock(pool.cartel_rm), palette::WARN),
         (
-            "Bank",
+            "银行",
             format_rm_stock(pool.state_development_bank_rm),
             palette::INFO,
         ),
         (
-            "Foreign",
+            "外资",
             format_rm_stock(pool.foreign_capital_rm),
             palette::COLD_STEEL,
         ),
-        ("Spent", format_rm_stock(pool.spent_rm), palette::BAD),
+        ("已用", format_rm_stock(pool.spent_rm), palette::BAD),
     ];
     for (idx, (label, value, color)) in tiles.iter().enumerate() {
         Tile::new(label, value)
@@ -586,9 +581,9 @@ fn v9_construction_side(
 
     let mut y = tile_rect.bottom() + spacing::S5;
     let toggle_label = if data.auto_build_enabled {
-        "Disable auto"
+        "关闭自动"
     } else {
-        "Enable auto"
+        "启用自动"
     };
     if Button::new(toggle_label)
         .size(ButtonSize::Md)
@@ -652,7 +647,7 @@ fn v9_construction_side(
         ui.painter().text(
             Pos2::new(inner.left(), y),
             Align2::LEFT_TOP,
-            "Queue controls",
+            "队列控制",
             TextRole::Subheading.font_id(),
             palette::GOLD,
         );

@@ -144,7 +144,7 @@ fn v9_show_naval(ctx: &egui::Context, data: &NavalData) -> (bool, Vec<NavalComma
     };
 
     let (close, _) = PanelShell::new("naval_panel_v9", "海军司令部")
-        .subtitle("Fleet List / Mission Ribbon")
+        .subtitle("舰队列表 / 任务指令")
         .class(PanelClass::MilitaryDiplomacy)
         .accent(accent)
         .footer("Q Close  |  Fleet DataTable / Mission orders")
@@ -173,7 +173,7 @@ fn v9_show_naval(ctx: &egui::Context, data: &NavalData) -> (bool, Vec<NavalComma
                     ("运输船", format!("{:.0}", data.convoys), palette::GOLD),
                 ],
             );
-            draw_tab_strip(ui, layout.tabs, "Fleet DataTable / Mission Ribbon", accent);
+            draw_tab_strip(ui, layout.tabs, "舰队表 / 任务指令", accent);
             v9_naval_body(ui, layout.body, data, &mut commands);
         });
     (close, commands)
@@ -206,7 +206,7 @@ fn v9_naval_table(ui: &mut egui::Ui, rect: egui::Rect, data: &NavalData) {
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "舰队 DataTable",
+        "舰队表",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );

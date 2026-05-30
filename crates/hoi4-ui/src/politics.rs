@@ -240,15 +240,14 @@ fn v9_show_politics(
                         format!("{:.0}%", data.war_support * 100.0),
                         v9_percent_color(data.war_support),
                     ),
-                    ("Ruling", format!("{:.0}%", ruling_support * 100.0), accent),
+                    (
+                        tr("ruling_party"),
+                        format!("{:.0}%", ruling_support * 100.0),
+                        accent,
+                    ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "Regime / Ideology / Spirits / Advisors",
-                accent,
-            );
+            draw_tab_strip(ui, layout.tabs, "政权 / 意识形态 / 国家精神 / 顾问", accent);
             let mut cmds = Vec::new();
             v9_politics_body(ui, layout.body, data, icon_bank, &mut cmds);
             cmds
@@ -365,10 +364,7 @@ fn v9_leader_card(
             palette::BRASS_BRIGHT,
         );
 
-        let focus_label = data
-            .current_focus_name
-            .as_deref()
-            .unwrap_or("No focus selected");
+        let focus_label = data.current_focus_name.as_deref().unwrap_or("未选择国策");
         ui.painter().text(
             Pos2::new(detail.left(), detail.top() + 96.0),
             egui::Align2::LEFT_TOP,
@@ -390,7 +386,7 @@ fn v9_leader_card(
             Pos2::new(detail.right() - 124.0, detail.top() + 106.0),
             Vec2::new(120.0, 30.0),
         );
-        if Button::new("Focus")
+        if Button::new("国策")
             .size(ButtonSize::Md)
             .variant(ButtonVariant::Secondary)
             .enabled(data.focus_available)

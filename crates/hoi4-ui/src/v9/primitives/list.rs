@@ -68,7 +68,7 @@ impl ListView {
                 Pos2::new(rect.min.x, rect.min.y + self.row_height * i as f32),
                 Pos2::new(rect.max.x, rect.min.y + self.row_height * (i + 1) as f32),
             );
-            let id = ui.id().with(("v9_list", item.id));
+            let id = ui.id().with(("v9_list", item.id, rect_id_key(row_rect)));
             let resp = ui.interact(row_rect, id, Sense::click());
             let is_selected = *selected == Some(item.id);
             let ctx = ui.ctx().clone();
@@ -192,7 +192,16 @@ fn paint_row(
         rect.min.x + spacing::S5
     };
 
-    painter.text(
+    let trailing_w = if item.trailing.is_some() { 76.0 } else { 0.0 };
+    let label_clip = Rect::from_min_max(
+        Pos2::new(text_x, rect.top()),
+        Pos2::new(
+            (rect.right() - spacing::S5 - trailing_w).max(text_x),
+            rect.bottom(),
+        ),
+    );
+    let label_painter = painter.with_clip_rect(label_clip);
+    label_painter.text(
         Pos2::new(text_x, rect.center().y),
         Align2::LEFT_CENTER,
         item.label,
@@ -205,7 +214,15 @@ fn paint_row(
     );
 
     if let Some(t) = item.trailing {
-        painter.text(
+        let trailing_clip = Rect::from_min_max(
+            Pos2::new(
+                (rect.right() - spacing::S5 - trailing_w).max(text_x),
+                rect.top(),
+            ),
+            Pos2::new(rect.right() - spacing::S3, rect.bottom()),
+        );
+        let trailing_painter = painter.with_clip_rect(trailing_clip);
+        trailing_painter.text(
             Pos2::new(rect.max.x - spacing::S5, rect.center().y),
             Align2::RIGHT_CENTER,
             t,
@@ -217,4 +234,13 @@ fn paint_row(
             },
         );
     }
+}
+
+fn rect_id_key(rect: Rect) -> (i32, i32, i32, i32) {
+    (
+        rect.min.x.round() as i32,
+        rect.min.y.round() as i32,
+        rect.width().round() as i32,
+        rect.height().round() as i32,
+    )
 }

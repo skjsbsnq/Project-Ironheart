@@ -200,7 +200,7 @@ fn v9_show_finance(ctx: &egui::Context, data: &FinancePanelData) -> (bool, Vec<F
     };
 
     let (close, output) = PanelShell::new("finance_panel_v9", tr("v6_finance_panel_title"))
-        .subtitle("Treasury / budget / debt instruments")
+        .subtitle("财政部 / 预算 / 债务工具")
         .class(PanelClass::Economy)
         .accent(accent)
         .footer("Q Close  |  Budget table / Financing actions")
@@ -219,7 +219,7 @@ fn v9_show_finance(ctx: &egui::Context, data: &FinancePanelData) -> (bool, Vec<F
                         },
                     ),
                     (
-                        "Daily net",
+                        "日净额",
                         signed_million(daily_balance),
                         v9_finance_balance_color(daily_balance),
                     ),
@@ -229,12 +229,12 @@ fn v9_show_finance(ctx: &egui::Context, data: &FinancePanelData) -> (bool, Vec<F
                         palette::INFO,
                     ),
                     (
-                        "Debt/GDP",
+                        "债务/GDP",
                         format!("{:.1}%", debt_ratio * 100.0),
                         v9_finance_debt_color(debt_ratio),
                     ),
                     (
-                        "MEFO/GDP",
+                        "梅福/GDP",
                         format!("{:.1}%", mefo_ratio * 100.0),
                         v9_finance_mefo_color(mefo_ratio),
                     ),
@@ -245,12 +245,7 @@ fn v9_show_finance(ctx: &egui::Context, data: &FinancePanelData) -> (bool, Vec<F
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "Tile grid / Income-expense table / Actions",
-                accent,
-            );
+            draw_tab_strip(ui, layout.tabs, "指标卡 / 收支表 / 操作", accent);
             let mut cmds = Vec::new();
             v9_finance_body(ui, layout.body, data, debt_ratio, mefo_ratio, &mut cmds);
             cmds
@@ -307,7 +302,7 @@ fn v9_finance_tile_grid(
     ui.painter().text(
         inner.left_top(),
         Align2::LEFT_TOP,
-        "Treasury",
+        "国库",
         TextRole::Heading.font_id(),
         palette::BRASS_BRIGHT,
     );
@@ -334,43 +329,43 @@ fn v9_finance_tile_grid(
     };
     let tiles = [
         (
-            "Reserve",
+            "储备",
             format!("GBP {}", format_million(data.reserve_gbp)),
             palette::INFO,
             TileTrend::None,
         ),
         (
-            "Gold",
+            "黄金",
             format!("{:.0} kg", data.gold_kg),
             palette::GOLD,
             TileTrend::None,
         ),
         (
-            "Rating",
+            "评级",
             data.credit_rating.clone(),
             v9_rating_color(&data.credit_rating),
             TileTrend::None,
         ),
         (
-            "Exchange",
+            "汇率",
             format!("{:.2}", data.exchange_rate_rm_per_gbp),
             palette::INFO,
             TileTrend::None,
         ),
         (
-            "GDP",
+            tr("gdp"),
             format_million(data.gdp_rm),
             palette::GOLD,
             TileTrend::None,
         ),
         (
-            "Cash cover",
+            "现金覆盖",
             format!("{:.0}d", cash_days),
             v9_finance_cover_color(cash_days),
             TileTrend::None,
         ),
         (
-            "Operating",
+            "经营",
             signed_million(data.operating_income_rm - data.operating_expense_rm),
             v9_finance_balance_color(data.operating_income_rm - data.operating_expense_rm),
             if data.operating_income_rm >= data.operating_expense_rm {
@@ -380,7 +375,7 @@ fn v9_finance_tile_grid(
             },
         ),
         (
-            "Post finance",
+            "融资后",
             signed_million(data.post_financing_cash_change_rm),
             v9_finance_balance_color(data.post_financing_cash_change_rm),
             if data.post_financing_cash_change_rm >= 0.0 {
@@ -466,7 +461,7 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
     for (label, amount) in income_items {
         rows.push(
             TableRow::new(vec![
-                TableCell::colored("Income", palette::GOOD),
+                TableCell::colored("收入", palette::GOOD),
                 TableCell::strong(label),
                 TableCell::colored(format_million(amount), palette::GOOD).right(),
             ])
@@ -515,7 +510,7 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
             tr("v6_budget_expense_mefo_forced"),
             data.budget_breakdown.expense_mefo_forced_payment_rm,
         ),
-        ("Research", data.budget_breakdown.expense_research_rm),
+        ("科研", data.budget_breakdown.expense_research_rm),
         (
             tr("v6_budget_expense_other"),
             data.budget_breakdown.expense_other_rm,
@@ -524,7 +519,7 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
     for (label, amount) in expense_items {
         rows.push(
             TableRow::new(vec![
-                TableCell::colored("Expense", palette::BAD),
+                TableCell::colored("支出", palette::BAD),
                 TableCell::strong(label),
                 TableCell::colored(format_million(amount), palette::BAD).right(),
             ])
@@ -534,10 +529,10 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
     rows.push(
         TableRow::new(vec![
             TableCell::colored(
-                "Net",
+                "净额",
                 v9_finance_balance_color(data.daily_income_rm - data.daily_expense_rm),
             ),
-            TableCell::strong("Daily balance"),
+            TableCell::strong("日结余"),
             TableCell::colored(
                 signed_million(data.daily_income_rm - data.daily_expense_rm),
                 v9_finance_balance_color(data.daily_income_rm - data.daily_expense_rm),
@@ -551,9 +546,9 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
 
     DataTable::new(
         vec![
-            TableColumn::new("Side", 0.65),
-            TableColumn::new("Line item", 1.55),
-            TableColumn::new("RM/day", 0.85).right(),
+            TableColumn::new("方向", 0.65),
+            TableColumn::new("项目", 1.55),
+            TableColumn::new("RM/日", 0.85).right(),
         ],
         rows,
     )
@@ -660,32 +655,32 @@ fn v9_finance_action_panel(
     let table_top = y + spacing::S3;
     let rows = vec![
         TableRow::new(vec![
-            TableCell::strong("MEFO issued"),
+            TableCell::strong("梅福签发"),
             TableCell::new(format_million(data.financing_breakdown.mefo_issued_rm)).right(),
         ]),
         TableRow::new(vec![
-            TableCell::strong("MEFO interest"),
+            TableCell::strong("梅福利息"),
             TableCell::new(format_million(
                 data.financing_breakdown.mefo_interest_capitalized_rm,
             ))
             .right(),
         ]),
         TableRow::new(vec![
-            TableCell::strong("Domestic bonds"),
+            TableCell::strong("国内债券"),
             TableCell::new(format_million(
                 data.financing_breakdown.domestic_bond_issued_rm,
             ))
             .right(),
         ]),
         TableRow::new(vec![
-            TableCell::strong("MEFO cover"),
+            TableCell::strong("梅福覆盖"),
             TableCell::new(format_million(data.mefo_coverage_rm)).right(),
         ]),
     ];
     DataTable::new(
         vec![
-            TableColumn::new("Instrument", 1.2),
-            TableColumn::new("Value", 0.9).right(),
+            TableColumn::new("工具", 1.2),
+            TableColumn::new("数值", 0.9).right(),
         ],
         rows,
     )
@@ -701,9 +696,9 @@ fn v9_finance_action_panel(
     let status = if data.is_foreign_exchange_control {
         tr("v6_finance_forex_control").to_owned()
     } else if deficit > 0.0 {
-        format!("Daily deficit {}", format_million(deficit))
+        format!("日赤字 {}", format_million(deficit))
     } else {
-        "Treasury flow is positive.".to_owned()
+        "国库现金流为正。".to_owned()
     };
     let status_color = if deficit > 0.0 {
         palette::WARN

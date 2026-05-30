@@ -76,7 +76,7 @@ impl ProvinceMenu {
                     Pos2::new(inner.right() - 28.0, inner.top() - 2.0),
                     Vec2::new(28.0, 24.0),
                 );
-                if Button::new("X")
+                if Button::new("×")
                     .size(ButtonSize::Sm)
                     .variant(ButtonVariant::Ghost)
                     .show_at(ui, close_rect)

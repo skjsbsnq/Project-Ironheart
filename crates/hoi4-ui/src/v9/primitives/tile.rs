@@ -45,7 +45,11 @@ impl<'a> Tile<'a> {
     pub fn show_at(&self, ui: &mut Ui, rect: Rect) {
         let ctx = ui.ctx().clone();
         profiler::measure_ctx(&ctx, "tile", || self.draw(ui.painter(), rect));
-        let response = ui.interact(rect, ui.id().with(self.label), egui::Sense::hover());
+        let response = ui.interact(
+            rect,
+            ui.id().with(("tile", self.label, rect_id_key(rect))),
+            egui::Sense::hover(),
+        );
         sound::hook_response_auto(&format!("tile:{}", self.label), &response, true);
     }
 
@@ -131,18 +135,25 @@ impl<'a> Tile<'a> {
         );
 
         let text_x = well.left() + spacing::S6;
-        painter.text(
+        let text_painter = painter.with_clip_rect(well.shrink2(Vec2::new(spacing::S6, 0.0)));
+        text_painter.text(
             Pos2::new(text_x, well.top() + spacing::S3),
             Align2::LEFT_TOP,
             self.label,
             TextRole::Caption.font_id(),
             palette::PARCHMENT_DIM,
         );
-        painter.text(
+        let mut value_font = TextRole::Heading.font_id();
+        let available_w = (well.right() - text_x - spacing::S3).max(12.0);
+        let approx_w = self.value.chars().count() as f32 * value_font.size * 0.58;
+        if approx_w > available_w {
+            value_font.size *= (available_w / approx_w).clamp(0.72, 1.0);
+        }
+        text_painter.text(
             Pos2::new(text_x, well.bottom() - spacing::S3),
             Align2::LEFT_BOTTOM,
             self.value,
-            TextRole::Heading.font_id(),
+            value_font,
             accent,
         );
 
@@ -170,4 +181,13 @@ impl<'a> Tile<'a> {
             );
         }
     }
+}
+
+fn rect_id_key(rect: Rect) -> (i32, i32, i32, i32) {
+    (
+        rect.min.x.round() as i32,
+        rect.min.y.round() as i32,
+        rect.width().round() as i32,
+        rect.height().round() as i32,
+    )
 }
