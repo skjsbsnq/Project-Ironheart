@@ -4499,6 +4499,7 @@ impl App {
         let mut icon_bank = hoi4_ui::icons::IconBank::new(ui.ctx.clone(), self.path_cfg.clone());
         icon_bank.add_search_dir("gfx/interface/ideas");
         icon_bank.add_search_dir("gfx/interface/idea_categories");
+        icon_bank.add_search_dir("gfx/event_pictures");
         icon_bank.add_search_dir("gfx/interface");
         // Register DLC leader portrait directories before base-game directories.
         {
@@ -5728,17 +5729,32 @@ impl App {
                                 Self::v6_next_construction_level(&self.world, building_key, sid);
                             let order = hoi4_logic::economy::BuildOrder::new(building_key, sid)
                                 .with_level(target_level);
-                            let _ = self.econ.enqueue_construction_checked(
+                            match self.econ.enqueue_construction_checked(
                                 player_cid,
                                 order,
                                 &self.world,
                                 &self.v6_db,
-                            );
+                            ) {
+                                Ok(()) => {
+                                    self.ui_sounds
+                                        .play_with_fallback(UiSound::OptionClick, UiSound::Click);
+                                }
+                                Err(reason) => {
+                                    println!(
+                                        "[construction] could not queue {} in {}: {:?}",
+                                        building_key, self.world.states.names[si], reason
+                                    );
+                                    self.ui_sounds
+                                        .play_with_fallback(UiSound::Click, UiSound::Click);
+                                }
+                            }
                             // 涓嶉€€鍑哄缓閫犳ā寮忊€斺€旂帺瀹跺彲浠ヨ繛缁偣鍑诲涓渷浠藉缓閫犲悓绫诲缓绛戙€?                            // 鎸?ESC 鎴栧彸閿墠閫€鍑?construction_mode銆?                        } else {
                             println!(
                                 "[construction] state {} is full ({}/{})",
                                 self.world.states.names[si], used, max
                             );
+                            self.ui_sounds
+                                .play_with_fallback(UiSound::Click, UiSound::Click);
                         }
                     }
                 }
@@ -9742,6 +9758,7 @@ impl App {
                         entries,
                         queue,
                         buildable_catalog,
+                        active_construction_key: self.construction_mode.clone(),
                         available_cp: total_cp,
                         total_cp,
                         gdp_gbp: treasury.gdp_gbp,
@@ -11353,11 +11370,25 @@ impl App {
                 self.last_event_sound_id = front_event_id.clone();
             }
 
-            event_cmd = hoi4_ui::event_panel::show_event_modal(ctx, event_scheduler, |id, idx| {
-                let Some(ev) = event_scheduler.db.find(id) else { return false; };
-                let Some(opt) = ev.options.get(idx) else { return false; };
-                hoi4_content::eval_trigger(&opt.trigger, event_world, event_country, event_flags)
-            });
+            event_cmd = hoi4_ui::event_panel::show_event_modal_with_icons(
+                ctx,
+                event_scheduler,
+                icon_bank,
+                |id, idx| {
+                    let Some(ev) = event_scheduler.db.find(id) else {
+                        return false;
+                    };
+                    let Some(opt) = ev.options.get(idx) else {
+                        return false;
+                    };
+                    hoi4_content::eval_trigger(
+                        &opt.trigger,
+                        event_world,
+                        event_country,
+                        event_flags,
+                    )
+                },
+            );
 
             // P1.1：投降/和平通知弹窗（不暂停游戏）
             if !pending_surrender_notifications.is_empty() {
@@ -11409,7 +11440,7 @@ impl App {
             let sound = match event.event {
                 hoi4_ui::v9::sound::V9SoundEvent::Hover => UiSound::Hover,
                 hoi4_ui::v9::sound::V9SoundEvent::Click => UiSound::Click,
-                hoi4_ui::v9::sound::V9SoundEvent::Error => UiSound::EventPopup,
+                hoi4_ui::v9::sound::V9SoundEvent::Error => UiSound::Click,
                 hoi4_ui::v9::sound::V9SoundEvent::Page => UiSound::PageFlip,
                 hoi4_ui::v9::sound::V9SoundEvent::Modal => UiSound::EventPopup,
             };

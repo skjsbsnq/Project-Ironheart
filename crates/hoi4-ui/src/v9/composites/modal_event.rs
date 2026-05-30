@@ -18,6 +18,7 @@ pub fn show_event_modal(
     ctx: &egui::Context,
     event: &ContentEvent,
     queue_extra: usize,
+    mut icon_bank: Option<&mut crate::icons::IconBank>,
     mut option_trigger_satisfied: impl FnMut(usize) -> bool,
 ) -> Option<usize> {
     let title = localized_event_title(event);
@@ -38,6 +39,7 @@ pub fn show_event_modal(
         } else {
             palette::BRASS_BRIGHT
         })
+        .open_sound(false)
         .show(ctx, |ui, body| {
             let rows = GridLayout::new(
                 vec![
@@ -51,7 +53,13 @@ pub fn show_event_modal(
             .with_gutter(0.0, spacing::S4);
             let cells = rows.measure(body);
             draw_meta(ui, GridLayout::cell(&cells, 0, 0), event, queue_extra);
-            draw_picture_and_description(ui, GridLayout::cell(&cells, 1, 0), event, &desc);
+            draw_picture_and_description(
+                ui,
+                GridLayout::cell(&cells, 1, 0),
+                event,
+                icon_bank.as_deref_mut(),
+                &desc,
+            );
             draw_options(
                 ui,
                 GridLayout::cell(&cells, 2, 0),
@@ -115,6 +123,7 @@ fn draw_picture_and_description(
     ui: &mut egui::Ui,
     rect: Rect,
     event: &ContentEvent,
+    icon_bank: Option<&mut crate::icons::IconBank>,
     description: &str,
 ) {
     let grid = GridLayout::new(
@@ -125,30 +134,31 @@ fn draw_picture_and_description(
     let cells = grid.measure(rect);
     let picture = GridLayout::cell(&cells, 0, 0);
     let desc = GridLayout::cell(&cells, 0, 1);
-    let painter = ui.painter();
+    let painter = ui.painter().clone();
 
-    paint::paint_recessed_panel(painter, picture, 1.0);
+    paint::paint_recessed_panel(&painter, picture, 1.0);
     painter.rect_stroke(
         picture,
         egui::epaint::CornerRadius::same(1),
         Stroke::new(1.0, palette::EDGE_DARK),
         StrokeKind::Inside,
     );
-    paint::paint_plate_grain(painter, picture.shrink(4.0), 4.0, 2);
-    let picture_label = if event.picture.is_empty() {
-        "EVENT PICTURE"
+    let image_rect = picture.shrink(5.0);
+    let texture = if event.picture.is_empty() {
+        None
     } else {
-        event.picture.as_str()
+        icon_bank.and_then(|bank| bank.get_or_load(&event.picture))
     };
-    painter.text(
-        picture.center(),
-        Align2::CENTER_CENTER,
-        picture_label,
-        TextRole::Code.font_id(),
-        palette::MUTED,
-    );
+    if let Some(handle) = texture {
+        ui.put(
+            image_rect,
+            egui::Image::from_texture(handle).fit_to_exact_size(image_rect.size()),
+        );
+    } else {
+        draw_event_picture_fallback(ui, image_rect, event);
+    }
 
-    paint::paint_recessed_panel(painter, desc, 1.0);
+    paint::paint_recessed_panel(&painter, desc, 1.0);
     let text_rect = desc.shrink2(Vec2::new(spacing::S4, spacing::S4));
     let galley = painter.layout(
         description.to_owned(),
@@ -157,6 +167,42 @@ fn draw_picture_and_description(
         text_rect.width(),
     );
     painter.galley(text_rect.min, galley, palette::PARCHMENT);
+}
+
+fn draw_event_picture_fallback(ui: &mut egui::Ui, rect: Rect, event: &ContentEvent) {
+    let painter = ui.painter();
+    paint::paint_plate_grain(painter, rect, 4.0, 3);
+    let tint = if matches!(event.scope, hoi4_content::EventScope::News) {
+        palette::INFO
+    } else {
+        palette::BRASS_DARK
+    };
+    painter.rect_filled(
+        Rect::from_min_max(
+            rect.min,
+            Pos2::new(rect.left() + rect.width() * 0.34, rect.bottom()),
+        ),
+        egui::epaint::CornerRadius::same(1),
+        Color32::from_rgba_premultiplied(tint.r(), tint.g(), tint.b(), 36),
+    );
+    painter.line_segment(
+        [
+            Pos2::new(rect.left() + rect.width() * 0.12, rect.bottom() - 8.0),
+            Pos2::new(rect.right() - 10.0, rect.top() + 10.0),
+        ],
+        Stroke::new(1.0, Color32::from_white_alpha(28)),
+    );
+    painter.text(
+        rect.center(),
+        Align2::CENTER_CENTER,
+        if matches!(event.scope, hoi4_content::EventScope::News) {
+            tr("news_picture")
+        } else {
+            tr("event_picture")
+        },
+        TextRole::Caption.font_id(),
+        palette::MUTED,
+    );
 }
 
 fn draw_options(
@@ -222,8 +268,18 @@ fn option_row(
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    ui.painter().text(
-        Pos2::new(rect.left() + spacing::S5, rect.center().y),
+    let preview_left = if effect_preview.is_empty() {
+        rect.right() - spacing::S5
+    } else {
+        rect.left() + rect.width() * 0.46
+    };
+    let label_rect = Rect::from_min_max(
+        Pos2::new(rect.left() + spacing::S5, rect.top()),
+        Pos2::new(preview_left - spacing::S3, rect.bottom()),
+    );
+    let label_painter = ui.painter().with_clip_rect(label_rect);
+    label_painter.text(
+        Pos2::new(label_rect.left(), label_rect.center().y),
         Align2::LEFT_CENTER,
         label,
         TextRole::Subheading.font_id(),
@@ -234,8 +290,13 @@ fn option_row(
         },
     );
     if !effect_preview.is_empty() {
-        ui.painter().text(
-            Pos2::new(rect.right() - spacing::S5, rect.center().y),
+        let preview_rect = Rect::from_min_max(
+            Pos2::new(preview_left, rect.top()),
+            Pos2::new(rect.right() - spacing::S5, rect.bottom()),
+        );
+        let preview_painter = ui.painter().with_clip_rect(preview_rect);
+        preview_painter.text(
+            Pos2::new(preview_rect.right(), preview_rect.center().y),
             Align2::RIGHT_CENTER,
             effect_preview,
             TextRole::Caption.font_id(),

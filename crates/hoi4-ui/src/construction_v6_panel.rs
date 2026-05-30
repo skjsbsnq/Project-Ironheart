@@ -10,7 +10,6 @@ const MUTED: Color32 = components::MUTED;
 const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
 const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x31, 0x24, 0x18);
 const STROKE_DARK: Color32 = Color32::from_rgb(0x5a, 0x44, 0x2c);
-const GOOD: Color32 = Color32::from_rgb(0x70, 0xc8, 0x78);
 const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
 
 #[derive(Debug, Clone)]
@@ -107,6 +106,7 @@ pub struct ConstructionV6PanelData {
     pub entries: Vec<BuildingTypeV6Entry>,
     pub queue: Vec<ConstructionQueueV6Entry>,
     pub buildable_catalog: Vec<BuildableBuildingEntry>,
+    pub active_construction_key: Option<String>,
     pub available_cp: f32,
     pub total_cp: f32,
     pub gdp_gbp: f64,
@@ -159,6 +159,28 @@ enum ConstructionPanelTab {
     Queue,
     Existing,
     Problems,
+}
+
+impl ConstructionPanelTab {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Overview => "investment",
+            Self::Catalog => "catalog",
+            Self::Queue => "queue",
+            Self::Existing => "existing",
+            Self::Problems => "problems",
+        }
+    }
+
+    fn from_id(id: &str) -> Self {
+        match id {
+            "investment" => Self::Overview,
+            "queue" => Self::Queue,
+            "existing" => Self::Existing,
+            "problems" => Self::Problems,
+            _ => Self::Catalog,
+        }
+    }
 }
 
 impl ConstructionV6Panel {
@@ -289,10 +311,29 @@ fn v9_show_construction(
     ctx: &egui::Context,
     data: &ConstructionV6PanelData,
 ) -> (bool, Vec<ConstructionV6Command>) {
-    use crate::v9::composites::panel_shell::{
-        draw_summary_tiles, draw_tab_strip, PanelClass, PanelShell,
-    };
+    use crate::v9::composites::panel_shell::{draw_summary_tiles, PanelClass, PanelShell};
     use crate::v9::tokens::palette;
+
+    let tab_id = egui::Id::new("buildings_panel_v9_tab");
+    let selected_catalog_id = egui::Id::new("buildings_panel_v9_selected_catalog");
+    let selected_building_id = egui::Id::new("buildings_panel_v9_selected_building");
+    let mut tab = ctx
+        .data_mut(|d| d.get_persisted::<ConstructionPanelTab>(tab_id))
+        .unwrap_or(ConstructionPanelTab::Catalog);
+    let mut selected_catalog = ctx
+        .data_mut(|d| d.get_persisted::<Option<String>>(selected_catalog_id))
+        .unwrap_or_else(|| {
+            data.buildable_catalog
+                .first()
+                .map(|entry| entry.building_def_id.clone())
+        });
+    let mut selected_building = ctx
+        .data_mut(|d| d.get_persisted::<Option<String>>(selected_building_id))
+        .unwrap_or_else(|| {
+            data.entries
+                .first()
+                .map(|entry| entry.building_def_id.clone())
+        });
 
     let cp_ratio = if data.total_cp > 0.0 {
         (data.available_cp / data.total_cp).clamp(0.0, 1.0)
@@ -306,8 +347,17 @@ fn v9_show_construction(
     } else {
         palette::GOLD
     };
+    let active_building_name = data.active_construction_key.as_deref().and_then(|key| {
+        data.buildable_catalog
+            .iter()
+            .find(|entry| entry.building_def_id == key)
+            .map(|entry| entry.building_name.as_str())
+    });
+    let subtitle = active_building_name
+        .map(|name| format!("建造模式：{}", name))
+        .unwrap_or_else(|| "V6 经济".to_owned());
     let (close, output) = PanelShell::new("construction_v6_panel_v9", tr("buildings_panel_title"))
-        .subtitle("V6 经济")
+        .subtitle(&subtitle)
         .class(PanelClass::Economy)
         .accent(accent)
         .footer("Q Close  |  Queue / Buildings / Investment")
@@ -356,19 +406,66 @@ fn v9_show_construction(
                     ),
                 ],
             );
-            draw_tab_strip(ui, layout.tabs, "队列 / 现有建筑 / 投资池", accent);
+            v9_construction_tabs(ui, layout.tabs, &mut tab, data, accent);
             let mut cmds = Vec::new();
-            v9_construction_body(ui, layout.body, data, cp_ratio, &mut cmds);
+            v9_construction_body(
+                ui,
+                layout.body,
+                data,
+                cp_ratio,
+                tab,
+                &mut selected_catalog,
+                &mut selected_building,
+                &mut cmds,
+            );
             cmds
         });
+    ctx.data_mut(|d| {
+        d.insert_persisted(tab_id, tab);
+        d.insert_persisted(selected_catalog_id, selected_catalog);
+        d.insert_persisted(selected_building_id, selected_building);
+    });
     (close, output.unwrap_or_default())
 }
 
+fn v9_construction_tabs(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    tab: &mut ConstructionPanelTab,
+    data: &ConstructionV6PanelData,
+    _accent: egui::Color32,
+) {
+    use crate::v9::primitives::{TabBar, TabItem};
+
+    let queue_label = format!("队列 {}", data.queue.len());
+    let problem_count = data
+        .entries
+        .iter()
+        .filter(|entry| is_problem_entry(entry))
+        .count();
+    let problem_label = format!("问题 {}", problem_count);
+    let mut active = tab.id();
+    let items = [
+        TabItem::new("catalog", "建造目录").with_badge(data.buildable_catalog.len() as u32),
+        TabItem::new("queue", &queue_label).with_badge(data.queue.len() as u32),
+        TabItem::new("existing", "现有建筑").with_badge(data.entries.len() as u32),
+        TabItem::new("problems", &problem_label).with_badge(problem_count as u32),
+        TabItem::new("investment", "投资池"),
+    ];
+    if let Some(clicked) = TabBar::show_at(ui, rect, &items, &mut active) {
+        *tab = ConstructionPanelTab::from_id(clicked);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn v9_construction_body(
     ui: &mut egui::Ui,
     rect: egui::Rect,
     data: &ConstructionV6PanelData,
     cp_ratio: f32,
+    tab: ConstructionPanelTab,
+    selected_catalog: &mut Option<String>,
+    selected_building: &mut Option<String>,
     cmds: &mut Vec<ConstructionV6Command>,
 ) {
     use crate::v9::{
@@ -377,21 +474,578 @@ fn v9_construction_body(
     };
 
     ui.allocate_ui_at_rect(rect, |ui| {
-        let grid = GridLayout::new(vec![Track::Fr(1.0)], vec![Track::Fr(0.64), Track::Fr(0.36)])
+        let grid = GridLayout::new(vec![Track::Fr(1.0)], vec![Track::Fr(0.58), Track::Fr(0.42)])
             .with_gutter(spacing::S5, 0.0);
         let cells = grid.measure(rect);
-        let left = GridLayout::cell(&cells, 0, 0);
-        let right = GridLayout::cell(&cells, 0, 1);
-        let left_grid =
-            GridLayout::new(vec![Track::Fr(0.44), Track::Fr(0.56)], vec![Track::Fr(1.0)])
-                .with_gutter(0.0, spacing::S5);
-        let left_cells = left_grid.measure(left);
-        v9_construction_queue(ui, GridLayout::cell(&left_cells, 0, 0), data);
-        v9_construction_buildings(ui, GridLayout::cell(&left_cells, 1, 0), data);
-        v9_construction_side(ui, right, data, cp_ratio, cmds);
+        let main = GridLayout::cell(&cells, 0, 0);
+        let detail = GridLayout::cell(&cells, 0, 1);
+        match tab {
+            ConstructionPanelTab::Catalog => {
+                v9_catalog_list_panel(ui, main, data, selected_catalog, cmds);
+                v9_catalog_detail_panel(ui, detail, data, selected_catalog, cmds);
+            }
+            ConstructionPanelTab::Queue => {
+                v9_queue_panel(ui, main, data, cmds);
+                v9_investment_detail_panel(ui, detail, data, cp_ratio, cmds);
+            }
+            ConstructionPanelTab::Existing => {
+                v9_existing_list_panel(ui, main, data, selected_building, false);
+                v9_existing_detail_panel(ui, detail, data, selected_building, cmds);
+            }
+            ConstructionPanelTab::Problems => {
+                v9_existing_list_panel(ui, main, data, selected_building, true);
+                v9_existing_detail_panel(ui, detail, data, selected_building, cmds);
+            }
+            ConstructionPanelTab::Overview => {
+                v9_investment_overview_panel(ui, main, data, cp_ratio, cmds);
+                v9_problem_overview_panel(ui, detail, data, selected_building);
+            }
+        }
     });
 }
 
+fn v9_card_panel(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    title: &str,
+    add_contents: impl FnOnce(&mut egui::Ui, egui::Rect),
+) {
+    use crate::v9::{
+        primitives::Card,
+        tokens::{palette, spacing, TextRole},
+    };
+    use egui::{Align2, Pos2, Rect};
+
+    let inner = Card::new().as_panel().show_at(ui, rect);
+    ui.painter().text(
+        inner.left_top(),
+        Align2::LEFT_TOP,
+        title,
+        TextRole::Heading.font_id(),
+        palette::BRASS_BRIGHT,
+    );
+    let content = Rect::from_min_max(
+        Pos2::new(inner.left(), inner.top() + 34.0),
+        inner.right_bottom(),
+    )
+    .shrink2(egui::vec2(spacing::S1, spacing::S1));
+    ui.allocate_ui_at_rect(content, |ui| {
+        ui.set_clip_rect(content);
+        ui.set_min_size(content.size());
+        ui.set_width(content.width());
+        add_contents(ui, content);
+    });
+}
+
+fn v9_scroll(
+    ui: &mut egui::Ui,
+    content_rect: egui::Rect,
+    id_salt: impl std::hash::Hash,
+    add_contents: impl FnOnce(&mut egui::Ui),
+) {
+    egui::ScrollArea::vertical()
+        .id_salt(id_salt)
+        .max_height(content_rect.height())
+        .max_width(content_rect.width())
+        .auto_shrink([false, false])
+        .scroll_bar_visibility(
+            egui::containers::scroll_area::ScrollBarVisibility::VisibleWhenNeeded,
+        )
+        .show(ui, |ui| {
+            ui.set_min_width(content_rect.width());
+            ui.set_max_width(content_rect.width());
+            add_contents(ui);
+        });
+}
+
+fn v9_catalog_list_panel(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &ConstructionV6PanelData,
+    selected_catalog: &mut Option<String>,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    v9_card_panel(ui, rect, tr("buildable_buildings"), |ui, content| {
+        if data.buildable_catalog.is_empty() {
+            components::empty_state(ui, tr("no_buildable_buildings"), "");
+            return;
+        }
+        v9_scroll(ui, content, "v9_construction_catalog_list", |ui| {
+            for entry in &data.buildable_catalog {
+                v9_buildable_row(
+                    ui,
+                    entry,
+                    data.active_construction_key.as_deref(),
+                    selected_catalog,
+                    cmds,
+                );
+            }
+        });
+    });
+}
+
+fn v9_buildable_row(
+    ui: &mut egui::Ui,
+    entry: &BuildableBuildingEntry,
+    active_key: Option<&str>,
+    selected_catalog: &mut Option<String>,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    use crate::v9::{
+        paint,
+        primitives::{Button, ButtonSize, ButtonVariant},
+        tokens::{palette, radius, spacing, TextRole},
+    };
+    use egui::{Align2, Pos2, Rect, Sense, Vec2};
+
+    let selected = selected_catalog.as_deref() == Some(entry.building_def_id.as_str());
+    let active = active_key == Some(entry.building_def_id.as_str());
+    let can_start = entry.locked_reason.is_none();
+    let row_h = 68.0;
+    let (raw_rect, row_resp) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), row_h), Sense::click());
+    let row_rect = raw_rect.shrink2(Vec2::new(0.0, 1.0));
+    let fill = if active || selected {
+        palette::OIL_BLACK
+    } else if row_resp.hovered() {
+        palette::IRON_DARK
+    } else {
+        palette::SOOT_BLACK
+    };
+    let stroke = if active {
+        palette::GOLD_HOT
+    } else if selected || row_resp.hovered() {
+        palette::BRASS_DARK
+    } else {
+        palette::EDGE_DARK
+    };
+
+    if row_resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if row_resp.clicked() {
+        *selected_catalog = Some(entry.building_def_id.clone());
+    }
+
+    let painter = ui.painter().clone();
+    paint::paint_bevel(&painter, row_rect, fill, stroke, radius::R1);
+    paint::paint_plate_grain(&painter, row_rect.shrink(4.0), 3.0, 2);
+    paint::paint_speckle(&painter, row_rect.shrink(4.0), 6, 1);
+    let accent = if active {
+        palette::GOLD_HOT
+    } else if entry.locked_reason.is_some() {
+        palette::BAD
+    } else if entry.state_limit_reason.is_some() {
+        palette::WARN
+    } else {
+        palette::GOOD
+    };
+    painter.rect_filled(
+        Rect::from_min_max(
+            row_rect.min + Vec2::new(3.0, 5.0),
+            Pos2::new(row_rect.left() + 7.0, row_rect.bottom() - 5.0),
+        ),
+        egui::epaint::CornerRadius::ZERO,
+        accent,
+    );
+
+    let button_rect = Rect::from_min_size(
+        Pos2::new(row_rect.right() - 92.0, row_rect.center().y - 13.0),
+        Vec2::new(84.0, 26.0),
+    );
+    let text_left = row_rect.left() + spacing::S5;
+    let text_right = (button_rect.left() - spacing::S4).max(text_left + 12.0);
+    let title = if active {
+        format!("{}  -  建造目标", entry.building_name)
+    } else {
+        entry.building_name.clone()
+    };
+    let title_painter = painter.with_clip_rect(Rect::from_min_max(
+        Pos2::new(text_left, row_rect.top() + 5.0),
+        Pos2::new(text_right, row_rect.top() + 28.0),
+    ));
+    title_painter.text(
+        Pos2::new(text_left, row_rect.top() + 7.0),
+        Align2::LEFT_TOP,
+        title,
+        TextRole::Subheading.font_id(),
+        if active || selected {
+            palette::GOLD_HOT
+        } else {
+            palette::PARCHMENT
+        },
+    );
+
+    let group_painter = painter.with_clip_rect(Rect::from_min_max(
+        Pos2::new(text_left, row_rect.top() + 27.0),
+        Pos2::new(text_right, row_rect.top() + 43.0),
+    ));
+    group_painter.text(
+        Pos2::new(text_left, row_rect.top() + 28.0),
+        Align2::LEFT_TOP,
+        &entry.group_name,
+        TextRole::Caption.font_id(),
+        palette::PARCHMENT_DIM,
+    );
+
+    let note = entry
+        .locked_reason
+        .as_deref()
+        .or(entry.state_limit_reason.as_deref())
+        .unwrap_or("点击建造后，在地图上选择高亮州加入建造队列。");
+    let note_color = if entry.locked_reason.is_some() {
+        palette::BAD
+    } else if entry.state_limit_reason.is_some() {
+        palette::WARN
+    } else {
+        palette::MUTED
+    };
+    let note_painter = painter.with_clip_rect(Rect::from_min_max(
+        Pos2::new(text_left, row_rect.top() + 45.0),
+        Pos2::new(text_right, row_rect.bottom() - 4.0),
+    ));
+    note_painter.text(
+        Pos2::new(text_left, row_rect.top() + 47.0),
+        Align2::LEFT_TOP,
+        note,
+        TextRole::Small.font_id(),
+        note_color,
+    );
+
+    let button_resp = Button::new(if active {
+        "已选择"
+    } else if can_start {
+        "建造"
+    } else {
+        "不可建"
+    })
+    .size(ButtonSize::Sm)
+    .variant(if active {
+        ButtonVariant::Secondary
+    } else {
+        ButtonVariant::Primary
+    })
+    .enabled(can_start)
+    .show_at(ui, button_rect);
+    if can_start && button_resp.clicked() {
+        *selected_catalog = Some(entry.building_def_id.clone());
+        cmds.push(ConstructionV6Command::StartConstructionMode {
+            building_key: entry.building_def_id.clone(),
+        });
+    }
+    ui.add_space(spacing::S2);
+}
+
+fn v9_catalog_detail_panel(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &ConstructionV6PanelData,
+    selected_catalog: &mut Option<String>,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    v9_card_panel(ui, rect, "建筑详情", |ui, content| {
+        let selected = selected_catalog
+            .as_deref()
+            .and_then(|id| {
+                data.buildable_catalog
+                    .iter()
+                    .find(|entry| entry.building_def_id == id)
+            })
+            .or_else(|| data.buildable_catalog.first());
+        if let Some(entry) = selected {
+            v9_scroll(ui, content, "v9_construction_catalog_detail", |ui| {
+                render_catalog_detail(ui, entry, data, cmds);
+                if data.active_construction_key.as_deref() == Some(entry.building_def_id.as_str()) {
+                    ui.separator();
+                    ui.label(
+                        RichText::new("正在建造模式：点击地图上高亮州加入队列；右键或 ESC 退出。")
+                            .small()
+                            .color(GOLD_BRIGHT),
+                    );
+                }
+            });
+        } else {
+            components::empty_state(ui, "未选择建筑", "从左侧建造目录选择一个建筑。");
+        }
+    });
+}
+
+fn v9_queue_panel(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &ConstructionV6PanelData,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    v9_card_panel(ui, rect, tr("construction_queue"), |ui, content| {
+        v9_scroll(ui, content, "v9_construction_queue", |ui| {
+            render_queue(ui, &data.queue, cmds);
+        });
+    });
+}
+
+fn v9_existing_list_panel(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &ConstructionV6PanelData,
+    selected_building: &mut Option<String>,
+    problems_only: bool,
+) {
+    let title = if problems_only {
+        "问题建筑"
+    } else {
+        tr("existing_buildings")
+    };
+    v9_card_panel(ui, rect, title, |ui, content| {
+        let mut visible: Vec<&BuildingTypeV6Entry> = data
+            .entries
+            .iter()
+            .filter(|entry| !problems_only || is_problem_entry(entry))
+            .collect();
+        visible.sort_by(|a, b| {
+            problem_score(b)
+                .cmp(&problem_score(a))
+                .then(a.building_name.cmp(&b.building_name))
+        });
+        if visible.is_empty() {
+            components::empty_state(ui, tr("no_existing_buildings"), "");
+            return;
+        }
+        let scroll_id = if problems_only {
+            "v9_construction_problem_buildings"
+        } else {
+            "v9_construction_existing_buildings"
+        };
+        v9_scroll(ui, content, scroll_id, |ui| {
+            for entry in visible {
+                v9_existing_building_row(ui, entry, selected_building);
+            }
+        });
+    });
+}
+
+fn v9_existing_building_row(
+    ui: &mut egui::Ui,
+    entry: &BuildingTypeV6Entry,
+    selected_building: &mut Option<String>,
+) {
+    use crate::v9::{
+        paint,
+        tokens::{palette, radius, spacing, TextRole},
+    };
+    use egui::{Align2, Pos2, Rect, Sense, Vec2};
+
+    let selected = selected_building.as_deref() == Some(entry.building_def_id.as_str());
+    let has_warning = !entry.warnings.is_empty();
+    let row_h = if has_warning { 76.0 } else { 64.0 };
+    let (raw_rect, row_resp) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), row_h), Sense::click());
+    let row_rect = raw_rect.shrink2(Vec2::new(0.0, 1.0));
+    if row_resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    if row_resp.clicked() {
+        *selected_building = Some(entry.building_def_id.clone());
+    }
+
+    let accent = if has_warning {
+        palette::WARN
+    } else if entry.profit_rm_weekly < 0.0 {
+        palette::BAD
+    } else {
+        palette::GOOD
+    };
+    let fill = if selected {
+        palette::OIL_BLACK
+    } else if row_resp.hovered() {
+        palette::IRON_DARK
+    } else {
+        palette::SOOT_BLACK
+    };
+    let stroke = if selected || row_resp.hovered() {
+        palette::BRASS_DARK
+    } else {
+        palette::EDGE_DARK
+    };
+
+    let painter = ui.painter().clone();
+    paint::paint_bevel(&painter, row_rect, fill, stroke, radius::R1);
+    paint::paint_plate_grain(&painter, row_rect.shrink(4.0), 3.0, 2);
+    paint::paint_speckle(&painter, row_rect.shrink(4.0), 6, 1);
+    painter.rect_filled(
+        Rect::from_min_max(
+            row_rect.min + Vec2::new(3.0, 5.0),
+            Pos2::new(row_rect.left() + 7.0, row_rect.bottom() - 5.0),
+        ),
+        egui::epaint::CornerRadius::ZERO,
+        accent,
+    );
+
+    let text_left = row_rect.left() + spacing::S5;
+    let right_w = 150.0_f32.min((row_rect.width() * 0.42).max(104.0));
+    let title_right = (row_rect.right() - right_w - spacing::S4).max(text_left + 16.0);
+    let title_painter = painter.with_clip_rect(Rect::from_min_max(
+        Pos2::new(text_left, row_rect.top() + 5.0),
+        Pos2::new(title_right, row_rect.top() + 29.0),
+    ));
+    title_painter.text(
+        Pos2::new(text_left, row_rect.top() + 7.0),
+        Align2::LEFT_TOP,
+        &entry.building_name,
+        TextRole::Subheading.font_id(),
+        if selected {
+            palette::GOLD_HOT
+        } else {
+            palette::PARCHMENT
+        },
+    );
+
+    let right_label = format!(
+        "Lv {}  就业 {:.0}%",
+        entry.total_level,
+        entry.employment_rate.clamp(0.0, 1.0) * 100.0
+    );
+    let right_painter = painter.with_clip_rect(Rect::from_min_max(
+        Pos2::new(row_rect.right() - right_w, row_rect.top() + 5.0),
+        Pos2::new(row_rect.right() - spacing::S4, row_rect.top() + 29.0),
+    ));
+    right_painter.text(
+        Pos2::new(row_rect.right() - spacing::S4, row_rect.top() + 8.0),
+        Align2::RIGHT_TOP,
+        right_label,
+        TextRole::Numeric.font_id(),
+        accent,
+    );
+
+    let detail = if has_warning {
+        entry.warnings.join(" | ")
+    } else if !entry.output_summary.is_empty() {
+        format!("产出：{}", entry.output_summary)
+    } else if !entry.input_summary.is_empty() {
+        format!("投入：{}", entry.input_summary)
+    } else {
+        "暂无生产摘要".to_owned()
+    };
+    let detail_painter = painter.with_clip_rect(Rect::from_min_max(
+        Pos2::new(text_left, row_rect.top() + 31.0),
+        Pos2::new(row_rect.right() - spacing::S4, row_rect.bottom() - 22.0),
+    ));
+    detail_painter.text(
+        Pos2::new(text_left, row_rect.top() + 32.0),
+        Align2::LEFT_TOP,
+        detail,
+        TextRole::Caption.font_id(),
+        if has_warning {
+            palette::WARN
+        } else {
+            palette::PARCHMENT_DIM
+        },
+    );
+
+    let footer = format!("每周收支 {}", signed_rm_stock(entry.profit_rm_weekly));
+    let footer_painter = painter.with_clip_rect(Rect::from_min_max(
+        Pos2::new(text_left, row_rect.bottom() - 20.0),
+        Pos2::new(row_rect.right() - spacing::S4, row_rect.bottom() - 3.0),
+    ));
+    footer_painter.text(
+        Pos2::new(text_left, row_rect.bottom() - 18.0),
+        Align2::LEFT_TOP,
+        footer,
+        TextRole::Small.font_id(),
+        if entry.profit_rm_weekly < 0.0 {
+            palette::BAD
+        } else {
+            palette::MUTED
+        },
+    );
+    ui.add_space(spacing::S2);
+}
+
+fn v9_existing_detail_panel(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &ConstructionV6PanelData,
+    selected_building: &mut Option<String>,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    v9_card_panel(ui, rect, "建筑二级面板", |ui, content| {
+        let selected = selected_building
+            .as_deref()
+            .and_then(|id| {
+                data.entries
+                    .iter()
+                    .find(|entry| entry.building_def_id == id)
+            })
+            .or_else(|| data.entries.first());
+        if let Some(entry) = selected {
+            v9_scroll(ui, content, "v9_construction_existing_detail", |ui| {
+                render_entry(ui, entry, cmds);
+            });
+        } else {
+            components::empty_state(ui, "未选择建筑", "从左侧选择一个现有建筑查看详情。");
+        }
+    });
+}
+
+fn v9_investment_detail_panel(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &ConstructionV6PanelData,
+    cp_ratio: f32,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    v9_card_panel(ui, rect, "投资与自动建造", |ui, content| {
+        v9_scroll(ui, content, "v9_construction_investment_detail", |ui| {
+            render_command_bar(ui, data, cp_ratio, cmds);
+            render_auto_build_explanations(ui, data);
+        });
+    });
+}
+
+fn v9_investment_overview_panel(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &ConstructionV6PanelData,
+    cp_ratio: f32,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    v9_card_panel(ui, rect, "投资池", |ui, content| {
+        v9_scroll(ui, content, "v9_construction_investment_overview", |ui| {
+            render_summary(ui, data);
+            ui.add_space(6.0);
+            render_status_banner(ui, data, cp_ratio);
+            ui.add_space(6.0);
+            render_command_bar(ui, data, cp_ratio, cmds);
+        });
+    });
+}
+
+fn v9_problem_overview_panel(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &ConstructionV6PanelData,
+    selected_building: &mut Option<String>,
+) {
+    v9_card_panel(ui, rect, "问题与提示", |ui, content| {
+        v9_scroll(ui, content, "v9_construction_problem_overview", |ui| {
+            let mut shown = 0usize;
+            for entry in data.entries.iter().filter(|entry| is_problem_entry(entry)) {
+                shown += 1;
+                v9_existing_building_row(ui, entry, selected_building);
+                render_problem_card(ui, entry);
+                ui.add_space(6.0);
+            }
+            if shown == 0 {
+                components::empty_state(
+                    ui,
+                    "暂无问题建筑",
+                    "当前建筑没有明显短缺、亏损或低就业警告。",
+                );
+            }
+        });
+    });
+}
+
+#[allow(dead_code)]
 fn v9_construction_queue(ui: &mut egui::Ui, rect: egui::Rect, data: &ConstructionV6PanelData) {
     use crate::v9::{
         primitives::{Card, DataTable, TableCell, TableColumn, TableRow},
@@ -450,6 +1104,7 @@ fn v9_construction_queue(ui: &mut egui::Ui, rect: egui::Rect, data: &Constructio
     );
 }
 
+#[allow(dead_code)]
 fn v9_construction_buildings(ui: &mut egui::Ui, rect: egui::Rect, data: &ConstructionV6PanelData) {
     use crate::v9::{
         primitives::{Card, DataTable, TableCell, TableColumn, TableRow},
@@ -509,6 +1164,7 @@ fn v9_construction_buildings(ui: &mut egui::Ui, rect: egui::Rect, data: &Constru
     );
 }
 
+#[allow(dead_code)]
 fn v9_construction_side(
     ui: &mut egui::Ui,
     rect: egui::Rect,
@@ -519,9 +1175,10 @@ fn v9_construction_side(
     use crate::v9::{
         layout::{GridLayout, Track},
         primitives::{draw_progress_bar, Button, ButtonSize, ButtonVariant, Card, Tile},
+        sound,
         tokens::{palette, spacing, TextRole},
     };
-    use egui::{Align2, Pos2, Rect, Vec2};
+    use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, Vec2};
 
     let inner = Card::new().as_panel().show_at(ui, rect);
     ui.painter().text(
@@ -608,33 +1265,111 @@ fn v9_construction_side(
         palette::GOLD,
     );
     y += 26.0;
-    for entry in data.buildable_catalog.iter().take(4) {
+    let queue_controls_reserved = if data.queue.first().is_some() {
+        118.0
+    } else {
+        0.0
+    };
+    let available_rows_h = (inner.bottom() - y - queue_controls_reserved - spacing::S3).max(0.0);
+    let max_buildable_rows = ((available_rows_h / 34.0).floor() as usize).clamp(4, 9);
+    let active_key = data.active_construction_key.as_deref();
+    for entry in data.buildable_catalog.iter().take(max_buildable_rows) {
         let row = Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 30.0));
-        let locked = entry.locked_reason.is_some() || entry.state_limit_reason.is_some();
-        ui.painter().text(
-            Pos2::new(row.left(), row.center().y),
+        let button_rect = Rect::from_min_size(
+            Pos2::new(row.right() - 82.0, row.top() + 3.0),
+            Vec2::new(78.0, 24.0),
+        );
+        let label_rect = Rect::from_min_max(
+            row.left_top(),
+            Pos2::new(button_rect.left() - spacing::S2, row.bottom()),
+        );
+        let can_start = entry.locked_reason.is_none();
+        let active = active_key == Some(entry.building_def_id.as_str());
+        let response = ui.interact(
+            label_rect,
+            ui.id().with(("v9_buildable_row", &entry.building_def_id)),
+            Sense::click(),
+        );
+        sound::hook_response_auto(
+            &format!("buildable:{}", entry.building_def_id),
+            &response,
+            can_start,
+        );
+        if can_start && response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        let fill = if active {
+            Color32::from_rgba_premultiplied(
+                palette::GOLD.r(),
+                palette::GOLD.g(),
+                palette::GOLD.b(),
+                28,
+            )
+        } else if response.hovered() && can_start {
+            Color32::from_black_alpha(96)
+        } else {
+            Color32::from_black_alpha(54)
+        };
+        ui.painter()
+            .rect_filled(row, egui::epaint::CornerRadius::same(1), fill);
+        ui.painter().rect_stroke(
+            row,
+            egui::epaint::CornerRadius::same(1),
+            Stroke::new(
+                1.0,
+                if active {
+                    palette::GOLD
+                } else {
+                    palette::EDGE_DARK
+                },
+            ),
+            egui::StrokeKind::Inside,
+        );
+        let title_color = if !can_start {
+            palette::MUTED
+        } else if active {
+            palette::GOLD_HOT
+        } else {
+            palette::PARCHMENT
+        };
+        let note = entry
+            .locked_reason
+            .as_deref()
+            .or(entry.state_limit_reason.as_deref())
+            .unwrap_or(entry.group_name.as_str());
+        let text_clip = ui
+            .painter()
+            .with_clip_rect(label_rect.shrink2(Vec2::new(6.0, 0.0)));
+        text_clip.text(
+            Pos2::new(label_rect.left() + spacing::S2, row.center().y - 5.0),
             Align2::LEFT_CENTER,
             &entry.building_name,
             TextRole::Body.font_id(),
-            if locked {
-                palette::MUTED
+            title_color,
+        );
+        text_clip.text(
+            Pos2::new(label_rect.left() + spacing::S2, row.center().y + 9.0),
+            Align2::LEFT_CENTER,
+            note,
+            TextRole::Caption.font_id(),
+            if entry.locked_reason.is_some() {
+                palette::BAD
             } else {
-                palette::PARCHMENT
+                palette::MUTED
             },
         );
-        if Button::new(tr("expand_one_level"))
+        let button_label = if active { "已选择" } else { "建造" };
+        let button_clicked = Button::new(button_label)
             .size(ButtonSize::Sm)
-            .variant(ButtonVariant::Primary)
-            .enabled(!locked)
-            .show_at(
-                ui,
-                Rect::from_min_size(
-                    Pos2::new(row.right() - 88.0, row.top() + 3.0),
-                    Vec2::new(84.0, 24.0),
-                ),
-            )
-            .clicked()
-        {
+            .variant(if active {
+                ButtonVariant::Secondary
+            } else {
+                ButtonVariant::Primary
+            })
+            .enabled(can_start)
+            .show_at(ui, button_rect)
+            .clicked();
+        if can_start && (response.clicked() || button_clicked) {
             cmds.push(ConstructionV6Command::StartConstructionMode {
                 building_key: entry.building_def_id.clone(),
             });
@@ -981,11 +1716,20 @@ fn render_catalog_detail(
     data: &ConstructionV6PanelData,
     cmds: &mut Vec<ConstructionV6Command>,
 ) {
-    ui.heading(&entry.building_name);
+    use crate::v9::{
+        primitives::{Button, ButtonSize, ButtonVariant},
+        tokens::{palette, TextRole},
+    };
+
+    ui.label(
+        RichText::new(&entry.building_name)
+            .font(TextRole::Heading.font_id())
+            .color(palette::GOLD_HOT),
+    );
     ui.label(
         RichText::new(format!("分组：{}", entry.group_name))
-            .small()
-            .color(Color32::from_gray(160)),
+            .font(TextRole::Caption.font_id())
+            .color(palette::PARCHMENT_DIM),
     );
     if let Some(existing) = data
         .entries
@@ -1022,7 +1766,13 @@ fn render_catalog_detail(
             );
         }
         ui.label(RichText::new("操作影响：进入地图建造模式，点击合规州后加入建造队列；会占用建造力并增加建造开支。 ").small());
-        if ui.button(format!("建造 {}", entry.building_name)).clicked() {
+        let build_label = format!("建造 {}", entry.building_name);
+        if Button::new(&build_label)
+            .size(ButtonSize::Md)
+            .variant(ButtonVariant::Primary)
+            .show(ui)
+            .clicked()
+        {
             cmds.push(ConstructionV6Command::StartConstructionMode {
                 building_key: entry.building_def_id.clone(),
             });
@@ -1031,33 +1781,96 @@ fn render_catalog_detail(
 }
 
 fn render_problem_card(ui: &mut egui::Ui, entry: &BuildingTypeV6Entry) {
-    egui::Frame::group(ui.style())
-        .inner_margin(6.0)
-        .outer_margin(2.0)
-        .show(ui, |ui| {
-            ui.label(
-                RichText::new(format!("{} Lv {}", entry.building_name, entry.total_level)).strong(),
+    use crate::v9::{
+        paint,
+        tokens::{palette, radius, spacing, TextRole},
+    };
+    use egui::{Align2, Pos2, Rect, Sense, Vec2};
+
+    let warning_lines = entry.warnings.len().clamp(1, 3) as f32;
+    let row_h = if entry.warnings.is_empty() {
+        62.0
+    } else {
+        56.0 + warning_lines * 16.0
+    };
+    let (raw_rect, _) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), row_h), Sense::hover());
+    let rect = raw_rect.shrink2(Vec2::new(0.0, 1.0));
+    let painter = ui.painter().clone();
+    paint::paint_bevel(
+        &painter,
+        rect,
+        palette::SOOT_BLACK,
+        palette::EDGE_DARK,
+        radius::R1,
+    );
+    paint::paint_plate_grain(&painter, rect.shrink(4.0), 3.0, 2);
+    painter.rect_filled(
+        Rect::from_min_max(
+            rect.min + Vec2::new(3.0, 5.0),
+            Pos2::new(rect.left() + 7.0, rect.bottom() - 5.0),
+        ),
+        egui::epaint::CornerRadius::ZERO,
+        palette::WARN,
+    );
+
+    let left = rect.left() + spacing::S5;
+    let right = rect.right() - spacing::S4;
+    painter
+        .with_clip_rect(Rect::from_min_max(
+            Pos2::new(left, rect.top() + 6.0),
+            Pos2::new(right, rect.top() + 28.0),
+        ))
+        .text(
+            Pos2::new(left, rect.top() + 7.0),
+            Align2::LEFT_TOP,
+            format!("{} Lv {}", entry.building_name, entry.total_level),
+            TextRole::Subheading.font_id(),
+            palette::PARCHMENT,
+        );
+    painter
+        .with_clip_rect(Rect::from_min_max(
+            Pos2::new(left, rect.top() + 30.0),
+            Pos2::new(right, rect.top() + 48.0),
+        ))
+        .text(
+            Pos2::new(left, rect.top() + 31.0),
+            Align2::LEFT_TOP,
+            format!(
+                "就业 {:.0}%  |  每周收支 {:+.1}M RM",
+                entry.employment_rate.clamp(0.0, 1.0) * 100.0,
+                entry.profit_rm_weekly / 1_000_000.0,
+            ),
+            TextRole::Caption.font_id(),
+            if entry.profit_rm_weekly < 0.0 {
+                palette::BAD
+            } else {
+                palette::PARCHMENT_DIM
+            },
+        );
+
+    if !entry.warnings.is_empty() {
+        let warning_text = entry
+            .warnings
+            .iter()
+            .take(3)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" | ");
+        painter
+            .with_clip_rect(Rect::from_min_max(
+                Pos2::new(left, rect.top() + 50.0),
+                Pos2::new(right, rect.bottom() - 4.0),
+            ))
+            .text(
+                Pos2::new(left, rect.top() + 51.0),
+                Align2::LEFT_TOP,
+                warning_text,
+                TextRole::Small.font_id(),
+                palette::WARN,
             );
-            ui.label(
-                RichText::new(format!(
-                    "就业 {:.0}%｜每周收支 {:+.1}M RM",
-                    entry.employment_rate.clamp(0.0, 1.0) * 100.0,
-                    entry.profit_rm_weekly / 1_000_000.0,
-                ))
-                .small(),
-            );
-            if !entry.warnings.is_empty() {
-                ui.horizontal_wrapped(|ui| {
-                    for warning in &entry.warnings {
-                        ui.label(
-                            RichText::new(warning)
-                                .small()
-                                .color(Color32::from_rgb(0xff, 0xc0, 0x60)),
-                        );
-                    }
-                });
-            }
-        });
+    }
+    ui.add_space(spacing::S2);
 }
 
 fn catalog_matches_search(entry: &BuildableBuildingEntry, search: &str) -> bool {
@@ -1146,34 +1959,36 @@ fn render_summary(ui: &mut egui::Ui, data: &ConstructionV6PanelData) {
 }
 
 fn render_status_banner(ui: &mut egui::Ui, data: &ConstructionV6PanelData, cp_ratio: f32) {
+    use crate::v9::tokens::palette;
+
     let (label, text, color) = if data.investment_pool.total_rm <= 0.0 {
         (
             "投资池枯竭",
             "私人/法团/外资账户暂无可用资金，民间扩建会明显放慢。",
-            WARN,
+            palette::WARN,
         )
     } else if data.auto_build_enabled {
         (
             "自动建造启用",
             "系统会根据短缺、军工和建设能力自动补入队列。",
-            GOOD,
+            palette::GOOD,
         )
     } else if cp_ratio < 0.3 {
         (
             "建造能力紧张",
             "可用建造能力偏低，建议先恢复建设预算或压缩支出。",
-            WARN,
+            palette::WARN,
         )
     } else {
         (
             "建造体系稳定",
             "当前建造能力尚可，重点处理队列和问题建筑即可。",
-            GOOD,
+            palette::GOOD,
         )
     };
 
     egui::Frame::new()
-        .fill(Color32::from_rgba_premultiplied(0x1d, 0x16, 0x10, 230))
+        .fill(palette::SOOT_BLACK)
         .stroke(egui::Stroke::new(1.0, color))
         .inner_margin(egui::Margin::symmetric(10, 7))
         .show(ui, |ui| {
@@ -1187,7 +2002,7 @@ fn render_status_banner(ui: &mut egui::Ui, data: &ConstructionV6PanelData, cp_ra
                         data.queue.len()
                     ))
                     .small()
-                    .color(Color32::from_rgb(0xe0, 0xd2, 0xa8)),
+                    .color(palette::PARCHMENT),
                 );
             });
         });
@@ -1199,24 +2014,34 @@ fn render_command_bar(
     cp_ratio: f32,
     cmds: &mut Vec<ConstructionV6Command>,
 ) {
+    use crate::v9::tokens::palette;
+
     egui::Frame::new()
-        .fill(PANEL_CARD)
-        .stroke(egui::Stroke::new(1.0, STROKE_DARK))
+        .fill(palette::SOOT_BLACK)
+        .stroke(egui::Stroke::new(1.0, palette::BRASS_DARK))
         .inner_margin(egui::Margin::symmetric(10, 8))
         .show(ui, |ui| {
             ui.columns(3, |columns| {
-                columns[0].label(RichText::new("建造力").small().color(MUTED));
+                columns[0].label(
+                    RichText::new("建造力")
+                        .small()
+                        .color(palette::PARCHMENT_DIM),
+                );
                 columns[0].add(
                     egui::ProgressBar::new(cp_ratio.clamp(0.0, 1.0))
-                        .fill(GOLD_BRIGHT)
+                        .fill(palette::GOLD_HOT)
                         .text(format!("{:.0} / {:.0}", data.available_cp, data.total_cp)),
                 );
 
-                columns[1].label(RichText::new("投资池").small().color(MUTED));
+                columns[1].label(
+                    RichText::new("投资池")
+                        .small()
+                        .color(palette::PARCHMENT_DIM),
+                );
                 columns[1].label(
                     RichText::new(format_rm_stock(data.investment_pool.total_rm))
                         .strong()
-                        .color(GOLD_BRIGHT),
+                        .color(palette::GOLD_HOT),
                 );
                 columns[1].label(
                     RichText::new(format!(
@@ -1226,7 +2051,7 @@ fn render_command_bar(
                         format_rm_stock(data.investment_pool.foreign_capital_rm),
                     ))
                     .small()
-                    .color(MUTED),
+                    .color(palette::MUTED),
                 );
 
                 columns[2].horizontal_wrapped(|ui| {
@@ -1237,7 +2062,7 @@ fn render_command_bar(
                     ui.label(
                         RichText::new("每月按短缺、军工和建设能力补队列")
                             .small()
-                            .color(MUTED),
+                            .color(palette::MUTED),
                     );
                 });
             });
@@ -1255,7 +2080,7 @@ fn render_command_bar(
                         format_rm_stock(data.investment_pool.spent_rm),
                     ))
                     .small()
-                    .color(MUTED),
+                    .color(palette::MUTED),
                 );
             }
 
@@ -1331,14 +2156,25 @@ fn render_queue(
     entries: &[ConstructionQueueV6Entry],
     cmds: &mut Vec<ConstructionV6Command>,
 ) {
-    ui.label(RichText::new(tr("construction_queue")).strong());
+    use crate::v9::{
+        primitives::{Button, ButtonSize, ButtonVariant},
+        tokens::palette,
+    };
+
+    ui.label(
+        RichText::new(tr("construction_queue"))
+            .strong()
+            .color(palette::GOLD_HOT),
+    );
     if entries.is_empty() {
         ui.label(tr("empty_construction"));
         return;
     }
 
     for (idx, entry) in entries.iter().enumerate() {
-        egui::Frame::group(ui.style())
+        egui::Frame::new()
+            .fill(palette::SOOT_BLACK)
+            .stroke(egui::Stroke::new(1.0, palette::BRASS_DARK))
             .inner_margin(6.0)
             .outer_margin(2.0)
             .show(ui, |ui| {
@@ -1355,7 +2191,7 @@ fn render_queue(
                 ui.add(
                     egui::ProgressBar::new(entry.progress.clamp(0.0, 1.0))
                         .text(format!("{:.0}%", entry.progress.clamp(0.0, 1.0) * 100.0))
-                        .fill(Color32::from_rgb(0x60, 0x90, 0xc0)),
+                        .fill(palette::INFO),
                 );
                 let fund_pct = if entry.budget_needed_rm > 0.0 {
                     (entry.paid_funds_rm / entry.budget_needed_rm * 100.0) as f32
@@ -1369,7 +2205,7 @@ fn render_queue(
                             entry.funding_source_label, entry.owner_on_completion_label
                         ))
                         .small()
-                        .color(Color32::from_gray(160)),
+                        .color(palette::PARCHMENT_DIM),
                     );
                 });
                 if entry.budget_needed_rm > 0.0 {
@@ -1383,9 +2219,9 @@ fn render_queue(
                             ))
                             .small()
                             .color(if fund_pct < 30.0 {
-                                Color32::from_rgb(0xff, 0xc0, 0x60)
+                                palette::WARN
                             } else {
-                                Color32::from_gray(160)
+                                palette::PARCHMENT_DIM
                             }),
                         );
                         if entry.fund_ratio < 1.0 {
@@ -1395,7 +2231,7 @@ fn render_queue(
                                     entry.fund_ratio * 100.0
                                 ))
                                 .small()
-                                .color(Color32::from_rgb(0xff, 0x80, 0x80)),
+                                .color(palette::BAD),
                             );
                         }
                     });
@@ -1407,23 +2243,34 @@ fn render_queue(
                             entry.material_fulfillment * 100.0
                         ))
                         .small()
-                        .color(WARN),
+                        .color(palette::WARN),
                     );
                 }
                 ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(idx > 0, egui::Button::new(tr("move_up")))
-                        .clicked()
-                    {
+                    let move_up_clicked = Button::new(tr("move_up"))
+                        .size(ButtonSize::Sm)
+                        .variant(ButtonVariant::Secondary)
+                        .enabled(idx > 0)
+                        .show(ui)
+                        .clicked();
+                    if idx > 0 && move_up_clicked {
                         cmds.push(ConstructionV6Command::MoveUp(idx));
                     }
-                    if ui
-                        .add_enabled(idx + 1 < entries.len(), egui::Button::new(tr("move_down")))
-                        .clicked()
-                    {
+                    let move_down_clicked = Button::new(tr("move_down"))
+                        .size(ButtonSize::Sm)
+                        .variant(ButtonVariant::Secondary)
+                        .enabled(idx + 1 < entries.len())
+                        .show(ui)
+                        .clicked();
+                    if idx + 1 < entries.len() && move_down_clicked {
                         cmds.push(ConstructionV6Command::MoveDown(idx));
                     }
-                    if ui.button(tr("cancel_construction")).clicked() {
+                    if Button::new(tr("cancel_construction"))
+                        .size(ButtonSize::Sm)
+                        .variant(ButtonVariant::Danger)
+                        .show(ui)
+                        .clicked()
+                    {
                         cmds.push(ConstructionV6Command::Remove(idx));
                     }
                 });
@@ -1436,7 +2283,14 @@ fn render_entry(
     entry: &BuildingTypeV6Entry,
     cmds: &mut Vec<ConstructionV6Command>,
 ) {
-    egui::Frame::group(ui.style())
+    use crate::v9::{
+        primitives::{Button, ButtonSize, ButtonVariant},
+        tokens::palette,
+    };
+
+    egui::Frame::new()
+        .fill(palette::SOOT_BLACK)
+        .stroke(egui::Stroke::new(1.0, palette::BRASS_DARK))
         .inner_margin(6.0)
         .outer_margin(2.0)
         .show(ui, |ui| {
@@ -1444,7 +2298,7 @@ fn render_entry(
                 ui.vertical(|ui| {
                     ui.label(
                         RichText::new(format!("{}  Lv {}", entry.building_name, entry.total_level))
-                            .color(Color32::from_gray(220)),
+                            .color(palette::PARCHMENT),
                     );
                     ui.label(
                         RichText::new(format!(
@@ -1455,7 +2309,7 @@ fn render_entry(
                             entry.profit_rm_weekly / 1_000_000.0,
                         ))
                         .small()
-                        .color(Color32::from_gray(160)),
+                        .color(palette::PARCHMENT_DIM),
                     );
                 });
             });
@@ -1483,18 +2337,14 @@ fn render_entry(
             if !entry.warnings.is_empty() {
                 ui.horizontal_wrapped(|ui| {
                     for warning in &entry.warnings {
-                        ui.label(
-                            RichText::new(warning)
-                                .small()
-                                .color(Color32::from_rgb(0xff, 0xc0, 0x60)),
-                        );
+                        ui.label(RichText::new(warning).small().color(palette::WARN));
                     }
                 });
             }
             ui.label(
                 RichText::new(format!("{}：{}", tr("production_method"), entry.pm_summary))
                     .small()
-                    .color(Color32::from_rgb(0xa0, 0xc0, 0xe0)),
+                    .color(palette::INFO),
             );
 
             for state in &entry.states {
@@ -1565,7 +2415,12 @@ fn render_entry(
                     }
                 });
 
-            if ui.button(tr("expand_one_level")).clicked() {
+            if Button::new(tr("expand_one_level"))
+                .size(ButtonSize::Md)
+                .variant(ButtonVariant::Primary)
+                .show(ui)
+                .clicked()
+            {
                 cmds.push(ConstructionV6Command::StartConstructionMode {
                     building_key: entry.building_def_id.clone(),
                 });
@@ -1799,6 +2654,7 @@ mod tests {
                 locked_reason: None,
                 state_limit_reason: Some("仅可在沿海州建造".into()),
             }],
+            active_construction_key: Some("steel_mill".into()),
             available_cp: 50.0,
             total_cp: 100.0,
             gdp_gbp: 1_000_000_000.0,

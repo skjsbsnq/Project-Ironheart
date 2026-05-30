@@ -264,6 +264,8 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     ("move_army", ["Move Army Here", "调军至此"]),
     // ─── Events ───────────────────────────────────────────────
     ("event", ["Event", "事件"]),
+    ("event_picture", ["Event image", "事件影像"]),
+    ("news_picture", ["News photo", "新闻照片"]),
     ("more_events", ["more", "更多"]),
     // ─── Save browser ─────────────────────────────────────────
     ("saves_title", ["Saves", "存档"]),

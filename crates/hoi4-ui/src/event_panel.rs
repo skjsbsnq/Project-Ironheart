@@ -15,13 +15,39 @@ pub fn show_event_modal(
     scheduler: &EventScheduler,
     mut option_trigger_satisfied: impl FnMut(&str, usize) -> bool,
 ) -> Option<EventCommand> {
+    show_event_modal_inner(ctx, scheduler, None, |id, idx| {
+        option_trigger_satisfied(id, idx)
+    })
+}
+
+pub fn show_event_modal_with_icons(
+    ctx: &egui::Context,
+    scheduler: &EventScheduler,
+    icon_bank: &mut crate::icons::IconBank,
+    mut option_trigger_satisfied: impl FnMut(&str, usize) -> bool,
+) -> Option<EventCommand> {
+    show_event_modal_inner(ctx, scheduler, Some(icon_bank), |id, idx| {
+        option_trigger_satisfied(id, idx)
+    })
+}
+
+fn show_event_modal_inner(
+    ctx: &egui::Context,
+    scheduler: &EventScheduler,
+    icon_bank: Option<&mut crate::icons::IconBank>,
+    mut option_trigger_satisfied: impl FnMut(&str, usize) -> bool,
+) -> Option<EventCommand> {
     let pending = scheduler.front()?;
     let event = scheduler.db.find(&pending.event_id)?;
     let queue_extra = scheduler.pending_len().saturating_sub(1);
 
-    crate::v9::composites::modal_event::show_event_modal(ctx, event, queue_extra, |idx| {
-        option_trigger_satisfied(&event.id, idx)
-    })
+    crate::v9::composites::modal_event::show_event_modal(
+        ctx,
+        event,
+        queue_extra,
+        icon_bank,
+        |idx| option_trigger_satisfied(&event.id, idx),
+    )
     .map(|option_idx| EventCommand::PickOption {
         event_id: event.id.clone(),
         option_idx,

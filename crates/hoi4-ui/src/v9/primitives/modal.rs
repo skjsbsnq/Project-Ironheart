@@ -15,6 +15,7 @@ pub struct Modal<'a> {
     title: Option<&'a str>,
     accent: Color32,
     dim_background: bool,
+    open_sound: bool,
 }
 
 impl<'a> Modal<'a> {
@@ -25,6 +26,7 @@ impl<'a> Modal<'a> {
             title: None,
             accent: palette::BRASS_BRIGHT,
             dim_background: true,
+            open_sound: true,
         }
     }
 
@@ -43,6 +45,11 @@ impl<'a> Modal<'a> {
         self
     }
 
+    pub fn open_sound(mut self, open_sound: bool) -> Self {
+        self.open_sound = open_sound;
+        self
+    }
+
     pub fn show<R>(
         self,
         ctx: &Context,
@@ -50,12 +57,14 @@ impl<'a> Modal<'a> {
     ) -> Option<R> {
         let screen = ctx.screen_rect();
         let modal_rect = motion::modal_enter_rect(ctx, self.id, centered_rect(screen, self.size));
-        sound::emit_once(
-            ctx,
-            self.id.with("open"),
-            "modal",
-            sound::V9SoundEvent::Modal,
-        );
+        if self.open_sound {
+            sound::emit_once(
+                ctx,
+                self.id.with("open"),
+                "modal",
+                sound::V9SoundEvent::Modal,
+            );
+        }
 
         if self.dim_background {
             Area::new(self.id.with("backdrop"))

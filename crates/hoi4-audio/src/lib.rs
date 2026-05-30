@@ -301,7 +301,6 @@ pub struct UiSoundBank {
     _stream: Option<OutputStream>,
     samples: [Option<Arc<Vec<u8>>>; 8],
     sinks: Vec<Sink>,
-    next_sink: usize,
     volumes: AudioVolumes,
 }
 
@@ -311,20 +310,11 @@ impl UiSoundBank {
             Ok((s, h)) => (Some(s), Some(h)),
             Err(_) => (None, None),
         };
-        let sinks = handle
-            .as_ref()
-            .map(|h| {
-                (0..4)
-                    .filter_map(|_| Sink::try_new(h).ok())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
         Self {
             handle,
             _stream: stream,
             samples: [None, None, None, None, None, None, None, None],
-            sinks,
-            next_sink: 0,
+            sinks: Vec::new(),
             volumes: AudioVolumes::default(),
         }
     }
@@ -364,18 +354,22 @@ impl UiSoundBank {
     }
 
     pub fn play(&mut self, sound: UiSound) -> bool {
-        if self.handle.is_none() || self.sinks.is_empty() {
+        let Some(handle) = self.handle.as_ref() else {
             return false;
-        }
+        };
         let Some(data) = &self.samples[sound_index(sound)] else {
             return false;
         };
         let cursor = std::io::Cursor::new(data.clone().to_vec());
         if let Ok(decoder) = rodio::Decoder::new(std::io::BufReader::new(cursor)) {
-            let sink = &self.sinks[self.next_sink % self.sinks.len()];
-            self.next_sink = (self.next_sink + 1) % self.sinks.len();
+            self.sinks.retain(|sink| !sink.empty());
+            let Ok(sink) = Sink::try_new(handle) else {
+                return false;
+            };
             sink.set_volume(self.volumes.ui_effective());
             sink.append(decoder.convert_samples::<f32>());
+            sink.play();
+            self.sinks.push(sink);
             return true;
         }
         false
