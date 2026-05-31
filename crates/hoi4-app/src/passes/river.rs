@@ -61,15 +61,15 @@ pub struct RiverParams {
 impl Default for RiverParams {
     fn default() -> Self {
         Self {
-            flow_speed: 0.4,
-            base_alpha: 0.85,
-            z_bias: 0.001,
+            flow_speed: 0.035,
+            base_alpha: 0.82,
+            z_bias: 0.0025,
             height_scale: 4.0,
             world_w: 112.0,
             world_d: 41.0,
             zoom_factor: 1.0,
             grid: 32.0,
-            y_bias: 0.005,
+            y_bias: 0.018,
             _pad1: 0.0,
             _pad2: 0.0,
             _pad3: 0.0,
@@ -86,7 +86,8 @@ pub struct RiverPass {
     bind_groups_g0: [wgpu::BindGroup; 3],
     bind_group_g1: wgpu::BindGroup,
     bind_group_g2: wgpu::BindGroup,
-    params_buffer: wgpu::Buffer,
+    params_buffers: [wgpu::Buffer; 3],
+    lod_grid: [u32; 3],
     pub any_loaded: bool,
     pub load_warnings: Vec<String>,
     pub binding_audit: BindingAudit,
@@ -125,16 +126,20 @@ impl RiverPass {
         });
 
         // ── RiverParams uniform ────────────────────────────────────────
-        let params_init = RiverParams {
+        let params_base = RiverParams {
             height_scale: inputs.height_scale,
             world_w: inputs.world_size[0],
             world_d: inputs.world_size[1],
             ..RiverParams::default()
         };
-        let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("river_params"),
-            contents: bytemuck::bytes_of(&params_init),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        let params_buffers: [wgpu::Buffer; 3] = std::array::from_fn(|lod| {
+            let mut params = params_base;
+            params.grid = inputs.lod_grid[lod] as f32;
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("river_params"),
+                contents: bytemuck::bytes_of(&params),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            })
         });
 
         let diffuse_0 = upload_dds_or_fallback(
@@ -329,7 +334,7 @@ impl RiverPass {
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: params_buffer.as_entire_binding(),
+                        resource: params_buffers[_lod].as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
@@ -343,7 +348,7 @@ impl RiverPass {
             })
         });
 
-        // ── BGL g1: rivers.bmp R8 + sampler ──────────────────────────
+        // ── BGL g1: rivers.bmp RGBA level/flow + sampler ─────────────
         let bgl_g1 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("river_bgl_g1"),
             entries: &[
@@ -502,8 +507,8 @@ impl RiverPass {
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: Default::default(),
                 bias: wgpu::DepthBiasState {
-                    constant: 2,
-                    slope_scale: 1.0,
+                    constant: 8,
+                    slope_scale: 2.0,
                     clamp: 0.0,
                 },
             }),
@@ -522,7 +527,8 @@ impl RiverPass {
             bind_groups_g0,
             bind_group_g1,
             bind_group_g2,
-            params_buffer,
+            params_buffers,
+            lod_grid: inputs.lod_grid,
             any_loaded,
             load_warnings: warnings,
             binding_audit,
@@ -532,7 +538,15 @@ impl RiverPass {
     }
 
     pub fn update_params(&self, queue: &wgpu::Queue, params: &RiverParams) {
-        queue.write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(params));
+        for lod in 0..3 {
+            let mut lod_params = *params;
+            lod_params.grid = self.lod_grid[lod] as f32;
+            queue.write_buffer(
+                &self.params_buffers[lod],
+                0,
+                bytemuck::bytes_of(&lod_params),
+            );
+        }
     }
 
     pub fn render<'a>(
@@ -545,15 +559,24 @@ impl RiverPass {
         if !self.any_loaded {
             return;
         }
-        if instance_counts[0] == 0 || vertex_counts[0] == 0 {
+        if !instance_counts
+            .iter()
+            .zip(vertex_counts.iter())
+            .any(|(&instances, &vertices)| instances > 0 && vertices > 0)
+        {
             return;
         }
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &self.bind_groups_g0[0], &[]);
         pass.set_bind_group(1, &self.bind_group_g1, &[]);
         pass.set_bind_group(2, &self.bind_group_g2, &[]);
-        pass.set_vertex_buffer(0, instance_buffers[0].slice(..));
-        pass.draw(0..vertex_counts[0], 0..instance_counts[0]);
+        for lod in 0..3 {
+            if instance_counts[lod] == 0 || vertex_counts[lod] == 0 {
+                continue;
+            }
+            pass.set_bind_group(0, &self.bind_groups_g0[lod], &[]);
+            pass.set_vertex_buffer(0, instance_buffers[lod].slice(..));
+            pass.draw(0..vertex_counts[lod], 0..instance_counts[lod]);
+        }
     }
 }
 
@@ -610,6 +633,7 @@ struct VsOut {
 };
 
 const SEA_LEVEL: f32 = 95.0;
+const RIVER_TILE_PX: f32 = 96.0;
 
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
@@ -677,20 +701,39 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         discard;
     }
 
-    let flow_dir = vec2<f32>(0.0, 1.0);
-    let time = frame.global_time;
-    let scrolled_uv = in.map_uv - flow_dir * time * rparams.flow_speed;
+    var flow_dir = river_sample.gb * 2.0 - vec2<f32>(1.0);
+    if dot(flow_dir, flow_dir) < 0.01 {
+        flow_dir = vec2<f32>(0.0, 1.0);
+    }
+    flow_dir = normalize(flow_dir);
+    let tangent = normalize(vec3<f32>(flow_dir.x, 0.0, flow_dir.y));
 
-    let diffuse = textureSample(river_diffuse_0, river_sampler, scrolled_uv).rgb;
-    let normal_map = textureSample(river_normal_0, river_sampler, scrolled_uv).rgb;
-    let normal = normalize(normal_map * 2.0 - 1.0);
+    let level = clamp(round(river_lvl * 4.0), 1.0, 4.0);
+    let level_norm = (level - 1.0) / 3.0;
+    let texture_lod = 2.0 - 2.0 * clamp(zoom_factor, 0.0, 1.0);
+    let time = frame.global_time;
+    let base_uv = in.map_px / vec2<f32>(RIVER_TILE_PX);
+    let scrolled_uv = base_uv - flow_dir * time * rparams.flow_speed;
+
+    let diffuse0 = textureSample(river_diffuse_0, river_sampler, scrolled_uv).rgb;
+    let diffuse1 = textureSample(river_diffuse_1, river_sampler, scrolled_uv * 0.92 + vec2<f32>(0.13, 0.07)).rgb;
+    let diffuse2 = textureSample(river_diffuse_2, river_sampler, scrolled_uv * 0.84 + vec2<f32>(0.29, 0.19)).rgb;
+    let diffuse01 = mix(diffuse0, diffuse1, clamp(texture_lod, 0.0, 1.0));
+    let diffuse = mix(diffuse01, diffuse2, clamp(texture_lod - 1.0, 0.0, 1.0));
+
+    let normal0 = unpack_normal(textureSample(river_normal_0, river_sampler, scrolled_uv).rgb);
+    let normal1 = unpack_normal(textureSample(river_normal_1, river_sampler, scrolled_uv * 0.92 + vec2<f32>(0.13, 0.07)).rgb);
+    let normal2 = unpack_normal(textureSample(river_normal_2, river_sampler, scrolled_uv * 0.84 + vec2<f32>(0.29, 0.19)).rgb);
+    let normal01 = normalize(mix(normal0, normal1, clamp(texture_lod, 0.0, 1.0)));
+    let normal = normalize(mix(normal01, normal2, clamp(texture_lod - 1.0, 0.0, 1.0)));
 
     let to_camera = normalize(frame.cam_pos - in.world_pos);
     let sun_dir = normalize(vec3<f32>(0.4, 1.0, 0.3));
-    let half_vec = normalize(to_camera + sun_dir);
-    let spec = pow(max(dot(normal, half_vec), 0.0), 64.0) * 0.35;
+    let flow_half = normalize(to_camera + sun_dir + tangent * 0.35);
+    let spec = pow(max(dot(normal, flow_half), 0.0), 56.0) * mix(0.18, 0.42, level_norm);
 
-    var color = diffuse + vec3<f32>(spec);
+    let depth_tint = mix(vec3<f32>(1.10, 1.08, 1.02), vec3<f32>(0.72, 0.82, 0.94), level_norm);
+    var color = diffuse * depth_tint + vec3<f32>(spec);
 
     color = day_night(
         color,
@@ -700,8 +743,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     );
     color = apply_distance_fog(color, in.world_pos, frame.cam_pos);
 
+    let mask_sample = textureSample(river_masks, river_sampler, scrolled_uv);
+    let mask_rg = mix(mask_sample.r, mask_sample.g, clamp(level - 1.0, 0.0, 1.0));
+    let mask_ba = mix(mask_sample.b, mask_sample.a, clamp(level - 3.0, 0.0, 1.0));
+    let level_alpha = mix(mask_rg, mask_ba, clamp((level - 2.0) * 0.5, 0.0, 1.0));
     let river_alpha = smoothstep(zoom_cut - 0.10, zoom_cut + 0.10, river_lvl)
-        * (0.45 + 0.45 * river_lvl)
+        * mix(0.52, 0.92, level_norm)
+        * mix(0.45, 1.0, level_alpha)
         * rparams.base_alpha;
 
     return vec4<f32>(color, clamp(river_alpha, 0.0, 1.0));

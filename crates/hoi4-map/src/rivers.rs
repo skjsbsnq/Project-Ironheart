@@ -94,6 +94,104 @@ impl RiverBitmap {
             })
             .collect()
     }
+
+    /// Build an `Rgba8Unorm` buffer for renderers that need both visibility
+    /// and stable animated flow direction.
+    ///
+    /// Channels:
+    /// - R: coarse river level, encoded identically to [`Self::to_r8_normalised`].
+    /// - G/B: local river tangent direction packed from `[-1, 1]` into `[0, 255]`.
+    /// - A: original palette index for debug and future palette-specific paths.
+    pub fn to_rgba_level_flow(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.pixels.len() * 4);
+        for y in 0..self.height {
+            for x in 0..self.width {
+                let idx = self.get(x, y);
+                let level = Self::index_to_level(idx);
+                let level_byte = match level {
+                    0 => 0u8,
+                    1 => 64,
+                    2 => 128,
+                    3 => 192,
+                    _ => 255,
+                };
+                let (fx, fy) = if level == 0 {
+                    (0.0, 0.0)
+                } else {
+                    self.local_flow_dir(x, y)
+                };
+                out.push(level_byte);
+                out.push(pack_signed_unit(fx));
+                out.push(pack_signed_unit(fy));
+                out.push(idx);
+            }
+        }
+        out
+    }
+
+    fn local_flow_dir(&self, x: u32, y: u32) -> (f32, f32) {
+        let mut active = Vec::with_capacity(8);
+        for dy in -1i32..=1 {
+            for dx in -1i32..=1 {
+                if dx == 0 && dy == 0 {
+                    continue;
+                }
+                let nx = x as i32 + dx;
+                let ny = y as i32 + dy;
+                if nx < 0 || ny < 0 || nx >= self.width as i32 || ny >= self.height as i32 {
+                    continue;
+                }
+                if Self::index_to_level(self.get(nx as u32, ny as u32)) > 0 {
+                    active.push((dx as f32, dy as f32));
+                }
+            }
+        }
+
+        let (mut dx, mut dy) = match active.len() {
+            0 => (0.0, 1.0),
+            1 => active[0],
+            _ => {
+                let mut best = (active[0].0, active[0].1);
+                let mut best_len_sq = 0.0f32;
+                for a in 0..active.len() {
+                    for b in (a + 1)..active.len() {
+                        let vx = active[b].0 - active[a].0;
+                        let vy = active[b].1 - active[a].1;
+                        let len_sq = vx * vx + vy * vy;
+                        if len_sq > best_len_sq {
+                            best_len_sq = len_sq;
+                            best = (vx, vy);
+                        }
+                    }
+                }
+                best
+            }
+        };
+
+        // Make the sign deterministic. The source/mouth palette markers are not
+        // enough to recover full river topology here, but a stable tangent is
+        // sufficient for non-flickering material animation.
+        if dx.abs() >= dy.abs() {
+            if dx < 0.0 {
+                dx = -dx;
+                dy = -dy;
+            }
+        } else if dy < 0.0 {
+            dx = -dx;
+            dy = -dy;
+        }
+
+        let len = (dx * dx + dy * dy).sqrt();
+        if len <= f32::EPSILON {
+            (0.0, 1.0)
+        } else {
+            (dx / len, dy / len)
+        }
+    }
+}
+
+fn pack_signed_unit(value: f32) -> u8 {
+    ((value.clamp(-1.0, 1.0) * 0.5 + 0.5) * 255.0).round() as u8
 }
 
 /// Load `rivers.bmp` from disk.
@@ -204,5 +302,20 @@ mod tests {
         assert_eq!(bytes[3], 192);
         assert_eq!(bytes[4], 255);
         assert_eq!(bytes[5], 0);
+    }
+
+    #[test]
+    fn rgba_level_flow_keeps_level_and_packs_direction() {
+        let pixels = vec![254u8, 2, 254, 254, 5, 254, 254, 7, 254];
+        let bmp = synth_bmp_8bit(3, 3, &pixels);
+        let r = parse_rivers_bmp(&bmp).unwrap();
+        let bytes = r.to_rgba_level_flow();
+        assert_eq!(bytes.len(), 3 * 3 * 4);
+        let center = 4 * 4;
+        assert_eq!(bytes[center], 128);
+        assert!(bytes[center + 1] >= 127);
+        assert!(bytes[center + 2] > 127);
+        assert_eq!(bytes[center + 3], 5);
+        assert_eq!(bytes[0], 0);
     }
 }

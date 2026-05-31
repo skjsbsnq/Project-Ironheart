@@ -97,6 +97,7 @@ pub struct MapLayerMask {
     pub sky: bool,
     pub terrain: bool,
     pub water: bool,
+    pub river: bool,
     pub borders: bool,
     pub static_decals: bool,
     pub overlays: bool,
@@ -128,7 +129,7 @@ impl MapLayerMask {
                 ..Self::none()
             },
             MapBaselineLayer::RiverMask => Self {
-                terrain: true,
+                river: true,
                 static_decals: true,
                 ..Self::none()
             },
@@ -163,6 +164,7 @@ impl MapLayerMask {
             sky: true,
             terrain: true,
             water: true,
+            river: true,
             borders: true,
             static_decals: true,
             overlays: true,
@@ -180,6 +182,7 @@ impl MapLayerMask {
             sky: false,
             terrain: false,
             water: false,
+            river: false,
             borders: false,
             static_decals: false,
             overlays: false,
@@ -614,10 +617,11 @@ fn write_layer_mask_json(out: &mut String, mask: &MapLayerMask) {
     out.push_str("      \"layer_mask\": { ");
     let _ = write!(
         out,
-        "\"sky\": {}, \"terrain\": {}, \"water\": {}, \"borders\": {}, \"static_decals\": {}, \"overlays\": {}, \"objects\": {}, \"labels\": {}, \"particles\": {}, \"ui\": {}, \"postprocess\": {}, \"asset_fallback_debug\": {}",
+        "\"sky\": {}, \"terrain\": {}, \"water\": {}, \"river\": {}, \"borders\": {}, \"static_decals\": {}, \"overlays\": {}, \"objects\": {}, \"labels\": {}, \"particles\": {}, \"ui\": {}, \"postprocess\": {}, \"asset_fallback_debug\": {}",
         mask.sky,
         mask.terrain,
         mask.water,
+        mask.river,
         mask.borders,
         mask.static_decals,
         mask.overlays,
@@ -635,9 +639,10 @@ fn write_pass_status_json(out: &mut String, mask: &MapLayerMask) {
     out.push_str("      \"pass_status\": { ");
     let _ = write!(
         out,
-        "\"terrain\": {}, \"water\": {}, \"borders\": {}, \"static_decals\": {}, \"overlays\": {}, \"objects\": {}, \"labels\": {}, \"postprocess\": {}, \"ui\": {}",
+        "\"terrain\": {}, \"water\": {}, \"river\": {}, \"borders\": {}, \"static_decals\": {}, \"overlays\": {}, \"objects\": {}, \"labels\": {}, \"postprocess\": {}, \"ui\": {}",
         mask.terrain,
         mask.water,
+        mask.river,
         mask.borders,
         mask.static_decals,
         mask.overlays,
@@ -882,12 +887,20 @@ mod tests {
         let terrain = MapLayerMask::for_layer(MapBaselineLayer::TerrainOnly);
         assert!(terrain.terrain);
         assert!(!terrain.water);
+        assert!(!terrain.river);
         assert!(!terrain.postprocess);
 
         let full = MapLayerMask::for_layer(MapBaselineLayer::FinalFull);
         assert!(full.terrain);
         assert!(full.water);
+        assert!(full.river);
         assert!(full.postprocess);
+
+        let river = MapLayerMask::for_layer(MapBaselineLayer::RiverMask);
+        assert!(river.river);
+        assert!(!river.terrain);
+        assert!(!river.water);
+        assert!(river.static_decals);
 
         let post_off = MapLayerMask::for_layer(MapBaselineLayer::PostprocessOff);
         assert!(post_off.terrain);

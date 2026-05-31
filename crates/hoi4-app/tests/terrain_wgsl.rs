@@ -60,11 +60,23 @@ fn terrain_wgsl_has_phase3_runtime_debug_and_ownership_gates() {
         "const TERRAIN_DEBUG_CITYLIGHT_CONTRIB",
         "const TERRAIN_DEBUG_MAP_PX_GRID",
         "const TERRAIN_DEBUG_CITYLIGHT_UV",
+        "const TERRAIN_DEBUG_GRADIENT_BORDER_CH3",
+        "const TERRAIN_DEBUG_PROVINCE_SECONDARY",
+        "const TERRAIN_DEBUG_FOW_UNEXPLORED",
+        "const TERRAIN_DEBUG_FOW_VISIBILITY",
+        "const TERRAIN_DEBUG_FOW_ENEMY_SPOTTED",
+        "const TERRAIN_DEBUG_MUD_SNOW_SNOW_AMOUNT",
+        "const TERRAIN_DEBUG_MUD_SNOW_MUD_AMOUNT",
+        "const TERRAIN_DEBUG_MUD_SNOW_TARGET",
         "fn get_mud_snow_color",
         "fn apply_snow",
         "fn get_mud_color",
         "fn lookup_terrain_flags",
         "fn calculate_map_tex_index",
+        "province_secondary_color_tex",
+        "gradient_border_ch3_tex",
+        "fow_tex",
+        "mud_snow_tex",
     ] {
         assert!(source.contains(token), "missing Phase 3 token: {token}");
     }

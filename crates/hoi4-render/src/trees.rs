@@ -62,6 +62,34 @@ pub struct TreeInstance {
 /// Sea level threshold (heightmap raw 0..=255). Matches the shader constant.
 pub const SEA_LEVEL: u8 = 95;
 
+/// CPU-side accounting for the `trees.bmp` -> tree instance conversion.
+///
+/// This is intentionally tied to the same walk used by [`generate_trees`], so
+/// parity reports can prove that instance density came from the vanilla tree
+/// mask instead of a terrain-category approximation.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TreeDistributionStats {
+    pub tree_bitmap_size: [u32; 2],
+    pub heightmap_size: [u32; 2],
+    pub active_pixels_total: usize,
+    pub active_pixels_by_type: [usize; 3],
+    pub generated_instances_total: usize,
+    pub generated_instances_by_type: [usize; 3],
+    pub skipped_by_stride: usize,
+    pub skipped_below_sea: usize,
+    pub forest_stride: u32,
+    pub jungle_stride: u32,
+}
+
+impl TreeDistributionStats {
+    pub fn placement_ratio(self) -> f32 {
+        if self.active_pixels_total == 0 {
+            return 0.0;
+        }
+        self.generated_instances_total as f32 / self.active_pixels_total as f32
+    }
+}
+
 /// Generate a tree instance buffer.
 ///
 /// `tree_bmp` — Paradox `map/trees.bmp` (the artist mask).
@@ -83,14 +111,51 @@ pub fn generate_trees(
     forest_stride: u32,
     jungle_stride: u32,
 ) -> Vec<TreeInstance> {
+    generate_trees_with_stats(
+        tree_bmp,
+        tree_indices,
+        heightmap,
+        world_scale,
+        height_scale,
+        forest_stride,
+        jungle_stride,
+    )
+    .0
+}
+
+pub fn generate_trees_with_stats(
+    tree_bmp: &TreeBitmap,
+    tree_indices: &HashSet<u8>,
+    heightmap: &Heightmap,
+    world_scale: f32,
+    height_scale: f32,
+    forest_stride: u32,
+    jungle_stride: u32,
+) -> (Vec<TreeInstance>, TreeDistributionStats) {
     let tw = tree_bmp.width;
     let th = tree_bmp.height;
     let hw = heightmap.width;
     let hh = heightmap.height;
     let mut out: Vec<TreeInstance> = Vec::new();
+    let mut stats = TreeDistributionStats {
+        tree_bitmap_size: [tw, th],
+        heightmap_size: [hw, hh],
+        forest_stride,
+        jungle_stride,
+        ..TreeDistributionStats::default()
+    };
 
     if tw == 0 || th == 0 || hw == 0 || hh == 0 {
-        return out;
+        return (out, stats);
+    }
+
+    for &idx in &tree_bmp.pixels {
+        if let Some(tree_type) = TreeBitmap::type_for(idx, tree_indices) {
+            stats.active_pixels_total += 1;
+            if let Some(slot) = stats.active_pixels_by_type.get_mut(tree_type as usize) {
+                *slot += 1;
+            }
+        }
     }
 
     // Resolution ratio: trees.bmp pixel → heightmap pixel. Vanilla
@@ -132,6 +197,7 @@ pub fn generate_trees(
             let hy = hy.min(hh - 1);
             let raw_h = heightmap.pixels[(hy * hw + hx) as usize];
             if raw_h <= SEA_LEVEL {
+                stats.skipped_below_sea += 1;
                 x += 1;
                 continue;
             }
@@ -212,6 +278,13 @@ pub fn generate_trees(
                 slope_x: pack(slope_x_world),
                 slope_z: pack(slope_z_world),
             });
+            stats.generated_instances_total += 1;
+            if let Some(slot) = stats
+                .generated_instances_by_type
+                .get_mut(tree_type as usize)
+            {
+                *slot += 1;
+            }
 
             x += stride.max(1);
         }
@@ -220,7 +293,11 @@ pub fn generate_trees(
         // and tropical full.
         y += 1;
     }
-    out
+    stats.skipped_by_stride = stats
+        .active_pixels_total
+        .saturating_sub(stats.generated_instances_total)
+        .saturating_sub(stats.skipped_below_sea);
+    (out, stats)
 }
 
 /// Cheap deterministic 2D hash → u32 (so jitter + tint stay stable across runs).
@@ -311,6 +388,23 @@ mod tests {
             assert!(tree.pos[0] >= -1.0 && tree.pos[0] <= (64.0 * 0.02) + 1.0);
             assert!(tree.pos[2] >= -1.0 && tree.pos[2] <= (32.0 * 0.02) + 1.0);
         }
+    }
+
+    #[test]
+    fn tree_distribution_stats_track_vanilla_mask_conversion() {
+        let t = tree_bmp(64, 32, 3); // beech
+        let h = flat_heightmap(64, 32, 200);
+        let (trees, stats) = generate_trees_with_stats(&t, &vanilla_indices(), &h, 0.02, 6.0, 4, 2);
+        assert_eq!(trees.len(), 128);
+        assert_eq!(stats.tree_bitmap_size, [64, 32]);
+        assert_eq!(stats.heightmap_size, [64, 32]);
+        assert_eq!(stats.active_pixels_total, 64 * 32);
+        assert_eq!(stats.active_pixels_by_type, [64 * 32, 0, 0]);
+        assert_eq!(stats.generated_instances_total, 128);
+        assert_eq!(stats.generated_instances_by_type, [128, 0, 0]);
+        assert_eq!(stats.skipped_by_stride, 64 * 32 - 128);
+        assert_eq!(stats.skipped_below_sea, 0);
+        assert!((stats.placement_ratio() - 128.0 / (64.0 * 32.0)).abs() < 1e-6);
     }
 
     #[test]

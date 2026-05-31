@@ -54,6 +54,7 @@ use hoi4_render::buildings::BuildingInstance;
 use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
+use crate::vanilla_targets::VanillaRuntimeTargets;
 
 // ─── 公共材质 uniform（与 wgsl `MeshMaterial` 字面对齐）─────────────────────
 
@@ -210,6 +211,7 @@ impl PdxMeshPass {
         depth_format: wgpu::TextureFormat,
         shadow_map_view: &wgpu::TextureView,
         shadow_compare_sampler: &wgpu::Sampler,
+        runtime_targets: &VanillaRuntimeTargets,
     ) -> Self {
         // Phase 3.12.14: Use ShaderRegistry to validate shader name availability,
         // but still use PDXMESH_INSTANCED_WGSL for the pipeline because the
@@ -282,7 +284,7 @@ impl PdxMeshPass {
             ],
         });
 
-        // ── BGL 1：shadow + envmap ──────────────────────────────────────
+        // ── BGL 1：shadow + envmap + shared vanilla runtime targets ─────
         let bgl1 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("pdxmesh_bgl1"),
             entries: &[
@@ -318,6 +320,56 @@ impl PdxMeshPass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 8,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let bind_group_1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -339,6 +391,34 @@ impl PdxMeshPass {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&env_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(
+                        &runtime_targets.gradient_border.ch1.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(
+                        &runtime_targets.gradient_border.ch2.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(
+                        &runtime_targets.gradient_border.ch3.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(
+                        &runtime_targets.province_secondary_color.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&runtime_targets.fow.view),
                 },
             ],
         });
@@ -623,6 +703,7 @@ impl PdxMeshPass {
         sky_view: &wgpu::TextureView,
         shadow_map_view: &wgpu::TextureView,
         shadow_compare_sampler: &wgpu::Sampler,
+        runtime_targets: &VanillaRuntimeTargets,
     ) {
         self.bind_group_1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("pdxmesh_bg1_sky"),
@@ -643,6 +724,34 @@ impl PdxMeshPass {
                 wgpu::BindGroupEntry {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&self.env_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(
+                        &runtime_targets.gradient_border.ch1.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: wgpu::BindingResource::TextureView(
+                        &runtime_targets.gradient_border.ch2.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(
+                        &runtime_targets.gradient_border.ch3.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(
+                        &runtime_targets.province_secondary_color.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&runtime_targets.fow.view),
                 },
             ],
         });
@@ -1090,6 +1199,11 @@ struct MeshMaterial {
 @group(1) @binding(1) var shadow_sampler: sampler_comparison;
 @group(1) @binding(2) var environment_cube: texture_cube<f32>;
 @group(1) @binding(3) var environment_sampler: sampler;
+@group(1) @binding(4) var gradient_border_ch1: texture_2d<f32>;
+@group(1) @binding(5) var gradient_border_ch2: texture_2d<f32>;
+@group(1) @binding(6) var gradient_border_ch3: texture_2d<f32>;
+@group(1) @binding(7) var province_secondary_color: texture_2d<f32>;
+@group(1) @binding(8) var fow_tex: texture_2d<f32>;
 
 @group(2) @binding(0) var diffuse_tex: texture_2d<f32>;
 @group(2) @binding(1) var normal_tex: texture_2d<f32>;
@@ -1169,7 +1283,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (diffuse_sample.a < material.pbr_packed.z) {
         discard;
     }
-    let diffuse_albedo = diffuse_sample.rgb * material.diffuse_tint.rgb * in.tint * material.phase8_controls.z;
+    let map_uv = map_px_to_uv(in.map_px);
+    let secondary = textureSample(province_secondary_color, environment_sampler, map_uv);
+    let diffuse_albedo = mix(
+        diffuse_sample.rgb * material.diffuse_tint.rgb * in.tint * material.phase8_controls.z,
+        secondary.rgb,
+        secondary.a * 0.18,
+    );
 
     // 法线（无 tangent → 仅用 vertex normal）
     let normal = normalize(in.normal);
@@ -1204,6 +1324,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var lit = (vec3<f32>(0.5) + bp.diffuse * shadow) * diffuse_albedo;
     lit += bp.specular * shadow;
     lit += env_sample * specular_color * frame.cubemap_intensity * 0.25;
+    let country_d = textureSample(gradient_border_ch1, environment_sampler, map_uv).r * 255.0;
+    let province_d = textureSample(gradient_border_ch2, environment_sampler, map_uv).r * 255.0;
+    let semantic_d = textureSample(gradient_border_ch3, environment_sampler, map_uv).r * 255.0;
+    let border_hint = 1.0 - smoothstep(0.0, 3.5, min(min(country_d, province_d), semantic_d));
+    lit = mix(lit, lit * vec3<f32>(0.82, 0.84, 0.80), border_hint * 0.10);
 
     // Emissive（建筑窗户夜光）— feature_flags.z = 0 时跳过
     if (material.feature_flags.z > 0.5) {
@@ -1231,6 +1356,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     // 距离雾
     lit = apply_distance_fog(lit, in.world_pos, frame.cam_pos);
+    let fow_visibility = textureSample(fow_tex, environment_sampler, map_uv).g;
+    lit = mix(lit * 0.55, lit, fow_visibility);
 
     return vec4<f32>(lit, diffuse_sample.a * material.phase8_controls.x);
 }

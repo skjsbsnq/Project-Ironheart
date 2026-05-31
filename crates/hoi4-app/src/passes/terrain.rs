@@ -1,4 +1,4 @@
-﻿//! Phase 3.12.4 鈥?`TerrainPass`锛氭妸鏃?inline 鍦板舰 pipeline 鍗囩骇涓?vanilla pdxmap 绛変环銆?//!
+//! Phase 3.12.4 鈥?`TerrainPass`锛氭妸鏃?inline 鍦板舰 pipeline 鍗囩骇涓?vanilla pdxmap 绛変环銆?//!
 //! ## 鏇挎崲鍏崇郴
 //!
 //! - 鍘?`crates/hoi4-render/src/shader.wgsl` 鈫?绉诲埌褰掓。甯搁噺
@@ -26,6 +26,7 @@ use crate::vanilla_resource_views::{
     create_dynamic_target_1x1, upload_dds_or_fallback, BindingAudit, BindingAuditEntry,
     DdsUploadRequest, VanillaResourceViews,
 };
+use crate::vanilla_targets::VanillaRuntimeTargets;
 
 const SHADER_WGSL: &str = include_str!("terrain.wgsl");
 
@@ -56,10 +57,18 @@ pub enum TerrainDebugView {
     MapPxGrid = 17,
     VanillaTileRepeat = 18,
     CitylightUv = 19,
+    GradientBorderCh3 = 20,
+    ProvinceSecondary = 21,
+    FowUnexplored = 22,
+    FowVisibility = 23,
+    FowEnemySpotted = 24,
+    MudSnowSnowAmount = 25,
+    MudSnowMudAmount = 26,
+    MudSnowTarget = 27,
 }
 
 impl TerrainDebugView {
-    pub const ALL: [Self; 20] = [
+    pub const ALL: [Self; 28] = [
         Self::Off,
         Self::TerrainId,
         Self::AtlasTileId,
@@ -80,6 +89,14 @@ impl TerrainDebugView {
         Self::MapPxGrid,
         Self::VanillaTileRepeat,
         Self::CitylightUv,
+        Self::GradientBorderCh3,
+        Self::ProvinceSecondary,
+        Self::FowUnexplored,
+        Self::FowVisibility,
+        Self::FowEnemySpotted,
+        Self::MudSnowSnowAmount,
+        Self::MudSnowMudAmount,
+        Self::MudSnowTarget,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -104,6 +121,14 @@ impl TerrainDebugView {
             Self::MapPxGrid => "map_px_grid",
             Self::VanillaTileRepeat => "vanilla_tile_repeat",
             Self::CitylightUv => "citylight_uv",
+            Self::GradientBorderCh3 => "gradient_border_ch3",
+            Self::ProvinceSecondary => "province_secondary",
+            Self::FowUnexplored => "fow_unexplored",
+            Self::FowVisibility => "fow_visibility",
+            Self::FowEnemySpotted => "fow_enemy_spotted",
+            Self::MudSnowSnowAmount => "mud_snow_snow_amount",
+            Self::MudSnowMudAmount => "mud_snow_mud_amount",
+            Self::MudSnowTarget => "mud_snow_target",
         }
     }
 
@@ -129,6 +154,14 @@ impl TerrainDebugView {
             Self::MapPxGrid => 17.0,
             Self::VanillaTileRepeat => 18.0,
             Self::CitylightUv => 19.0,
+            Self::GradientBorderCh3 => 20.0,
+            Self::ProvinceSecondary => 21.0,
+            Self::FowUnexplored => 22.0,
+            Self::FowVisibility => 23.0,
+            Self::FowEnemySpotted => 24.0,
+            Self::MudSnowSnowAmount => 25.0,
+            Self::MudSnowMudAmount => 26.0,
+            Self::MudSnowTarget => 27.0,
         }
     }
 
@@ -213,8 +246,6 @@ pub struct TerrainPassInputs<'a> {
     pub shadow_map_view: &'a wgpu::TextureView,
     pub shadow_sampler: &'a wgpu::Sampler,
     pub colormap_view: &'a wgpu::TextureView,
-    pub country_sdf_view: &'a wgpu::TextureView,
-    pub province_sdf_view: &'a wgpu::TextureView,
     pub coast_sdf_view: &'a wgpu::TextureView,
     pub occupation_lut_view: &'a wgpu::TextureView,
     pub rivers_view: &'a wgpu::TextureView,
@@ -224,6 +255,7 @@ pub struct TerrainPassInputs<'a> {
     pub terrain_atlas_view: &'a wgpu::TextureView,
     pub country_color_lut_view: &'a wgpu::TextureView,
     pub vanilla_resources: &'a VanillaResourceViews,
+    pub runtime_targets: &'a VanillaRuntimeTargets,
 }
 
 /// Terrain pass state.
@@ -399,13 +431,6 @@ impl TerrainPass {
         stub_textures.push(light_data_tex);
         stub_textures.push(light_index_tex);
 
-        let (secondary_color_tex, secondary_color_view) = create_dynamic_target_1x1(
-            device,
-            queue,
-            "province_secondary_color_empty_target",
-            [0, 0, 0, 0],
-        );
-        stub_textures.push(secondary_color_tex);
         binding_audit.extend([
             BindingAuditEntry::dynamic_target_blocker(
                 "terrain",
@@ -421,26 +446,12 @@ impl TerrainPass {
                 "Vanilla point light index target is not generated yet",
                 "point light lookup is disabled",
             ),
-            BindingAuditEntry::dynamic_target_blocker(
-                "terrain",
-                "province_secondary_color",
-                "province_secondary_color_empty_target",
-                "Province secondary color target is not generated yet",
-                "occupation, selection, and map-mode secondary tint are absent",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "terrain",
-                "gradient_border_ch1",
-                "country_sdf",
-                "temporary SDF input used until vanilla gradient border target exists",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "terrain",
-                "gradient_border_ch2",
-                "province_sdf",
-                "temporary SDF input used until vanilla gradient border target exists",
-            ),
         ]);
+        binding_audit.extend(
+            inputs
+                .runtime_targets
+                .binding_audit_entries_for_pass("terrain"),
+        );
 
         // 鈹€鈹€ Samplers 鈹€鈹€
         let generic_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -556,9 +567,9 @@ impl TerrainPass {
                 texture_entry(5),
                 // 6: light_index
                 texture_entry(6),
-                // 7: gradient_border_ch1 (= country_sdf)
+                // 7: gradient_border_ch1
                 texture_entry(7),
-                // 8: gradient_border_ch2 (= province_sdf)
+                // 8: gradient_border_ch2
                 texture_entry(8),
                 // 9: province_secondary_color
                 texture_entry(9),
@@ -575,6 +586,12 @@ impl TerrainPass {
                 texture_entry(12),
                 // 13: rivers
                 texture_entry(13),
+                // 14: gradient_border_ch3
+                texture_entry(14),
+                // 15: fow
+                texture_entry(15),
+                // 16: mud_snow
+                texture_entry(16),
             ],
         });
 
@@ -689,15 +706,21 @@ impl TerrainPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 7,
-                    resource: wgpu::BindingResource::TextureView(inputs.country_sdf_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch1.view,
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 8,
-                    resource: wgpu::BindingResource::TextureView(inputs.province_sdf_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch2.view,
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 9,
-                    resource: wgpu::BindingResource::TextureView(&secondary_color_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.province_secondary_color.view,
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 10,
@@ -714,6 +737,22 @@ impl TerrainPass {
                 wgpu::BindGroupEntry {
                     binding: 13,
                     resource: wgpu::BindingResource::TextureView(inputs.rivers_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 14,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch3.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 15,
+                    resource: wgpu::BindingResource::TextureView(&inputs.runtime_targets.fow.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 16,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.mud_snow.view,
+                    ),
                 },
             ],
         });
@@ -1137,10 +1176,23 @@ mod tests {
             TerrainDebugView::RiverMask.next(),
             TerrainDebugView::CityEmitMask
         );
-        assert_eq!(TerrainDebugView::CitylightUv.next(), TerrainDebugView::Off);
+        assert_eq!(
+            TerrainDebugView::CitylightUv.next(),
+            TerrainDebugView::GradientBorderCh3
+        );
+        assert_eq!(
+            TerrainDebugView::ProvinceSecondary.next(),
+            TerrainDebugView::FowUnexplored
+        );
+        assert_eq!(
+            TerrainDebugView::MudSnowTarget.next(),
+            TerrainDebugView::Off
+        );
         assert_eq!(TerrainDebugView::Normal.as_shader_value(), 7.0);
         assert_eq!(TerrainDebugView::AtlasTileId.name(), "atlas_tile_id");
         assert_eq!(TerrainDebugView::VanillaTileRepeat.as_shader_value(), 18.0);
+        assert_eq!(TerrainDebugView::FowVisibility.as_shader_value(), 23.0);
+        assert_eq!(TerrainDebugView::MudSnowMudAmount.as_shader_value(), 26.0);
     }
 
     #[test]

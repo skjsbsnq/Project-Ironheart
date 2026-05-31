@@ -49,8 +49,8 @@
   - 雪、泥、城市灯光、政治色叠加与原版公式不完全一致。
 
 - `crates/hoi4-app/src/passes/water.rs`
-  - 有 LEAN normal、reflection、fow_water_spec、colormap_water、ice 的近似实现。
-  - 但缺原版 `pdxwater.shader` 的完整 refraction、gradient border、secondary mask、point lights、FOW 语义。
+  - Phase 6 已接入 `pdxwater.shader` 语义：SampleWater、LEAN normal、reflection/refraction、fow_water_spec、ice、gradient border、secondary color、FOW/distance fog。
+  - `light_data`、`light_index` 已走显式 blocker binding；真实点光源内容生成仍归 Phase 5。
   - 环境 cubemap 有 dim-blue fallback。
 
 - `crates/hoi4-app/src/passes/border.rs`
@@ -493,7 +493,7 @@ pub struct VanillaRuntimeTargets {
 
 ---
 
-## Phase 4：动态 overlay render targets
+## Phase 4：动态 overlay render targets ✅ 已完成
 
 目标：补齐原版 shader 依赖但 Steam 目录中不存在的运行时贴图。
 
@@ -501,36 +501,36 @@ pub struct VanillaRuntimeTargets {
 
 ### 4.1 GradientBorderChannel
 
-- [ ] 生成 `GradientBorderChannel1`。
-- [ ] 生成 `GradientBorderChannel2`。
-- [ ] 生成 `GradientBorderChannel3`。
-- [ ] 明确各通道语义：
+- [x] 生成 `GradientBorderChannel1`。
+- [x] 生成 `GradientBorderChannel2`。
+- [x] 生成 `GradientBorderChannel3`。
+- [x] 明确各通道语义：
   - country border
   - province border
   - state/sea/impassable border
   - alpha/gradient/stripe 信息
-- [ ] terrain、水体、树木、pdxmesh 都使用同一组 gradient channel。
-- [ ] strip mesh border 只保留为 debug 或 fallback。
+- [x] terrain、水体、树木、pdxmesh 都使用同一组 gradient channel。
+- [x] strip mesh border 只保留为 debug 或 fallback。
 
 ### 4.2 ProvinceSecondaryColorMap
 
-- [ ] 生成真实 `ProvinceSecondaryColorMap`。
-- [ ] 支持：
+- [x] 生成真实 `ProvinceSecondaryColorMap`。
+- [x] 支持：
   - occupation
   - battle plan
   - selection
   - hovered province
   - map mode secondary tint
   - naval dominance
-- [ ] 替换 terrain 中现有零值 mock。
-- [ ] 替换 water/tree 中缺失的 secondary mask 输入。
+- [x] 替换 terrain 中现有零值 mock。
+- [x] 替换 water/tree 中缺失的 secondary mask 输入。
 
 ### 4.3 FOW 与 MudSnow
 
-- [ ] 新增 FOW target。
-- [ ] 新增 MudSnow target。
-- [ ] 接入原版 `fow.fxh` 语义。
-- [ ] 支持 debug：
+- [x] 新增 FOW target。
+- [x] 新增 MudSnow target。
+- [x] 接入原版 `fow.fxh` 语义。
+- [x] 支持 debug：
   - unexplored
   - visible
   - enemy spotted
@@ -546,13 +546,21 @@ pub struct VanillaRuntimeTargets {
 - `crates/hoi4-app/src/passes/terrain.rs`
 - `crates/hoi4-app/src/passes/water.rs`
 - `crates/hoi4-app/src/passes/trees_full.rs`
+- `crates/hoi4-app/src/passes/pdxmesh.rs`
 - `crates/hoi4-app/src/passes/border.rs`
 
 ### 验收标准
 
-- terrain/water/tree 不再使用 `province_secondary_color_mock`。
-- terrain/water/tree 共享同一套 gradient border 输入。
-- 国界视觉从“外部画线”转为“shader 材质内渐变影响”。
+- [x] terrain/water/tree 不再使用 `province_secondary_color_mock`。
+- [x] terrain/water/tree/pdxmesh 共享同一套 gradient border 输入。
+- [x] 国界视觉从“外部画线”转为“shader 材质内渐变影响”。
+
+完成记录：
+
+- `VanillaRuntimeTargets` 统一生成 `GradientBorderChannel1/2/3`、`ProvinceSecondaryColorMap`、`FOW`、`MudSnow`，并为 Phase 4 target 声明格式/语义元数据与单测。
+- `ProvinceSecondaryColorMap` 覆盖 occupation、battle plan、selection、hover、map mode secondary tint、naval dominance 近似输入。
+- terrain/water/tree/pdxmesh 均绑定共享 runtime target；terrain 增加 FOW unexplored/visible/enemy spotted 与 MudSnow snow/mud debug view。
+- `LightDataMap` / `LightIndexMap` 仍是 Phase 5 的 point light 系统 blocker，不归入 Phase 4。
 
 ---
 
@@ -596,7 +604,7 @@ pub struct VanillaRuntimeTargets {
 
 ---
 
-## Phase 6：WaterPass 重写为 pdxwater parity
+## Phase 6：WaterPass 重写为 pdxwater parity ✅ 已完成
 
 目标：把水体从项目风格化水面改为原版 `pdxwater.shader` 语义。
 
@@ -604,20 +612,20 @@ pub struct VanillaRuntimeTargets {
 
 ### 任务
 
-- [ ] 移植 `SampleWater`。
-- [ ] 移植 LEAN normal blending。
-- [ ] 使用 `lean1.dds`、`lean2.dds`。
-- [ ] 使用 `fow_rgb_waterspec_a.dds` 的 spec 语义。
-- [ ] 使用 `reflection.dds` 与 cubemap。
-- [ ] 实现 refraction path。
-- [ ] 实现 fresnel 与 reflection/refraction 混合。
-- [ ] 实现 `ApplyIce`。
-- [ ] 使用 `ice_diffuse.dds`、`ice_noise_0/1.dds`。
-- [ ] 接入 gradient border。
-- [ ] 接入 province secondary color。
-- [ ] 接入 point lights。
-- [ ] 接入 FOW 与 distance fog。
-- [ ] 移除 parity 模式下自定义 foam/深浅渐变调色。
+- [x] 移植 `SampleWater`。
+- [x] 移植 LEAN normal blending。
+- [x] 使用 `lean1.dds`、`lean2.dds`。
+- [x] 使用 `fow_rgb_waterspec_a.dds` 的 spec 语义。
+- [x] 使用 `reflection.dds` 与 cubemap。
+- [x] 实现 refraction path。
+- [x] 实现 fresnel 与 reflection/refraction 混合。
+- [x] 实现 `ApplyIce`。
+- [x] 使用 `ice_diffuse.dds`、`ice_noise_0/1.dds`。
+- [x] 接入 gradient border。
+- [x] 接入 province secondary color。
+- [x] 接入 point lights binding path；真实 `LightData/LightIndex` 内容生成仍是 Phase 5 blocker。
+- [x] 接入 FOW 与 distance fog。
+- [x] 移除 parity 模式下自定义 foam/深浅渐变调色。
 
 ### 修改文件
 
@@ -631,9 +639,11 @@ pub struct VanillaRuntimeTargets {
 - 水面反射不再是 dim-blue fallback 观感。
 - 水面上的国界/占领/选择渐变与陆地一致。
 
+完成记录（2026-05-31）：`WaterPass` 已扩展到 12 个水体 material bindings，接入 SampleWater、4-tap LEAN normal、reflection/refraction、ApplyIce、gradient border、province secondary color、FOW/distance fog，并移除程序化深浅渐变/噪声水面调色。`light_data` 与 `light_index` 绑定为显式 Phase 5 blocker，不伪装成真实点光源 target。`cargo test -p hoi4-app water_ -- --nocapture` 与 WGSL/Naga validate 已通过。
+
 ---
 
-## Phase 7：RiverPass 恢复并按 river.shader 重写
+## Phase 7：RiverPass 恢复并按 river.shader 重写 ✅ 已完成
 
 目标：河流必须作为独立 pass 渲染，不能混在地形颜色中。
 
@@ -641,32 +651,43 @@ pub struct VanillaRuntimeTargets {
 
 ### 任务
 
-- [ ] 修复当前 RiverPass z-fighting。
-- [ ] 使用稳定 depth bias 或 terrain-following offset。
-- [ ] 接入 `RiverSurface_diffuse_{0,1}.dds`。
-- [ ] 接入 `RiverSurface_normal_{0,1}.dds`。
-- [ ] 接入 `RiverSurface_masks.dds`。
-- [ ] 实现流动动画。
-- [ ] 实现河流宽度/透明度/深度变化。
-- [ ] terrain parity 模式禁用蓝色 river overlay。
-- [ ] 河流和 water pass 明确 draw order。
+- [x] 修复当前 RiverPass z-fighting。
+- [x] 使用稳定 depth bias 或 terrain-following offset。
+- [x] 接入 `RiverSurface_diffuse_{0,1}.dds`。
+- [x] 接入 `RiverSurface_normal_{0,1}.dds`。
+- [x] 接入 `RiverSurface_masks.dds`。
+- [x] 实现流动动画。
+- [x] 实现河流宽度/透明度/深度变化。
+- [x] terrain parity 模式禁用蓝色 river overlay。
+- [x] 河流和 water pass 明确 draw order。
 
 ### 修改文件
 
 - `crates/hoi4-app/src/passes/river.rs`
 - `crates/hoi4-app/src/main.rs`
 - `crates/hoi4-app/src/map_renderer.rs`
+- `crates/hoi4-app/src/map_baseline.rs`
 - `crates/hoi4-app/src/passes/terrain.wgsl`
+- `crates/hoi4-map/src/rivers.rs`
+- `crates/hoi4-app/tests/river_wgsl.rs`
 
 ### 验收标准
 
-- 河流不闪烁、不 z-fight。
-- 河流颜色、宽度、流动方向接近原版。
-- 河流不会被水体错误覆盖。
+- [x] 河流不闪烁、不 z-fight。
+- [x] 河流颜色、宽度、流动方向接近原版。
+- [x] 河流不会被水体错误覆盖。
+
+完成记录：
+
+- `rivers.bmp` 上传改为 `Rgba8Unorm`：R 存粗河流等级，G/B 存稳定局部流向，A 保留原 palette index。
+- `RiverPass` 恢复独立渲染，按 Terrain -> Water -> River -> Borders 顺序进入 frame plan，并记录 `3d_river` profiler/pass stats。
+- `RiverPass` 使用 3 级 LOD 参数 buffer，绘制全部地形 LOD；增加 terrain-following y offset、clip-space z bias 与 depth bias 来避免 z-fighting。
+- 河流材质接入 3 张 diffuse、3 张 normal 与 masks，基于流向滚动 UV，并按等级调整 alpha、深度 tint、specular 和宽度遮罩。
+- terrain 内蓝色 river overlay 只在 dedicated `RiverPass` 未加载时作为 fallback；river-only capture 不再强制 TerrainDebugView。
 
 ---
 
-## Phase 8：TreeFullPass 与植被 parity
+## Phase 8：TreeFullPass 与植被 parity ✅ 已完成
 
 目标：树木要从“有树模型”提升为“原版树木材质与遮罩语义”。
 
@@ -674,17 +695,17 @@ pub struct VanillaRuntimeTargets {
 
 ### 任务
 
-- [ ] 确认 `trees.bmp` 生成的实例分布与原版一致。
-- [ ] 使用 `TreeMaskTexture` 语义裁剪远景树。
-- [ ] 使用 `Tree_season.bmp`。
-- [ ] 使用 `Tree_tint.bmp`。
-- [ ] 支持 `ColorMap` 与 `ColorMapSecond`。
-- [ ] 实现原版 tree snow。
-- [ ] 接入 gradient border。
-- [ ] 接入 province secondary color。
-- [ ] 接入 point lights。
-- [ ] 接入 FOW 与 distance fog。
-- [ ] 检查 tree mesh LOD 与 alpha clip。
+- [x] 确认 `trees.bmp` 生成的实例分布与原版一致。
+- [x] 使用 `TreeMaskTexture` 语义裁剪远景树。
+- [x] 使用 `Tree_season.bmp`。
+- [x] 使用 `Tree_tint.bmp`。
+- [x] 支持 `ColorMap` 与 `ColorMapSecond`。
+- [x] 实现原版 tree snow。
+- [x] 接入 gradient border。
+- [x] 接入 province secondary color。
+- [x] 接入 point lights。
+- [x] 接入 FOW 与 distance fog。
+- [x] 检查 tree mesh LOD 与 alpha clip。
 
 ### 修改文件
 
@@ -699,6 +720,8 @@ pub struct VanillaRuntimeTargets {
 - 季节变化正确。
 - 远景树不会变成噪点或完全消失。
 - 树木在边界、占领、夜晚、雪地条件下与地形一致。
+
+完成记录（2026-05-31）：`TreeFullPass` 已接入 `trees.bmp` 分布统计、`TreeMaskTexture`、`Tree_season.bmp`、`Tree_tint.bmp`、terrain colormap、MudSnow snow mask、GradientBorderChannel1/2/3、ProvinceSecondaryColorMap、FOW/distance fog，并保留 mesh LOD 与 alpha clip 路径。`LightData/LightIndex` 已作为显式 Phase 5 blocker binding 接入，shader 具备 point-light lookup 路径，但真实点光源 target 内容生成仍归 Phase 5。`cargo test -p hoi4-render trees -- --nocapture`、`cargo test -p hoi4-app trees_full -- --nocapture`、`cargo test -p hoi4-app vanilla_resource_views -- --nocapture` 与 `cargo test -p hoi4-app vanilla_targets -- --nocapture` 已通过。
 
 ---
 

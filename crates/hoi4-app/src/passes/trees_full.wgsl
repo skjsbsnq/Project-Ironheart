@@ -32,6 +32,15 @@ struct TreeParams {
 @group(1) @binding(3) var tint_map_tex: texture_2d<f32>;
 @group(1) @binding(4) var tree_mask_tex: texture_2d<f32>;
 @group(1) @binding(5) var map_sampler: sampler;
+@group(1) @binding(6) var gradient_border_ch1: texture_2d<f32>;
+@group(1) @binding(7) var gradient_border_ch2: texture_2d<f32>;
+@group(1) @binding(8) var gradient_border_ch3: texture_2d<f32>;
+@group(1) @binding(9) var province_secondary_color: texture_2d<f32>;
+@group(1) @binding(10) var fow_tex: texture_2d<f32>;
+@group(1) @binding(11) var mud_snow_tex: texture_2d<f32>;
+@group(1) @binding(12) var tree_colormap_tex: texture_2d<f32>;
+@group(1) @binding(13) var light_data_tex: texture_2d<f32>;
+@group(1) @binding(14) var light_index_tex: texture_2d<f32>;
 
 @group(2) @binding(0) var tree_diffuse: texture_2d<f32>;
 @group(2) @binding(1) var tree_normal: texture_2d<f32>;
@@ -67,6 +76,28 @@ fn shadow_pcf(shadow_proj: vec4<f32>) -> f32 {
     let depth = shadow_proj.z / shadow_proj.w - 0.002;
     let s = textureSampleCompare(shadow_map_tex, shadow_sampler, coords, depth);
     return mix(1.0 - frame.shadow_fade_factor, 1.0, s);
+}
+
+fn apply_tree_snow(map_uv: vec2<f32>, base_color: vec3<f32>) -> vec3<f32> {
+    let mud_snow = textureSample(mud_snow_tex, map_sampler, map_uv);
+    let snow_mask = clamp(max(mud_snow.g, mud_snow.b), 0.0, 1.0);
+    let snow_color = vec3<f32>(0.86, 0.89, 0.86);
+    return mix(base_color, snow_color, snow_mask * 0.62);
+}
+
+fn calculate_point_lights_tree(world_pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    let li = textureLoad(light_index_tex, vec2<i32>(0, 0), 0).r * 255.0;
+    if (li >= 255.0) {
+        return vec3<f32>(0.0);
+    }
+    let idx = i32(li);
+    let pos_radius = textureLoad(light_data_tex, vec2<i32>(idx * 2, 0), 0);
+    let color_falloff = textureLoad(light_data_tex, vec2<i32>(idx * 2 + 1, 0), 0);
+    let to_light = pos_radius.xyz - world_pos;
+    let d = length(to_light);
+    let attenuation = clamp((pos_radius.w - d) / max(color_falloff.w, 0.01), 0.0, 1.0);
+    let facing = clamp(dot(normalize(to_light), normal), 0.0, 1.0);
+    return color_falloff.rgb * attenuation * (0.35 + 0.65 * facing);
 }
 
 @vertex
@@ -119,9 +150,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     // Per-tree tint from Tree_tint.bmp at per-instance UV
     let tint = textureSample(tint_map_tex, map_sampler, in.tint_uv).rgb;
+    let colormap = textureSample(tree_colormap_tex, map_sampler, map_uv).rgb;
     var color = diffuse_sample.rgb;
     color *= season_color;
     color = get_overlay(color, tint, 0.5);
+    color = mix(color, get_overlay(color, colormap, 0.35), 0.25);
+    color = apply_tree_snow(map_uv, color);
+    let secondary = textureSample(province_secondary_color, map_sampler, map_uv);
+    color = mix(color, secondary.rgb, secondary.a * 0.22);
 
     let shadow_proj = frame.shadow_view_proj * vec4<f32>(in.world_pos, 1.0);
     let shadow = shadow_pcf(shadow_proj);
@@ -129,11 +165,19 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let sun_dir = normalize(-vec3<f32>(0.408, -0.816, 0.408));
     let n_dot_l = max(dot(normal, sun_dir), 0.2);
     var lit = color * (vec3<f32>(0.45) + frame.sun_diffuse_intensity.rgb * n_dot_l * shadow);
+    lit = lit + calculate_point_lights_tree(in.world_pos, normal) * 0.16;
+    let country_d = textureSample(gradient_border_ch1, map_sampler, map_uv).r * 255.0;
+    let province_d = textureSample(gradient_border_ch2, map_sampler, map_uv).r * 255.0;
+    let semantic_d = textureSample(gradient_border_ch3, map_sampler, map_uv).r * 255.0;
+    let border_hint = 1.0 - smoothstep(0.0, 4.0, min(min(country_d, province_d), semantic_d));
+    lit = mix(lit, lit * vec3<f32>(0.80, 0.83, 0.78), border_hint * 0.12);
 
     let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
     lit = day_night(lit, globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
 
     lit = apply_distance_fog(lit, in.world_pos, frame.cam_pos);
+    let fow_visibility = textureSample(fow_tex, map_sampler, map_uv).g;
+    lit = mix(lit * 0.55, lit, fow_visibility);
 
     let alpha = diffuse_sample.a * in.tree_fade * tparams.opacity;
     if (alpha < 0.01) {

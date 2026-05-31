@@ -11,6 +11,8 @@
 //!   256×128 DDS, UV.x across strip, UV.y tiling along border direction).
 //! - Alpha-blended on top of terrain + water, depth LessEqual + no write.
 //! - Per-type LOD: `cam_distance_norm` selects between lod0/1/2 textures.
+//! - Phase 4 keeps this strip mesh as the explicit border/debug fallback while
+//!   terrain, water, and trees consume shared GradientBorderChannel targets.
 //!
 //! ## Rendering order
 //!

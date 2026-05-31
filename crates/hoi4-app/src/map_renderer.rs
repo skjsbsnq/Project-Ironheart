@@ -46,6 +46,7 @@ pub enum MapRenderPass {
     Sky,
     Terrain,
     Water,
+    River,
     Borders,
     TradeRoutes,
     Straits,
@@ -64,11 +65,12 @@ pub enum MapRenderPass {
 }
 
 impl MapRenderPass {
-    pub const PHASE1_ORDER: [Self; 19] = [
+    pub const PHASE1_ORDER: [Self; 20] = [
         Self::ShadowCaster,
         Self::Sky,
         Self::Terrain,
         Self::Water,
+        Self::River,
         Self::Borders,
         Self::TradeRoutes,
         Self::Straits,
@@ -92,6 +94,7 @@ impl MapRenderPass {
             Self::Sky => "3d_sky",
             Self::Terrain => "3d_terrain",
             Self::Water => "3d_water",
+            Self::River => "3d_river",
             Self::Borders => "3d_border",
             Self::TradeRoutes => "3d_traderoute",
             Self::Straits => "3d_strait",
@@ -116,6 +119,7 @@ impl MapRenderPass {
             Self::Sky => mask.sky,
             Self::Terrain => mask.terrain,
             Self::Water => mask.water,
+            Self::River => mask.river,
             Self::Borders => mask.borders,
             Self::TradeRoutes | Self::Straits => mask.static_decals || mask.overlays,
             Self::Hoi3Counters => mask.objects || mask.overlays,
@@ -194,6 +198,7 @@ pub struct MapPassDrawSet {
     pub sky: bool,
     pub terrain: bool,
     pub water: bool,
+    pub river: bool,
     pub borders: bool,
     pub trade_routes: bool,
     pub straits: bool,
@@ -701,6 +706,7 @@ impl MapPassDrawSet {
             MapRenderPass::Sky => self.sky = enabled,
             MapRenderPass::Terrain => self.terrain = enabled,
             MapRenderPass::Water => self.water = enabled,
+            MapRenderPass::River => self.river = enabled,
             MapRenderPass::Borders => self.borders = enabled,
             MapRenderPass::TradeRoutes => self.trade_routes = enabled,
             MapRenderPass::Straits => self.straits = enabled,
@@ -723,12 +729,16 @@ impl MapPassDrawSet {
         &self,
         mask: MapLayerMask,
         dedicated_water_loaded: bool,
+        dedicated_river_loaded: bool,
         dedicated_border_loaded: bool,
         static_decals: StaticMapDecalPlan,
     ) -> TerrainMaterialOwnership {
         let dedicated_water_active = self.water && dedicated_water_loaded;
+        let dedicated_river_active = self.river && dedicated_river_loaded;
         let dedicated_border_active = self.borders && dedicated_border_loaded;
-        let terrain_static_decals = static_decals.terrain_rivers.visible
+        let terrain_rivers_fallback =
+            static_decals.terrain_rivers.visible && !dedicated_river_active;
+        let terrain_static_decals = terrain_rivers_fallback
             || static_decals.shore_accents.visible
             || static_decals.impassable_marks.visible;
         TerrainMaterialOwnership {
@@ -942,6 +952,7 @@ mod tests {
                 "3d_sky",
                 "3d_terrain",
                 "3d_water",
+                "3d_river",
                 "3d_border",
                 "3d_traderoute",
                 "3d_strait",
@@ -969,6 +980,19 @@ mod tests {
         assert_eq!(registry.entries.len(), renderer.graph.passes().len());
         assert!(registry.is_enabled("3d_terrain"));
         assert!(!registry.is_enabled("3d_frontlines"));
+    }
+
+    #[test]
+    fn river_pass_draws_after_water_before_borders() {
+        let names: Vec<_> = MapRenderPass::PHASE1_ORDER
+            .iter()
+            .map(|pass| pass.registry_name())
+            .collect();
+        let water = names.iter().position(|name| *name == "3d_water").unwrap();
+        let river = names.iter().position(|name| *name == "3d_river").unwrap();
+        let border = names.iter().position(|name| *name == "3d_border").unwrap();
+        assert!(water < river);
+        assert!(river < border);
     }
 
     #[test]
@@ -1001,6 +1025,7 @@ mod tests {
         let full = renderer.build_frame_plan(test_context(MapLayerMask::all()), &registry);
         assert!(full.draw.terrain);
         assert!(full.draw.water);
+        assert!(full.draw.river);
         assert!(full.draw.map_arrows);
         assert!(full.draw.postprocess);
         assert!(!full.draw.frontlines);
@@ -1165,7 +1190,12 @@ mod tests {
 
         assert!(factory_plan.poi_icons.opacity > political_plan.poi_icons.opacity);
         assert!(factory_plan.buildings.opacity > political_plan.buildings.opacity);
-        assert_eq!(factory_plan.poi_detail_level, 3);
+        assert_eq!(factory_plan.poi_detail_level, 2);
+
+        factories.settings =
+            MapRenderSettings::with_quality(MapLayerMask::all(), MapQualityPreset::Ultra);
+        let ultra_factory_plan = WorldObjectSystem::plan(factories);
+        assert_eq!(ultra_factory_plan.poi_detail_level, 3);
     }
 
     #[test]
@@ -1178,6 +1208,7 @@ mod tests {
         let plan = renderer.build_frame_plan(context, &registry);
         assert!(!plan.draw.terrain);
         assert!(!plan.draw.water);
+        assert!(!plan.draw.river);
         assert!(!plan.draw.borders);
         assert!(!plan.draw.hoi3_counters);
         assert!(!plan.draw.ui);
@@ -1203,14 +1234,25 @@ mod tests {
             MapLayerMask::all(),
             true,
             true,
+            true,
             plan.static_decals,
         );
         assert!(!ownership.terrain_water_final_color);
         assert!(!ownership.terrain_sdf_borders);
         assert!(ownership.terrain_overlays);
 
+        let river_fallback = plan.draw.terrain_material_ownership(
+            MapLayerMask::all(),
+            true,
+            false,
+            true,
+            plan.static_decals,
+        );
+        assert!(river_fallback.terrain_overlays);
+
         let fallback = plan.draw.terrain_material_ownership(
             MapLayerMask::all(),
+            false,
             false,
             false,
             plan.static_decals,
@@ -1227,9 +1269,9 @@ mod tests {
 
         let mask = MapLayerMask::for_layer(crate::map_baseline::MapBaselineLayer::TerrainOnly);
         let plan = renderer.build_frame_plan(test_context(mask), &registry);
-        let ownership = plan
-            .draw
-            .terrain_material_ownership(mask, true, true, plan.static_decals);
+        let ownership =
+            plan.draw
+                .terrain_material_ownership(mask, true, true, true, plan.static_decals);
         assert!(!ownership.terrain_water_final_color);
         assert!(!ownership.terrain_sdf_borders);
         assert!(!ownership.terrain_overlays);

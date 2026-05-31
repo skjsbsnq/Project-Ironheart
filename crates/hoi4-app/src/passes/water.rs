@@ -1,24 +1,24 @@
-//! Phase 3.12.6 — `WaterPass`：把 vanilla 海面着色接到屏幕上。
+//! Phase 6 — `WaterPass`：把 vanilla `pdxwater.shader` 语义接到屏幕上。
 //!
-//! **替代谁**：`terrain.wgsl::is_water` 分支（深度渐变 + 多频 fbm 法线 + 程序化
-//! foam + Phong 高光）—— 现在由本 pass 在独立 pipeline 里完成。
+//! **替代谁**：`terrain.wgsl::is_water` 分支（深度渐变 + 程序化法线/foam +
+//! Phong 高光）—— 现在由本 pass 在独立 pipeline 里完成。
 //!
 //! **水面法线**：vanilla `pdxwater.shader` 4-tap LEAN 法线混合。
 //! `lean1.dds` / `lean2.dds` 是 LEAN（Linear Efficient Antialiased Normal
-//! mapping）格式 —— RG=mean(N.xy)，BA=方差。解码时只取 RG 通道，
-//! 4 频率滚动采样后平均得低频涟漪+高频细节。
+//! mapping）格式 —— RG=mean(N.xy)，BA=方差。4 频率滚动采样后按 LEAN
+//! moments 混合。
 //!
-//! 1. **vanilla LEAN 4-tap 法线**（RG 通道解码，多频混合）
-//! 2. **平面反射占位**（`reflection.dds`，1×1 fallback 时是固定深蓝）+ 立方体反射
-//!    fallback grey-blue cube
-//! 3. **Fresnel 边缘高光**（与法线 + 视线夹角）
-//! 4. **太阳镜面反射**（与 `frame.day_night_hour_sun_dir` 同步，遮罩用
-//!    `fow_rgb_waterspec_a.dds` 的 A 通道）
-//! 5. **海域基色**：浅 / 深蓝深度梯度，叠 `colormap_water_0.dds` 高幅度调制
-//! 6. **海岸 foam**（与 terrain pass 共享的 `coast_sdf` 视图，归一化 [0,1]）
-//! 7. **极地冰层**（`ice_diffuse.dds` + `ice_noise_0.dds`）
-//! 8. **昼夜调暗**（来自 `shader_lib.wgsl::day_night`）
-//! 9. **大气距离雾**（同样来自公共库）
+//! Phase 6 材质路径覆盖：
+//!
+//! 1. **SampleWater**：`colormap_water_0/1/2.dds` + `underwater_terrain_0.dds`
+//! 2. **reflection/refraction**：`reflection.dds`、`reflection_land_unit.dds`、
+//!    environment cube fallback 与 Fresnel 混合
+//! 3. **water spec**：`fow_rgb_waterspec_a.dds` 的 A 通道驱动太阳高光
+//! 4. **ApplyIce**：`ice_diffuse.dds` + `ice_noise_0/1.dds`
+//! 5. **runtime targets**：GradientBorderChannel1/2/3、ProvinceSecondaryColorMap、
+//!    FOW 与 distance fog
+//! 6. **point lights**：绑定 `light_data` / `light_index` blocker target；真实
+//!    LightData/LightIndex 内容生成仍归 Phase 5。
 //!
 //! ## 几何复用策略
 //!
@@ -42,7 +42,7 @@
 //!
 //! ## 与 terrain pass 的水分支共存
 //!
-//! Phase 3.12.6 选择**保留** terrain pass 的水分支不动。理由：
+//! Phase 6 选择**保留** terrain pass 的水分支作为 fallback。理由：
 //!
 //! 1. mod 环境如果 vanilla `lean1.dds` / `colormap_water_0.dds` 等缺失，
 //!    `WaterPass::any_loaded == false` 时 main.rs 跳过 `WaterPass::render()`，
@@ -51,14 +51,14 @@
 //!    覆盖 terrain water 像素时**像素级替换**而非透明叠加；
 //! 3. 改动 terrain.wgsl 的代价 > 收益：terrain water 已经长大不影响视觉了。
 //!
-//! 后续 3.12 polish 阶段若要加 PostProcessPass 的真平面反射 RT，再回来把
-//! terrain water 分支收掉。
+//! 后续若要加 PostProcessPass 的真平面反射 RT，再回来把 terrain water
+//! fallback 分支收掉。
 //!
 //! ## EnvironmentMap cubemap
 //!
 //! 同 [`crate::passes::PdxMeshPass`]，vanilla 不发货 `gfx/cubemaps/*.dds`，
 //! 这里用 1×1×6 dim-blue `(80, 110, 150, 255)` 立方体 fallback 作为地平线
-//! 反射的占位。3.12.11 sky pass 完成后替换为 `gfx/loadingscreens/sky_*.dds`
+//! 反射的占位。后续 sky pass 完成后替换为 `gfx/loadingscreens/sky_*.dds`
 //! 的 6 个面。
 
 #![allow(dead_code)]
@@ -69,8 +69,10 @@ use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
 use crate::vanilla_resource_views::{
-    upload_dds_or_fallback, BindingAudit, DdsUploadRequest, VanillaResourceViews,
+    create_dynamic_target_1x1, upload_dds_or_fallback, BindingAudit, BindingAuditEntry,
+    DdsUploadRequest, VanillaResourceViews,
 };
+use crate::vanilla_targets::VanillaRuntimeTargets;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -160,7 +162,7 @@ impl WaterTextureSpec {
 pub struct WaterMaterialSystem;
 
 impl WaterMaterialSystem {
-    const TEXTURES: [WaterTextureSpec; 7] = [
+    const TEXTURES: [WaterTextureSpec; 12] = [
         WaterTextureSpec::new(
             MapResRole::Lean1,
             [128, 128, 255, 255],
@@ -192,6 +194,18 @@ impl WaterMaterialSystem {
             true,
         ),
         WaterTextureSpec::new(
+            MapResRole::ColormapWater(1),
+            [40, 82, 126, 255],
+            WaterMaterialComponent::Color,
+            false,
+        ),
+        WaterTextureSpec::new(
+            MapResRole::ColormapWater(2),
+            [34, 72, 118, 255],
+            WaterMaterialComponent::Color,
+            false,
+        ),
+        WaterTextureSpec::new(
             MapResRole::IceDiffuse,
             [220, 230, 240, 255],
             WaterMaterialComponent::Ice,
@@ -203,9 +217,27 @@ impl WaterMaterialSystem {
             WaterMaterialComponent::Ice,
             false,
         ),
+        WaterTextureSpec::new(
+            MapResRole::IceNoise(1),
+            [128, 128, 128, 255],
+            WaterMaterialComponent::Ice,
+            false,
+        ),
+        WaterTextureSpec::new(
+            MapResRole::ReflectionLandUnit,
+            [90, 100, 105, 255],
+            WaterMaterialComponent::Reflection,
+            false,
+        ),
+        WaterTextureSpec::new(
+            MapResRole::UnderwaterTerrain(0),
+            [35, 70, 95, 255],
+            WaterMaterialComponent::Color,
+            false,
+        ),
     ];
 
-    fn texture_specs() -> &'static [WaterTextureSpec; 7] {
+    fn texture_specs() -> &'static [WaterTextureSpec; 12] {
         &Self::TEXTURES
     }
 }
@@ -341,6 +373,7 @@ pub struct WaterPassInputs<'a> {
     /// 高度乘子（与 `main.rs::HEIGHT_SCALE` 同值），决定海面 vertex Y。
     pub height_scale: f32,
     pub vanilla_resources: &'a VanillaResourceViews,
+    pub runtime_targets: &'a VanillaRuntimeTargets,
 }
 
 impl WaterPass {
@@ -400,8 +433,39 @@ impl WaterPass {
                 .iter()
                 .map(|texture| texture.audit.clone()),
         );
-        let [lean1_tex, lean2_tex, reflection_tex, fow_water_spec_tex, colormap_water_tex, ice_diffuse_tex, ice_noise_tex] =
+        binding_audit.extend(
+            inputs
+                .runtime_targets
+                .binding_audit_entries_for_pass("water"),
+        );
+        binding_audit.extend([
+            BindingAuditEntry::dynamic_target_blocker(
+                "water",
+                "light_data",
+                "light_data_empty_target",
+                "Vanilla point light render target is not generated yet",
+                "water does not receive local night highlights until Phase 5",
+            ),
+            BindingAuditEntry::dynamic_target_blocker(
+                "water",
+                "light_index",
+                "light_index_empty_target",
+                "Vanilla point light index target is not generated yet",
+                "water point light lookup is disabled until Phase 5",
+            ),
+        ]);
+        let [lean1_tex, lean2_tex, reflection_tex, fow_water_spec_tex, colormap_water_0_tex, colormap_water_1_tex, colormap_water_2_tex, ice_diffuse_tex, ice_noise_0_tex, ice_noise_1_tex, reflection_land_unit_tex, underwater_terrain_tex] =
             loaded_water_textures;
+        let (light_data_tex, light_data_view) =
+            create_dynamic_target_1x1(device, queue, "light_data_empty_target", [0, 0, 0, 0]);
+        let (light_index_tex, light_index_view) = create_dynamic_target_1x1(
+            device,
+            queue,
+            "light_index_empty_target",
+            [255, 255, 255, 255],
+        );
+        owned_textures.push(light_data_tex);
+        owned_textures.push(light_index_tex);
 
         // ── env cube fallback (1×1×6 dim-blue) ─────────────────────────
         let (env_cube_tex, env_cube_view) = create_dim_blue_cubemap(device, queue);
@@ -569,6 +633,18 @@ impl WaterPass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                fragment_tex_entry(9),
+                fragment_tex_entry(10),
+                fragment_tex_entry(11),
+                fragment_tex_entry(12),
+                fragment_tex_entry(13),
+                fragment_tex_entry(14),
+                fragment_tex_entry(15),
+                fragment_tex_entry(16),
+                fragment_tex_entry(17),
+                fragment_tex_entry(18),
+                fragment_tex_entry(19),
+                fragment_tex_entry(20),
             ],
         });
         let bind_group_g2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -593,23 +669,79 @@ impl WaterPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&colormap_water_tex.view),
+                    resource: wgpu::BindingResource::TextureView(&colormap_water_0_tex.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&ice_diffuse_tex.view),
+                    resource: wgpu::BindingResource::TextureView(&colormap_water_1_tex.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&ice_noise_tex.view),
+                    resource: wgpu::BindingResource::TextureView(&colormap_water_2_tex.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 7,
-                    resource: wgpu::BindingResource::TextureView(inputs.coast_sdf_view),
+                    resource: wgpu::BindingResource::TextureView(&ice_diffuse_tex.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 8,
                     resource: wgpu::BindingResource::Sampler(&water_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::TextureView(&ice_noise_0_tex.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 10,
+                    resource: wgpu::BindingResource::TextureView(&ice_noise_1_tex.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 11,
+                    resource: wgpu::BindingResource::TextureView(&reflection_land_unit_tex.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 12,
+                    resource: wgpu::BindingResource::TextureView(&underwater_terrain_tex.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 13,
+                    resource: wgpu::BindingResource::TextureView(inputs.coast_sdf_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 14,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch1.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 15,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch2.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 16,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch3.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 17,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.province_secondary_color.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 18,
+                    resource: wgpu::BindingResource::TextureView(&inputs.runtime_targets.fow.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 19,
+                    resource: wgpu::BindingResource::TextureView(&light_data_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 20,
+                    resource: wgpu::BindingResource::TextureView(&light_index_view),
                 },
             ],
         });
@@ -785,7 +917,7 @@ fn load_water_material_textures(
     resources: &VanillaResourceViews,
     warnings: &mut Vec<String>,
     owned: &mut Vec<wgpu::Texture>,
-) -> [LoadedWaterTexture; 7] {
+) -> [LoadedWaterTexture; 12] {
     std::array::from_fn(|idx| {
         let spec = WaterMaterialSystem::texture_specs()[idx];
         let uploaded = upload_dds_or_fallback(
@@ -816,7 +948,7 @@ fn load_water_material_textures(
     })
 }
 
-fn water_texture_load_stats(textures: &[LoadedWaterTexture; 7]) -> WaterTextureLoadStats {
+fn water_texture_load_stats(textures: &[LoadedWaterTexture; 12]) -> WaterTextureLoadStats {
     let mut stats = WaterTextureLoadStats::default();
     for texture in textures {
         if texture.loaded {
@@ -838,8 +970,13 @@ fn water_binding_name(role: MapResRole) -> &'static str {
         MapResRole::Reflection => "reflection_tex",
         MapResRole::FowWaterSpec => "fow_water_spec",
         MapResRole::ColormapWater(0) => "colormap_water",
+        MapResRole::ColormapWater(1) => "colormap_water_1",
+        MapResRole::ColormapWater(2) => "colormap_water_2",
         MapResRole::IceDiffuse => "ice_diffuse",
         MapResRole::IceNoise(0) => "ice_noise",
+        MapResRole::IceNoise(1) => "ice_noise_1",
+        MapResRole::ReflectionLandUnit => "reflection_land_unit",
+        MapResRole::UnderwaterTerrain(0) => "underwater_terrain",
         _ => "water_resource",
     }
 }
@@ -955,7 +1092,7 @@ fn create_dim_blue_cubemap(
 
 // ─── shader 源 ────────────────────────────────────────────────────────────
 
-/// Phase 3.12.6 — pdxwater.shader 翻译的实例化 / chunk-tessellated 变体。
+/// Phase 6 — pdxwater.shader 翻译的实例化 / chunk-tessellated 变体。
 ///
 /// 与 `crates/hoi4-render/src/translations/pdxwater.wgsl` 同款（fragment 端
 /// 字面相同）但 vertex 端走 chunk-grid tessellation（与 terrain.wgsl 同款的
@@ -1003,10 +1140,22 @@ struct ChunkUniform {
 @group(2) @binding(2) var reflection_tex: texture_2d<f32>;
 @group(2) @binding(3) var fow_water_spec: texture_2d<f32>;
 @group(2) @binding(4) var colormap_water: texture_2d<f32>;
-@group(2) @binding(5) var ice_diffuse: texture_2d<f32>;
-@group(2) @binding(6) var ice_noise: texture_2d<f32>;
-@group(2) @binding(7) var coast_sdf: texture_2d<f32>;
+@group(2) @binding(5) var colormap_water_1: texture_2d<f32>;
+@group(2) @binding(6) var colormap_water_2: texture_2d<f32>;
+@group(2) @binding(7) var ice_diffuse: texture_2d<f32>;
 @group(2) @binding(8) var water_sampler: sampler;
+@group(2) @binding(9) var ice_noise: texture_2d<f32>;
+@group(2) @binding(10) var ice_noise_1: texture_2d<f32>;
+@group(2) @binding(11) var reflection_land_unit: texture_2d<f32>;
+@group(2) @binding(12) var underwater_terrain: texture_2d<f32>;
+@group(2) @binding(13) var coast_sdf: texture_2d<f32>;
+@group(2) @binding(14) var gradient_border_ch1: texture_2d<f32>;
+@group(2) @binding(15) var gradient_border_ch2: texture_2d<f32>;
+@group(2) @binding(16) var gradient_border_ch3: texture_2d<f32>;
+@group(2) @binding(17) var province_secondary_color: texture_2d<f32>;
+@group(2) @binding(18) var fow_tex: texture_2d<f32>;
+@group(2) @binding(19) var light_data_tex: texture_2d<f32>;
+@group(2) @binding(20) var light_index_tex: texture_2d<f32>;
 
 const SEA_LEVEL: f32 = 95.0 / 255.0;
 const ID_NONE: u32 = 4294967295u;
@@ -1103,34 +1252,21 @@ fn vs_main(in: VertexInput) -> VsOut {
     return out;
 }
 
-// ── 程序化 fbm（涟漪细节调制，辅助 LEAN 法线）──────────────────────
-fn hash21(p_in: vec2<f32>) -> f32 {
-    var q = fract(p_in * vec2<f32>(123.34, 456.21));
-    q = q + dot(q, q + 78.233);
-    return fract(q.x * q.y);
+// LEAN moments blending used by pdxwater's multi-tap water normals.
+fn blend_lean(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
+    let mean = (a.rg + b.rg) * 0.5;
+    let variance = max((a.ba + b.ba) * 0.5, vec2<f32>(0.0));
+    return vec4<f32>(mean, variance);
 }
 
-fn vnoise2d(p: vec2<f32>) -> f32 {
-    let i = floor(p);
-    let f = fract(p);
-    let u = f * f * (3.0 - 2.0 * f);
-    let a = hash21(i);
-    let b = hash21(i + vec2<f32>(1.0, 0.0));
-    let c = hash21(i + vec2<f32>(0.0, 1.0));
-    let d = hash21(i + vec2<f32>(1.0, 1.0));
-    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
-}
-
-fn fbm2d(p_in: vec2<f32>) -> f32 {
-    var p = p_in;
-    var amp = 0.5;
-    var sum = 0.0;
-    for (var i: i32 = 0; i < 4; i = i + 1) {
-        sum = sum + amp * vnoise2d(p);
-        p = p * 2.0;
-        amp = amp * 0.5;
-    }
-    return sum;
+fn unpack_lean_normal(sample: vec4<f32>) -> vec3<f32> {
+    let mean = sample.rg * 2.0 - 1.0;
+    let variance = dot(sample.ba, vec2<f32>(0.5));
+    let strength = clamp(0.72 - variance * 0.20, 0.35, 0.72);
+    let nx = mean.x * strength;
+    let nz = mean.y * strength;
+    let ny = sqrt(max(1.0 - nx * nx - nz * nz, 0.0));
+    return normalize(vec3<f32>(nx, ny, nz));
 }
 
 /// vanilla pdxwater 同款 4-tap LEAN 法线：4 个频率 + 4 个滚动方向。
@@ -1142,22 +1278,73 @@ fn sample_water_normal_lean(map_px: vec2<f32>, time: f32) -> vec3<f32> {
     let uv2 = water_px * 0.16 + vec2<f32>(time * 0.007, -time * 0.009);
     let uv3 = water_px * 0.32 + vec2<f32>(-time * 0.005, -time * 0.011);
 
-    let n0 = textureSample(water_normal_lean1, water_sampler, uv0).rg * 2.0 - 1.0;
-    let n1 = textureSample(water_normal_lean1, water_sampler, uv1).rg * 2.0 - 1.0;
-    let n2 = textureSample(water_normal_lean2, water_sampler, uv2).rg * 2.0 - 1.0;
-    let n3 = textureSample(water_normal_lean2, water_sampler, uv3).rg * 2.0 - 1.0;
-
-    let blend = (n0 + n1 + n2 + n3) * 0.25;
-    let nx = blend.x * 0.6;
-    let nz = blend.y * 0.6;
-    let ny = sqrt(max(1.0 - nx * nx - nz * nz, 0.0));
-    return normalize(vec3<f32>(nx, ny, nz));
+    let lean_a = blend_lean(
+        textureSample(water_normal_lean1, water_sampler, uv0),
+        textureSample(water_normal_lean1, water_sampler, uv1)
+    );
+    let lean_b = blend_lean(
+        textureSample(water_normal_lean2, water_sampler, uv2),
+        textureSample(water_normal_lean2, water_sampler, uv3)
+    );
+    return unpack_lean_normal(blend_lean(lean_a, lean_b));
 }
 
 // Disable screen-visible polar edge colouring; the map projection already
 // reaches the window edge, so extra polar tint reads as a horizontal band.
 fn polar_edge_mask(map_uv: vec2<f32>) -> f32 {
     return 0.0;
+}
+
+fn sample_water(map_uv: vec2<f32>, depth_ratio: f32, camera_dist: f32) -> vec3<f32> {
+    let near_color = textureSample(colormap_water, water_sampler, map_uv).rgb;
+    let mid_color = textureSample(colormap_water_1, water_sampler, map_uv).rgb;
+    let far_color = textureSample(colormap_water_2, water_sampler, map_uv).rgb;
+    let lod_t = smoothstep(32.0, 180.0, camera_dist);
+    let map_color = mix(mix(near_color, mid_color, lod_t), far_color, lod_t * lod_t);
+    let underwater = textureSample(underwater_terrain, water_sampler, map_uv * 4.0).rgb;
+    return mix(map_color, underwater, clamp(depth_ratio * 0.22, 0.0, 0.22));
+}
+
+fn sample_refraction(map_uv: vec2<f32>, normal: vec3<f32>, depth_ratio: f32) -> vec3<f32> {
+    let offset = normal.xz * (0.0018 + 0.0026 * (1.0 - depth_ratio));
+    let refracted_uv = map_uv + offset;
+    let water_lod = textureSample(colormap_water_1, water_sampler, refracted_uv).rgb;
+    let under = textureSample(underwater_terrain, water_sampler, refracted_uv * 4.0).rgb;
+    return mix(water_lod, under, 0.35 * depth_ratio);
+}
+
+fn calculate_point_lights_water(world_pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    let li = textureLoad(light_index_tex, vec2<i32>(0, 0), 0).r * 255.0;
+    if (li >= 255.0) {
+        return vec3<f32>(0.0);
+    }
+    let idx = i32(li);
+    let pos_radius = textureLoad(light_data_tex, vec2<i32>(idx * 2, 0), 0);
+    let color_falloff = textureLoad(light_data_tex, vec2<i32>(idx * 2 + 1, 0), 0);
+    let to_light = pos_radius.xyz - world_pos;
+    let d = length(to_light);
+    let attenuation = clamp((pos_radius.w - d) / max(color_falloff.w, 0.01), 0.0, 1.0);
+    let facing = clamp(dot(normalize(to_light), normal), 0.0, 1.0);
+    return color_falloff.rgb * attenuation * facing;
+}
+
+struct IceResult {
+    color: vec3<f32>,
+    mask: f32,
+};
+
+fn apply_ice(map_uv: vec2<f32>, base_color: vec3<f32>) -> IceResult {
+    let lat_t = abs(map_uv.y - 0.5) * 2.0;
+    if (lat_t <= wparams.ice_latitude) {
+        return IceResult(base_color, 0.0);
+    }
+    let ice = textureSample(ice_diffuse, water_sampler, map_uv * 4.0).rgb;
+    let noise0 = textureSample(ice_noise, water_sampler, map_uv * 8.0).r;
+    let noise1 = textureSample(ice_noise_1, water_sampler, map_uv * 16.0 + vec2<f32>(0.37, 0.19)).r;
+    let ice_mask = smoothstep(wparams.ice_latitude, wparams.ice_latitude + 0.06, lat_t)
+                 * (0.35 + 0.45 * noise0 + 0.20 * noise1);
+    let mask = clamp(ice_mask, 0.0, 1.0);
+    return IceResult(mix(base_color, ice, mask), mask);
 }
 
 struct WaterMaterial {
@@ -1205,6 +1392,7 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, world_pos: vec3<f3
     let depth_ratio = clamp((SEA_LEVEL - h) / SEA_LEVEL, 0.0, 1.0);
     let polar_edge = polar_edge_mask(map_uv);
     let time = frame.global_time * wparams.time_speed * 25.0;
+    let camera_dist = length(frame.cam_pos - world_pos);
     let normal = normalize(mix(
         sample_water_normal_lean(map_px, time),
         vec3<f32>(0.0, 1.0, 0.0),
@@ -1212,56 +1400,46 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, world_pos: vec3<f3
     ));
     let normal_strength = clamp(length(normal.xz) / 0.6, 0.0, 1.0);
 
-    // 基色：浅 → 深蓝渐变 + colormap_water 低幅度色调调制。
-    let shallow = vec3<f32>(0.16, 0.34, 0.52);
-    let deep    = vec3<f32>(0.03, 0.10, 0.24);
-    var base = mix(shallow, deep, pow(depth_ratio, 0.50));
-    let cmap = textureSample(colormap_water, water_sampler, map_uv).rgb;
-    base = mix(base, cmap, mix(0.20, 0.03, polar_edge));
+    // Base water color comes from vanilla water color LODs plus underwater terrain.
+    var base = sample_water(map_uv, depth_ratio, camera_dist);
+    let secondary = textureSample(province_secondary_color, water_sampler, map_uv);
+    base = mix(base, secondary.rgb, secondary.a * 0.30);
 
     let to_camera = normalize(frame.cam_pos - world_pos);
     let reflect_dir = reflect(-to_camera, normal);
-    let env_raw = textureSample(environment_cube, environment_sampler, reflect_dir).rgb;
+    let env_raw = textureSample(environment_cube, environment_sampler, reflect_dir).rgb * frame.cubemap_intensity;
     let plane_refl = textureSample(reflection_tex, water_sampler, map_uv).rgb;
-    let env = mix(env_raw, vec3<f32>(0.045, 0.12, 0.22), 0.78);
-    let reflected = mix(base, mix(plane_refl, env, 0.20), 0.32);
+    let land_unit_refl = textureSample(reflection_land_unit, water_sampler, map_uv).rgb;
+    let refraction = sample_refraction(map_uv, normal, depth_ratio);
+    let env = mix(plane_refl, env_raw, 0.35);
+    let reflected = mix(env, land_unit_refl, secondary.a * 0.15);
 
     let fresnel_t = pow(1.0 - max(dot(normal, to_camera), 0.0), wparams.fresnel_power);
-    let reflection_contribution = fresnel_t * mix(0.12, 0.025, polar_edge);
-    var color = mix(base, reflected, reflection_contribution);
-
-    let ripple_lo = fbm2d(map_px * 0.03 + vec2<f32>(time * 0.30, time * 0.10));
-    let ripple_hi = fbm2d(map_px * 0.08 + vec2<f32>(time * 0.55, -time * 0.20));
-    let ripple = ripple_lo * 0.65 + ripple_hi * 0.35;
-    color = color * (0.96 + 0.035 * ripple * (1.0 - polar_edge * 0.85));
+    let reflection_contribution = clamp(0.08 + fresnel_t * 0.52, 0.0, 0.70);
+    var color = mix(mix(refraction, base, 0.68), reflected, reflection_contribution);
 
     let sun_dir = normalize(frame.day_night_hour_sun_dir.yzw);
     let half_dir = normalize(to_camera + sun_dir);
     let n_dot_h = max(dot(normal, half_dir), 0.0);
     let spec_mask = textureSample(fow_water_spec, water_sampler, map_uv).a;
-    let sun_spec = pow(n_dot_h, 160.0) * (0.5 + 0.5 * spec_mask) *
-                   max(frame.sun_specular_intensity, 0.4);
-    color = color + vec3<f32>(1.0, 0.97, 0.85) * sun_spec * 0.16 * (1.0 - polar_edge * 0.90);
+    let sun_spec = pow(n_dot_h, 192.0) * spec_mask * max(frame.sun_specular_intensity, 0.4);
+    color = color + vec3<f32>(1.0, 0.97, 0.85) * sun_spec * 0.20 * (1.0 - polar_edge * 0.90);
 
     let coast_d_px = textureSample(coast_sdf, water_sampler, map_uv).r * 255.0;
+    let country_d_px = textureSample(gradient_border_ch1, water_sampler, map_uv).r * 255.0;
+    let province_d_px = textureSample(gradient_border_ch2, water_sampler, map_uv).r * 255.0;
+    let semantic_d_px = textureSample(gradient_border_ch3, water_sampler, map_uv).r * 255.0;
+    let border_hint = 1.0 - smoothstep(0.0, 3.0, min(min(country_d_px, province_d_px), semantic_d_px));
+    color = mix(color, vec3<f32>(0.09, 0.16, 0.21), border_hint * 0.045);
     let foam_band_px = wparams.foam_threshold;
     let foam = clamp(1.0 - smoothstep(0.0, foam_band_px, coast_d_px), 0.0, 1.0);
-    let foam_n = vnoise2d(map_px * 0.18 + vec2<f32>(time * 0.4, 0.0));
-    let camera_dist = length(frame.cam_pos - world_pos);
     let close_suppress = smoothstep(3.5, 12.0, camera_dist);
-    let foam_alpha = foam * smoothstep(0.55, 1.15, foam_n + foam) * 0.16 * close_suppress * (1.0 - polar_edge);
+    let foam_alpha = foam * 0.10 * close_suppress * (1.0 - polar_edge);
     color = mix(color, vec3<f32>(0.78, 0.88, 0.92), foam_alpha);
 
-    let lat_t = abs(map_uv.y - 0.5) * 2.0;
-    var ice_mask = 0.0;
-    if (lat_t > wparams.ice_latitude) {
-        let ice_uv = map_uv * 4.0;
-        let ice = textureSample(ice_diffuse, water_sampler, ice_uv).rgb;
-        let ice_n = textureSample(ice_noise, water_sampler, map_uv * 8.0).r;
-        ice_mask = smoothstep(wparams.ice_latitude, wparams.ice_latitude + 0.06, lat_t)
-                 * (0.4 + 0.6 * ice_n);
-        color = mix(color, ice, clamp(ice_mask, 0.0, 1.0));
-    }
+    color = color + calculate_point_lights_water(world_pos, normal) * 0.12;
+    let ice_result = apply_ice(map_uv, color);
+    color = ice_result.color;
 
     let polar_neutral = vec3<f32>(0.075, 0.18, 0.27);
     color = mix(color, polar_neutral, polar_edge * 0.92);
@@ -1276,6 +1454,8 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, world_pos: vec3<f3
     let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
     color = day_night(color, globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
     color = apply_distance_fog(color, world_pos, frame.cam_pos);
+    let fow_visibility = textureSample(fow_tex, water_sampler, map_uv).g;
+    color = mix(color * 0.52, color, fow_visibility);
 
     return WaterMaterial(
         color,
@@ -1283,7 +1463,7 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, world_pos: vec3<f3
         coast_d_px,
         normal_strength,
         foam_alpha,
-        clamp(ice_mask, 0.0, 1.0),
+        ice_result.mask,
         reflection_contribution,
         selected
     );
@@ -1348,7 +1528,7 @@ mod tests {
     #[test]
     fn water_material_system_declares_phase4_components() {
         let specs = WaterMaterialSystem::texture_specs();
-        assert_eq!(specs.len(), 7);
+        assert_eq!(specs.len(), 12);
         assert!(specs
             .iter()
             .any(|spec| spec.component == WaterMaterialComponent::Color));
@@ -1371,6 +1551,18 @@ mod tests {
                 spec.role,
                 MapResRole::Lean1 | MapResRole::Lean2 | MapResRole::ColormapWater(0)
             )));
+        assert!(specs
+            .iter()
+            .any(|spec| spec.role == MapResRole::ColormapWater(1)));
+        assert!(specs
+            .iter()
+            .any(|spec| spec.role == MapResRole::ColormapWater(2)));
+        assert!(specs
+            .iter()
+            .any(|spec| spec.role == MapResRole::ReflectionLandUnit));
+        assert!(specs
+            .iter()
+            .any(|spec| spec.role == MapResRole::UnderwaterTerrain(0)));
     }
 
     #[test]
@@ -1416,10 +1608,22 @@ mod tests {
             "reflection_tex",
             "fow_water_spec",
             "colormap_water",
+            "colormap_water_1",
+            "colormap_water_2",
             "ice_diffuse",
             "ice_noise",
+            "ice_noise_1",
+            "reflection_land_unit",
+            "underwater_terrain",
             "coast_sdf",
             "water_sampler",
+            "gradient_border_ch1",
+            "gradient_border_ch2",
+            "gradient_border_ch3",
+            "province_secondary_color",
+            "fow_tex",
+            "light_data_tex",
+            "light_index_tex",
         ];
         for n in names {
             assert!(
@@ -1442,9 +1646,22 @@ mod tests {
             WATER_WGSL.contains("sample_water_normal_lean"),
             "needs LEAN 4-tap normal blend"
         );
+        assert!(
+            WATER_WGSL.contains("fn sample_water"),
+            "needs SampleWater path"
+        );
+        assert!(
+            WATER_WGSL.contains("sample_refraction"),
+            "needs refraction path"
+        );
+        assert!(WATER_WGSL.contains("apply_ice"), "needs ApplyIce path");
         assert!(WATER_WGSL.contains("ice_diffuse"), "needs polar ice path");
         assert!(WATER_WGSL.contains("apply_distance_fog"), "needs fog");
         assert!(WATER_WGSL.contains("day_night"), "needs day/night dim");
+        assert!(
+            WATER_WGSL.contains("calculate_point_lights_water"),
+            "needs point-light binding path"
+        );
     }
 
     #[test]

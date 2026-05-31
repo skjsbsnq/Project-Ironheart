@@ -32,9 +32,9 @@ use hoi4_render::sdf::{compute_coast_sdf, compute_country_sdf, compute_province_
 use hoi4_render::terrain::{
     build_wrapped_instance_buckets, vertex_count_for_lod, ChunkGrid, ChunkInstance, LOD_GRID,
 };
-use hoi4_render::trees::{generate_trees, TreeInstance};
+use hoi4_render::trees::{generate_trees_with_stats, TreeInstance};
 use hoi4_render::trees_mesh::{
-    build_tree_mesh, filter_instances_for_type, TreeMeshData, TreeMeshInstance, TreeMeshVertex,
+    build_tree_mesh, filter_instances_for_type, TreeMeshInstance, TreeMeshVertex,
 };
 use passes::counter_v3::Hoi3CounterPass;
 use passes::PoiIconPass;
@@ -70,6 +70,7 @@ mod ui_binding;
 mod update_loop;
 use flag_bank::FlagBank;
 pub use hoi4_app::vanilla_resource_views;
+pub use hoi4_app::vanilla_targets;
 use hoi4_render::global_uniform::GlobalFrameUniform;
 use map_perf::{
     estimate_frame_texture_memory_bytes, phase10_overlay_lines, GpuProfilerStatus,
@@ -87,6 +88,11 @@ use passes::{
     PostProcessDebugView, PostProcessMode, SimpleBlitPass, TerrainPass, HDR_FORMAT,
 };
 use vanilla_resource_views::VanillaResourceViews;
+use vanilla_targets::{
+    VanillaRuntimeTargetFrameParams, VanillaRuntimeTargetInputs, VanillaRuntimeTargets,
+};
+
+const MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY: u32 = 32;
 
 /// World units per heightmap pixel (XZ). Smaller = "denser" world.
 const WORLD_SCALE: f32 = 0.02;
@@ -117,6 +123,16 @@ const MAX_INTERACTION_DT_SECS: f32 = 1.0 / 30.0;
 const SMOOTH_ZOOM_RESPONSE: f32 = 18.0;
 const HOVER_PICK_INTERVAL_MS: u128 = 33;
 const TOOLTIP_DELAY_MS: u128 = 400; // ms before tooltip appears
+
+fn parity_required_limits(adapter_limits: wgpu::Limits) -> wgpu::Limits {
+    let mut limits = wgpu::Limits::default().using_resolution(adapter_limits.clone());
+    limits.max_sampled_textures_per_shader_stage =
+        adapter_limits.max_sampled_textures_per_shader_stage.min(
+            MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY
+                .max(limits.max_sampled_textures_per_shader_stage),
+        );
+    limits
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -849,6 +865,7 @@ struct RenderState {
     /// archived `shader.wgsl` render fallback; missing assets are now handled
     /// inside TerrainPass via explicit 1x1 texture fallbacks.
     terrain_pass: TerrainPass,
+    vanilla_targets: VanillaRuntimeTargets,
     camera_buffer: wgpu::Buffer,
     /// Per-frame render params (selection, zoom, time).
     params_buffer: wgpu::Buffer,
@@ -905,8 +922,9 @@ struct RenderState {
     /// the procedural `buildings_pipeline` flat-coloured billboards above when
     /// `pdxmesh_pass.any_loaded` is true).
     pdxmesh_pass: passes::PdxMeshPass,
-    /// Phase 3.12.6 ???`WaterPass` for vanilla pdxwater shading (LEAN normals,
-    /// Fresnel, planar+cube reflection, sun spec, coastal foam, polar ice).
+    /// Phase 6 `WaterPass` for vanilla pdxwater shading (LEAN normals,
+    /// SampleWater, refraction, reflection, sun spec, coastal foam, polar ice,
+    /// runtime border/secondary/FOW targets, plus point-light blocker bindings).
     /// Drawn after the terrain pass so it overdraws the inline water branch
     /// in `terrain.wgsl` with full pdxwater output. When water vanilla
     /// textures fail to load, falls back to terrain.wgsl's procedural water.
@@ -1361,11 +1379,7 @@ impl App {
             self.map_mode = scene_map_mode;
             self.refresh_lut();
         }
-        self.terrain_debug_view = if capture.layer == map_baseline::MapBaselineLayer::RiverMask {
-            passes::TerrainDebugView::RiverMask
-        } else {
-            passes::TerrainDebugView::Off
-        };
+        self.terrain_debug_view = passes::TerrainDebugView::Off;
         self.water_debug_view = passes::WaterDebugView::Off;
         self.border_debug_view = passes::BorderDebugView::Off;
         self.postprocess_debug_view = match capture.layer {
@@ -2959,10 +2973,21 @@ impl App {
                     "[gpu] TIMESTAMP_QUERY not supported; Phase 10 overlay will show CPU/draw-call budgets only"
                 );
             }
+            let required_limits = parity_required_limits(adapter.limits());
+            if required_limits.max_sampled_textures_per_shader_stage
+                < MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY
+            {
+                eprintln!(
+                    "[gpu] adapter only supports {} sampled textures per shader stage; WaterPass Phase 6 requires {} and may be disabled by validation",
+                    required_limits.max_sampled_textures_per_shader_stage,
+                    MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY
+                );
+            }
             let (device, queue) = adapter
                 .request_device(
                     &wgpu::DeviceDescriptor {
                         required_features: features,
+                        required_limits,
                         ..Default::default()
                     },
                     None,
@@ -3115,48 +3140,6 @@ impl App {
         let map_w = self.world.map.province_map.width;
         let map_h = self.world.map.province_map.height;
 
-        let country_sdf_tex = device.create_texture_with_data(
-            &queue,
-            &wgpu::TextureDescriptor {
-                label: Some("country_sdf"),
-                size: wgpu::Extent3d {
-                    width: map_w,
-                    height: map_h,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            },
-            wgpu::util::TextureDataOrder::LayerMajor,
-            &country_sdf_data,
-        );
-        let country_sdf_view = country_sdf_tex.create_view(&Default::default());
-
-        let province_sdf_tex = device.create_texture_with_data(
-            &queue,
-            &wgpu::TextureDescriptor {
-                label: Some("province_sdf"),
-                size: wgpu::Extent3d {
-                    width: map_w,
-                    height: map_h,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            },
-            wgpu::util::TextureDataOrder::LayerMajor,
-            &province_sdf_data,
-        );
-        let province_sdf_view = province_sdf_tex.create_view(&Default::default());
-
         let coast_sdf_tex = device.create_texture_with_data(
             &queue,
             &wgpu::TextureDescriptor {
@@ -3181,6 +3164,16 @@ impl App {
         // Phase 3.5: Load vanilla terrain atlas (map/terrain/atlas0.dds  ?2048x2048 BC3, 4脳4 tiles)
         let vanilla_resources = VanillaResourceViews::load_for_audit(&self.path_cfg);
         let mut binding_audit = vanilla_resource_views::BindingAudit::new();
+        let vanilla_targets = VanillaRuntimeTargets::new(
+            &device,
+            &queue,
+            VanillaRuntimeTargetInputs {
+                world: &self.world,
+                country_sdf: &country_sdf_data,
+                province_sdf: &province_sdf_data,
+                coast_sdf: &coast_sdf_data,
+            },
+        );
         let (terrain_atlas_view, _terrain_atlas_sampler, terrain_atlas_audit) =
             load_terrain_atlas_phase1(&device, &queue, &vanilla_resources);
         binding_audit.extend([terrain_atlas_audit]);
@@ -3190,7 +3183,9 @@ impl App {
             load_colormap_phase1(&device, &queue, &vanilla_resources);
         binding_audit.extend([colormap_audit]);
 
-        // Phase 3.6.6: Load rivers.bmp ???R8Unorm texture (per-pixel river level).
+        // Phase 7: Load rivers.bmp as RGBA level/flow texture. Terrain reads
+        // the R channel for fallback/debug; RiverPass reads R/G/B/A for
+        // visibility, stable animation direction, and palette-index debug.
         let (rivers_view, _rivers_sampler, rivers_audit) =
             load_rivers_texture_phase1(&device, &queue, &vanilla_resources);
         binding_audit.extend([rivers_audit]);
@@ -3325,8 +3320,6 @@ impl App {
                 shadow_map_view: &shadow_pass.depth_view,
                 shadow_sampler: &shadow_pass.compare_sampler,
                 colormap_view: &colormap_view,
-                country_sdf_view: &country_sdf_view,
-                province_sdf_view: &province_sdf_view,
                 coast_sdf_view: &coast_sdf_view,
                 occupation_lut_view: &occupation_lut_view,
                 rivers_view: &rivers_view,
@@ -3336,6 +3329,7 @@ impl App {
                 terrain_atlas_view: &terrain_atlas_view,
                 country_color_lut_view: &lut_view,
                 vanilla_resources: &vanilla_resources,
+                runtime_targets: &vanilla_targets,
             };
             let terrain_pass = passes::TerrainPass::new(&device, &queue, &self.path_cfg, inputs);
             for w in &terrain_pass.load_warnings {
@@ -3362,7 +3356,7 @@ impl App {
         // when present; fall back to the legacy terrain.bmp routing only if
         // trees.bmp failed to load.
         let tree_data = if let Some(tree_bmp) = &self.world.map.tree_definition_bmp {
-            generate_trees(
+            let (trees, stats) = generate_trees_with_stats(
                 tree_bmp,
                 &self.world.map.tree_indices,
                 &self.world.map.heightmap,
@@ -3370,7 +3364,20 @@ impl App {
                 HEIGHT_SCALE,
                 3, // forest stride on trees.bmp (1650 wide)
                 2, // jungle stride
-            )
+            );
+            println!(
+                "[trees] trees.bmp {}x{} active={} generated={} ratio={:.3} by_type={:?} generated_by_type={:?} stride_skip={} sea_skip={}",
+                stats.tree_bitmap_size[0],
+                stats.tree_bitmap_size[1],
+                stats.active_pixels_total,
+                stats.generated_instances_total,
+                stats.placement_ratio(),
+                stats.active_pixels_by_type,
+                stats.generated_instances_by_type,
+                stats.skipped_by_stride,
+                stats.skipped_below_sea
+            );
+            trees
         } else {
             eprintln!("[trees] trees.bmp unavailable ???placing 0 trees");
             Vec::new()
@@ -4137,8 +4144,12 @@ impl App {
                 world_size: [self.camera.world_size.x, self.camera.world_size.y],
                 season_lerp,
                 season_column,
+                runtime_targets: &vanilla_targets,
+                vanilla_resources: &vanilla_resources,
+                tree_indices: &self.world.map.tree_indices,
             },
         );
+        binding_audit.extend(tree_full_pass.binding_audit.entries.clone());
         println!(
             "[trees_full] TreeFullPass ready (any_loaded={}, {} warnings)",
             tree_full_pass.any_loaded,
@@ -4166,6 +4177,7 @@ impl App {
             depth_format,
             &shadow_pass.depth_view,
             &shadow_pass.compare_sampler,
+            &vanilla_targets,
         );
         // Push the building instance data through (split by kind into 3
         // instance buffers ???civ / mil / dock).
@@ -4179,8 +4191,8 @@ impl App {
         // Phase 3.12.7 ???vanilla river pass.
         // Reuses the same per-LOD instance buffers as the terrain pass; loads
         // 7 vanilla river textures (3 diffuse + 3 normal + masks) via FsAssetDb
-        // with 1脳1 fallback. Drawn after terrain, before water ???replaces the
-        // inline navy-blue overlay in terrain.wgsl with proper river rendering.
+        // with 1x1 fallback. Drawn after water and before borders; terrain's
+        // navy-blue river overlay is only a fallback when RiverPass is unavailable.
         let river_pass = passes::RiverPass::new(
             &device,
             &queue,
@@ -4206,12 +4218,11 @@ impl App {
         }
         binding_audit.extend(river_pass.binding_audit.entries.clone());
 
-        // Phase 3.12.6 ???vanilla pdxwater pass.
+        // Phase 6 vanilla pdxwater pass.
         // Reuses the same per-LOD instance buffers as the terrain pass; loads
-        // 7 vanilla water textures (lean1/2 + reflection + fow_water_spec +
-        // colormap_water_0 + ice_diffuse + ice_noise_0) via FsAssetDb with
-        // 1脳1 fallback per role. Drawn after terrain so it overdraws the
-        // inline water branch in terrain.wgsl with full pdxwater shading.
+        // the 12 water material textures used by SampleWater/reflection/ice
+        // via FsAssetDb with 1x1 fallback per role. Drawn after terrain so it
+        // overdraws the inline water branch in terrain.wgsl.
         let mut water_pass = passes::WaterPass::new(
             &device,
             &queue,
@@ -4226,6 +4237,7 @@ impl App {
                 world_size: [self.camera.world_size.x, self.camera.world_size.y],
                 height_scale: HEIGHT_SCALE,
                 vanilla_resources: &vanilla_resources,
+                runtime_targets: &vanilla_targets,
             },
         );
         println!(
@@ -4308,6 +4320,7 @@ impl App {
                 &sky_pass.cubemap_view,
                 &shadow_pass.depth_view,
                 &shadow_pass.compare_sampler,
+                &vanilla_targets,
             );
         }
         println!("[sky] SkyPass ready (cubemap_loaded={})", sky_pass.loaded);
@@ -4618,6 +4631,7 @@ impl App {
             queue,
             config,
             terrain_pass,
+            vanilla_targets,
             camera_buffer,
             params_buffer,
             instance_buffers,
@@ -13099,10 +13113,37 @@ impl App {
         let terrain_ownership: TerrainMaterialOwnership = map_draw.terrain_material_ownership(
             map_layer_mask,
             s.water_pass.any_loaded,
+            s.river_pass.any_loaded,
             s.border_pass.any_loaded,
             static_decals,
         );
         let water_ownership = map_draw.water_material_ownership(s.water_pass.any_loaded);
+        let runtime_player_country = if self.player_country < self.world.countries.count {
+            Some(hoi4_state::CountryId(self.player_country as u16))
+        } else {
+            None
+        };
+        s.vanilla_targets.update_frame(
+            &s.queue,
+            &self.world,
+            &VanillaRuntimeTargetFrameParams {
+                selected_province_id: self.selected_province_id,
+                hovered_province_id: semantic_overlays.hovered_province_id,
+                map_mode: self.map_mode,
+                player_country: runtime_player_country,
+                battle_plan_opacity: semantic_overlays
+                    .frontlines
+                    .opacity
+                    .max(semantic_overlays.arrows.opacity),
+                naval_dominance_opacity: semantic_overlays.straits.opacity,
+                occupation_opacity: semantic_overlays.occupation_stripes.opacity,
+                selected_opacity: semantic_overlays.selected_province_pulse.opacity,
+                hover_opacity: semantic_overlays.hover_highlight.opacity,
+                map_mode_overlay_opacity: semantic_overlays.map_mode_overlay.opacity,
+                season_snow_offset: params.season_snow_offset,
+                season_blend: season_result.season_blend,
+            },
+        );
 
         s.hoi3_counter_pass.update_opacity(
             &s.queue,
@@ -13156,6 +13197,16 @@ impl App {
                 debug_view: self.water_debug_view.as_shader_value(),
                 final_water_owner: if water_ownership.final_color { 1 } else { 0 },
                 ..passes::WaterParams::default()
+            },
+        );
+        s.river_pass.update_params(
+            &s.queue,
+            &passes::RiverParams {
+                world_w: vanilla_map_space.world_size[0],
+                world_d: vanilla_map_space.world_size[1],
+                height_scale: HEIGHT_SCALE,
+                zoom_factor,
+                ..passes::RiverParams::default()
             },
         );
 
@@ -13331,7 +13382,19 @@ impl App {
                     semantic_overlays.hover_highlight.opacity,
                     semantic_overlays.map_mode_overlay.opacity,
                 ],
-                feature_flags: passes::PdxMapParams::VANILLA_PARITY_FEATURE_FLAGS,
+                feature_flags: [
+                    0.0,
+                    if terrain_ownership.terrain_overlays
+                        && map_draw.river
+                        && !s.river_pass.any_loaded
+                    {
+                        1.0
+                    } else {
+                        0.0
+                    },
+                    0.0,
+                    0.0,
+                ],
                 atlas_idx_array: {
                     let src = self.world.map.terrain_catalog.atlas_idx_array_256();
                     std::array::from_fn::<[u32; 4], 64, _>(|r| {
@@ -13482,7 +13545,7 @@ impl App {
                             );
                         }
 
-                        // Phase 3.12.6 ???vanilla pdxwater pass on top of terrain.
+                        // Phase 6 vanilla pdxwater pass on top of terrain.
                         // Reuses the same instance buffers + chunk grid; clamps Y to
                         // SEA_LEVEL 脳 HEIGHT_SCALE in VS, discards land pixels via
                         // heightmap sample in FS. depth_compare = LessEqual + no
@@ -13513,10 +13576,33 @@ impl App {
                             );
                         }
 
-                        // RiverPass is intentionally disabled for now. Its animated
-                        // terrain-following geometry z-fights against TerrainPass on
-                        // shallow slopes and reads as flashing brown lines. Rivers are
-                        // rendered as a stable blue overlay inside terrain.wgsl instead.
+                        // Phase 7: RiverPass draws after water and before borders.
+                        // Terrain's blue river overlay is now only a fallback when
+                        // this dedicated pass is unavailable.
+                        if map_draw.river {
+                            let pass_started = Instant::now();
+                            let token = s.gpu_profiler.as_mut().and_then(|profiler| {
+                                profiler.begin_render_span(&mut pass, "3d_river")
+                            });
+                            s.river_pass.render(
+                                &mut pass,
+                                &s.instance_buffers,
+                                &counts,
+                                &vert_counts,
+                            );
+                            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token)
+                            {
+                                profiler.end_render_span(&mut pass, token);
+                            }
+                            s.pass_registry.record_cpu_ms(
+                                "3d_river",
+                                pass_started.elapsed().as_secs_f32() * 1000.0,
+                            );
+                            s.pass_registry.record_draw_calls(
+                                "3d_river",
+                                counts.iter().filter(|&&count| count > 0).count() as u32,
+                            );
+                        }
 
                         // Phase 3.12.9 (redesign) ???vanilla border pass using strip meshes.
                         // Renders thin quad-strips along actual province/country boundaries.
@@ -16297,7 +16383,7 @@ fn load_rivers_texture_phase1(
     };
 
     let (w, h) = (rivers.width, rivers.height);
-    let bytes = rivers.to_r8_normalised();
+    let bytes = rivers.to_rgba_level_flow();
     println!(
         "[rivers] loaded {}x{} {} river pixels",
         w,
@@ -16315,7 +16401,7 @@ fn load_rivers_texture_phase1(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::R8Unorm,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -16329,7 +16415,7 @@ fn load_rivers_texture_phase1(
         &bytes,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(w),
+            bytes_per_row: Some(w * 4),
             rows_per_image: Some(h),
         },
         wgpu::Extent3d {
@@ -16696,9 +16782,9 @@ fn load_colormap(
     (view, sampler)
 }
 
-/// Phase 3.6.6: Load `map/rivers.bmp` and upload as an `R8Unorm` texture.
-/// Each texel = `level / 4 * 255` (so 0 / 64 / 128 / 192 / 255 for levels 0..4).
-/// Sampled in shader as f32 in [0, 1] for LOD-gated river overlay.
+/// Phase 7: Load `map/rivers.bmp` and upload as an `Rgba8Unorm` texture.
+/// R stores coarse level; G/B store stable local flow direction; A stores the
+/// original palette index for debug/future parity work.
 ///
 /// Uses `BmpDecoder` from hoi4-map; falls back to a 1脳1 zero texture if missing.
 #[allow(dead_code)]
@@ -16723,7 +16809,7 @@ fn load_rivers_texture(
     };
 
     let (w, h) = (rivers.width, rivers.height);
-    let bytes = rivers.to_r8_normalised();
+    let bytes = rivers.to_rgba_level_flow();
     println!(
         "[rivers] loaded {}x{}  ?{} river pixels (level???)",
         w,
@@ -16741,7 +16827,7 @@ fn load_rivers_texture(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::R8Unorm,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -16755,7 +16841,7 @@ fn load_rivers_texture(
         &bytes,
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(w),
+            bytes_per_row: Some(w * 4),
             rows_per_image: Some(h),
         },
         wgpu::Extent3d {
@@ -16795,7 +16881,7 @@ fn rivers_fallback(
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::R8Unorm,
+        format: wgpu::TextureFormat::Rgba8Unorm,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
@@ -16806,10 +16892,10 @@ fn rivers_fallback(
             origin: wgpu::Origin3d::ZERO,
             aspect: wgpu::TextureAspect::All,
         },
-        &[0u8],
+        &[0u8, 128, 255, 255],
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(1),
+            bytes_per_row: Some(4),
             rows_per_image: Some(1),
         },
         wgpu::Extent3d {
@@ -16959,6 +17045,8 @@ fn main() {
 
 #[cfg(test)]
 mod v6_app_tests {
+    use super::MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY;
+
     #[test]
     fn economy_law_tiers_include_corporatist_war_economy() {
         let db = hoi4_content::V6Database::load();
@@ -16969,6 +17057,32 @@ mod v6_app_tests {
                 .iter()
                 .any(|tier| tier.id == "corporatist_war_economy"),
             "Economy law panel tiers should include corporatist_war_economy"
+        );
+    }
+
+    #[test]
+    fn parity_required_limits_raise_sampled_texture_budget_for_water() {
+        let mut adapter_limits = wgpu::Limits::default();
+        adapter_limits.max_sampled_textures_per_shader_stage = 64;
+
+        let requested = super::parity_required_limits(adapter_limits);
+
+        assert!(
+            requested.max_sampled_textures_per_shader_stage
+                >= MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY
+        );
+    }
+
+    #[test]
+    fn parity_required_limits_do_not_exceed_adapter_sampled_texture_budget() {
+        let mut adapter_limits = wgpu::Limits::default();
+        adapter_limits.max_sampled_textures_per_shader_stage = 24;
+
+        let requested = super::parity_required_limits(adapter_limits.clone());
+
+        assert_eq!(
+            requested.max_sampled_textures_per_shader_stage,
+            adapter_limits.max_sampled_textures_per_shader_stage
         );
     }
 }

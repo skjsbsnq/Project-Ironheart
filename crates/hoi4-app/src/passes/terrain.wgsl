@@ -101,6 +101,9 @@ struct ChunkUniform {
 @group(1) @binding(11) var occupation_lut_tex: texture_2d<f32>;
 @group(1) @binding(12) var coast_sdf_tex: texture_2d<f32>;
 @group(1) @binding(13) var rivers_tex: texture_2d<f32>;
+@group(1) @binding(14) var gradient_border_ch3_tex: texture_2d<f32>;
+@group(1) @binding(15) var fow_tex: texture_2d<f32>;
+@group(1) @binding(16) var mud_snow_tex: texture_2d<f32>;
 
 // ── Group 2 — pass-specific terrain bitmaps ──
 @group(2) @binding(0) var heightmap_tex: texture_2d<f32>;
@@ -151,6 +154,14 @@ const TERRAIN_DEBUG_MAP_UV: u32 = 16u;
 const TERRAIN_DEBUG_MAP_PX_GRID: u32 = 17u;
 const TERRAIN_DEBUG_VANILLA_TILE_REPEAT: u32 = 18u;
 const TERRAIN_DEBUG_CITYLIGHT_UV: u32 = 19u;
+const TERRAIN_DEBUG_GRADIENT_BORDER_CH3: u32 = 20u;
+const TERRAIN_DEBUG_PROVINCE_SECONDARY: u32 = 21u;
+const TERRAIN_DEBUG_FOW_UNEXPLORED: u32 = 22u;
+const TERRAIN_DEBUG_FOW_VISIBILITY: u32 = 23u;
+const TERRAIN_DEBUG_FOW_ENEMY_SPOTTED: u32 = 24u;
+const TERRAIN_DEBUG_MUD_SNOW_SNOW_AMOUNT: u32 = 25u;
+const TERRAIN_DEBUG_MUD_SNOW_MUD_AMOUNT: u32 = 26u;
+const TERRAIN_DEBUG_MUD_SNOW_TARGET: u32 = 27u;
 
 struct TerrainMaterialWeights {
     terrain_albedo_weight: f32,
@@ -505,8 +516,27 @@ fn country_dist_px(uv: vec2<f32>) -> f32 {
 fn province_dist_px(uv: vec2<f32>) -> f32 {
     return textureSample(gradient_border_ch2_tex, generic_sampler, uv).r * 255.0;
 }
+fn gradient_border_ch3_dist_px(uv: vec2<f32>) -> f32 {
+    return textureSample(gradient_border_ch3_tex, generic_sampler, uv).r * 255.0;
+}
 fn coast_dist_px(uv: vec2<f32>) -> f32 {
     return textureSample(coast_sdf_tex, generic_sampler, uv).r * 255.0;
+}
+
+fn province_secondary_at(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(province_secondary_color_tex, generic_sampler, uv);
+}
+
+fn fow_visibility_at(uv: vec2<f32>) -> f32 {
+    return textureSample(fow_tex, generic_sampler, uv).g;
+}
+
+fn fow_sample_at(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(fow_tex, generic_sampler, uv);
+}
+
+fn mud_snow_target_at(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(mud_snow_tex, generic_sampler, uv);
 }
 
 fn river_level_at(uv: vec2<f32>) -> f32 {
@@ -580,7 +610,7 @@ fn terrain_control_enabled(value: f32) -> bool {
 }
 
 fn terrain_debug_view() -> u32 {
-    return u32(clamp(params.terrain_controls.x + 0.5, 0.0, 19.0));
+    return u32(clamp(params.terrain_controls.x + 0.5, 0.0, 27.0));
 }
 
 fn terrain_owns_water_color() -> bool {
@@ -716,7 +746,9 @@ fn get_mud_snow_color(terrain_id: u32, uv: vec2<f32>, real_h: f32, normal_y: f32
     let no_snow = 1.0 - max(snow_now, snow_winter * 0.55);
     let mud_now = clamp(mud_season * lowland * no_snow, 0.0, 1.0);
     let mud_winter = clamp((1.0 - winter) * 0.35 * lowland * no_snow, 0.0, 1.0);
-    return vec4<f32>(mud_now, snow_winter, snow_now, mud_winter);
+    let procedural = vec4<f32>(mud_now, snow_winter, snow_now, mud_winter);
+    let mud_snow_sample = mud_snow_target_at(uv);
+    return mix(procedural, mud_snow_sample, 0.65);
 }
 
 fn get_mud_amount(mud_snow_color: vec4<f32>) -> f32 {
@@ -869,6 +901,13 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
                 color = mix(color, value, mode_alpha * 0.16);
             }
         }
+
+        let secondary = province_secondary_at(frag.map_uv);
+        color = mix(color, secondary.rgb, secondary.a);
+
+        let semantic_dist = gradient_border_ch3_dist_px(frag.map_uv);
+        let semantic_edge = 1.0 - smoothstep(0.0, 3.5, semantic_dist);
+        color = mix(color, vec3<f32>(0.19, 0.17, 0.13), semantic_edge * 0.055);
     } else if (terrain_owns_water_color()) {
         let depth_ratio = clamp((SEA_LEVEL - real_h) / SEA_LEVEL, 0.0, 1.0);
         let shallow_color = vec3<f32>(0.30, 0.55, 0.62);
@@ -1003,6 +1042,37 @@ fn terrain_debug_color(view: u32, frag: VsOut, material: TerrainMaterial, real_h
         let city_uv = fract(vanilla_citylight_uv(frag.map_px));
         return vec3<f32>(city_uv.x, city_uv.y, 0.0);
     }
+    if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH3) {
+        let d = gradient_border_ch3_dist_px(frag.map_uv);
+        return vec3<f32>(1.0 - clamp(d / 32.0, 0.0, 1.0), clamp(d / 32.0, 0.0, 1.0), 0.2);
+    }
+    if (view == TERRAIN_DEBUG_PROVINCE_SECONDARY) {
+        let secondary = province_secondary_at(frag.map_uv);
+        return mix(vec3<f32>(0.0), secondary.rgb, max(secondary.a, 0.08));
+    }
+    if (view == TERRAIN_DEBUG_FOW_UNEXPLORED) {
+        let fow = fow_sample_at(frag.map_uv);
+        return vec3<f32>(1.0 - fow.r);
+    }
+    if (view == TERRAIN_DEBUG_FOW_VISIBILITY) {
+        return vec3<f32>(fow_visibility_at(frag.map_uv));
+    }
+    if (view == TERRAIN_DEBUG_FOW_ENEMY_SPOTTED) {
+        let fow = fow_sample_at(frag.map_uv);
+        return vec3<f32>(fow.b);
+    }
+    if (view == TERRAIN_DEBUG_MUD_SNOW_SNOW_AMOUNT) {
+        let ms = mud_snow_target_at(frag.map_uv);
+        return vec3<f32>(get_snow(ms, seasonal_snow_amount()));
+    }
+    if (view == TERRAIN_DEBUG_MUD_SNOW_MUD_AMOUNT) {
+        let ms = mud_snow_target_at(frag.map_uv);
+        return vec3<f32>(get_mud_amount(ms));
+    }
+    if (view == TERRAIN_DEBUG_MUD_SNOW_TARGET) {
+        let ms = mud_snow_target_at(frag.map_uv);
+        return vec3<f32>(ms.r, ms.b, ms.g);
+    }
     return material.hdr_color;
 }
 
@@ -1091,6 +1161,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let vig_t = smoothstep(0.4, 0.85, vig_d);
         color = color * (1.0 - params.vignette_strength * vig_t);
     }
+
+    let fow_visibility = fow_visibility_at(in.map_uv);
+    color = mix(color * 0.56, color, fow_visibility);
 
     return vec4<f32>(color, 1.0);
 }

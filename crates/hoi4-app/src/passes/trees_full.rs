@@ -36,12 +36,16 @@
 use hoi4_assets::{AssetDb, DdsImage, FsAssetDb, MapResRole, PdxMesh};
 use hoi4_paths::PathConfig;
 use hoi4_render::trees::TreeInstance;
-use hoi4_render::trees_mesh::{
-    build_tree_mesh, cap_instances, TreeMeshData, TreeMeshVertex, INSTANCE_CAP_PER_TYPE,
-};
+use hoi4_render::trees_mesh::{build_tree_mesh, TreeMeshVertex, INSTANCE_CAP_PER_TYPE};
+use std::collections::HashSet;
 use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
+use crate::vanilla_resource_views::{
+    create_dynamic_target_1x1, upload_dds_or_fallback, BindingAudit, BindingAuditEntry,
+    DdsUploadRequest, VanillaResourceViews,
+};
+use crate::vanilla_targets::VanillaRuntimeTargets;
 
 const SHADER_WGSL: &str = include_str!("trees_full.wgsl");
 
@@ -149,6 +153,67 @@ struct TreeTypeData {
     lod_distances: [f32; MAX_TREE_LODS],
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TreeSharedMaterialComponent {
+    Mask,
+    Season,
+    Tint,
+    Colormap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct TreeSharedTextureSpec {
+    role: MapResRole,
+    binding: &'static str,
+    fallback_rgba: [u8; 4],
+    component: TreeSharedMaterialComponent,
+    critical: bool,
+    visual_impact: &'static str,
+}
+
+pub struct TreeMaterialSystem;
+
+impl TreeMaterialSystem {
+    const SHARED_TEXTURES: [TreeSharedTextureSpec; 4] = [
+        TreeSharedTextureSpec {
+            role: MapResRole::TreesMask,
+            binding: "tree_mask",
+            fallback_rgba: [0, 0, 0, 255],
+            component: TreeSharedMaterialComponent::Mask,
+            critical: true,
+            visual_impact: "distant tree clipping and forest density mask disappear",
+        },
+        TreeSharedTextureSpec {
+            role: MapResRole::TreeSeason,
+            binding: "tree_season",
+            fallback_rgba: [255, 255, 255, 255],
+            component: TreeSharedMaterialComponent::Season,
+            critical: true,
+            visual_impact: "seasonal foliage colors fall back to summer-neutral",
+        },
+        TreeSharedTextureSpec {
+            role: MapResRole::TreeTint,
+            binding: "tree_tint",
+            fallback_rgba: [128, 128, 128, 255],
+            component: TreeSharedMaterialComponent::Tint,
+            critical: true,
+            visual_impact: "per-region foliage tint falls back to neutral gray",
+        },
+        TreeSharedTextureSpec {
+            role: MapResRole::ColormapEmissive,
+            binding: "tree_colormap",
+            fallback_rgba: [128, 128, 128, 255],
+            component: TreeSharedMaterialComponent::Colormap,
+            critical: true,
+            visual_impact: "tree color no longer follows terrain ColorMap/ColorMapSecond",
+        },
+    ];
+
+    fn shared_texture_specs() -> &'static [TreeSharedTextureSpec; 4] {
+        &Self::SHARED_TEXTURES
+    }
+}
+
 pub struct TreeFullPass {
     pipeline: wgpu::RenderPipeline,
     bind_group_g0: wgpu::BindGroup,
@@ -157,9 +222,13 @@ pub struct TreeFullPass {
     types: Vec<TreeTypeData>,
     pub any_loaded: bool,
     pub load_warnings: Vec<String>,
+    pub binding_audit: BindingAudit,
     _season_tex: wgpu::Texture,
     _tint_tex: wgpu::Texture,
     _mask_tex: wgpu::Texture,
+    _colormap_tex: wgpu::Texture,
+    _light_data_tex: wgpu::Texture,
+    _light_index_tex: wgpu::Texture,
     _shadow_tex_held: bool,
     _owned_samplers: Vec<wgpu::Sampler>,
 }
@@ -172,6 +241,9 @@ pub struct TreeFullPassInputs<'a> {
     pub world_size: [f32; 2],
     pub season_lerp: f32,
     pub season_column: f32,
+    pub runtime_targets: &'a VanillaRuntimeTargets,
+    pub vanilla_resources: &'a VanillaResourceViews,
+    pub tree_indices: &'a HashSet<u8>,
 }
 
 impl TreeFullPass {
@@ -184,6 +256,28 @@ impl TreeFullPass {
     ) -> Self {
         let mut warnings = Vec::new();
         let mut owned_samplers = Vec::new();
+        let mut binding_audit = BindingAudit::new();
+        binding_audit.extend(
+            inputs
+                .runtime_targets
+                .binding_audit_entries_for_pass("tree"),
+        );
+        binding_audit.extend([
+            BindingAuditEntry::dynamic_target_blocker(
+                "tree",
+                "light_data",
+                "light_data_empty_target",
+                "Vanilla point light render target is not generated yet",
+                "tree material does not receive local night highlights until Phase 5",
+            ),
+            BindingAuditEntry::dynamic_target_blocker(
+                "tree",
+                "light_index",
+                "light_index_empty_target",
+                "Vanilla point light index target is not generated yet",
+                "tree point light lookup is disabled until Phase 5",
+            ),
+        ]);
 
         let composed = hoi4_render::shader_rt::compose_shader(SHADER_WGSL, true, true);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -205,35 +299,86 @@ impl TreeFullPass {
         });
 
         let db = FsAssetDb::new(path_cfg.clone());
+        let active_tree_pixels = inputs
+            .vanilla_resources
+            .bytes(MapResRole::TreesMask)
+            .and_then(|bytes| hoi4_map::parse_trees_bmp(bytes).ok())
+            .map(|bmp| bmp.active_pixel_count(inputs.tree_indices));
+        match active_tree_pixels {
+            Some(count) => println!(
+                "[trees_full] trees.bmp active pixels for configured tree indices: {}",
+                count
+            ),
+            None => warnings.push(
+                "[trees_full] trees.bmp unavailable for active-pixel density audit".to_string(),
+            ),
+        }
 
-        let (season_view, season_tex) = load_bmp_or_fallback(
+        let (season_view, season_tex, season_audit) = load_tree_bmp_or_fallback(
             device,
             queue,
-            &db,
+            inputs.vanilla_resources,
             MapResRole::TreeSeason,
+            "tree_season",
             [255, 255, 255, 255],
+            true,
+            "seasonal foliage colors fall back to summer-neutral",
             &mut warnings,
         );
-        let (tint_view, tint_tex) = load_bmp_or_fallback(
+        binding_audit.extend([season_audit]);
+        let (tint_view, tint_tex, tint_audit) = load_tree_bmp_or_fallback(
             device,
             queue,
-            &db,
+            inputs.vanilla_resources,
             MapResRole::TreeTint,
+            "tree_tint",
             [128, 128, 128, 255],
+            true,
+            "per-region foliage tint falls back to neutral gray",
             &mut warnings,
         );
+        binding_audit.extend([tint_audit]);
 
-        let (mask_view, mask_tex) = {
-            let (v, t) = load_bmp_or_fallback(
-                device,
-                queue,
-                &db,
-                MapResRole::TreesMask,
-                [255, 255, 255, 255],
-                &mut warnings,
-            );
-            (v, t)
-        };
+        let (mask_view, mask_tex, mask_audit) = load_tree_bmp_or_fallback(
+            device,
+            queue,
+            inputs.vanilla_resources,
+            MapResRole::TreesMask,
+            "tree_mask",
+            [0, 0, 0, 255],
+            true,
+            "distant tree clipping and forest density mask disappear",
+            &mut warnings,
+        );
+        binding_audit.extend([mask_audit]);
+        let colormap = upload_dds_or_fallback(
+            device,
+            queue,
+            inputs.vanilla_resources,
+            DdsUploadRequest {
+                role: MapResRole::ColormapEmissive,
+                label: "tree_colormap",
+                fallback_rgba: [128, 128, 128, 255],
+                srgb: true,
+                critical: true,
+                pass: "tree",
+                binding: "tree_colormap",
+                visual_impact: "tree color no longer follows terrain ColorMap/ColorMapSecond",
+            },
+            &mut warnings,
+        );
+        binding_audit.extend([colormap.audit.clone()]);
+        let colormap_tex = colormap.texture;
+        let colormap_view = colormap.view;
+
+        let (light_data_tex, light_data_view) =
+            create_dynamic_target_1x1(device, queue, "light_data_empty_target", [0, 0, 0, 0]);
+        let (light_index_tex, light_index_view) = create_dynamic_target_1x1(
+            device,
+            queue,
+            "light_index_empty_target",
+            [255, 255, 255, 255],
+        );
 
         let tree_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("tree_sampler"),
@@ -280,7 +425,7 @@ impl TreeFullPass {
             ],
         });
 
-        // BGL g1: shadow + season + tint + mask + map_sampler
+        // BGL g1: shadow + vanilla tree shared maps + runtime targets + blocker light maps
         let bgl_g1 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("tree_full_bgl_g1"),
             entries: &[
@@ -309,6 +454,15 @@ impl TreeFullPass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                fragment_tex_entry(6),
+                fragment_tex_entry(7),
+                fragment_tex_entry(8),
+                fragment_tex_entry(9),
+                fragment_tex_entry(10),
+                fragment_tex_entry(11),
+                fragment_tex_entry(12),
+                fragment_tex_entry(13),
+                fragment_tex_entry(14),
             ],
         });
         let bind_group_g1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -338,6 +492,52 @@ impl TreeFullPass {
                 wgpu::BindGroupEntry {
                     binding: 5,
                     resource: wgpu::BindingResource::Sampler(&map_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch1.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch2.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch3.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.province_secondary_color.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 10,
+                    resource: wgpu::BindingResource::TextureView(&inputs.runtime_targets.fow.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 11,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.mud_snow.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 12,
+                    resource: wgpu::BindingResource::TextureView(&colormap_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 13,
+                    resource: wgpu::BindingResource::TextureView(&light_data_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 14,
+                    resource: wgpu::BindingResource::TextureView(&light_index_view),
                 },
             ],
         });
@@ -653,9 +853,13 @@ impl TreeFullPass {
             types,
             any_loaded,
             load_warnings: warnings,
+            binding_audit,
             _season_tex: season_tex,
             _tint_tex: tint_tex,
             _mask_tex: mask_tex,
+            _colormap_tex: colormap_tex,
+            _light_data_tex: light_data_tex,
+            _light_index_tex: light_index_tex,
             _shadow_tex_held: false,
             _owned_samplers: owned_samplers,
         }
@@ -749,7 +953,7 @@ impl TreeFullPass {
     }
 }
 
-fn cap_tree_instances(mut instances: Vec<TreeFullInstance>, cap: usize) -> Vec<TreeFullInstance> {
+fn cap_tree_instances(instances: Vec<TreeFullInstance>, cap: usize) -> Vec<TreeFullInstance> {
     if instances.len() <= cap || cap == 0 {
         return instances;
     }
@@ -886,6 +1090,95 @@ fn load_dds_or_fallback(
     }
 }
 
+fn load_tree_bmp_or_fallback(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    resources: &VanillaResourceViews,
+    role: MapResRole,
+    binding: &'static str,
+    fallback_rgba: [u8; 4],
+    critical: bool,
+    visual_impact: &'static str,
+    warnings: &mut Vec<String>,
+) -> (wgpu::TextureView, wgpu::Texture, BindingAuditEntry) {
+    let path = role.relative_path();
+    let result: Option<(wgpu::Texture, wgpu::TextureView)> = (|| {
+        let bytes = resources.bytes(role)?;
+        let (w, h, rgba) = parse_bmp_to_rgba(bytes)?;
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(&path),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(w * 4),
+                rows_per_image: Some(h),
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        let view = texture.create_view(&Default::default());
+        Some((texture, view))
+    })();
+
+    match result {
+        Some((tex, view)) => {
+            let audit = BindingAuditEntry::vanilla(
+                "tree",
+                binding,
+                role,
+                true,
+                critical,
+                None,
+                visual_impact,
+            );
+            (view, tex, audit)
+        }
+        None => {
+            let reason = resources
+                .bytes(role)
+                .map(|_| "bmp_parse_failed".to_string())
+                .unwrap_or_else(|| "missing_resource".to_string());
+            warnings.push(format!(
+                "[trees_full] {} missing or invalid - using 1x1 fallback: {}",
+                path, reason
+            ));
+            let (tex, view) = create_1x1_rgba(device, queue, fallback_rgba, false);
+            let audit = BindingAuditEntry::vanilla(
+                "tree",
+                binding,
+                role,
+                false,
+                critical,
+                Some(reason),
+                visual_impact,
+            );
+            (view, tex, audit)
+        }
+    }
+}
+
 fn load_bmp_or_fallback(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -956,7 +1249,7 @@ fn parse_bmp_to_rgba(data: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     let w = i32::from_le_bytes(data[18..22].try_into().ok()?) as u32;
     let h_raw = i32::from_le_bytes(data[22..26].try_into().ok()?);
     let bpp = u16::from_le_bytes(data[28..30].try_into().ok()?) as usize;
-    let compression = u32::from_le_bytes(data[30..34].try_into().ok()?);
+    let _compression = u32::from_le_bytes(data[30..34].try_into().ok()?);
     if bpp != 8 && bpp != 24 && bpp != 32 {
         return None;
     }
@@ -1088,6 +1381,32 @@ mod tests {
     }
 
     #[test]
+    fn tree_material_system_declares_phase8_shared_bindings() {
+        let specs = TreeMaterialSystem::shared_texture_specs();
+        assert_eq!(specs.len(), 4);
+        assert!(specs.iter().any(|spec| {
+            spec.role == MapResRole::TreesMask
+                && spec.component == TreeSharedMaterialComponent::Mask
+                && spec.critical
+        }));
+        assert!(specs.iter().any(|spec| {
+            spec.role == MapResRole::TreeSeason
+                && spec.component == TreeSharedMaterialComponent::Season
+                && spec.critical
+        }));
+        assert!(specs.iter().any(|spec| {
+            spec.role == MapResRole::TreeTint
+                && spec.component == TreeSharedMaterialComponent::Tint
+                && spec.critical
+        }));
+        assert!(specs.iter().any(|spec| {
+            spec.role == MapResRole::ColormapEmissive
+                && spec.component == TreeSharedMaterialComponent::Colormap
+                && spec.critical
+        }));
+    }
+
+    #[test]
     fn cap_tree_instances_passthrough() {
         let v: Vec<TreeFullInstance> = (0..50)
             .map(|_| TreeFullInstance {
@@ -1163,5 +1482,44 @@ mod tests {
         assert_eq!(r[1].pos[0], 3.0);
         assert!((r[0].tint_uv[0] - 1.0 / 112.0).abs() < 1e-6);
         assert!((r[0].season_row - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn trees_full_wgsl_naga_parses() {
+        let composed = hoi4_render::shader_rt::compose_shader(SHADER_WGSL, true, true);
+        let module = naga::front::wgsl::parse_str(&composed)
+            .unwrap_or_else(|err| panic!("{}", err.emit_to_string(&composed)));
+        let mut validator = naga::valid::Validator::new(
+            naga::valid::ValidationFlags::all(),
+            naga::valid::Capabilities::all(),
+        );
+        if let Err(err) = validator.validate(&module) {
+            panic!("{}", err.emit_to_string(&composed));
+        }
+    }
+
+    #[test]
+    fn trees_full_wgsl_references_phase8_bindings() {
+        for token in [
+            "tree_mask_tex",
+            "season_map_tex",
+            "tint_map_tex",
+            "tree_colormap_tex",
+            "gradient_border_ch1",
+            "gradient_border_ch2",
+            "gradient_border_ch3",
+            "province_secondary_color",
+            "mud_snow_tex",
+            "fow_tex",
+            "light_data_tex",
+            "light_index_tex",
+            "apply_tree_snow",
+            "calculate_point_lights_tree",
+        ] {
+            assert!(
+                SHADER_WGSL.contains(token),
+                "missing Phase 8 token: {token}"
+            );
+        }
     }
 }

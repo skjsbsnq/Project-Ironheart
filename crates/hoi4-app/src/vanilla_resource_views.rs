@@ -403,18 +403,21 @@ impl VanillaResourceViews {
         ]
     }
 
-    pub fn water_resource_roles() -> [MapResRole; 10] {
+    pub fn water_resource_roles() -> [MapResRole; 13] {
         [
             MapResRole::Lean1,
             MapResRole::Lean2,
             MapResRole::Reflection,
             MapResRole::FowWaterSpec,
             MapResRole::ColormapWater(0),
+            MapResRole::ColormapWater(1),
+            MapResRole::ColormapWater(2),
             MapResRole::IceDiffuse,
             MapResRole::IceNoise(0),
             MapResRole::IceNoise(1),
             MapResRole::IceNoise(2),
             MapResRole::ReflectionLandUnit,
+            MapResRole::UnderwaterTerrain(0),
         ]
     }
 
@@ -430,8 +433,13 @@ impl VanillaResourceViews {
         ]
     }
 
-    pub fn tree_resource_roles() -> [MapResRole; 2] {
-        [MapResRole::TreeSeason, MapResRole::TreeTint]
+    pub fn tree_resource_roles() -> [MapResRole; 4] {
+        [
+            MapResRole::TreesMask,
+            MapResRole::TreeSeason,
+            MapResRole::TreeTint,
+            MapResRole::ColormapEmissive,
+        ]
     }
 
     pub fn border_texture_roles() -> [MapResRole; 18] {
@@ -549,24 +557,41 @@ impl VanillaResourceViews {
                 "Vanilla point light index target is not generated yet",
                 "point light lookup is disabled",
             ),
-            BindingAuditEntry::dynamic_target_blocker(
+            BindingAuditEntry::dynamic_target(
                 "terrain",
                 "province_secondary_color",
-                "province_secondary_color_empty_target",
-                "Province secondary color target is not generated yet",
-                "occupation, selection, and map-mode secondary tint are absent",
+                "ProvinceSecondaryColorMap",
+                "occupation, selection, hover, and map-mode secondary tint use a runtime map target",
             ),
             BindingAuditEntry::dynamic_target(
                 "terrain",
                 "gradient_border_ch1",
-                "country_sdf",
-                "temporary SDF input used until vanilla gradient border target exists",
+                "GradientBorderChannel1",
+                "country border gradient is generated from runtime ownership state",
             ),
             BindingAuditEntry::dynamic_target(
                 "terrain",
                 "gradient_border_ch2",
-                "province_sdf",
-                "temporary SDF input used until vanilla gradient border target exists",
+                "GradientBorderChannel2",
+                "province border gradient is generated from runtime province topology",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "terrain",
+                "gradient_border_ch3",
+                "GradientBorderChannel3",
+                "state, coast, and impassable border gradient is generated at runtime",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "terrain",
+                "fow",
+                "FOW",
+                "fog-of-war visibility is supplied as a runtime map target",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "terrain",
+                "mud_snow",
+                "MudSnow",
+                "mud and snow masks are supplied as a runtime map target",
             ),
         ]);
         audit.extend([
@@ -613,6 +638,22 @@ impl VanillaResourceViews {
             binding_from_asset_audit(
                 &asset_audit,
                 "water",
+                "colormap_water_1",
+                MapResRole::ColormapWater(1),
+                false,
+                "water medium-distance color LOD falls back to colormap_water_0",
+            ),
+            binding_from_asset_audit(
+                &asset_audit,
+                "water",
+                "colormap_water_2",
+                MapResRole::ColormapWater(2),
+                false,
+                "water far-distance color LOD falls back to colormap_water_0",
+            ),
+            binding_from_asset_audit(
+                &asset_audit,
+                "water",
                 "ice_diffuse",
                 MapResRole::IceDiffuse,
                 false,
@@ -625,6 +666,192 @@ impl VanillaResourceViews {
                 MapResRole::IceNoise(0),
                 false,
                 "ice noise is approximated",
+            ),
+            binding_from_asset_audit(
+                &asset_audit,
+                "water",
+                "ice_noise_1",
+                MapResRole::IceNoise(1),
+                false,
+                "secondary ice noise is approximated",
+            ),
+            binding_from_asset_audit(
+                &asset_audit,
+                "water",
+                "reflection_land_unit",
+                MapResRole::ReflectionLandUnit,
+                false,
+                "land/unit reflection contribution uses a flat fallback",
+            ),
+            binding_from_asset_audit(
+                &asset_audit,
+                "water",
+                "underwater_terrain",
+                MapResRole::UnderwaterTerrain(0),
+                false,
+                "water refraction falls back to a flat underwater color",
+            ),
+        ]);
+        audit.extend([
+            BindingAuditEntry::dynamic_target(
+                "water",
+                "gradient_border_ch1",
+                "GradientBorderChannel1",
+                "country border gradient is shared with terrain",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "water",
+                "gradient_border_ch2",
+                "GradientBorderChannel2",
+                "province border gradient is shared with terrain",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "water",
+                "gradient_border_ch3",
+                "GradientBorderChannel3",
+                "semantic border gradient is shared with terrain",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "water",
+                "province_secondary_color",
+                "ProvinceSecondaryColorMap",
+                "water material receives selection and map-mode secondary tint",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "water",
+                "fow",
+                "FOW",
+                "water material receives runtime fog-of-war visibility",
+            ),
+            BindingAuditEntry::dynamic_target_blocker(
+                "water",
+                "light_data",
+                "light_data_empty_target",
+                "Vanilla point light render target is not generated yet",
+                "water does not receive local night highlights until Phase 5",
+            ),
+            BindingAuditEntry::dynamic_target_blocker(
+                "water",
+                "light_index",
+                "light_index_empty_target",
+                "Vanilla point light index target is not generated yet",
+                "water point light lookup is disabled until Phase 5",
+            ),
+        ]);
+        audit.extend([
+            binding_from_asset_audit(
+                &asset_audit,
+                "tree",
+                "tree_mask",
+                MapResRole::TreesMask,
+                true,
+                "distant tree clipping and forest density mask disappear",
+            ),
+            binding_from_asset_audit(
+                &asset_audit,
+                "tree",
+                "tree_season",
+                MapResRole::TreeSeason,
+                true,
+                "seasonal foliage colors fall back to summer-neutral",
+            ),
+            binding_from_asset_audit(
+                &asset_audit,
+                "tree",
+                "tree_tint",
+                MapResRole::TreeTint,
+                true,
+                "per-region foliage tint falls back to neutral gray",
+            ),
+            binding_from_asset_audit(
+                &asset_audit,
+                "tree",
+                "tree_colormap",
+                MapResRole::ColormapEmissive,
+                true,
+                "tree color no longer follows terrain ColorMap/ColorMapSecond",
+            ),
+        ]);
+        audit.extend([
+            BindingAuditEntry::dynamic_target(
+                "tree",
+                "gradient_border_ch1",
+                "GradientBorderChannel1",
+                "tree material shares country border gradient with terrain",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "tree",
+                "gradient_border_ch2",
+                "GradientBorderChannel2",
+                "tree material shares province border gradient with terrain",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "tree",
+                "gradient_border_ch3",
+                "GradientBorderChannel3",
+                "tree material shares semantic border gradient with terrain",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "tree",
+                "province_secondary_color",
+                "ProvinceSecondaryColorMap",
+                "tree material receives selection and map-mode secondary tint",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "tree",
+                "fow",
+                "FOW",
+                "tree material receives runtime fog-of-war visibility",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "tree",
+                "mud_snow",
+                "MudSnow",
+                "tree material receives runtime snow masks",
+            ),
+            BindingAuditEntry::dynamic_target_blocker(
+                "tree",
+                "light_data",
+                "light_data_empty_target",
+                "Vanilla point light render target is not generated yet",
+                "tree material does not receive local night highlights until Phase 5",
+            ),
+            BindingAuditEntry::dynamic_target_blocker(
+                "tree",
+                "light_index",
+                "light_index_empty_target",
+                "Vanilla point light index target is not generated yet",
+                "tree point light lookup is disabled until Phase 5",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "pdxmesh",
+                "gradient_border_ch1",
+                "GradientBorderChannel1",
+                "mesh material shares country border gradient with terrain",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "pdxmesh",
+                "gradient_border_ch2",
+                "GradientBorderChannel2",
+                "mesh material shares province border gradient with terrain",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "pdxmesh",
+                "gradient_border_ch3",
+                "GradientBorderChannel3",
+                "mesh material shares semantic border gradient with terrain",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "pdxmesh",
+                "province_secondary_color",
+                "ProvinceSecondaryColorMap",
+                "mesh material receives battle-plan, selection, and map-mode secondary tint",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "pdxmesh",
+                "fow",
+                "FOW",
+                "mesh material receives runtime fog-of-war visibility",
             ),
         ]);
         for (binding, role, critical, impact) in [
@@ -1014,7 +1241,12 @@ mod tests {
         assert!(VanillaResourceViews::river_resource_roles().contains(&MapResRole::RiverMasks));
         assert_eq!(
             VanillaResourceViews::tree_resource_roles(),
-            [MapResRole::TreeSeason, MapResRole::TreeTint]
+            [
+                MapResRole::TreesMask,
+                MapResRole::TreeSeason,
+                MapResRole::TreeTint,
+                MapResRole::ColormapEmissive
+            ]
         );
         assert_eq!(VanillaResourceViews::border_texture_roles().len(), 18);
     }
