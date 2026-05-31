@@ -10,7 +10,8 @@
 *.log
 *.trace
 
-# Local-only planning / roadmap docs
+# Local-only Markdown docs
+*.md
 *ROADMAP*.md
 *roadmap*.md
 *Roadmap*.md
