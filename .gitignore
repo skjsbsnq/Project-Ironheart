@@ -12,6 +12,7 @@
 
 # Local-only Markdown docs
 *.md
+!README.md
 *ROADMAP*.md
 *roadmap*.md
 *Roadmap*.md
