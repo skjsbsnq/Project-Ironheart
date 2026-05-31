@@ -2,6 +2,8 @@
 name = "hoi4-render"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
+
 # CR-2.1.2 — build.rs 把 assets/counter_icons/*.svg 栅格化为 OUT_DIR/counter_atlas.png。
 build = "build.rs"
 

@@ -2,6 +2,7 @@
 name = "hoi4-app"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 
 # Phase 0.2：游戏的实际入口。
 # 命令行解析（--game-path / --mod）→ 路径配置 → 加载 World → 启动渲染循环

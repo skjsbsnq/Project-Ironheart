@@ -2,6 +2,7 @@
 name = "hoi4-ui"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 
 # ROADMAP_V5 阶段 B.1：自研 UI 框架（egui + vanilla theme）。
 #

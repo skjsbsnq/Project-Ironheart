@@ -97,6 +97,12 @@ cargo run -p hoi4-app -- --headless --headless-days 30
 cargo run -p hoi4-app -- --map-audit
 ```
 
+## 许可证
+
+本仓库代码以 `GPL-3.0-only` 发布。你可以使用、修改和分发本项目代码，但分发修改版或衍生作品时必须遵守 GPLv3，并提供对应源码。
+
+该许可证用于禁止闭源分发本项目代码或其衍生版本；它不授权任何 Paradox / Hearts of Iron IV 原版私有资源、商标或素材。
+
 ## 仓库约定
 
 - 不提交 `target/`、日志、临时二进制、本地 `.env`。

@@ -2,6 +2,7 @@
 name = "hoi4-paths"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 
 [dependencies]
 clausewitz-parser = { path = "../clausewitz-parser" }

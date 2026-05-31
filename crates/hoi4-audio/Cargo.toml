@@ -2,6 +2,7 @@
 name = "hoi4-audio"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 
 [dependencies]
 hoi4-paths = { path = "../hoi4-paths" }

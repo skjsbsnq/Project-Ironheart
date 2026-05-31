@@ -2,6 +2,7 @@
 name = "hoi4-integration"
 version = "0.1.0"
 edition = "2021"
+license.workspace = true
 
 # Phase 0.4：集成测试基础设施。
 #
