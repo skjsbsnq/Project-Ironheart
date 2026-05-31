@@ -4,6 +4,7 @@ use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, Ui, Vec2};
 
 use crate::v9::{
     paint, profiler, sound,
+    text::fit_font_to_width,
     tokens::{palette, spacing, TextRole},
 };
 
@@ -196,7 +197,12 @@ impl<'a> DataTable<'a> {
                 Pos2::new(col_rects[idx].right(), header.bottom()),
             )
             .shrink2(Vec2::new(2.0, 0.0));
-            let font = fit_font(column.label, TextRole::Subheading.font_id(), cell.width());
+            let font = fit_font_to_width(
+                column.label,
+                TextRole::Subheading.font_id(),
+                (cell.width() - spacing::S6).max(8.0),
+                0.72,
+            );
             let painter = ui.painter().with_clip_rect(cell);
             painter.text(
                 Pos2::new(column.align.x(cell), cell.center().y),
@@ -251,7 +257,12 @@ impl<'a> DataTable<'a> {
                 } else {
                     TextRole::Body.font_id()
                 };
-                let font = fit_font(&cell_data.text, font, cell.width());
+                let font = fit_font_to_width(
+                    &cell_data.text,
+                    font,
+                    (cell.width() - spacing::S6).max(8.0),
+                    0.70,
+                );
                 let painter = ui.painter().with_clip_rect(cell);
                 painter.text(
                     Pos2::new(align.x(cell), cell.center().y),
@@ -262,14 +273,12 @@ impl<'a> DataTable<'a> {
                 );
             }
         }
+        for boundary in col_rects.iter().take(col_rects.len().saturating_sub(1)) {
+            let x = boundary.right();
+            ui.painter().line_segment(
+                [Pos2::new(x, header.top()), Pos2::new(x, rect.bottom())],
+                Stroke::new(1.0, Color32::from_black_alpha(120)),
+            );
+        }
     }
-}
-
-fn fit_font(text: &str, mut font: egui::FontId, available_w: f32) -> egui::FontId {
-    let available_w = available_w.max(8.0);
-    let approx_w = text.chars().count() as f32 * font.size * 0.58;
-    if approx_w > available_w {
-        font.size *= (available_w / approx_w).clamp(0.72, 1.0);
-    }
-    font
 }

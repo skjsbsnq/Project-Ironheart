@@ -6,6 +6,7 @@ use egui::{Align2, Color32, Painter, Rect, Response, Sense, StrokeKind, Ui, Vec2
 
 use crate::v9::{
     motion, profiler, sound,
+    text::fit_font_to_width,
     tokens::{palette, radius, TextRole},
 };
 
@@ -248,12 +249,13 @@ impl<'a> Button<'a> {
             egui::Stroke::new(1.0, Color32::from_black_alpha(168)),
             StrokeKind::Inside,
         );
-        let mut font = self.size.text_role().font_id();
         let available_w = (rect.width() - 18.0).max(10.0);
-        let approx_w = self.label.chars().count() as f32 * font.size * 0.58;
-        if approx_w > available_w {
-            font.size *= (available_w / approx_w).clamp(0.78, 1.0);
-        }
+        let font = fit_font_to_width(
+            self.label,
+            self.size.text_role().font_id(),
+            available_w,
+            0.78,
+        );
         let text_painter = painter.with_clip_rect(rect.shrink2(Vec2::new(7.0, 2.0)));
         text_painter.text(
             rect.center(),

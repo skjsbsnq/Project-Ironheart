@@ -10,6 +10,12 @@
 *.log
 *.trace
 
+# Local-only planning / roadmap docs
+*ROADMAP*.md
+*roadmap*.md
+*Roadmap*.md
+*路线图*.md
+
 # Local environment and editor state
 .env
 .env.*

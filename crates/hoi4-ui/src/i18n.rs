@@ -116,6 +116,7 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     ("panel_footer_default", ["Q Close  |  Tab Switch", "Q 关闭  |  Tab 切换"]),
     ("panel_footer_settings", ["Q Close  |  Apply writes settings.toml", "Q 关闭  |  应用会保存设置"]),
     ("panel_close_hint", ["Close panel", "关闭面板"]),
+    ("panel_summary_more", ["More", "更多"]),
     // ─── Main menu ────────────────────────────────────────────
     ("new_game", ["NEW GAME", "新游戏"]),
     ("continue_game", ["CONTINUE", "继续"]),

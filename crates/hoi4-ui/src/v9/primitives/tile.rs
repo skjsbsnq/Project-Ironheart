@@ -4,6 +4,7 @@ use egui::{Align2, Color32, Painter, Pos2, Rect, Stroke, StrokeKind, Ui, Vec2};
 
 use crate::v9::{
     accessibility, profiler, sound,
+    text::fit_font_to_width,
     tokens::{palette, radius, spacing, TextRole},
 };
 
@@ -136,19 +137,18 @@ impl<'a> Tile<'a> {
 
         let text_x = well.left() + spacing::S6;
         let text_painter = painter.with_clip_rect(well.shrink2(Vec2::new(spacing::S6, 0.0)));
+        let available_w = (well.right() - text_x - spacing::S3).max(12.0);
+        let label_font =
+            fit_font_to_width(self.label, TextRole::Caption.font_id(), available_w, 0.78);
         text_painter.text(
             Pos2::new(text_x, well.top() + spacing::S3),
             Align2::LEFT_TOP,
             self.label,
-            TextRole::Caption.font_id(),
+            label_font,
             palette::PARCHMENT_DIM,
         );
-        let mut value_font = TextRole::Heading.font_id();
-        let available_w = (well.right() - text_x - spacing::S3).max(12.0);
-        let approx_w = self.value.chars().count() as f32 * value_font.size * 0.58;
-        if approx_w > available_w {
-            value_font.size *= (available_w / approx_w).clamp(0.72, 1.0);
-        }
+        let value_font =
+            fit_font_to_width(self.value, TextRole::Heading.font_id(), available_w, 0.70);
         text_painter.text(
             Pos2::new(text_x, well.bottom() - spacing::S3),
             Align2::LEFT_BOTTOM,

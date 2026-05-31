@@ -3,7 +3,7 @@
 //! 调用方禁止裸写 `RichText::size(...)`；必须通过 [`draw_text`] / [`measure_text`]
 //! 或 [`TextRole::font_id`] 间接。
 
-use egui::{Align2, Color32, Painter, Pos2, Rect, Vec2};
+use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Vec2};
 
 use super::tokens::palette;
 pub use super::tokens::TextRole;
@@ -90,6 +90,42 @@ pub fn measure_text(painter: &Painter, role: TextRole, text: &str) -> Vec2 {
     galley.size()
 }
 
+/// Cheap text-width estimate for fixed-rect custom painters.
+///
+/// We still prefer real galley measurement when layout is already in egui flow, but most V9
+/// primitives paint directly into explicit rects. This keeps labels from spilling over their
+/// allocated panel cells without forcing every draw path through font layout.
+pub fn approximate_text_width(text: &str, font_size: f32) -> f32 {
+    text.chars()
+        .map(|ch| glyph_width_factor(ch) * font_size)
+        .sum()
+}
+
+/// Shrink a font only when the text would overflow `available_w`.
+pub fn fit_font_to_width(text: &str, mut font: FontId, available_w: f32, min_scale: f32) -> FontId {
+    let available_w = available_w.max(1.0);
+    let approx_w = approximate_text_width(text, font.size);
+    if approx_w > available_w && approx_w > 0.0 {
+        font.size *= (available_w / approx_w).clamp(min_scale.clamp(0.20, 1.0), 1.0);
+    }
+    font
+}
+
+fn glyph_width_factor(ch: char) -> f32 {
+    if ch.is_ascii_whitespace() {
+        0.34
+    } else if ch.is_ascii() {
+        match ch {
+            'i' | 'l' | 'I' | '1' | '|' | '.' | ',' | ':' | ';' | '!' | '\'' => 0.32,
+            'W' | 'M' | '@' | '#' | '%' | '&' => 0.82,
+            'm' | 'w' => 0.72,
+            _ => 0.56,
+        }
+    } else {
+        0.96
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +138,19 @@ mod tests {
             TextRole::Numeric.font_id().family,
             egui::FontFamily::Monospace
         );
+    }
+
+    #[test]
+    fn fit_font_shrinks_long_cjk_labels() {
+        let font = fit_font_to_width("建设部门需求", TextRole::Subheading.font_id(), 38.0, 0.60);
+        assert!(font.size < TextRole::Subheading.font_id().size);
+        assert!(font.size >= TextRole::Subheading.font_id().size * 0.60);
+    }
+
+    #[test]
+    fn ascii_width_estimate_accounts_for_narrow_glyphs() {
+        let wide = approximate_text_width("WWWW", 10.0);
+        let narrow = approximate_text_width("iiii", 10.0);
+        assert!(wide > narrow);
     }
 }
