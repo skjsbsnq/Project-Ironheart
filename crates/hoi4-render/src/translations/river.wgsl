@@ -82,9 +82,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     );
 
     var color = diffuse + vec3<f32>(spec);
+    let map_px = world_xz_to_map_px(in.world_pos.xz, frame.vanilla_map_size_world_size.zw);
     color = day_night(
         color,
-        calc_globe_normal(in.world_pos.xz, frame.day_night_hour_sun_dir.x),
+        calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x),
         frame.day_night_hour_sun_dir.yzw,
         1.0,
     );

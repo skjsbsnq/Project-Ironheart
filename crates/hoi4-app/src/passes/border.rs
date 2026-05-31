@@ -19,6 +19,7 @@
 use hoi4_assets::{dds_upload_plan, AssetDb, DdsImage, FsAssetDb, MapResRole};
 use hoi4_paths::PathConfig;
 use hoi4_render::border_extract::{BorderKind, BorderMesh, BorderVertex};
+use hoi4_render::defines::{MAP_SIZE_X, MAP_SIZE_Y};
 use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
@@ -70,7 +71,7 @@ impl BorderDebugView {
 
 // ─── BorderParams uniform ──────────────────────────────────────────────────
 
-/// 32 bytes - matches WGSL `BorderParams`.
+/// 48 bytes - matches WGSL `BorderParams`.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct BorderParams {
@@ -82,6 +83,8 @@ pub struct BorderParams {
     pub screen_width: f32,
     pub screen_height: f32,
     pub _pad: u32,
+    pub world_size: [f32; 2],
+    pub map_size_px: [f32; 2],
 }
 
 impl Default for BorderParams {
@@ -95,11 +98,13 @@ impl Default for BorderParams {
             screen_width: 1920.0,
             screen_height: 1080.0,
             _pad: 0,
+            world_size: [112.0, 41.0],
+            map_size_px: [MAP_SIZE_X, MAP_SIZE_Y],
         }
     }
 }
 
-const _: () = assert!(std::mem::size_of::<BorderParams>() == 32);
+const _: () = assert!(std::mem::size_of::<BorderParams>() == 48);
 
 // ─── Public inputs ─────────────────────────────────────────────────────────
 
@@ -638,17 +643,18 @@ const BORDER_STRIP_WGSL: &str = r#"
 struct GlobalFrameUniform {
     view_proj: mat4x4<f32>,
     virtual_sun_pos: vec4<f32>,
+    virtual_moon_pos: vec4<f32>,
     second_virtual_sun_pos: vec4<f32>,
     second_virtual_moon_pos: vec4<f32>,
     day_night_hour_sun_dir: vec4<f32>,
     fow_opacity_time_snow_max_speed: vec4<f32>,
     cam_pos: vec3<f32>,
-    hdr_exposure: f32,
+    hdr_range: f32,
     cam_look_at_dir: vec3<f32>,
     global_time: f32,
     screen_size: vec2<f32>,
     shadow_fade_factor: f32,
-    _pad_frame: f32,
+    fow_fade_factor: f32,
     sun_diffuse_intensity: vec4<f32>,
     moon_diffuse_intensity: vec4<f32>,
     min_mesh_alpha: f32,
@@ -656,6 +662,8 @@ struct GlobalFrameUniform {
     cubemap_intensity: f32,
     sun_specular_intensity: f32,
     shadow_view_proj: mat4x4<f32>,
+    vanilla_map_size_world_size: vec4<f32>,
+    cam_pos_map_px: vec4<f32>,
 };
 
 struct BorderParams {
@@ -667,6 +675,8 @@ struct BorderParams {
     screen_width: f32,
     screen_height: f32,
     _pad: u32,
+    world_size: vec2<f32>,
+    map_size_px: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> frame: GlobalFrameUniform;
@@ -694,6 +704,8 @@ struct VsOut {
     @location(3) @interpolate(flat) province_a: u32,
     @location(4) @interpolate(flat) province_b: u32,
     @location(5) @interpolate(flat) kind: u32,
+    @location(6) map_uv: vec2<f32>,
+    @location(7) map_px: vec2<f32>,
 };
 
 const BORDER_TILE: f32 = 1.0;
@@ -713,10 +725,16 @@ const BORDER_DEBUG_SELECTED_ONLY: u32 = 5u;
 const BORDER_DEBUG_FALSE_COLOR: u32 = 6u;
 const ID_NONE: u32 = 4294967295u;
 
+fn world_xz_to_map_uv(world_xz: vec2<f32>, world_size: vec2<f32>) -> vec2<f32> {
+    let uv_raw = world_xz / max(world_size, vec2<f32>(0.0001));
+    return vec2<f32>(fract(uv_raw.x), clamp(uv_raw.y, 0.0, 1.0));
+}
+
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
     var out: VsOut;
     let world_pos = in.pos;
+    let map_uv = world_xz_to_map_uv(world_pos.xz, bparams.world_size);
 
     var clip = frame.view_proj * vec4<f32>(world_pos, 1.0);
     var center_clip = frame.view_proj * vec4<f32>(in.center, 1.0);
@@ -731,6 +749,8 @@ fn vs_main(in: VsIn) -> VsOut {
     out.province_a = in.province_a;
     out.province_b = in.province_b;
     out.kind = in.kind;
+    out.map_uv = map_uv;
+    out.map_px = map_uv * bparams.map_size_px;
     return out;
 }
 
@@ -940,14 +960,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn border_params_size_is_32() {
-        assert_eq!(std::mem::size_of::<BorderParams>(), 32);
+    fn border_params_size_is_48() {
+        assert_eq!(std::mem::size_of::<BorderParams>(), 48);
     }
 
     #[test]
     fn border_params_default_enabled_mask_all() {
         let p = BorderParams::default();
         assert_eq!(p.enabled_mask, 0x3F);
+        assert_eq!(p.map_size_px, [MAP_SIZE_X, MAP_SIZE_Y]);
     }
 
     #[test]

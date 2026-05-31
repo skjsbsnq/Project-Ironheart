@@ -73,6 +73,7 @@ struct VsOut {
     @location(0) uv: vec2<f32>,
     @location(1) world_xz: vec2<f32>,
     @location(2) world_pos: vec3<f32>,
+    @location(3) map_px: vec2<f32>,
 };
 
 @vertex
@@ -93,6 +94,7 @@ fn vs_main(@builtin(vertex_index) vid: u32, inst: InstanceData) -> VsOut {
         out.uv = vec2<f32>(0.0, 0.0);
         out.world_xz = vec2<f32>(0.0, 0.0);
         out.world_pos = vec3<f32>(0.0, 0.0, 0.0);
+        out.map_px = vec2<f32>(0.0, 0.0);
         return out;
     }
 
@@ -117,6 +119,7 @@ fn vs_main(@builtin(vertex_index) vid: u32, inst: InstanceData) -> VsOut {
     );
     out.world_xz = inst.center.xz;
     out.world_pos = inst.center;
+    out.map_px = world_xz_to_map_px(inst.center.xz, frame.vanilla_map_size_world_size.zw);
     return out;
 }
 
@@ -128,7 +131,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let text_t = smoothstep(0.62, 0.68, s);
     let outline_t = smoothstep(0.27, 0.33, s) * (1.0 - text_t);
 
-    let globe_n = calc_globe_normal(in.world_xz, frame.day_night_hour_sun_dir.x);
+    let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
     let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
     let dim = 1.0 - night * 0.35;
 

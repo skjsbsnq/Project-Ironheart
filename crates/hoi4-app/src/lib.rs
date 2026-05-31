@@ -6,3 +6,4 @@
 pub mod ai;
 pub mod script;
 pub mod systems;
+pub mod vanilla_resource_views;

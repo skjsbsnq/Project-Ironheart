@@ -114,7 +114,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     // 昼夜（夜间边界稍微去饱和）
-    let globe_n = calc_globe_normal(in.world_pos.xz, frame.day_night_hour_sun_dir.x);
+    let map_px = world_xz_to_map_px(in.world_pos.xz, frame.vanilla_map_size_world_size.zw);
+    let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
     let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
     let grey = vec3<f32>(dot(color, LUMINANCE_VECTOR));
     color = mix(color, mix(color, grey, 0.2), night);

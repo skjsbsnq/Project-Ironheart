@@ -163,7 +163,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Emissive（建筑窗户夜光）
     if (material.feature_flags.z > 0.5) {
         let emit = textureSample(emissive_tex, mat_sampler, in.uv).rgb;
-        let globe_n = calc_globe_normal(in.world_pos.xz, frame.day_night_hour_sun_dir.x);
+        let map_px = world_xz_to_map_px(in.world_pos.xz, frame.vanilla_map_size_world_size.zw);
+        let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
         let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
         lit += emit * material.pbr_packed.w * (0.2 + night * 0.8);
     }

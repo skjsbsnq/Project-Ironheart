@@ -63,11 +63,14 @@
 
 #![allow(dead_code)]
 
-use hoi4_assets::{dds_upload_plan, AssetDb, DdsImage, FsAssetDb, MapResRole};
+use hoi4_assets::MapResRole;
 use hoi4_paths::PathConfig;
 use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
+use crate::vanilla_resource_views::{
+    upload_dds_or_fallback, BindingAudit, DdsUploadRequest, VanillaResourceViews,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
@@ -218,6 +221,7 @@ struct LoadedWaterTexture {
     view: wgpu::TextureView,
     loaded: bool,
     critical: bool,
+    audit: crate::vanilla_resource_views::BindingAuditEntry,
 }
 
 // ─── Water uniform（与 wgsl `WaterParams` 字面对齐）─────────────────────────
@@ -314,6 +318,7 @@ pub struct WaterPass {
     pub texture_load_stats: WaterTextureLoadStats,
     /// 启动 banner 用。
     pub load_warnings: Vec<String>,
+    pub binding_audit: BindingAudit,
     // 持有以延长生命周期
     _owned_textures: Vec<wgpu::Texture>,
     _owned_samplers: Vec<wgpu::Sampler>,
@@ -335,13 +340,14 @@ pub struct WaterPassInputs<'a> {
     pub world_size: [f32; 2],
     /// 高度乘子（与 `main.rs::HEIGHT_SCALE` 同值），决定海面 vertex Y。
     pub height_scale: f32,
+    pub vanilla_resources: &'a VanillaResourceViews,
 }
 
 impl WaterPass {
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        path_cfg: &PathConfig,
+        _path_cfg: &PathConfig,
         inputs: WaterPassInputs<'_>,
     ) -> Self {
         let mut warnings = Vec::new();
@@ -380,12 +386,20 @@ impl WaterPass {
             })
         });
 
-        // ── 加载 vanilla 水面纹理 ───────────────────────────────────────
-        let db = FsAssetDb::new(path_cfg.clone());
-
-        let loaded_water_textures =
-            load_water_material_textures(device, queue, &db, &mut warnings, &mut owned_textures);
+        let loaded_water_textures = load_water_material_textures(
+            device,
+            queue,
+            inputs.vanilla_resources,
+            &mut warnings,
+            &mut owned_textures,
+        );
         let texture_load_stats = water_texture_load_stats(&loaded_water_textures);
+        let mut binding_audit = BindingAudit::new();
+        binding_audit.extend(
+            loaded_water_textures
+                .iter()
+                .map(|texture| texture.audit.clone()),
+        );
         let [lean1_tex, lean2_tex, reflection_tex, fow_water_spec_tex, colormap_water_tex, ice_diffuse_tex, ice_noise_tex] =
             loaded_water_textures;
 
@@ -682,6 +696,7 @@ impl WaterPass {
             any_loaded,
             texture_load_stats,
             load_warnings: warnings,
+            binding_audit,
             _owned_textures: owned_textures,
             _owned_samplers: vec![water_sampler, env_sampler, heightmap_sampler],
         }
@@ -767,23 +782,37 @@ fn fragment_tex_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
 fn load_water_material_textures(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    db: &FsAssetDb,
+    resources: &VanillaResourceViews,
     warnings: &mut Vec<String>,
     owned: &mut Vec<wgpu::Texture>,
 ) -> [LoadedWaterTexture; 7] {
     std::array::from_fn(|idx| {
         let spec = WaterMaterialSystem::texture_specs()[idx];
-        load_or_fallback(
+        let uploaded = upload_dds_or_fallback(
             device,
             queue,
-            db,
-            spec.role,
-            spec.fallback_rgba,
-            spec.srgb(),
-            spec.critical,
+            resources,
+            DdsUploadRequest {
+                role: spec.role,
+                label: water_binding_name(spec.role),
+                fallback_rgba: spec.fallback_rgba,
+                srgb: spec.srgb(),
+                critical: spec.critical,
+                pass: "water",
+                binding: water_binding_name(spec.role),
+                visual_impact: water_visual_impact(spec.component),
+            },
             warnings,
-            owned,
-        )
+        );
+        let loaded = uploaded.audit.loaded;
+        let critical = spec.critical;
+        owned.push(uploaded.texture);
+        LoadedWaterTexture {
+            view: uploaded.view,
+            loaded,
+            critical,
+            audit: uploaded.audit,
+        }
     })
 }
 
@@ -802,112 +831,26 @@ fn water_texture_load_stats(textures: &[LoadedWaterTexture; 7]) -> WaterTextureL
     stats
 }
 
-/// 加载一张 vanilla DDS 到 wgpu 纹理。失败时上传 1×1 fallback 像素。
-/// 失败的角色名会写入 `warnings`。返回 `TextureView`，对应 `Texture` 推入 `owned`。
-fn load_or_fallback(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    db: &FsAssetDb,
-    role: MapResRole,
-    fallback_rgba: [u8; 4],
-    srgb: bool,
-    critical: bool,
-    warnings: &mut Vec<String>,
-    owned: &mut Vec<wgpu::Texture>,
-) -> LoadedWaterTexture {
-    let path = role.relative_path();
-    let result: Option<(wgpu::Texture, wgpu::TextureView)> = (|| {
-        let bytes = db.open(&path).ok()?;
-        let dds = match DdsImage::parse(&bytes) {
-            Ok(d) => d,
-            Err(e) => {
-                warnings.push(format!("[water] DDS parse failed for {}: {}", path, e));
-                return None;
-            }
-        };
-        let format = match (dds.format, srgb) {
-            (hoi4_assets::DdsFormat::Bc1, true) => wgpu::TextureFormat::Bc1RgbaUnormSrgb,
-            (hoi4_assets::DdsFormat::Bc1, false) => wgpu::TextureFormat::Bc1RgbaUnorm,
-            (hoi4_assets::DdsFormat::Bc3, true) => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
-            (hoi4_assets::DdsFormat::Bc3, false) => wgpu::TextureFormat::Bc3RgbaUnorm,
-            (hoi4_assets::DdsFormat::Bc5, _) => wgpu::TextureFormat::Bc5RgUnorm,
-            (hoi4_assets::DdsFormat::Bgra8, true) => wgpu::TextureFormat::Bgra8UnormSrgb,
-            (hoi4_assets::DdsFormat::Bgra8, false) => wgpu::TextureFormat::Bgra8Unorm,
-            (hoi4_assets::DdsFormat::Bgr555, _) | (hoi4_assets::DdsFormat::Unknown(_), _) => {
-                warnings.push(format!("[water] unknown DDS format {}", path));
-                return None;
-            }
-        };
-        let upload_plan = match dds_upload_plan(&dds) {
-            Some(plan) if plan.upload_mip_count > 0 => plan,
-            _ => {
-                warnings.push(format!(
-                    "[water] {} has no uploadable DDS mips (mip0={}×{}); using fallback",
-                    path, dds.width, dds.height
-                ));
-                return None;
-            }
-        };
+fn water_binding_name(role: MapResRole) -> &'static str {
+    match role {
+        MapResRole::Lean1 => "water_normal_lean1",
+        MapResRole::Lean2 => "water_normal_lean2",
+        MapResRole::Reflection => "reflection_tex",
+        MapResRole::FowWaterSpec => "fow_water_spec",
+        MapResRole::ColormapWater(0) => "colormap_water",
+        MapResRole::IceDiffuse => "ice_diffuse",
+        MapResRole::IceNoise(0) => "ice_noise",
+        _ => "water_resource",
+    }
+}
 
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(&path),
-            size: wgpu::Extent3d {
-                width: dds.width,
-                height: dds.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: upload_plan.upload_mip_count,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        for mip in &upload_plan.mips {
-            let data = &dds.data[mip.offset..mip.offset + mip.size];
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: mip.level,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                data,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(mip.bytes_per_row),
-                    rows_per_image: None,
-                },
-                wgpu::Extent3d {
-                    width: mip.copy_width,
-                    height: mip.copy_height,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
-        let view = texture.create_view(&Default::default());
-        Some((texture, view))
-    })();
-
-    match result {
-        Some((tex, view)) => {
-            owned.push(tex);
-            LoadedWaterTexture {
-                view,
-                loaded: true,
-                critical,
-            }
-        }
-        None => {
-            warnings.push(format!("[water] {} missing — using 1×1 fallback", path));
-            let (tex, view) = create_1x1_rgba(device, queue, fallback_rgba, srgb);
-            owned.push(tex);
-            LoadedWaterTexture {
-                view,
-                loaded: false,
-                critical,
-            }
-        }
+fn water_visual_impact(component: WaterMaterialComponent) -> &'static str {
+    match component {
+        WaterMaterialComponent::Color => "water base color falls back to flat color",
+        WaterMaterialComponent::Normal => "water normal motion and specular detail flatten",
+        WaterMaterialComponent::Specular => "water specular/FOW mask is approximated",
+        WaterMaterialComponent::Reflection => "water reflection uses flat fallback",
+        WaterMaterialComponent::Ice => "ice coverage and noise are approximated",
     }
 }
 
@@ -1087,6 +1030,7 @@ struct VsOut {
     @builtin(position) clip_pos: vec4<f32>,
     @location(0) world_pos: vec3<f32>,
     @location(1) map_uv: vec2<f32>,
+    @location(2) map_px: vec2<f32>,
 };
 
 fn load_height_uv(uv: vec2<f32>) -> f32 {
@@ -1146,8 +1090,8 @@ fn vs_main(in: VertexInput) -> VsOut {
 
     // 全图 uv：X 轴环绕，Z 轴仍限制在南北边界内。
     let world_size = vec2<f32>(wparams.world_w, wparams.world_d);
-    let uv_raw = world_xz / max(world_size, vec2<f32>(0.0001));
-    let map_uv = vec2<f32>(fract(uv_raw.x), clamp(uv_raw.y, 0.0, 1.0));
+    let map_uv = world_xz_to_map_uv(world_xz, world_size);
+    let map_px = map_uv_to_px(map_uv);
 
     let world_pos = vec3<f32>(world_xz.x, world_y, world_xz.y);
 
@@ -1155,6 +1099,7 @@ fn vs_main(in: VertexInput) -> VsOut {
     out.clip_pos = frame.view_proj * vec4<f32>(world_pos, 1.0);
     out.world_pos = world_pos;
     out.map_uv = map_uv;
+    out.map_px = map_px;
     return out;
 }
 
@@ -1190,11 +1135,12 @@ fn fbm2d(p_in: vec2<f32>) -> f32 {
 
 /// vanilla pdxwater 同款 4-tap LEAN 法线：4 个频率 + 4 个滚动方向。
 /// LEAN 纹理 RG = mean(N.xy)，BA = 方差。取 RG 解码为法线。
-fn sample_water_normal_lean(world_xz: vec2<f32>, time: f32) -> vec3<f32> {
-    let uv0 = world_xz * 0.04 + vec2<f32>(time * 0.012, time * 0.008);
-    let uv1 = world_xz * 0.08 + vec2<f32>(-time * 0.011, time * 0.013);
-    let uv2 = world_xz * 0.16 + vec2<f32>(time * 0.007, -time * 0.009);
-    let uv3 = world_xz * 0.32 + vec2<f32>(-time * 0.005, -time * 0.011);
+fn sample_water_normal_lean(map_px: vec2<f32>, time: f32) -> vec3<f32> {
+    let water_px = map_px / 128.0;
+    let uv0 = water_px * 0.04 + vec2<f32>(time * 0.012, time * 0.008);
+    let uv1 = water_px * 0.08 + vec2<f32>(-time * 0.011, time * 0.013);
+    let uv2 = water_px * 0.16 + vec2<f32>(time * 0.007, -time * 0.009);
+    let uv3 = water_px * 0.32 + vec2<f32>(-time * 0.005, -time * 0.011);
 
     let n0 = textureSample(water_normal_lean1, water_sampler, uv0).rg * 2.0 - 1.0;
     let n1 = textureSample(water_normal_lean1, water_sampler, uv1).rg * 2.0 - 1.0;
@@ -1255,12 +1201,12 @@ fn water_debug_color(material: WaterMaterial) -> vec3<f32> {
     return material.final_color;
 }
 
-fn build_water_material(map_uv: vec2<f32>, world_pos: vec3<f32>, h: f32) -> WaterMaterial {
+fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, world_pos: vec3<f32>, h: f32) -> WaterMaterial {
     let depth_ratio = clamp((SEA_LEVEL - h) / SEA_LEVEL, 0.0, 1.0);
     let polar_edge = polar_edge_mask(map_uv);
     let time = frame.global_time * wparams.time_speed * 25.0;
     let normal = normalize(mix(
-        sample_water_normal_lean(world_pos.xz, time),
+        sample_water_normal_lean(map_px, time),
         vec3<f32>(0.0, 1.0, 0.0),
         polar_edge * 0.88
     ));
@@ -1284,8 +1230,8 @@ fn build_water_material(map_uv: vec2<f32>, world_pos: vec3<f32>, h: f32) -> Wate
     let reflection_contribution = fresnel_t * mix(0.12, 0.025, polar_edge);
     var color = mix(base, reflected, reflection_contribution);
 
-    let ripple_lo = fbm2d(world_pos.xz * 1.5 + vec2<f32>(time * 0.30, time * 0.10));
-    let ripple_hi = fbm2d(world_pos.xz * 4.0 + vec2<f32>(time * 0.55, -time * 0.20));
+    let ripple_lo = fbm2d(map_px * 0.03 + vec2<f32>(time * 0.30, time * 0.10));
+    let ripple_hi = fbm2d(map_px * 0.08 + vec2<f32>(time * 0.55, -time * 0.20));
     let ripple = ripple_lo * 0.65 + ripple_hi * 0.35;
     color = color * (0.96 + 0.035 * ripple * (1.0 - polar_edge * 0.85));
 
@@ -1300,7 +1246,7 @@ fn build_water_material(map_uv: vec2<f32>, world_pos: vec3<f32>, h: f32) -> Wate
     let coast_d_px = textureSample(coast_sdf, water_sampler, map_uv).r * 255.0;
     let foam_band_px = wparams.foam_threshold;
     let foam = clamp(1.0 - smoothstep(0.0, foam_band_px, coast_d_px), 0.0, 1.0);
-    let foam_n = vnoise2d(world_pos.xz * 12.0 + vec2<f32>(time * 0.4, 0.0));
+    let foam_n = vnoise2d(map_px * 0.18 + vec2<f32>(time * 0.4, 0.0));
     let camera_dist = length(frame.cam_pos - world_pos);
     let close_suppress = smoothstep(3.5, 12.0, camera_dist);
     let foam_alpha = foam * smoothstep(0.55, 1.15, foam_n + foam) * 0.16 * close_suppress * (1.0 - polar_edge);
@@ -1327,7 +1273,7 @@ fn build_water_material(map_uv: vec2<f32>, world_pos: vec3<f32>, h: f32) -> Wate
         color = mix(color, vec3<f32>(1.0, 0.78, 0.18), 0.50 + 0.18 * pulse);
     }
 
-    let globe_n = calc_globe_normal(world_pos.xz, frame.day_night_hour_sun_dir.x);
+    let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
     color = day_night(color, globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
     color = apply_distance_fog(color, world_pos, frame.cam_pos);
 
@@ -1355,7 +1301,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (h > SEA_LEVEL + 0.002) {
         discard;
     }
-    let material = build_water_material(map_uv, in.world_pos, h);
+    let material = build_water_material(map_uv, in.map_px, in.world_pos, h);
     let color = water_debug_color(material);
 
     return vec4<f32>(color, 1.0);

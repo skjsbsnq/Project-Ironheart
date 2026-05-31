@@ -117,7 +117,8 @@ fn vs() -> @builtin(position) vec4<f32> {
 @fragment
 fn fs(@builtin(position) frag_pos: vec4<f32>) -> @location(0) vec4<f32> {
     let world_pos = vec3<f32>(100.0, 5.0, 200.0);
-    let globe_n = calc_globe_normal(world_pos.xz, 0.5);
+    let map_px = vec2<f32>(2816.0, 1024.0);
+    let globe_n = calc_globe_normal(map_px, 0.5);
     let dn = day_night_factor(globe_n, u.sun_dir, 1.0);
     let fogged = apply_distance_fog(vec3<f32>(0.5, 0.6, 0.4), world_pos, u.cam_pos);
     let lit = mix(fogged, vec3<f32>(0.05, 0.05, 0.15), dn);
@@ -162,6 +163,11 @@ fn lib_text_includes_expected_helpers() {
         "fn cam_distance_y",
         "fn calculate_distance_fog_factor",
         "fn apply_distance_fog",
+        "fn world_xz_to_map_uv",
+        "fn world_xz_to_map_px",
+        "fn map_uv_to_px",
+        "fn vanilla_terrain_tile_repeat",
+        "fn vanilla_citylight_uv",
         "fn calc_globe_normal",
         "fn day_night_factor",
         "fn nightify_color",

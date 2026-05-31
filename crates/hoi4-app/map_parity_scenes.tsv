@@ -1,0 +1,6 @@
+# name|description|center_u|center_v|distance_factor|pitch_degrees|yaw_degrees|date|map_mode|reserved|enabled_layers
+western_europe_close|Belgium, Netherlands, Ruhr and northern France close terrain/political parity|0.500|0.340|0.160|65.0|0.0|1936.1.1.12|political|-|final,terrain,water,rivers,borders,objects,hdr,postprocess_off,fallback_debug
+central_europe_mid|Germany, Poland and Czechoslovakia medium province and border density|0.540|0.320|0.250|65.0|0.0|1936.1.1.12|political|-|final,terrain,water,rivers,borders,objects,hdr,postprocess_off,fallback_debug
+mediterranean_coast|Italy, Adriatic coast and Balkans shallow/deep water transition|0.540|0.390|0.180|65.0|0.0|1936.1.1.12|political|-|final,terrain,water,rivers,borders,objects,hdr,postprocess_off,fallback_debug
+soviet_winter_north|Northern Europe and western Soviet winter terrain, forest and snow line|0.630|0.250|0.320|65.0|0.0|1936.1.15.08|political|-|final,terrain,water,rivers,borders,objects,hdr,postprocess_off,fallback_debug
+pacific_ocean_islands|Pacific deep ocean, islands, coastlines and sea borders|0.880|0.530|0.450|65.0|0.0|1936.1.1.12|political|-|final,terrain,water,rivers,borders,objects,hdr,postprocess_off,fallback_debug

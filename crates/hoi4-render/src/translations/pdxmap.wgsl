@@ -16,7 +16,7 @@
 //    高度 / 噪声混合
 // 3. **CSM 阴影接收**：`GetShadowScaled(SHADOW_WEIGHT_TERRAIN, ...)`
 // 4. **Point lights**：城市夜光（按 `LightDataMap` + `LightIndexMap`）
-// 5. **昼夜系统**：`day_night(color, calc_globe_normal(world_pos.xz))`
+// 5. **昼夜系统**：`day_night(color, calc_globe_normal(map_px))`
 // 6. **季节贴图**：`SeasonMap` + `ColorMap` + `ColorMapSecond` 双采样按
 //    `vSeasonLerp` 插值
 // 7. **梯度边界**：通过 `gradient_border_apply`（用 `border_country_*` /
@@ -189,7 +189,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let mixed_terrain = mix(political_color, atlas_color, params.terrain_blend);
 
     // 4. 大气透视雾（应用前先做光照）
-    let globe_n = calc_globe_normal(world_pos.xz, frame.day_night_hour_sun_dir.x);
+    let map_px = map_uv_to_px(uv);
+    let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
     let day_night_factor_v = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
 
     // 5. 主光照（Lambert + 阴影）

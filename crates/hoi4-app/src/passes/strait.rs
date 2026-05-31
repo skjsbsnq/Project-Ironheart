@@ -352,12 +352,13 @@ const STRAIT_WGSL: &str = r#"
 struct GlobalFrameUniform {
     view_proj: mat4x4<f32>,
     virtual_sun_pos: vec4<f32>,
+    virtual_moon_pos: vec4<f32>,
     second_virtual_sun_pos: vec4<f32>,
     second_virtual_moon_pos: vec4<f32>,
     day_night_hour_sun_dir: vec4<f32>,
     fow_opacity_time_snow_max_speed: vec4<f32>,
     cam_pos: vec3<f32>,
-    hdr_exposure: f32,
+    hdr_range: f32,
     cam_look_at_dir: vec3<f32>,
     global_time: f32,
     screen_size: vec2<f32>,
@@ -370,6 +371,8 @@ struct GlobalFrameUniform {
     cubemap_intensity: f32,
     sun_specular_intensity: f32,
     shadow_view_proj: mat4x4<f32>,
+    vanilla_map_size_world_size: vec4<f32>,
+    cam_pos_map_px: vec4<f32>,
 };
 
 struct StraitParams {

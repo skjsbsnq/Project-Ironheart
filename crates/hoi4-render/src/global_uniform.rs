@@ -1,7 +1,7 @@
 //! Phase 3.11.1 — `GlobalFrameUniform` 公共 uniform 布局。
 //!
 //! vanilla `gfx/FX/standardfuncsgfx.fxh:2` 的 `ConstantBuffer(0, 0)` 把"几乎人人都
-//! 用得到的全帧状态"集中放在一个 256-byte uniform 里：ViewProjectionMatrix /
+//! 用得到的全帧状态"集中放在一个共享 uniform 里：ViewProjectionMatrix /
 //! vCamPos / vSeasonLerp / vTime / 太阳方向 / 雾参数 / FoW 参数 / 屏幕尺寸 /
 //! shadow matrix。
 //!
@@ -11,9 +11,7 @@
 //! ## 大小要求
 //!
 //! `wgpu` 24 在 d3d12/vulkan 后端要求 uniform binding 至少 16-byte 对齐。本结构
-//! 共 **256 bytes**（4 × `mat4x4` 太大，一个 `mat4x4` 就 64 bytes，所以这里只放
-//! ViewProj 一个矩阵；shadow matrix 单独一个 binding 因 mat4 对齐与拆出来更易
-//! 单独更新）。
+//! 共 **352 bytes**，包含主 ViewProj、shadow ViewProj 和 Phase 2 map-space 状态。
 //!
 //! ## 与 vanilla `ConstantBuffer(0, 0)` 的差异
 //!
@@ -46,8 +44,10 @@
 //! | cubemap_intensity | f32 | 248 | vanilla `CubemapIntensity` |
 //! | sun_specular_intensity | f32 | 252 | vanilla `SunSpecularIntensity` |
 //! | shadow_view_proj | mat4x4 | 256 | Phase 3.12.3 — directional shadow caster matrix |
+//! | vanilla_map_size_world_size | vec4 | 320 | xy=vanilla map pixels, zw=renderer world XZ size |
+//! | cam_pos_map_px | vec4 | 336 | camera position in vanilla map-pixel space |
 //!
-//! 共 **320 bytes**（3.12.3 起）。原 256 bytes 阶段保留在 git 历史。
+//! 共 **352 bytes**（Phase 2 map-space 扩展后）。原 256/320 bytes 阶段保留在 git 历史。
 
 use bytemuck::{Pod, Zeroable};
 
@@ -119,6 +119,11 @@ pub struct GlobalFrameUniform {
     /// main.rs 每帧根据 [`crate::defines::LIGHT_SHADOW_DIRECTION_X/Y/Z`] + 场景包围盒计算。
     /// 接收方 shader 用 `shadow_view_proj * world_pos` 得到 shadow-map UV。
     pub shadow_view_proj: [[f32; 4]; 4],
+
+    /// `(map_px_w, map_px_h, world_w, world_d)`.
+    pub vanilla_map_size_world_size: [f32; 4],
+    /// Camera position in vanilla map-pixel space. xy used, zw reserved.
+    pub cam_pos_map_px: [f32; 4],
 }
 
 impl Default for GlobalFrameUniform {
@@ -145,6 +150,8 @@ impl Default for GlobalFrameUniform {
             cubemap_intensity: 1.0,
             sun_specular_intensity: 1.0,
             shadow_view_proj: identity4(),
+            vanilla_map_size_world_size: [5632.0, 2048.0, 112.0, 41.0],
+            cam_pos_map_px: [0.0; 4],
         }
     }
 }
@@ -165,7 +172,7 @@ const fn identity4() -> [[f32; 4]; 4] {
 ///
 /// **重要**：字段顺序与 [`GlobalFrameUniform`] 的 `#[repr(C)]` 字段顺序
 /// **必须完全一致**——`tests/global_uniform_size.rs` 用 `size_of` 对照
-/// 257 byte 期望值，shader compose 测试用 naga 检查类型。
+/// 352 byte 期望值，shader compose 测试用 naga 检查类型。
 pub const GLOBAL_FRAME_UNIFORM_WGSL: &str = r#"
 struct GlobalFrameUniform {
     view_proj: mat4x4<f32>,
@@ -189,24 +196,26 @@ struct GlobalFrameUniform {
     cubemap_intensity: f32,
     sun_specular_intensity: f32,
     shadow_view_proj: mat4x4<f32>,
+    vanilla_map_size_world_size: vec4<f32>,
+    cam_pos_map_px: vec4<f32>,
 };
 "#;
 
 /// 期望大小（bytes）。**必须**与 wgsl std140 + Rust `#[repr(C)]` 匹配。
-pub const GLOBAL_FRAME_UNIFORM_SIZE: usize = 320;
+pub const GLOBAL_FRAME_UNIFORM_SIZE: usize = 352;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn struct_size_is_320_bytes() {
-        // Phase 3.12.3: shadow_view_proj field added; layout = 256 + 64 mat4 = 320.
+    fn struct_size_is_352_bytes() {
+        // Phase 2 map-space fields extend the shadow-enabled layout by 32 bytes.
         assert_eq!(
             std::mem::size_of::<GlobalFrameUniform>(),
             GLOBAL_FRAME_UNIFORM_SIZE
         );
-        assert_eq!(GLOBAL_FRAME_UNIFORM_SIZE, 320);
+        assert_eq!(GLOBAL_FRAME_UNIFORM_SIZE, 352);
     }
 
     #[test]
@@ -243,5 +252,7 @@ mod tests {
         assert!(GLOBAL_FRAME_UNIFORM_WGSL.contains("sun_specular_intensity: f32"));
         // Phase 3.12.3 — shadow caster matrix
         assert!(GLOBAL_FRAME_UNIFORM_WGSL.contains("shadow_view_proj: mat4x4<f32>"));
+        assert!(GLOBAL_FRAME_UNIFORM_WGSL.contains("vanilla_map_size_world_size: vec4<f32>"));
+        assert!(GLOBAL_FRAME_UNIFORM_WGSL.contains("cam_pos_map_px: vec4<f32>"));
     }
 }

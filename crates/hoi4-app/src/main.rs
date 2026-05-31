@@ -22,6 +22,7 @@ use hoi4_render::counter_layout::{
     build_hit_regions, hit_test, layout_screen_space, HitRegion, LayoutCounter,
 };
 use hoi4_render::counter_v3::{flag_bits, generate_hoi3_counters_cr3, Hoi3CounterInstance};
+use hoi4_render::defines::VanillaMapSpace;
 use hoi4_render::frontlines::{generate_frontline_vertices, FrontVertex};
 use hoi4_render::map_mode::{build_color_lut, build_occupation_lut, MapMode};
 use hoi4_render::railways::{
@@ -68,6 +69,7 @@ mod runtime;
 mod ui_binding;
 mod update_loop;
 use flag_bank::FlagBank;
+pub use hoi4_app::vanilla_resource_views;
 use hoi4_render::global_uniform::GlobalFrameUniform;
 use map_perf::{
     estimate_frame_texture_memory_bytes, phase10_overlay_lines, GpuProfilerStatus,
@@ -84,6 +86,7 @@ use passes::{
     DebugOverlay, GlobalUniformBuffer, HdrTarget, PassRegistry, PostProcessChain,
     PostProcessDebugView, PostProcessMode, SimpleBlitPass, TerrainPass, HDR_FORMAT,
 };
+use vanilla_resource_views::VanillaResourceViews;
 
 /// World units per heightmap pixel (XZ). Smaller = "denser" world.
 const WORLD_SCALE: f32 = 0.02;
@@ -201,6 +204,7 @@ struct MapPhase0Run {
     captures: Vec<map_baseline::MapBaselinePlannedCapture>,
     scenes: Vec<map_baseline::MapBaselineScene>,
     asset_audit: hoi4_assets::MapAssetAudit,
+    binding_audit: vanilla_resource_views::BindingAudit,
     capture_index: usize,
     settle_frames: u8,
     finished: bool,
@@ -208,7 +212,9 @@ struct MapPhase0Run {
 
 impl MapPhase0Run {
     fn new(path_cfg: &PathConfig, output_dir: PathBuf) -> Self {
-        let asset_audit = map_baseline::build_asset_audit(path_cfg);
+        let vanilla_resources = VanillaResourceViews::load_for_audit(path_cfg);
+        let asset_audit = hoi4_assets::MapAssetAudit::from_map_set(&vanilla_resources.map_set);
+        let binding_audit = vanilla_resources.phase1_binding_audit();
         let scenes = map_baseline::fixed_scenes();
         let captures = map_baseline::build_phase0_planned_captures(&scenes, &asset_audit);
         Self {
@@ -217,6 +223,7 @@ impl MapPhase0Run {
             captures,
             scenes,
             asset_audit,
+            binding_audit,
             capture_index: 0,
             settle_frames: 2,
             finished: false,
@@ -1219,6 +1226,7 @@ impl App {
             run.output_dir.display()
         );
         println!("[map-phase0] {}", run.asset_audit.summary_line());
+        println!("[map-phase0] {}", run.binding_audit.summary_line());
         if !run.asset_audit.fallback_paths.is_empty() {
             for path in run.asset_audit.fallback_paths.iter().take(16) {
                 eprintln!("[map-phase0] fallback asset: {path}");
@@ -1233,6 +1241,11 @@ impl App {
         if !run.asset_audit.can_use_for_visual_review() {
             eprintln!(
                 "[map-phase0] critical fallback present; screenshots will be marked unusable for visual review"
+            );
+        }
+        if run.binding_audit.critical_mock_count() > 0 {
+            eprintln!(
+                "[map-phase0] critical binding mocks present; parity screenshots are blocked"
             );
         }
 
@@ -1284,6 +1297,7 @@ impl App {
         let mut lines = vec![
             "Map Renderer V2 Phase 0 - Asset Fallback Debug".to_string(),
             run.asset_audit.summary_line(),
+            run.binding_audit.summary_line(),
             format!(
                 "visual_review_usable={}",
                 run.asset_audit.can_use_for_visual_review()
@@ -1340,11 +1354,20 @@ impl App {
         self.camera.pitch = scene.camera.pitch_degrees.to_radians();
         self.camera.yaw = scene.camera.yaw_degrees.to_radians();
         self.camera.clamp_target_to_map();
+        self.world.date = scene.date;
         self.show_province_names = mask.labels;
-        if self.map_mode != MapMode::Political {
-            self.map_mode = MapMode::Political;
+        let scene_map_mode = map_mode_from_capture_name(&scene.map_mode);
+        if self.map_mode != scene_map_mode {
+            self.map_mode = scene_map_mode;
             self.refresh_lut();
         }
+        self.terrain_debug_view = if capture.layer == map_baseline::MapBaselineLayer::RiverMask {
+            passes::TerrainDebugView::RiverMask
+        } else {
+            passes::TerrainDebugView::Off
+        };
+        self.water_debug_view = passes::WaterDebugView::Off;
+        self.border_debug_view = passes::BorderDebugView::Off;
         self.postprocess_debug_view = match capture.layer {
             map_baseline::MapBaselineLayer::HdrRaw => PostProcessDebugView::HdrRaw,
             map_baseline::MapBaselineLayer::TonemapOnly => PostProcessDebugView::TonemapOnly,
@@ -1405,6 +1428,7 @@ impl App {
             run.scenes.clone(),
             run.captures.clone(),
             run.asset_audit.clone(),
+            run.binding_audit.clone(),
             run.started.elapsed().as_secs_f64() * 1000.0,
         );
         match map_baseline::write_phase0_report_files(&report, &run.output_dir) {
@@ -3155,14 +3179,21 @@ impl App {
         let coast_sdf_view = coast_sdf_tex.create_view(&Default::default());
 
         // Phase 3.5: Load vanilla terrain atlas (map/terrain/atlas0.dds  ?2048x2048 BC3, 4脳4 tiles)
-        let (terrain_atlas_view, _terrain_atlas_sampler) =
-            load_terrain_atlas(&device, &queue, &self.path_cfg);
+        let vanilla_resources = VanillaResourceViews::load_for_audit(&self.path_cfg);
+        let mut binding_audit = vanilla_resource_views::BindingAudit::new();
+        let (terrain_atlas_view, _terrain_atlas_sampler, terrain_atlas_audit) =
+            load_terrain_atlas_phase1(&device, &queue, &vanilla_resources);
+        binding_audit.extend([terrain_atlas_audit]);
 
         // Phase 3.6.1: Load colormap (map/terrain/colormap.dds - continent natural color base)
-        let (colormap_view, _colormap_sampler) = load_colormap(&device, &queue, &self.path_cfg);
+        let (colormap_view, _colormap_sampler, colormap_audit) =
+            load_colormap_phase1(&device, &queue, &vanilla_resources);
+        binding_audit.extend([colormap_audit]);
 
         // Phase 3.6.6: Load rivers.bmp ???R8Unorm texture (per-pixel river level).
-        let (rivers_view, _rivers_sampler) = load_rivers_texture(&device, &queue, &self.path_cfg);
+        let (rivers_view, _rivers_sampler, rivers_audit) =
+            load_rivers_texture_phase1(&device, &queue, &vanilla_resources);
+        binding_audit.extend([rivers_audit]);
 
         // Occupation overlay LUT (same layout as colour LUT but holds stripe colour + alpha).
         let occ_lut_data = build_occupation_lut(&self.world);
@@ -3304,12 +3335,13 @@ impl App {
                 terrain_idx_view: &terrain_idx_view,
                 terrain_atlas_view: &terrain_atlas_view,
                 country_color_lut_view: &lut_view,
-                map_set: None,
+                vanilla_resources: &vanilla_resources,
             };
             let terrain_pass = passes::TerrainPass::new(&device, &queue, &self.path_cfg, inputs);
             for w in &terrain_pass.load_warnings {
                 println!("{}", w);
             }
+            binding_audit.extend(terrain_pass.binding_audit.entries.clone());
             terrain_pass
         };
 
@@ -4161,6 +4193,7 @@ impl App {
                 rivers_view: &rivers_view,
                 world_size: [self.camera.world_size.x, self.camera.world_size.y],
                 height_scale: HEIGHT_SCALE,
+                vanilla_resources: &vanilla_resources,
             },
         );
         println!(
@@ -4171,6 +4204,7 @@ impl App {
         for w in &river_pass.load_warnings {
             eprintln!("  {}", w);
         }
+        binding_audit.extend(river_pass.binding_audit.entries.clone());
 
         // Phase 3.12.6 ???vanilla pdxwater pass.
         // Reuses the same per-LOD instance buffers as the terrain pass; loads
@@ -4191,6 +4225,7 @@ impl App {
                 coast_sdf_view: &coast_sdf_view,
                 world_size: [self.camera.world_size.x, self.camera.world_size.y],
                 height_scale: HEIGHT_SCALE,
+                vanilla_resources: &vanilla_resources,
             },
         );
         println!(
@@ -4203,6 +4238,17 @@ impl App {
         );
         for w in &water_pass.load_warnings {
             eprintln!("  {}", w);
+        }
+        binding_audit.extend(water_pass.binding_audit.entries.clone());
+        println!("{}", binding_audit.summary_line());
+        for entry in binding_audit.critical_entries().take(16) {
+            eprintln!(
+                "[binding-audit] critical {}.{} source={} reason={}",
+                entry.pass,
+                entry.binding,
+                entry.source_name,
+                entry.reason.as_deref().unwrap_or("none")
+            );
         }
 
         // Phase 3.12.9 (redesign) ???vanilla border pass using strip meshes.
@@ -12886,6 +12932,8 @@ impl App {
         let season_result = self
             .seasons
             .season_for_date(date.month as u32, date.day as u32);
+        let vanilla_map_space =
+            VanillaMapSpace::from_world_size([self.camera.world_size.x, self.camera.world_size.y]);
 
         // Phase 3.12.8 ???update TreeFullPass season params per frame.
         // Drives tree color from `map/seasons.txt` 脳 `world.date` so trees
@@ -12908,6 +12956,8 @@ impl App {
                 screen_width: s.config.width as f32,
                 screen_height: s.config.height as f32,
                 _pad: 0,
+                world_size: vanilla_map_space.world_size,
+                map_size_px: vanilla_map_space.map_size_px,
             };
             s.border_pass.update_params(&s.queue, &bp);
         }
@@ -12994,6 +13044,14 @@ impl App {
             gu.view_proj = self.camera.view_proj().to_cols_array_2d();
             let cam_eye = self.camera.eye();
             gu.cam_pos = [cam_eye.x, cam_eye.y, cam_eye.z];
+            gu.vanilla_map_size_world_size = [
+                vanilla_map_space.map_size_px[0],
+                vanilla_map_space.map_size_px[1],
+                vanilla_map_space.world_size[0],
+                vanilla_map_space.world_size[1],
+            ];
+            let cam_map_px = vanilla_map_space.world_xz_to_map_px([cam_eye.x, cam_eye.z]);
+            gu.cam_pos_map_px = [cam_map_px[0], cam_map_px[1], 0.0, 0.0];
             gu.cam_look_at_dir = {
                 let d = (self.camera.target - cam_eye).normalize_or_zero();
                 [d.x, d.y, d.z]
@@ -13064,8 +13122,8 @@ impl App {
                 season_column: season_result.season_column,
                 fade_start: 24.0 + 10.0 * (1.0 - world_objects.trees.opacity),
                 fade_end: 38.0 + 12.0 * (1.0 - world_objects.trees.opacity),
-                world_w: self.camera.world_size.x,
-                world_d: self.camera.world_size.y,
+                world_w: vanilla_map_space.world_size[0],
+                world_d: vanilla_map_space.world_size[1],
                 season_column_next: season_result.season_column_next,
                 season_blend: season_result.season_blend,
                 opacity: world_objects.trees.opacity,
@@ -13091,8 +13149,8 @@ impl App {
         s.water_pass.update_params(
             &s.queue,
             &passes::WaterParams {
-                world_w: self.camera.world_size.x,
-                world_d: self.camera.world_size.y,
+                world_w: vanilla_map_space.world_size[0],
+                world_d: vanilla_map_space.world_size[1],
                 height_scale: HEIGHT_SCALE,
                 selected_province_id: self.selected_province_id,
                 debug_view: self.water_debug_view.as_shader_value(),
@@ -13223,7 +13281,7 @@ impl App {
                 terrain_blend: params.map_mode_terrain_blend,
                 screen_width: params.screen_width,
                 screen_height: params.screen_height,
-                vignette_strength: params.vignette_strength,
+                vignette_strength: 0.0,
                 zoom_factor: params.zoom_factor,
                 border_country_px: if terrain_ownership.terrain_sdf_borders {
                     params.border_country_px
@@ -13238,16 +13296,16 @@ impl App {
                 season_lerp: season_result.season_lerp,
                 map_mode_terrain_blend: params.map_mode_terrain_blend,
                 world_size_xy_height_lat: [
-                    self.camera.world_size.x,
-                    self.camera.world_size.y,
+                    vanilla_map_space.world_size[0],
+                    vanilla_map_space.world_size[1],
                     HEIGHT_SCALE,
                     LAT_CORRECTION,
                 ],
                 season_params: [
                     season_result.season_column,
                     params.season_snow_offset,
-                    0.0,
-                    0.0,
+                    season_result.season_column_next,
+                    season_result.season_blend,
                 ],
                 terrain_controls: [
                     self.terrain_debug_view.as_shader_value(),
@@ -13273,9 +13331,16 @@ impl App {
                     semantic_overlays.hover_highlight.opacity,
                     semantic_overlays.map_mode_overlay.opacity,
                 ],
+                feature_flags: passes::PdxMapParams::VANILLA_PARITY_FEATURE_FLAGS,
                 atlas_idx_array: {
-                    let src = self.world.map.terrain_catalog.atlas_idx_array();
-                    std::array::from_fn::<[u32; 4], 4, _>(|r| {
+                    let src = self.world.map.terrain_catalog.atlas_idx_array_256();
+                    std::array::from_fn::<[u32; 4], 64, _>(|r| {
+                        std::array::from_fn::<u32, 4, _>(|c| src[r * 4 + c] as u32)
+                    })
+                },
+                terrain_flags_array: {
+                    let src = self.world.map.terrain_catalog.terrain_flags_array_256();
+                    std::array::from_fn::<[u32; 4], 64, _>(|r| {
                         std::array::from_fn::<u32, 4, _>(|c| src[r * 4 + c] as u32)
                     })
                 },
@@ -16101,6 +16166,206 @@ fn load_tree_atlas(
 }
 
 /// Phase 3.5: 鍔犺浇 vanilla `map/terrain/atlas0.dds` (2048x2048 BC3, 4脳4 tile grid).
+fn load_terrain_atlas_phase1(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    resources: &VanillaResourceViews,
+) -> (
+    wgpu::TextureView,
+    wgpu::Sampler,
+    vanilla_resource_views::BindingAuditEntry,
+) {
+    let mut warnings = Vec::new();
+    let uploaded = vanilla_resource_views::upload_dds_or_fallback(
+        device,
+        queue,
+        resources,
+        vanilla_resource_views::DdsUploadRequest {
+            role: hoi4_assets::MapResRole::TerrainAtlas(0),
+            label: "terrain_atlas",
+            fallback_rgba: [255, 255, 255, 255],
+            srgb: true,
+            critical: true,
+            pass: "terrain",
+            binding: "terrain_atlas",
+            visual_impact: "terrain diffuse atlas falls back to a white texture",
+        },
+        &mut warnings,
+    );
+    for warning in warnings {
+        eprintln!("{warning}");
+    }
+    let view = uploaded.view;
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("terrain_atlas_sampler"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Linear,
+        address_mode_u: wgpu::AddressMode::Repeat,
+        address_mode_v: wgpu::AddressMode::Repeat,
+        anisotropy_clamp: 8,
+        ..Default::default()
+    });
+    drop(uploaded.texture);
+    (view, sampler, uploaded.audit)
+}
+
+fn load_colormap_phase1(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    resources: &VanillaResourceViews,
+) -> (
+    wgpu::TextureView,
+    wgpu::Sampler,
+    vanilla_resource_views::BindingAuditEntry,
+) {
+    let mut warnings = Vec::new();
+    let uploaded = vanilla_resource_views::upload_dds_or_fallback(
+        device,
+        queue,
+        resources,
+        vanilla_resource_views::DdsUploadRequest {
+            role: hoi4_assets::MapResRole::ColormapEmissive,
+            label: "colormap",
+            fallback_rgba: [128, 128, 128, 255],
+            srgb: true,
+            critical: true,
+            pass: "terrain",
+            binding: "colormap",
+            visual_impact: "terrain natural color base falls back to neutral gray",
+        },
+        &mut warnings,
+    );
+    for warning in warnings {
+        eprintln!("{warning}");
+    }
+    let view = uploaded.view;
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("colormap_sampler"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Linear,
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        ..Default::default()
+    });
+    drop(uploaded.texture);
+    (view, sampler, uploaded.audit)
+}
+
+fn load_rivers_texture_phase1(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    resources: &VanillaResourceViews,
+) -> (
+    wgpu::TextureView,
+    wgpu::Sampler,
+    vanilla_resource_views::BindingAuditEntry,
+) {
+    use hoi4_assets::MapResRole;
+    use hoi4_map::rivers::parse_rivers_bmp;
+
+    let role = MapResRole::Rivers;
+    let parsed = resources
+        .bytes(role)
+        .ok_or_else(|| "missing_resource".to_string())
+        .and_then(|bytes| parse_rivers_bmp(bytes).map_err(|err| format!("bmp_parse_failed:{err}")));
+
+    let rivers = match parsed {
+        Ok(rivers) => rivers,
+        Err(reason) => {
+            eprintln!(
+                "[rivers] {} unavailable; using empty fallback: {}",
+                role.relative_path(),
+                reason
+            );
+            let (view, sampler) = rivers_fallback(device, queue);
+            return (
+                view,
+                sampler,
+                vanilla_resource_views::BindingAuditEntry::vanilla(
+                    "terrain",
+                    "rivers_bmp",
+                    role,
+                    false,
+                    false,
+                    Some(reason),
+                    "river mask is unavailable",
+                ),
+            );
+        }
+    };
+
+    let (w, h) = (rivers.width, rivers.height);
+    let bytes = rivers.to_r8_normalised();
+    println!(
+        "[rivers] loaded {}x{} {} river pixels",
+        w,
+        h,
+        rivers.river_pixel_count()
+    );
+
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("rivers_tex"),
+        size: wgpu::Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &bytes,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(w),
+            rows_per_image: Some(h),
+        },
+        wgpu::Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        },
+    );
+
+    let view = texture.create_view(&Default::default());
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("rivers_sampler"),
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Nearest,
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        ..Default::default()
+    });
+    drop(texture);
+    (
+        view,
+        sampler,
+        vanilla_resource_views::BindingAuditEntry::vanilla(
+            "terrain",
+            "rivers_bmp",
+            role,
+            true,
+            false,
+            None,
+            "river mask and river pass visibility",
+        ),
+    )
+}
+
+#[allow(dead_code)]
 fn load_terrain_atlas(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -16267,6 +16532,7 @@ fn load_terrain_atlas(
 /// Phase 3.6.1: Load vanilla terrain colormap (continent natural color base layer).
 /// The colormap is a low-resolution (~5632脳2048 typically) DDS that provides a natural
 /// color base for the entire map, eliminating flat-color feel from large terrain areas.
+#[allow(dead_code)]
 fn load_colormap(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -16435,6 +16701,7 @@ fn load_colormap(
 /// Sampled in shader as f32 in [0, 1] for LOD-gated river overlay.
 ///
 /// Uses `BmpDecoder` from hoi4-map; falls back to a 1脳1 zero texture if missing.
+#[allow(dead_code)]
 fn load_rivers_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -16617,6 +16884,20 @@ fn event_modal_sound(event: &hoi4_content::Event) -> UiSound {
     }
 }
 
+fn map_mode_from_capture_name(name: &str) -> MapMode {
+    match name {
+        "terrain" => MapMode::Terrain,
+        "manpower" => MapMode::Manpower,
+        "factories" => MapMode::Factories,
+        "cores" => MapMode::Cores,
+        "infrastructure" => MapMode::Infrastructure,
+        "ideology" => MapMode::Ideology,
+        "supply" => MapMode::Supply,
+        "resistance" => MapMode::Resistance,
+        _ => MapMode::Political,
+    }
+}
+
 fn surrender_notification_sound_key(
     notification: &hoi4_ui::surrender_notification::SurrenderNotification,
 ) -> String {
@@ -16649,7 +16930,8 @@ fn main() {
     }
 
     if cli.map_phase0_report_only {
-        match map_baseline::write_phase0_report(&path_cfg, &cli.map_phase0_output) {
+        let output_dir = map_baseline::phase0_batch_output_dir(&cli.map_phase0_output);
+        match map_baseline::write_phase0_report(&path_cfg, &output_dir) {
             Ok(path) => println!("[map-phase0] wrote {}", path.display()),
             Err(err) => {
                 eprintln!("[map-phase0] failed: {err}");
@@ -16667,7 +16949,8 @@ fn main() {
     }
 
     if cli.map_phase0 {
-        app_shell::run_map_phase0(world, path_cfg, cli.map_phase0_output);
+        let output_dir = map_baseline::phase0_batch_output_dir(&cli.map_phase0_output);
+        app_shell::run_map_phase0(world, path_cfg, output_dir);
         return;
     }
 

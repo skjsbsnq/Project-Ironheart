@@ -55,7 +55,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var color = mix(base_low, base_high, vertical);
 
     // Day/night: darken + shift to blue at night
-    let globe_n = calc_globe_normal(frame.cam_pos.xz, frame.day_night_hour_sun_dir.x);
+    let globe_n = calc_globe_normal(frame.cam_pos_map_px.xy, frame.day_night_hour_sun_dir.x);
     let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
     let night_color = vec3<f32>(0.035, 0.045, 0.060);
     color = mix(color, night_color, night * 0.65);

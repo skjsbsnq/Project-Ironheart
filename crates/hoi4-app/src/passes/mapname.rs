@@ -99,6 +99,7 @@ struct VsOut {
     @location(0) uv: vec2<f32>,
     @location(1) world_xz: vec2<f32>,
     @location(2) world_pos: vec3<f32>,
+    @location(3) map_px: vec2<f32>,
 };
 
 @vertex
@@ -134,6 +135,7 @@ fn vs_main(@builtin(vertex_index) vid: u32, inst: InstanceData) -> VsOut {
     );
     out.world_xz = inst.center.xz;
     out.world_pos = world_pos;
+    out.map_px = world_xz_to_map_px(inst.center.xz, frame.vanilla_map_size_world_size.zw);
     return out;
 }
 
@@ -147,7 +149,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let outline_t = smoothstep(0.15, 0.45, s) * (1.0 - text_t);
 
     // Vanilla-style day/night dimming with coefficient 0.35.
-    let globe_n = calc_globe_normal(in.world_xz, frame.day_night_hour_sun_dir.x);
+    let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
     let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
     let dim = 1.0 - night * 0.35;
 

@@ -1115,6 +1115,7 @@ struct VsOut {
     @location(2) uv: vec2<f32>,
     @location(3) tint: vec3<f32>,
     @location(4) shadow_proj: vec4<f32>,
+    @location(5) map_px: vec2<f32>,
 };
 
 fn rotate_y(p: vec3<f32>, angle: f32) -> vec3<f32> {
@@ -1148,6 +1149,7 @@ fn vs_main(in: VsIn) -> VsOut {
     out.tint = in.instance_tint.rgb;
     // Shadow projection（接收方采样）
     out.shadow_proj = frame.shadow_view_proj * vec4<f32>(world_pos, 1.0);
+    out.map_px = world_xz_to_map_px(world_pos.xz, frame.vanilla_map_size_world_size.zw);
     return out;
 }
 
@@ -1206,12 +1208,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Emissive（建筑窗户夜光）— feature_flags.z = 0 时跳过
     if (material.feature_flags.z > 0.5) {
         let emit = textureSample(emissive_tex, mat_sampler, in.uv).rgb;
-        let globe_n = calc_globe_normal(in.world_pos.xz, frame.day_night_hour_sun_dir.x);
+        let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
         let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
         lit += emit * material.pbr_packed.w * (0.2 + night * 0.8);
     } else {
         // 即使没贴图也给一个固定亮度的"窗户夜光"模拟（建筑被夜半球时整体提亮）
-        let globe_n = calc_globe_normal(in.world_pos.xz, frame.day_night_hour_sun_dir.x);
+        let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
         let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
         lit += diffuse_albedo * material.pbr_packed.w * 0.25 * night;
     }

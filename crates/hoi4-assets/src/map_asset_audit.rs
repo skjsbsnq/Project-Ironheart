@@ -856,4 +856,25 @@ mod tests {
         assert!(json.contains("\"mip_status\": \"Complete\""));
         assert!(json.contains("\"upload_mips\": 1"));
     }
+
+    #[test]
+    fn map_asset_audit_valid() {
+        let entries = crate::all_vanilla_roles()
+            .into_iter()
+            .map(|role| {
+                if role.relative_path().ends_with(".dds") {
+                    loaded(role)
+                } else {
+                    loaded_bmp(role)
+                }
+            })
+            .collect();
+        let audit = MapAssetAudit::from_map_set(&VanillaMapSet { entries });
+        assert_eq!(audit.total, 71);
+        assert_eq!(audit.loaded, 71);
+        assert_eq!(audit.missing, 0);
+        assert_eq!(audit.fallback, 0);
+        assert_eq!(audit.quality, MapAssetQuality::Valid);
+        assert!(audit.can_use_for_visual_review());
+    }
 }

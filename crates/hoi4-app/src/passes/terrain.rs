@@ -1,50 +1,35 @@
-//! Phase 3.12.4 — `TerrainPass`：把旧 inline 地形 pipeline 升级为 vanilla pdxmap 等价。
+﻿//! Phase 3.12.4 鈥?`TerrainPass`锛氭妸鏃?inline 鍦板舰 pipeline 鍗囩骇涓?vanilla pdxmap 绛変环銆?//!
+//! ## 鏇挎崲鍏崇郴
 //!
-//! ## 替换关系
+//! - 鍘?`crates/hoi4-render/src/shader.wgsl` 鈫?绉诲埌褰掓。甯搁噺
+//!   `hoi4_render::ARCHIVED_SHADER_MAIN_WGSL`锛屼粎浣滃巻鍙插弬鑰?//! - 鏂?`crates/hoi4-app/src/passes/terrain.wgsl` 鏄粍鍚堜綋锛?//!   淇濈暀鏃?chunk-tessellated 椤剁偣锛堟部鐢ㄧ幇鏈?`ChunkInstance` 瀹炰緥鏁版嵁 + LOD锛夛紝
+//!   鐗囧厓渚ф寜 vanilla pdxmap 璺緞琛?atlas_normal / world_normal / city lights /
+//!   shadow PCF / 瀛ｈ妭鏀挎不鑹?/ 鏄煎
 //!
-//! - 原 `crates/hoi4-render/src/shader.wgsl` → 移到归档常量
-//!   `hoi4_render::ARCHIVED_SHADER_MAIN_WGSL`，仅作历史参考
-//! - 新 `crates/hoi4-app/src/passes/terrain.wgsl` 是组合体：
-//!   保留旧 chunk-tessellated 顶点（沿用现有 `ChunkInstance` 实例数据 + LOD），
-//!   片元侧按 vanilla pdxmap 路径补 atlas_normal / world_normal / city lights /
-//!   shadow PCF / 季节政治色 / 昼夜
-//!
-//! ## binding 布局（3 个 group）
-//!
-//! - `@group(0)` — frame uniforms（每 LOD 一个 bind group，因为 ChunkUniform 不同）
-//!   - `@binding(0)` GlobalFrameUniform（共享 320 字节）
-//!   - `@binding(1)` PdxMapParams（每帧更新；含 selected_pid / season / world_size）
-//!   - `@binding(2)` ChunkUniform（per-LOD 4 字节）
-//!
-//! - `@group(1)` — 跨 LOD 共享
+//! ## binding 甯冨眬锛? 涓?group锛?//!
+//! - `@group(0)` 鈥?frame uniforms锛堟瘡 LOD 涓€涓?bind group锛屽洜涓?ChunkUniform 涓嶅悓锛?//!   - `@binding(0)` GlobalFrameUniform锛堝叡浜?352 瀛楄妭锛?//!   - `@binding(1)` PdxMapParams锛堟瘡甯ф洿鏂帮紱鍚?selected_pid / season / world_size锛?//!   - `@binding(2)` ChunkUniform锛坧er-LOD 4 瀛楄妭锛?//!
+//! - `@group(1)` 鈥?璺?LOD 鍏变韩
 //!   - shadow_map / shadow_sampler
-//!   - season_map / color_map / color_map_second（3.12.8 接 seasons.txt 前都用 colormap）
-//!   - light_data / light_index（3.12.X 之前用 1×1 mock）
-//!   - gradient_border ch1/ch2（**复用** country_sdf / province_sdf；3.12.9 后接 vanilla 18 张）
-//!   - province_secondary_color（1×1 mock）
-//!   - generic_sampler（linear）
-//!   - occupation_lut / coast_sdf / rivers（兼容现有特性）
+//!   - season_map / color_map / color_map_second锛?.12.8 鎺?seasons.txt 鍓嶉兘鐢?colormap锛?//!   - light_data / light_index锛?.12.X 涔嬪墠鐢?1脳1 mock锛?//!   - gradient_border ch1/ch2锛?*澶嶇敤** country_sdf / province_sdf锛?.12.9 鍚庢帴 vanilla 18 寮狅級
+//!   - province_secondary_color锛?脳1 mock锛?//!   - generic_sampler锛坙inear锛?//!   - occupation_lut / coast_sdf / rivers锛堝吋瀹圭幇鏈夌壒鎬э級
 //!
-//! - `@group(2)` — pass-specific 地形位图
+//! - `@group(2)` 鈥?pass-specific 鍦板舰浣嶅浘
 //!   - heightmap / province_id / terrain_idx / terrain_atlas
-//!   - **NEW**: terrain_atlas_normal（atlas_normal0.dds，BC5 → Bc5RgUnorm）
-//!   - **NEW**: world_normal（world_normal.bmp，3 通道 24-bit RGB）
-//!   - **NEW**: colormap_emissive（colormap_rgb_cityemissivemask_a.dds，BC3 .a = emit mask）
-//!   - **NEW**: citylights（citylights_rgb_snowmask_a_0.dds，BC3 .rgb = night light）
-//!   - country_color_lut（main.rs 的 lut_view）
-//!   - pass_sampler
+//!   - **NEW**: terrain_atlas_normal锛坅tlas_normal0.dds锛孊C5 鈫?Bc5RgUnorm锛?//!   - **NEW**: world_normal锛坵orld_normal.bmp锛? 閫氶亾 24-bit RGB锛?//!   - **NEW**: colormap_emissive锛坈olormap_rgb_cityemissivemask_a.dds锛孊C3 .a = emit mask锛?//!   - **NEW**: citylights锛坈itylights_rgb_snowmask_a_0.dds锛孊C3 .rgb = night light锛?//!   - country_color_lut锛坢ain.rs 鐨?lut_view锛?//!   - pass_sampler
 
-use std::sync::Arc;
-
-use hoi4_assets::{dds_upload_plan, AssetDb, DdsImage, FsAssetDb, MapResRole, VanillaMapSet};
+use hoi4_assets::MapResRole;
 use hoi4_paths::PathConfig;
 use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
+use crate::vanilla_resource_views::{
+    create_dynamic_target_1x1, upload_dds_or_fallback, BindingAudit, BindingAuditEntry,
+    DdsUploadRequest, VanillaResourceViews,
+};
 
 const SHADER_WGSL: &str = include_str!("terrain.wgsl");
 
-/// Public alias for the wgsl source — used by `tests/terrain_wgsl.rs` to
+/// Public alias for the wgsl source 鈥?used by `tests/terrain_wgsl.rs` to
 /// validate the shader via naga without recompiling the include.
 pub const TERRAIN_WGSL_SOURCE: &str = SHADER_WGSL;
 
@@ -54,25 +39,47 @@ pub enum TerrainDebugView {
     Off = 0,
     TerrainId = 1,
     AtlasTileId = 2,
-    PoliticalColor = 3,
-    TerrainAlbedo = 4,
-    Normal = 5,
-    HeightSlope = 6,
-    SnowMask = 7,
-    RiverMask = 8,
+    TerrainBlendState = 3,
+    TerrainCorners = 4,
+    PoliticalColor = 5,
+    TerrainAlbedo = 6,
+    Normal = 7,
+    HeightSlope = 8,
+    SnowMask = 9,
+    MudMask = 10,
+    RiverMask = 11,
+    CityEmitMask = 12,
+    CityLightsRgb = 13,
+    NightFactor = 14,
+    CityLightContribution = 15,
+    MapUv = 16,
+    MapPxGrid = 17,
+    VanillaTileRepeat = 18,
+    CitylightUv = 19,
 }
 
 impl TerrainDebugView {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 20] = [
         Self::Off,
         Self::TerrainId,
         Self::AtlasTileId,
+        Self::TerrainBlendState,
+        Self::TerrainCorners,
         Self::PoliticalColor,
         Self::TerrainAlbedo,
         Self::Normal,
         Self::HeightSlope,
         Self::SnowMask,
+        Self::MudMask,
         Self::RiverMask,
+        Self::CityEmitMask,
+        Self::CityLightsRgb,
+        Self::NightFactor,
+        Self::CityLightContribution,
+        Self::MapUv,
+        Self::MapPxGrid,
+        Self::VanillaTileRepeat,
+        Self::CitylightUv,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -80,12 +87,23 @@ impl TerrainDebugView {
             Self::Off => "off",
             Self::TerrainId => "terrain_id",
             Self::AtlasTileId => "atlas_tile_id",
+            Self::TerrainBlendState => "terrain_blend_state",
+            Self::TerrainCorners => "terrain_corners",
             Self::PoliticalColor => "political_color",
             Self::TerrainAlbedo => "terrain_albedo",
             Self::Normal => "normal",
             Self::HeightSlope => "height_slope",
             Self::SnowMask => "snow_mask",
+            Self::MudMask => "mud_mask",
             Self::RiverMask => "river_mask",
+            Self::CityEmitMask => "city_emit_mask",
+            Self::CityLightsRgb => "citylights_rgb",
+            Self::NightFactor => "night_factor",
+            Self::CityLightContribution => "citylight_contribution",
+            Self::MapUv => "map_uv",
+            Self::MapPxGrid => "map_px_grid",
+            Self::VanillaTileRepeat => "vanilla_tile_repeat",
+            Self::CitylightUv => "citylight_uv",
         }
     }
 
@@ -94,12 +112,23 @@ impl TerrainDebugView {
             Self::Off => 0.0,
             Self::TerrainId => 1.0,
             Self::AtlasTileId => 2.0,
-            Self::PoliticalColor => 3.0,
-            Self::TerrainAlbedo => 4.0,
-            Self::Normal => 5.0,
-            Self::HeightSlope => 6.0,
-            Self::SnowMask => 7.0,
-            Self::RiverMask => 8.0,
+            Self::TerrainBlendState => 3.0,
+            Self::TerrainCorners => 4.0,
+            Self::PoliticalColor => 5.0,
+            Self::TerrainAlbedo => 6.0,
+            Self::Normal => 7.0,
+            Self::HeightSlope => 8.0,
+            Self::SnowMask => 9.0,
+            Self::MudMask => 10.0,
+            Self::RiverMask => 11.0,
+            Self::CityEmitMask => 12.0,
+            Self::CityLightsRgb => 13.0,
+            Self::NightFactor => 14.0,
+            Self::CityLightContribution => 15.0,
+            Self::MapUv => 16.0,
+            Self::MapPxGrid => 17.0,
+            Self::VanillaTileRepeat => 18.0,
+            Self::CitylightUv => 19.0,
         }
     }
 
@@ -109,43 +138,35 @@ impl TerrainDebugView {
     }
 }
 
-/// `PdxMapParams` 与 wgsl 端 `struct PdxMapParams` 字段一一对应。
-///
-/// **176 字节**（11 × vec4，wgsl uniform 对齐）。
+/// `PdxMapParams` mirrors the WGSL uniform in `terrain.wgsl`.
+/// Size is 2176 bytes.
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
 pub struct PdxMapParams {
-    /// 当前选中省份 id；u32::MAX = 无选中。
     pub selected_province_id: u32,
-    /// 当前选中省份所属 state 的内部索引；u32::MAX = 无。
     pub selected_state_id: u32,
     pub hovered_province_id: u32,
     pub terrain_blend: f32,
-
     pub screen_width: f32,
     pub screen_height: f32,
     pub vignette_strength: f32,
     pub zoom_factor: f32,
-
     pub border_country_px: f32,
     pub border_province_px: f32,
     pub season_lerp: f32,
     pub map_mode_terrain_blend: f32,
-
-    /// world_w / world_d / height_scale / lat_correction
     pub world_size_xy_height_lat: [f32; 4],
-
-    /// season_column / season_snow_offset / reserved / reserved.
     pub season_params: [f32; 4],
-
-    /// debug_view / terrain_water_final_color / terrain_border_sdf / terrain_overlays.
     pub terrain_controls: [f32; 4],
-    /// occupation / selected / hover / map-mode overlay opacity.
     pub overlay_controls: [f32; 4],
+    pub feature_flags: [f32; 4],
+    pub atlas_idx_array: [[u32; 4]; 64],
+    pub terrain_flags_array: [[u32; 4]; 64],
+}
 
-    /// terrain.bmp palette index → atlas tile index LUT.
-    /// Packed as 4 × vec4<u32> to match wgsl `array<vec4<u32>, 4>`.
-    pub atlas_idx_array: [[u32; 4]; 4],
+impl PdxMapParams {
+    pub const VANILLA_PARITY_FEATURE_FLAGS: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
+    pub const LEGACY_ART_FEATURE_FLAGS: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 }
 
 impl Default for PdxMapParams {
@@ -167,12 +188,16 @@ impl Default for PdxMapParams {
             season_params: [0.0, 0.0, 0.0, 0.0],
             terrain_controls: [0.0, 1.0, 0.0, 1.0],
             overlay_controls: [1.0, 1.0, 0.0, 0.0],
-            atlas_idx_array: [[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11], [12, 13, 14, 15]],
+            feature_flags: Self::VANILLA_PARITY_FEATURE_FLAGS,
+            atlas_idx_array: std::array::from_fn(|row| {
+                std::array::from_fn(|col| ((row * 4 + col) & 15) as u32)
+            }),
+            terrain_flags_array: [[0; 4]; 64],
         }
     }
 }
 
-/// ChunkUniform 与 wgsl 端 struct 对应。每 LOD 一份。
+/// ChunkUniform mirrors the WGSL uniform for per-LOD grid size.
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
 pub struct ChunkUniform {
@@ -180,139 +205,244 @@ pub struct ChunkUniform {
     pub _pad: [u32; 3],
 }
 
-/// TerrainPass 构造参数：所有"已经在 main.rs 上传过"的纹理与 buffer。
+/// TerrainPass constructor inputs: all textures/buffers already uploaded in main.rs.
 pub struct TerrainPassInputs<'a> {
     pub global_uniform_buffer: &'a wgpu::Buffer,
     pub depth_format: wgpu::TextureFormat,
-
-    // Per-LOD chunk grid
     pub lod_grid: [u32; 3],
-
-    // Shared cross-LOD textures (reuse main.rs uploaded views)
     pub shadow_map_view: &'a wgpu::TextureView,
     pub shadow_sampler: &'a wgpu::Sampler,
-    pub colormap_view: &'a wgpu::TextureView, // → color_map / color_map_second / season_map
-    pub country_sdf_view: &'a wgpu::TextureView, // → gradient_border_ch1
-    pub province_sdf_view: &'a wgpu::TextureView, // → gradient_border_ch2
+    pub colormap_view: &'a wgpu::TextureView,
+    pub country_sdf_view: &'a wgpu::TextureView,
+    pub province_sdf_view: &'a wgpu::TextureView,
     pub coast_sdf_view: &'a wgpu::TextureView,
     pub occupation_lut_view: &'a wgpu::TextureView,
     pub rivers_view: &'a wgpu::TextureView,
-
-    // Pass-specific bitmaps (already uploaded in main.rs)
     pub heightmap_view: &'a wgpu::TextureView,
     pub province_view: &'a wgpu::TextureView,
     pub terrain_idx_view: &'a wgpu::TextureView,
     pub terrain_atlas_view: &'a wgpu::TextureView,
-    pub country_color_lut_view: &'a wgpu::TextureView, // = main.rs::lut_view
-
-    // Optional overrides for 3.12.4 new vanilla textures.
-    // None = TerrainPass loads via VanillaMapSet/path_cfg, with 1×1 fallback if missing.
-    pub map_set: Option<&'a Arc<VanillaMapSet>>,
+    pub country_color_lut_view: &'a wgpu::TextureView,
+    pub vanilla_resources: &'a VanillaResourceViews,
 }
 
-/// 主 pass。
+/// Terrain pass state.
 pub struct TerrainPass {
     pipeline: wgpu::RenderPipeline,
-
-    // Per-LOD bind groups (group 0 carries chunk uniform that varies)
     bind_groups_g0: [wgpu::BindGroup; 3],
     bind_group_g1: wgpu::BindGroup,
     bind_group_g2: wgpu::BindGroup,
-
-    // Owned uniform buffers
     params_buffer: wgpu::Buffer,
     chunk_buffers: [wgpu::Buffer; 3],
-
-    // Owned new textures (kept alive via field)
     _atlas_normal_tex: wgpu::Texture,
     _world_normal_tex: wgpu::Texture,
     _colormap_emissive_tex: wgpu::Texture,
     _citylights_tex: wgpu::Texture,
+    _snow_normal_diffuse_tex: wgpu::Texture,
+    _mud_diffuse_tex: wgpu::Texture,
+    _mud_normal_tex: wgpu::Texture,
     _stub_textures: Vec<wgpu::Texture>,
     _samplers: Vec<wgpu::Sampler>,
-
-    /// 加载日志（启动 banner 用）。
     pub load_warnings: Vec<String>,
+    pub binding_audit: BindingAudit,
 }
 
 impl TerrainPass {
-    /// 构造一个完整 TerrainPass。
+    /// Construct a complete `TerrainPass`.
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        path_cfg: &PathConfig,
+        _path_cfg: &PathConfig,
         inputs: TerrainPassInputs<'_>,
     ) -> Self {
         let mut warnings: Vec<String> = Vec::new();
 
-        // ── Load 4 new vanilla textures (atlas_normal / world_normal / colormap_emissive / citylights) ──
-        // 优先从 inputs.map_set；否则直接走 FsAssetDb。
-        let db = FsAssetDb::new(path_cfg.clone());
+        let mut binding_audit = BindingAudit::new();
 
-        let load_dds_bytes = |role: MapResRole| -> Option<Vec<u8>> {
-            if let Some(ms) = inputs.map_set.as_ref() {
-                if let Some(b) = ms.bytes(role) {
-                    return Some(b.to_vec());
-                }
-            }
-            db.open(role.relative_path()).ok().map(|b| b.to_vec())
-        };
-
-        let (atlas_normal_tex, atlas_normal_view) = load_dds_to_texture(
+        let atlas_normal = upload_dds_or_fallback(
             device,
             queue,
-            "atlas_normal",
-            load_dds_bytes(MapResRole::TerrainAtlasNormal(0)),
-            &[128u8, 128, 255, 255], // flat tangent normal
-            false,                   // linear
+            inputs.vanilla_resources,
+            DdsUploadRequest {
+                role: MapResRole::TerrainAtlasNormal(0),
+                label: "terrain_atlas_normal0",
+                fallback_rgba: [128, 128, 255, 255],
+                srgb: false,
+                critical: true,
+                pass: "terrain",
+                binding: "terrain_atlas_normal",
+                visual_impact: "terrain lighting and material normals flatten",
+            },
             &mut warnings,
         );
+        binding_audit.extend([atlas_normal.audit.clone()]);
+        let atlas_normal_tex = atlas_normal.texture;
+        let atlas_normal_view = atlas_normal.view;
 
-        let (world_normal_tex, world_normal_view) = load_world_normal_bmp(
+        let (world_normal_tex, world_normal_view, world_normal_audit) =
+            load_world_normal_bmp(device, queue, inputs.vanilla_resources, &mut warnings);
+        binding_audit.extend([world_normal_audit]);
+
+        let colormap_emissive = upload_dds_or_fallback(
             device,
             queue,
-            path_cfg,
-            inputs.map_set.map(|m| m.as_ref()),
+            inputs.vanilla_resources,
+            DdsUploadRequest {
+                role: MapResRole::ColormapEmissive,
+                label: "colormap_rgb_cityemissivemask_a",
+                fallback_rgba: [128, 128, 96, 0],
+                srgb: true,
+                critical: true,
+                pass: "terrain",
+                binding: "colormap_emissive",
+                visual_impact: "terrain tint and city emissive mask are unavailable",
+            },
             &mut warnings,
         );
+        binding_audit.extend([colormap_emissive.audit.clone()]);
+        let colormap_emissive_tex = colormap_emissive.texture;
+        let colormap_emissive_view = colormap_emissive.view;
 
-        let (colormap_emissive_tex, colormap_emissive_view) = load_dds_to_texture(
+        let citylights = upload_dds_or_fallback(
             device,
             queue,
-            "colormap_rgb_cityemissivemask_a",
-            load_dds_bytes(MapResRole::ColormapEmissive),
-            &[128, 128, 96, 0], // .a=0 = no city emit
-            true,               // sRGB color
+            inputs.vanilla_resources,
+            DdsUploadRequest {
+                role: MapResRole::CityLights(0),
+                label: "citylights0",
+                fallback_rgba: [0, 0, 0, 0],
+                srgb: true,
+                critical: true,
+                pass: "terrain",
+                binding: "citylights",
+                visual_impact: "night city light contribution disappears",
+            },
             &mut warnings,
         );
+        binding_audit.extend([citylights.audit.clone()]);
+        let citylights_tex = citylights.texture;
+        let citylights_view = citylights.view;
 
-        let (citylights_tex, citylights_view) = load_dds_to_texture(
+        let snow_normal_diffuse = upload_dds_or_fallback(
             device,
             queue,
-            "citylights",
-            load_dds_bytes(MapResRole::CityLights(0)),
-            &[0u8, 0, 0, 0], // no light
-            true,
+            inputs.vanilla_resources,
+            DdsUploadRequest {
+                role: MapResRole::SnowNormalDiffuse,
+                label: "snow_normal_rgb_diffuse_a",
+                fallback_rgba: [128, 128, 255, 0],
+                srgb: false,
+                critical: true,
+                pass: "terrain",
+                binding: "snow_normal_diffuse",
+                visual_impact: "snow overlay loses vanilla normal/diffuse texture",
+            },
             &mut warnings,
         );
+        binding_audit.extend([snow_normal_diffuse.audit.clone()]);
+        let snow_normal_diffuse_tex = snow_normal_diffuse.texture;
+        let snow_normal_diffuse_view = snow_normal_diffuse.view;
 
-        // ── Stub textures for not-yet-implemented bindings ──
+        let mud_diffuse = upload_dds_or_fallback(
+            device,
+            queue,
+            inputs.vanilla_resources,
+            DdsUploadRequest {
+                role: MapResRole::MudDiffuseGloss(0),
+                label: "mud_diffuse_rgb_gloss_a_0",
+                fallback_rgba: [78, 62, 45, 0],
+                srgb: true,
+                critical: true,
+                pass: "terrain",
+                binding: "mud_diffuse_gloss",
+                visual_impact: "mud overlay falls back to a flat brown tint",
+            },
+            &mut warnings,
+        );
+        binding_audit.extend([mud_diffuse.audit.clone()]);
+        let mud_diffuse_tex = mud_diffuse.texture;
+        let mud_diffuse_view = mud_diffuse.view;
+
+        let mud_normal = upload_dds_or_fallback(
+            device,
+            queue,
+            inputs.vanilla_resources,
+            DdsUploadRequest {
+                role: MapResRole::MudNormalSpec(0),
+                label: "mud_normal_rgb_spec_a_0",
+                fallback_rgba: [128, 128, 255, 0],
+                srgb: false,
+                critical: true,
+                pass: "terrain",
+                binding: "mud_normal_spec",
+                visual_impact: "mud overlay normals/specular flatten",
+            },
+            &mut warnings,
+        );
+        binding_audit.extend([mud_normal.audit.clone()]);
+        let mud_normal_tex = mud_normal.texture;
+        let mud_normal_view = mud_normal.view;
+
+        // 鈹€鈹€ Stub textures for not-yet-implemented bindings 鈹€鈹€
         let mut stub_textures: Vec<wgpu::Texture> = Vec::new();
         let mut samplers: Vec<wgpu::Sampler> = Vec::new();
 
-        // light_data / light_index (3.12.x: real point lights). Mock 1×1.
+        // light_data / light_index (3.12.x: real point lights). Mock 1脳1.
         let (light_data_tex, light_data_view) =
-            make_1x1_rgba8_unorm(device, queue, "light_data_mock", [0, 0, 0, 0]);
-        let (light_index_tex, light_index_view) =
-            make_1x1_rgba8_unorm(device, queue, "light_index_mock", [255, 255, 255, 255]);
+            create_dynamic_target_1x1(device, queue, "light_data_empty_target", [0, 0, 0, 0]);
+        let (light_index_tex, light_index_view) = create_dynamic_target_1x1(
+            device,
+            queue,
+            "light_index_empty_target",
+            [255, 255, 255, 255],
+        );
         stub_textures.push(light_data_tex);
         stub_textures.push(light_index_tex);
 
-        let (secondary_color_tex, secondary_color_view) =
-            make_1x1_rgba8_unorm(device, queue, "province_secondary_color_mock", [0, 0, 0, 0]);
+        let (secondary_color_tex, secondary_color_view) = create_dynamic_target_1x1(
+            device,
+            queue,
+            "province_secondary_color_empty_target",
+            [0, 0, 0, 0],
+        );
         stub_textures.push(secondary_color_tex);
+        binding_audit.extend([
+            BindingAuditEntry::dynamic_target_blocker(
+                "terrain",
+                "light_data",
+                "light_data_empty_target",
+                "Vanilla point light render target is not generated yet",
+                "night lighting and local highlights are missing",
+            ),
+            BindingAuditEntry::dynamic_target_blocker(
+                "terrain",
+                "light_index",
+                "light_index_empty_target",
+                "Vanilla point light index target is not generated yet",
+                "point light lookup is disabled",
+            ),
+            BindingAuditEntry::dynamic_target_blocker(
+                "terrain",
+                "province_secondary_color",
+                "province_secondary_color_empty_target",
+                "Province secondary color target is not generated yet",
+                "occupation, selection, and map-mode secondary tint are absent",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "terrain",
+                "gradient_border_ch1",
+                "country_sdf",
+                "temporary SDF input used until vanilla gradient border target exists",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "terrain",
+                "gradient_border_ch2",
+                "province_sdf",
+                "temporary SDF input used until vanilla gradient border target exists",
+            ),
+        ]);
 
-        // ── Samplers ──
+        // 鈹€鈹€ Samplers 鈹€鈹€
         let generic_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("terrain_generic_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -336,7 +466,7 @@ impl TerrainPass {
         samplers.push(generic_sampler.clone_unchecked());
         samplers.push(pass_sampler.clone_unchecked());
 
-        // ── Uniform buffers ──
+        // 鈹€鈹€ Uniform buffers 鈹€鈹€
         let params_init = PdxMapParams::default();
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("pdxmap_params"),
@@ -355,7 +485,7 @@ impl TerrainPass {
             })
         });
 
-        // ── Bind group layouts ──
+        // 鈹€鈹€ Bind group layouts 鈹€鈹€
         let bgl_g0 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("terrain_bgl_g0_frame"),
             entries: &[
@@ -494,10 +624,16 @@ impl TerrainPass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                // 10: snow_normal_rgb_diffuse_a
+                texture_entry(10),
+                // 11: mud_diffuse_rgb_gloss_a_0
+                texture_entry(11),
+                // 12: mud_normal_rgb_spec_a_0
+                texture_entry(12),
             ],
         });
 
-        // ── Build bind groups ──
+        // 鈹€鈹€ Build bind groups 鈹€鈹€
         let bind_groups_g0: [wgpu::BindGroup; 3] = std::array::from_fn(|i| {
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("terrain_bg_g0"),
@@ -626,10 +762,22 @@ impl TerrainPass {
                     binding: 9,
                     resource: wgpu::BindingResource::Sampler(&pass_sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 10,
+                    resource: wgpu::BindingResource::TextureView(&snow_normal_diffuse_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 11,
+                    resource: wgpu::BindingResource::TextureView(&mud_diffuse_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 12,
+                    resource: wgpu::BindingResource::TextureView(&mud_normal_view),
+                },
             ],
         });
 
-        // ── Pipeline ──
+        // 鈹€鈹€ Pipeline 鈹€鈹€
         let composed = hoi4_render::shader_rt::compose_shader(SHADER_WGSL, true, true);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("terrain_pdxmap_shader"),
@@ -704,18 +852,22 @@ impl TerrainPass {
             _world_normal_tex: world_normal_tex,
             _colormap_emissive_tex: colormap_emissive_tex,
             _citylights_tex: citylights_tex,
+            _snow_normal_diffuse_tex: snow_normal_diffuse_tex,
+            _mud_diffuse_tex: mud_diffuse_tex,
+            _mud_normal_tex: mud_normal_tex,
             _stub_textures: stub_textures,
             _samplers: samplers,
             load_warnings: warnings,
+            binding_audit,
         }
     }
 
-    /// 每帧调用：写 PdxMapParams uniform。
+    /// Update the per-frame `PdxMapParams` uniform.
     pub fn update_params(&self, queue: &wgpu::Queue, params: &PdxMapParams) {
         queue.write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(params));
     }
 
-    /// 在 render pass 内提交 draw（按 LOD 分别 draw）。
+    /// Submit terrain draws for each populated LOD inside an active render pass.
     pub fn render<'a>(
         &'a self,
         pass: &mut wgpu::RenderPass<'a>,
@@ -767,205 +919,47 @@ fn texture_entry_nonfilter(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-fn make_1x1_rgba8_unorm(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    label: &str,
-    rgba: [u8; 4],
-) -> (wgpu::Texture, wgpu::TextureView) {
-    let tex = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some(label),
-        size: wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: &tex,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        &rgba,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(4),
-            rows_per_image: None,
-        },
-        wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        },
-    );
-    let view = tex.create_view(&Default::default());
-    (tex, view)
-}
-
-/// 加载一个 DDS（vanilla 角色），失败回 1×1 fallback。`is_srgb` 决定 sRGB / linear。
-fn load_dds_to_texture(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    label: &str,
-    bytes: Option<Vec<u8>>,
-    fallback_rgba: &[u8; 4],
-    is_srgb: bool,
-    warnings: &mut Vec<String>,
-) -> (wgpu::Texture, wgpu::TextureView) {
-    let bytes = match bytes {
-        Some(b) if !b.is_empty() => b,
-        _ => {
-            warnings.push(format!(
-                "[terrain_pass] {} missing — using 1×1 fallback",
-                label
-            ));
-            return make_1x1_rgba8_unorm(
-                device,
-                queue,
-                &format!("{}_fallback", label),
-                *fallback_rgba,
-            );
-        }
-    };
-    let dds = match DdsImage::parse(&bytes) {
-        Ok(d) => d,
-        Err(e) => {
-            warnings.push(format!(
-                "[terrain_pass] {} parse failed ({}) — fallback",
-                label, e
-            ));
-            return make_1x1_rgba8_unorm(
-                device,
-                queue,
-                &format!("{}_fallback", label),
-                *fallback_rgba,
-            );
-        }
-    };
-
-    use hoi4_assets::DdsFormat;
-    let format = match (dds.format, is_srgb) {
-        (DdsFormat::Bc1, true) => wgpu::TextureFormat::Bc1RgbaUnormSrgb,
-        (DdsFormat::Bc1, false) => wgpu::TextureFormat::Bc1RgbaUnorm,
-        (DdsFormat::Bc3, true) => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
-        (DdsFormat::Bc3, false) => wgpu::TextureFormat::Bc3RgbaUnorm,
-        (DdsFormat::Bc5, _) => wgpu::TextureFormat::Bc5RgUnorm,
-        (DdsFormat::Bgra8, true) => wgpu::TextureFormat::Bgra8UnormSrgb,
-        (DdsFormat::Bgra8, false) => wgpu::TextureFormat::Bgra8Unorm,
-        _ => {
-            warnings.push(format!(
-                "[terrain_pass] {} unsupported DDS format — fallback",
-                label
-            ));
-            return make_1x1_rgba8_unorm(
-                device,
-                queue,
-                &format!("{}_fallback", label),
-                *fallback_rgba,
-            );
-        }
-    };
-
-    let upload_plan = match dds_upload_plan(&dds) {
-        Some(plan) if plan.upload_mip_count > 0 => plan,
-        _ => {
-            warnings.push(format!(
-                "[terrain_pass] {} has no uploadable DDS mips — fallback",
-                label
-            ));
-            return make_1x1_rgba8_unorm(
-                device,
-                queue,
-                &format!("{}_fallback", label),
-                *fallback_rgba,
-            );
-        }
-    };
-    let mip_count = upload_plan.upload_mip_count;
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some(label),
-        size: wgpu::Extent3d {
-            width: dds.width,
-            height: dds.height,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: mip_count,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    for mip in &upload_plan.mips {
-        let data = &dds.data[mip.offset..mip.offset + mip.size];
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: mip.level,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(mip.bytes_per_row),
-                rows_per_image: None,
-            },
-            wgpu::Extent3d {
-                width: mip.copy_width,
-                height: mip.copy_height,
-                depth_or_array_layers: 1,
-            },
-        );
-    }
-    let view = texture.create_view(&Default::default());
-    println!(
-        "[terrain_pass] loaded {} ({}×{} {:?} {} mips)",
-        label, dds.width, dds.height, dds.format, mip_count
-    );
-    (texture, view)
-}
-
-/// 加载 vanilla `world_normal.bmp` → wgpu Rgba8Unorm（linear，**非** sRGB）。
-///
-/// world_normal.bmp 是 24-bit RGB 图（部分 vanilla 版本是 32-bit BGRA），存的是
-/// 全球大尺度法线（经/纬切线坐标系）。我们把它解到 Rgba8Unorm。
+/// Load vanilla `world_normal.bmp` into a non-sRGB `Rgba8Unorm` texture.
 fn load_world_normal_bmp(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    path_cfg: &PathConfig,
-    map_set: Option<&VanillaMapSet>,
+    resources: &VanillaResourceViews,
     warnings: &mut Vec<String>,
-) -> (wgpu::Texture, wgpu::TextureView) {
+) -> (wgpu::Texture, wgpu::TextureView, BindingAuditEntry) {
     let label = "world_normal";
-    let bytes = if let Some(ms) = map_set {
-        ms.bytes(MapResRole::WorldNormal).map(|b| b.to_vec())
-    } else {
-        let db = FsAssetDb::new(path_cfg.clone());
-        db.open(MapResRole::WorldNormal.relative_path())
-            .ok()
-            .map(|b| b.to_vec())
-    };
+    let role = MapResRole::WorldNormal;
+    let bytes = resources.bytes(role);
     let bytes = match bytes {
         Some(b) if !b.is_empty() => b,
         _ => {
+            let reason = if bytes.is_some() {
+                "empty_resource"
+            } else {
+                "missing_resource"
+            };
             warnings.push(format!(
-                "[terrain_pass] {}.bmp missing — using flat-normal fallback",
-                label
+                "[terrain] world_normal ({}) using flat-normal fallback: {}",
+                role.relative_path(),
+                reason
             ));
-            return make_1x1_rgba8_unorm(
+            let (texture, view) = create_dynamic_target_1x1(
                 device,
                 queue,
                 "world_normal_fallback",
                 [128, 128, 255, 255],
+            );
+            return (
+                texture,
+                view,
+                BindingAuditEntry::vanilla(
+                    "terrain",
+                    "world_normal",
+                    role,
+                    false,
+                    true,
+                    Some(reason.to_string()),
+                    "large-scale terrain lighting normal falls back to flat",
+                ),
             );
         }
     };
@@ -976,14 +970,27 @@ fn load_world_normal_bmp(
         Some(t) => t,
         None => {
             warnings.push(format!(
-                "[terrain_pass] {}.bmp parse failed — fallback",
-                label
+                "[terrain] world_normal ({}) using flat-normal fallback: bmp_parse_failed",
+                role.relative_path()
             ));
-            return make_1x1_rgba8_unorm(
+            let (texture, view) = create_dynamic_target_1x1(
                 device,
                 queue,
                 "world_normal_fallback",
                 [128, 128, 255, 255],
+            );
+            return (
+                texture,
+                view,
+                BindingAuditEntry::vanilla(
+                    "terrain",
+                    "world_normal",
+                    role,
+                    false,
+                    true,
+                    Some("bmp_parse_failed".to_string()),
+                    "large-scale terrain lighting normal falls back to flat",
+                ),
             );
         }
     };
@@ -1023,14 +1030,25 @@ fn load_world_normal_bmp(
     );
     let view = texture.create_view(&Default::default());
     println!(
-        "[terrain_pass] loaded {} ({}×{} BMP→Rgba8Unorm)",
+        "[terrain_pass] loaded {} ({}脳{} BMP鈫扲gba8Unorm)",
         label, w, h
     );
-    (texture, view)
+    (
+        texture,
+        view,
+        BindingAuditEntry::vanilla(
+            "terrain",
+            "world_normal",
+            role,
+            true,
+            true,
+            None,
+            "large-scale terrain lighting normal",
+        ),
+    )
 }
 
-/// 简易 BMP 24-bit / 32-bit decoder。返回 (width, height, RGBA bytes，top-down)。
-/// 支持 BI_RGB（无压缩）。
+/// Minimal BMP 24-bit / 32-bit decoder returning top-down RGBA bytes.
 fn parse_bmp_24_or_32(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     if bytes.len() < 54 || &bytes[0..2] != b"BM" {
         return None;
@@ -1090,8 +1108,7 @@ fn parse_bmp_24_or_32(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     Some((w, h, rgba))
 }
 
-// 帮助：wgpu::Sampler 不实现 Clone — 但我们其实不需要 clone，只是为了
-// "持有"它防止被 drop。这个 trait 是空 stub。
+// Helper used only to keep samplers owned alongside their bind groups.
 trait CloneUncheckedSampler {
     fn clone_unchecked(&self) -> wgpu::Sampler;
 }
@@ -1109,16 +1126,21 @@ mod tests {
 
     #[test]
     fn pdxmap_params_size_matches_wgsl() {
-        // 6 vec4-sized groups before the atlas plus 4 vec4<u32> atlas rows.
-        assert_eq!(std::mem::size_of::<PdxMapParams>(), 176);
+        // 8 vec4-sized groups plus two 256-entry LUTs packed as 64 vec4 rows.
+        assert_eq!(std::mem::size_of::<PdxMapParams>(), 2176);
     }
 
     #[test]
     fn terrain_debug_view_cycles_through_shader_values() {
         assert_eq!(TerrainDebugView::Off.next(), TerrainDebugView::TerrainId);
-        assert_eq!(TerrainDebugView::RiverMask.next(), TerrainDebugView::Off);
-        assert_eq!(TerrainDebugView::Normal.as_shader_value(), 5.0);
+        assert_eq!(
+            TerrainDebugView::RiverMask.next(),
+            TerrainDebugView::CityEmitMask
+        );
+        assert_eq!(TerrainDebugView::CitylightUv.next(), TerrainDebugView::Off);
+        assert_eq!(TerrainDebugView::Normal.as_shader_value(), 7.0);
         assert_eq!(TerrainDebugView::AtlasTileId.name(), "atlas_tile_id");
+        assert_eq!(TerrainDebugView::VanillaTileRepeat.as_shader_value(), 18.0);
     }
 
     #[test]
@@ -1128,7 +1150,7 @@ mod tests {
 
     #[test]
     fn parse_bmp_simple_24bit() {
-        // 2×2 BMP, 24-bit, all white pixels.
+        // 2脳2 BMP, 24-bit, all white pixels.
         let mut bmp = Vec::new();
         bmp.extend_from_slice(b"BM");
         bmp.extend_from_slice(&54u32.to_le_bytes()); // size (just header for synth)
@@ -1145,7 +1167,7 @@ mod tests {
         bmp.extend_from_slice(&0u32.to_le_bytes()); // y ppm
         bmp.extend_from_slice(&0u32.to_le_bytes()); // colors
         bmp.extend_from_slice(&0u32.to_le_bytes()); // important colors
-                                                    // Pixel rows: 2 px × 3 B = 6 B + 2 padding = 8 B per row, 2 rows.
+                                                    // Pixel rows: 2 px 脳 3 B = 6 B + 2 padding = 8 B per row, 2 rows.
         for _ in 0..2 {
             for _ in 0..2 {
                 bmp.extend_from_slice(&[255u8, 255, 255]); // BGR white

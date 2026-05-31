@@ -120,7 +120,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var lit = color * (vec3<f32>(0.45) + frame.sun_diffuse_intensity.rgb * n_dot_l);
 
     // 昼夜
-    let globe_n = calc_globe_normal(in.world_pos.xz, frame.day_night_hour_sun_dir.x);
+    let map_px = world_xz_to_map_px(in.world_pos.xz, frame.vanilla_map_size_world_size.zw);
+    let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
     lit = day_night(lit, globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
 
     // 距离雾

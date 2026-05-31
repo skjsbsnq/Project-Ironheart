@@ -90,7 +90,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let alpha = (text_t + outline_t) * mn_params.fade;
 
     // 昼夜暗化（vanilla 系数 0.35）
-    let globe_n = calc_globe_normal(in.world_xz, frame.day_night_hour_sun_dir.x);
+    let map_px = world_xz_to_map_px(in.world_xz, frame.vanilla_map_size_world_size.zw);
+    let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
     let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
     let dim = 1.0 - night * 0.35;
     color *= dim;

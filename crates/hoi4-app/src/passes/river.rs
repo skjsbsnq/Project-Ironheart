@@ -29,11 +29,14 @@
 
 #![allow(dead_code)]
 
-use hoi4_assets::{dds_upload_plan, AssetDb, DdsImage, FsAssetDb, MapResRole};
+use hoi4_assets::MapResRole;
 use hoi4_paths::PathConfig;
 use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
+use crate::vanilla_resource_views::{
+    upload_dds_or_fallback, BindingAudit, DdsUploadRequest, VanillaResourceViews,
+};
 
 // ─── River uniform ─────────────────────────────────────────────────────────
 
@@ -86,6 +89,7 @@ pub struct RiverPass {
     params_buffer: wgpu::Buffer,
     pub any_loaded: bool,
     pub load_warnings: Vec<String>,
+    pub binding_audit: BindingAudit,
     _owned_textures: Vec<wgpu::Texture>,
     _owned_samplers: Vec<wgpu::Sampler>,
 }
@@ -99,17 +103,19 @@ pub struct RiverPassInputs<'a> {
     pub rivers_view: &'a wgpu::TextureView,
     pub world_size: [f32; 2],
     pub height_scale: f32,
+    pub vanilla_resources: &'a VanillaResourceViews,
 }
 
 impl RiverPass {
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        path_cfg: &PathConfig,
+        _path_cfg: &PathConfig,
         inputs: RiverPassInputs<'_>,
     ) -> Self {
         let mut warnings = Vec::new();
         let mut owned_textures: Vec<wgpu::Texture> = Vec::new();
+        let mut binding_audit = BindingAudit::new();
 
         // ── shader ────────────────────────────────────────────────────
         let composed = hoi4_render::shader_rt::compose_shader(RIVER_WGSL, true, true);
@@ -131,79 +137,131 @@ impl RiverPass {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
 
-        // ── Load vanilla river textures ────────────────────────────────
-        let db = FsAssetDb::new(path_cfg.clone());
+        let diffuse_0 = upload_dds_or_fallback(
+            device,
+            queue,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::RiverDiffuse(0),
+                "river_diffuse_0",
+                [60, 100, 140, 255],
+                true,
+                true,
+                "river diffuse color falls back to flat blue",
+            ),
+            &mut warnings,
+        );
+        binding_audit.extend([diffuse_0.audit.clone()]);
+        let diffuse_0_view = diffuse_0.view;
+        owned_textures.push(diffuse_0.texture);
 
-        let diffuse_0_view = load_or_fallback(
+        let diffuse_1 = upload_dds_or_fallback(
             device,
             queue,
-            &db,
-            MapResRole::RiverDiffuse(0),
-            [60, 100, 140, 255],
-            true,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::RiverDiffuse(1),
+                "river_diffuse_1",
+                [60, 100, 140, 255],
+                true,
+                false,
+                "alternate river diffuse LOD falls back to flat blue",
+            ),
             &mut warnings,
-            &mut owned_textures,
         );
-        let diffuse_1_view = load_or_fallback(
+        binding_audit.extend([diffuse_1.audit.clone()]);
+        let diffuse_1_view = diffuse_1.view;
+        owned_textures.push(diffuse_1.texture);
+
+        let diffuse_2 = upload_dds_or_fallback(
             device,
             queue,
-            &db,
-            MapResRole::RiverDiffuse(1),
-            [60, 100, 140, 255],
-            true,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::RiverDiffuse(2),
+                "river_diffuse_2",
+                [60, 100, 140, 255],
+                true,
+                false,
+                "alternate river diffuse LOD falls back to flat blue",
+            ),
             &mut warnings,
-            &mut owned_textures,
         );
-        let diffuse_2_view = load_or_fallback(
+        binding_audit.extend([diffuse_2.audit.clone()]);
+        let diffuse_2_view = diffuse_2.view;
+        owned_textures.push(diffuse_2.texture);
+
+        let normal_0 = upload_dds_or_fallback(
             device,
             queue,
-            &db,
-            MapResRole::RiverDiffuse(2),
-            [60, 100, 140, 255],
-            true,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::RiverNormal(0),
+                "river_normal_0",
+                [128, 128, 255, 255],
+                false,
+                true,
+                "river normals and highlights flatten",
+            ),
             &mut warnings,
-            &mut owned_textures,
         );
-        let normal_0_view = load_or_fallback(
+        binding_audit.extend([normal_0.audit.clone()]);
+        let normal_0_view = normal_0.view;
+        owned_textures.push(normal_0.texture);
+
+        let normal_1 = upload_dds_or_fallback(
             device,
             queue,
-            &db,
-            MapResRole::RiverNormal(0),
-            [128, 128, 255, 255],
-            false,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::RiverNormal(1),
+                "river_normal_1",
+                [128, 128, 255, 255],
+                false,
+                false,
+                "alternate river normal LOD flattens",
+            ),
             &mut warnings,
-            &mut owned_textures,
         );
-        let normal_1_view = load_or_fallback(
+        binding_audit.extend([normal_1.audit.clone()]);
+        let normal_1_view = normal_1.view;
+        owned_textures.push(normal_1.texture);
+
+        let normal_2 = upload_dds_or_fallback(
             device,
             queue,
-            &db,
-            MapResRole::RiverNormal(1),
-            [128, 128, 255, 255],
-            false,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::RiverNormal(2),
+                "river_normal_2",
+                [128, 128, 255, 255],
+                false,
+                false,
+                "alternate river normal LOD flattens",
+            ),
             &mut warnings,
-            &mut owned_textures,
         );
-        let normal_2_view = load_or_fallback(
+        binding_audit.extend([normal_2.audit.clone()]);
+        let normal_2_view = normal_2.view;
+        owned_textures.push(normal_2.texture);
+
+        let masks = upload_dds_or_fallback(
             device,
             queue,
-            &db,
-            MapResRole::RiverNormal(2),
-            [128, 128, 255, 255],
-            false,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::RiverMasks,
+                "river_masks",
+                [255, 255, 255, 255],
+                false,
+                true,
+                "river width and alpha masks are approximated",
+            ),
             &mut warnings,
-            &mut owned_textures,
         );
-        let masks_view = load_or_fallback(
-            device,
-            queue,
-            &db,
-            MapResRole::RiverMasks,
-            [255, 255, 255, 255],
-            false,
-            &mut warnings,
-            &mut owned_textures,
-        );
+        binding_audit.extend([masks.audit.clone()]);
+        let masks_view = masks.view;
+        owned_textures.push(masks.texture);
 
         // ── samplers ──────────────────────────────────────────────────
         let river_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -454,7 +512,10 @@ impl RiverPass {
             cache: None,
         });
 
-        let any_loaded = warnings.len() < 7;
+        let any_loaded = binding_audit
+            .entries
+            .iter()
+            .any(|entry| entry.loaded && matches!(entry.role, Some(MapResRole::RiverDiffuse(0))));
 
         Self {
             pipeline,
@@ -464,6 +525,7 @@ impl RiverPass {
             params_buffer,
             any_loaded,
             load_warnings: warnings,
+            binding_audit,
             _owned_textures: owned_textures,
             _owned_samplers: vec![river_sampler, heightmap_sampler, rivers_sampler],
         }
@@ -544,6 +606,7 @@ struct VsOut {
     @builtin(position) clip_pos: vec4<f32>,
     @location(0) world_pos: vec3<f32>,
     @location(1) map_uv: vec2<f32>,
+    @location(2) map_px: vec2<f32>,
 };
 
 const SEA_LEVEL: f32 = 95.0;
@@ -573,8 +636,8 @@ fn vs_main(in: VsIn) -> VsOut {
 
     let hm_w = f32(textureDimensions(heightmap).x);
     let hm_h = f32(textureDimensions(heightmap).y);
-    let uv_raw = vec2<f32>(world_xz.x / max(rparams.world_w, 0.0001), world_xz.y / max(rparams.world_d, 0.0001));
-    let map_uv = vec2<f32>(fract(uv_raw.x), clamp(uv_raw.y, 0.0, 1.0));
+    let map_uv = world_xz_to_map_uv(world_xz, vec2<f32>(rparams.world_w, rparams.world_d));
+    let map_px = map_uv_to_px(map_uv);
     let hm_u = map_uv.x;
     let hm_v = map_uv.y;
     let xy = vec2<i32>(clamp(vec2<f32>(hm_u, hm_v), vec2<f32>(0.0), vec2<f32>(1.0)) * (vec2<f32>(hm_w - 1.0, hm_h - 1.0)));
@@ -590,6 +653,7 @@ fn vs_main(in: VsIn) -> VsOut {
     out.clip_pos = clip;
     out.world_pos = world_pos;
     out.map_uv = map_uv;
+    out.map_px = map_px;
     return out;
 }
 
@@ -630,7 +694,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     color = day_night(
         color,
-        calc_globe_normal(in.world_pos.xz, frame.day_night_hour_sun_dir.x),
+        calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x),
         frame.day_night_hour_sun_dir.yzw,
         1.0,
     );
@@ -672,149 +736,22 @@ fn fragment_tex_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-fn load_or_fallback(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    db: &FsAssetDb,
+fn river_upload_request(
     role: MapResRole,
+    label: &'static str,
     fallback_rgba: [u8; 4],
     srgb: bool,
-    warnings: &mut Vec<String>,
-    owned: &mut Vec<wgpu::Texture>,
-) -> wgpu::TextureView {
-    let path = role.relative_path();
-    let result: Option<(wgpu::Texture, wgpu::TextureView)> = (|| {
-        let bytes = db.open(&path).ok()?;
-        let dds = match DdsImage::parse(&bytes) {
-            Ok(d) => d,
-            Err(e) => {
-                warnings.push(format!("[river] DDS parse failed for {}: {}", path, e));
-                return None;
-            }
-        };
-        let format = match (dds.format, srgb) {
-            (hoi4_assets::DdsFormat::Bc1, true) => wgpu::TextureFormat::Bc1RgbaUnormSrgb,
-            (hoi4_assets::DdsFormat::Bc1, false) => wgpu::TextureFormat::Bc1RgbaUnorm,
-            (hoi4_assets::DdsFormat::Bc3, true) => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
-            (hoi4_assets::DdsFormat::Bc3, false) => wgpu::TextureFormat::Bc3RgbaUnorm,
-            (hoi4_assets::DdsFormat::Bc5, _) => wgpu::TextureFormat::Bc5RgUnorm,
-            (hoi4_assets::DdsFormat::Bgra8, true) => wgpu::TextureFormat::Bgra8UnormSrgb,
-            (hoi4_assets::DdsFormat::Bgra8, false) => wgpu::TextureFormat::Bgra8Unorm,
-            (hoi4_assets::DdsFormat::Bgr555, _) | (hoi4_assets::DdsFormat::Unknown(_), _) => {
-                warnings.push(format!("[river] unknown DDS format {}", path));
-                return None;
-            }
-        };
-
-        let upload_plan = match dds_upload_plan(&dds) {
-            Some(plan) if plan.upload_mip_count > 0 => plan,
-            _ => {
-                warnings.push(format!(
-                    "[river] {} has no uploadable DDS mips (mip0={}×{}); using fallback",
-                    path, dds.width, dds.height
-                ));
-                return None;
-            }
-        };
-
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(&path),
-            size: wgpu::Extent3d {
-                width: dds.width,
-                height: dds.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: upload_plan.upload_mip_count,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        for mip in &upload_plan.mips {
-            let data = &dds.data[mip.offset..mip.offset + mip.size];
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &texture,
-                    mip_level: mip.level,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                data,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(mip.bytes_per_row),
-                    rows_per_image: None,
-                },
-                wgpu::Extent3d {
-                    width: mip.copy_width,
-                    height: mip.copy_height,
-                    depth_or_array_layers: 1,
-                },
-            );
-        }
-        let view = texture.create_view(&Default::default());
-        Some((texture, view))
-    })();
-
-    match result {
-        Some((tex, view)) => {
-            owned.push(tex);
-            view
-        }
-        None => {
-            warnings.push(format!("[river] {} missing — using 1×1 fallback", path));
-            let (tex, view) = create_1x1_rgba(device, queue, fallback_rgba, srgb);
-            owned.push(tex);
-            view
-        }
+    critical: bool,
+    visual_impact: &'static str,
+) -> DdsUploadRequest {
+    DdsUploadRequest {
+        role,
+        label,
+        fallback_rgba,
+        srgb,
+        critical,
+        pass: "river",
+        binding: label,
+        visual_impact,
     }
-}
-
-fn create_1x1_rgba(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    rgba: [u8; 4],
-    srgb: bool,
-) -> (wgpu::Texture, wgpu::TextureView) {
-    let format = if srgb {
-        wgpu::TextureFormat::Rgba8UnormSrgb
-    } else {
-        wgpu::TextureFormat::Rgba8Unorm
-    };
-    let tex = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("river_fallback_1x1"),
-        size: wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
-    });
-    queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: &tex,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        &rgba,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(4),
-            rows_per_image: Some(1),
-        },
-        wgpu::Extent3d {
-            width: 1,
-            height: 1,
-            depth_or_array_layers: 1,
-        },
-    );
-    let view = tex.create_view(&Default::default());
-    (tex, view)
 }

@@ -79,6 +79,8 @@ const GLOBE_NORMAL_LIMIT: f32 = 0.7;
 
 const MAP_SIZE_X: f32 = 5632.0;
 const MAP_SIZE_Y: f32 = 2048.0;
+const TERRAIN_TILE_FREQ: f32 = 128.0;
+const CITY_LIGHTS_TILING: f32 = 0.09103;
 
 const SNOW_COLOR_LIB: vec3<f32> = vec3<f32>(0.46, 0.48, 0.69);
 const ICE_COLOR_LIB: vec3<f32> = vec3<f32>(0.50, 0.60, 0.90);
@@ -102,6 +104,39 @@ const MAP_ARROW_NORMALS_STR_WATER: f32 = 0.08;
 
 fn fmod_loop(x: f32, m: f32) -> f32 {
     return x - m * floor(x / m);
+}
+
+fn vanilla_map_size_px() -> vec2<f32> {
+    return vec2<f32>(MAP_SIZE_X, MAP_SIZE_Y);
+}
+
+fn world_xz_to_map_uv(world_xz: vec2<f32>, world_size: vec2<f32>) -> vec2<f32> {
+    let uv_raw = world_xz / max(world_size, vec2<f32>(0.0001));
+    return vec2<f32>(fract(uv_raw.x), clamp(uv_raw.y, 0.0, 1.0));
+}
+
+fn map_uv_to_px(map_uv: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(fract(map_uv.x), clamp(map_uv.y, 0.0, 1.0)) * vanilla_map_size_px();
+}
+
+fn world_xz_to_map_px(world_xz: vec2<f32>, world_size: vec2<f32>) -> vec2<f32> {
+    return map_uv_to_px(world_xz_to_map_uv(world_xz, world_size));
+}
+
+fn map_px_to_uv(map_px: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(
+        fract(map_px.x / MAP_SIZE_X),
+        clamp(map_px.y / MAP_SIZE_Y, 0.0, 1.0)
+    );
+}
+
+fn vanilla_terrain_tile_repeat(map_px: vec2<f32>) -> vec2<f32> {
+    let raw = map_px_to_uv(map_px) * TERRAIN_TILE_FREQ;
+    return vec2<f32>(raw.x * (MAP_SIZE_X / MAP_SIZE_Y), raw.y);
+}
+
+fn vanilla_citylight_uv(map_px: vec2<f32>) -> vec2<f32> {
+    return map_px * CITY_LIGHTS_TILING;
 }
 
 // -----------------------------------------------------------------------------
@@ -282,9 +317,9 @@ fn apply_distance_fog(color: vec3<f32>, world_pos: vec3<f32>, cam_pos: vec3<f32>
 
 /// `standardfuncsgfx.fxh:347` — `CalcGlobeNormal(world_xz)`
 /// 把地图 XZ 坐标 + 当前小时（day_night_hour ∈ [0,1]）反投影到球面法线。
-fn calc_globe_normal(world_xz: vec2<f32>, day_night_hour: f32) -> vec3<f32> {
-    var x = fmod_loop((world_xz.x - GMT_OFFSET) / MAP_SIZE_X + day_night_hour, 1.0);
-    var y = world_xz.y / MAP_SIZE_Y;
+fn calc_globe_normal(map_px: vec2<f32>, day_night_hour: f32) -> vec3<f32> {
+    var x = fmod_loop((map_px.x - GMT_OFFSET) / MAP_SIZE_X + day_night_hour, 1.0);
+    var y = clamp(map_px.y / MAP_SIZE_Y, 0.0, 1.0);
     y = SOUTH_POLE_OFFSET + (NORTH_POLE_OFFSET - SOUTH_POLE_OFFSET) * y;
     y = -cos(y * PI_LIB);
     let xz_len = 1.0 - abs(y);

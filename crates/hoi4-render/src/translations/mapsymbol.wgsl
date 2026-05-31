@@ -400,7 +400,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     color_rgb = apply_distance_fog(color_rgb, in.prepos, frame.cam_pos);
 
     // 4. Day/night (subtle, blend=0.2 like vanilla ArrowPixelShader)
-    let globe_n = calc_globe_normal(in.prepos.xz, frame.day_night_hour_sun_dir.x);
+    let map_px = world_xz_to_map_px(in.prepos.xz, frame.vanilla_map_size_world_size.zw);
+    let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
     color_rgb = day_night_with_blend(
         color_rgb,
         globe_n,

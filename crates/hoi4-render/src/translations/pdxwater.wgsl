@@ -116,7 +116,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     // 9. 昼夜
-    let globe_n = calc_globe_normal(world_pos.xz, frame.day_night_hour_sun_dir.x);
+    let map_px = map_uv_to_px(in.uv);
+    let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
     color = day_night(color, globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
 
     // 10. 距离雾

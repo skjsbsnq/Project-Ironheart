@@ -346,6 +346,56 @@ pub const MAP_SIZE_X: f32 = 5632.0;
 /// vanilla `default.map` `image_height = 2048`
 pub const MAP_SIZE_Y: f32 = 2048.0;
 
+/// Coordinate bridge between the renderer's scaled world-space XZ plane and
+/// vanilla HOI4 map pixel space.
+///
+/// The app may keep rendering a 5632x2048 map as roughly 112x41 world units,
+/// but shader logic copied from vanilla must operate on pixel coordinates
+/// whenever it deals with tiling, city lights, FoW, tree masks, or day/night
+/// wrapping. This type pins that conversion on the Rust side so all pass
+/// uniforms can be derived from one source.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct VanillaMapSpace {
+    pub map_size_px: [f32; 2],
+    pub world_size: [f32; 2],
+    pub world_to_map_px: [f32; 2],
+    pub map_px_to_world: [f32; 2],
+}
+
+impl VanillaMapSpace {
+    pub const VANILLA_MAP_SIZE_PX: [f32; 2] = [MAP_SIZE_X, MAP_SIZE_Y];
+
+    pub fn from_world_size(world_size: [f32; 2]) -> Self {
+        let world_w = world_size[0].max(f32::EPSILON);
+        let world_d = world_size[1].max(f32::EPSILON);
+        Self {
+            map_size_px: Self::VANILLA_MAP_SIZE_PX,
+            world_size: [world_w, world_d],
+            world_to_map_px: [MAP_SIZE_X / world_w, MAP_SIZE_Y / world_d],
+            map_px_to_world: [world_w / MAP_SIZE_X, world_d / MAP_SIZE_Y],
+        }
+    }
+
+    pub fn world_xz_to_map_px(self, world_xz: [f32; 2]) -> [f32; 2] {
+        [
+            world_xz[0].rem_euclid(self.world_size[0]) * self.world_to_map_px[0],
+            world_xz[1].clamp(0.0, self.world_size[1]) * self.world_to_map_px[1],
+        ]
+    }
+
+    pub fn world_xz_to_map_uv(self, world_xz: [f32; 2]) -> [f32; 2] {
+        let px = self.world_xz_to_map_px(world_xz);
+        [px[0] / MAP_SIZE_X, px[1] / MAP_SIZE_Y]
+    }
+
+    pub fn map_px_to_world_xz(self, map_px: [f32; 2]) -> [f32; 2] {
+        [
+            map_px[0].rem_euclid(MAP_SIZE_X) * self.map_px_to_world[0],
+            map_px[1].clamp(0.0, MAP_SIZE_Y) * self.map_px_to_world[1],
+        ]
+    }
+}
+
 /// `standardfuncsgfx.fxh::GetFoW` — `FOW_POW2_X`，FoW 纹理 X 维 power-of-2 缩放
 pub const FOW_POW2_X: f32 = 5632.0 / 8192.0; // 5632 → 下一个 2^N (8192)
 /// `standardfuncsgfx.fxh::GetFoW` — `FOW_POW2_Y`
@@ -387,6 +437,22 @@ mod tests {
         // vanilla heightmap.bmp 是 5632×2048
         assert_eq!(MAP_SIZE_X as u32, 5632);
         assert_eq!(MAP_SIZE_Y as u32, 2048);
+    }
+
+    #[test]
+    fn vanilla_map_space_converts_world_and_pixels() {
+        let s = VanillaMapSpace::from_world_size([112.64, 40.96]);
+        assert_eq!(s.map_size_px, [5632.0, 2048.0]);
+        assert!((s.world_to_map_px[0] - 50.0).abs() < 1e-4);
+        assert!((s.world_to_map_px[1] - 50.0).abs() < 1e-4);
+
+        let px = s.world_xz_to_map_px([56.32, 20.48]);
+        assert!((px[0] - 2816.0).abs() < 1e-3);
+        assert!((px[1] - 1024.0).abs() < 1e-3);
+
+        let wrapped = s.world_xz_to_map_px([113.64, -10.0]);
+        assert!((wrapped[0] - 50.0).abs() < 1e-3);
+        assert_eq!(wrapped[1], 0.0);
     }
 
     #[test]

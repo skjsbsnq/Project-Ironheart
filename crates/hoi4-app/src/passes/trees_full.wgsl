@@ -57,6 +57,7 @@ struct VsOut {
     @location(3) tint_uv: vec2<f32>,
     @location(4) season_row: f32,
     @location(5) tree_fade: f32,
+    @location(6) map_px: vec2<f32>,
 };
 
 fn shadow_pcf(shadow_proj: vec4<f32>) -> f32 {
@@ -82,6 +83,7 @@ fn vs_main(in: VsIn) -> VsOut {
     out.uv = in.uv;
     out.tint_uv = in.inst_tint_uv;
     out.season_row = in.inst_season_row;
+    out.map_px = world_xz_to_map_px(world.xz, vec2<f32>(tparams.world_w, tparams.world_d));
 
     let d = length(world - frame.cam_pos);
     out.tree_fade = 1.0 - clamp((d - tparams.fade_start) / max(tparams.fade_end - tparams.fade_start, 0.01), 0.0, 1.0);
@@ -95,7 +97,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         discard;
     }
 
-    let map_uv = in.world_pos.xz / vec2<f32>(tparams.world_w, tparams.world_d);
+    let map_uv = map_px_to_uv(in.map_px);
 
     let mask = textureSample(tree_mask_tex, map_sampler, map_uv).r;
     if (mask < 0.17 && in.tree_fade < 0.05) {
@@ -128,7 +130,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let n_dot_l = max(dot(normal, sun_dir), 0.2);
     var lit = color * (vec3<f32>(0.45) + frame.sun_diffuse_intensity.rgb * n_dot_l * shadow);
 
-    let globe_n = calc_globe_normal(in.world_pos.xz, frame.day_night_hour_sun_dir.x);
+    let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
     lit = day_night(lit, globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
 
     lit = apply_distance_fog(lit, in.world_pos, frame.cam_pos);

@@ -1,9 +1,15 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use hoi4_assets::{FsAssetDb, MapAssetAudit, MapAssetQuality, VanillaMapSet};
 use hoi4_paths::PathConfig;
+use hoi4_state::GameDate;
+
+use crate::vanilla_resource_views::{BindingAudit, VanillaResourceViews};
+
+const MAP_SIZE_PX: [f32; 2] = [5632.0, 2048.0];
+const SCENE_CONFIG_TSV: &str = include_str!("../map_parity_scenes.tsv");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapBaselinePreset {
@@ -27,40 +33,61 @@ pub enum MapBaselineLayer {
     BloomOnly,
     TerrainOnly,
     WaterOnly,
+    RiverMask,
     BordersOnly,
+    ObjectsOnly,
     OverlaysOnly,
     LabelsOnly,
     AssetFallbackDebug,
 }
 
 impl MapBaselineLayer {
-    pub const ALL: [Self; 11] = [
+    pub const ALL: [Self; 9] = [
         Self::FinalFull,
-        Self::PostprocessOff,
-        Self::HdrRaw,
-        Self::TonemapOnly,
-        Self::BloomOnly,
         Self::TerrainOnly,
         Self::WaterOnly,
+        Self::RiverMask,
         Self::BordersOnly,
-        Self::OverlaysOnly,
-        Self::LabelsOnly,
+        Self::ObjectsOnly,
+        Self::HdrRaw,
+        Self::PostprocessOff,
         Self::AssetFallbackDebug,
     ];
 
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::FinalFull => "final_full",
+            Self::FinalFull => "final",
             Self::PostprocessOff => "postprocess_off",
-            Self::HdrRaw => "hdr_raw",
-            Self::TonemapOnly => "tonemap_only",
-            Self::BloomOnly => "bloom_only",
-            Self::TerrainOnly => "terrain_only",
-            Self::WaterOnly => "water_only",
-            Self::BordersOnly => "borders_only",
-            Self::OverlaysOnly => "overlays_only",
-            Self::LabelsOnly => "labels_only",
-            Self::AssetFallbackDebug => "asset_fallback_debug",
+            Self::HdrRaw => "hdr",
+            Self::TonemapOnly => "tonemap",
+            Self::BloomOnly => "bloom",
+            Self::TerrainOnly => "terrain",
+            Self::WaterOnly => "water",
+            Self::RiverMask => "rivers",
+            Self::BordersOnly => "borders",
+            Self::ObjectsOnly => "objects",
+            Self::OverlaysOnly => "overlays",
+            Self::LabelsOnly => "labels",
+            Self::AssetFallbackDebug => "fallback_debug",
+        }
+    }
+
+    fn from_config_name(value: &str) -> Option<Self> {
+        match value.trim() {
+            "final" | "final_full" => Some(Self::FinalFull),
+            "postprocess_off" => Some(Self::PostprocessOff),
+            "hdr" | "hdr_raw" => Some(Self::HdrRaw),
+            "tonemap" | "tonemap_only" => Some(Self::TonemapOnly),
+            "bloom" | "bloom_only" => Some(Self::BloomOnly),
+            "terrain" | "terrain_only" => Some(Self::TerrainOnly),
+            "water" | "water_only" => Some(Self::WaterOnly),
+            "rivers" | "river_mask" | "river_only" => Some(Self::RiverMask),
+            "borders" | "borders_only" => Some(Self::BordersOnly),
+            "objects" | "objects_only" => Some(Self::ObjectsOnly),
+            "overlays" | "overlays_only" => Some(Self::OverlaysOnly),
+            "labels" | "labels_only" => Some(Self::LabelsOnly),
+            "fallback_debug" | "asset_fallback_debug" => Some(Self::AssetFallbackDebug),
+            _ => None,
         }
     }
 }
@@ -100,8 +127,17 @@ impl MapLayerMask {
                 water: true,
                 ..Self::none()
             },
+            MapBaselineLayer::RiverMask => Self {
+                terrain: true,
+                static_decals: true,
+                ..Self::none()
+            },
             MapBaselineLayer::BordersOnly => Self {
                 borders: true,
+                ..Self::none()
+            },
+            MapBaselineLayer::ObjectsOnly => Self {
+                objects: true,
                 ..Self::none()
             },
             MapBaselineLayer::OverlaysOnly => Self {
@@ -167,102 +203,47 @@ pub struct MapBaselineCamera {
 
 #[derive(Debug, Clone)]
 pub struct MapBaselineScene {
-    pub name: &'static str,
-    pub description: &'static str,
-    pub map_mode: &'static str,
-    pub date: &'static str,
+    pub name: String,
+    pub description: String,
+    pub map_mode: String,
+    pub date: GameDate,
     pub camera: MapBaselineCamera,
+    pub enabled_layers: Vec<MapBaselineLayer>,
 }
 
 impl MapBaselineScene {
     pub fn screenshot_name(&self, layer: MapBaselineLayer, preset: MapBaselinePreset) -> String {
-        format!("{}.{}.{}.png", self.name, layer.as_str(), preset.as_str())
+        format!(
+            "project/{}/{}.{}.png",
+            self.name,
+            layer.as_str(),
+            preset.as_str()
+        )
+    }
+
+    pub fn vanilla_reference_name(
+        &self,
+        layer: MapBaselineLayer,
+        preset: MapBaselinePreset,
+    ) -> String {
+        format!(
+            "vanilla_reference/{}/{}.{}.png",
+            self.name,
+            layer.as_str(),
+            preset.as_str()
+        )
+    }
+
+    pub fn map_px_center(&self) -> [f32; 2] {
+        [
+            self.camera.target_uv[0] * MAP_SIZE_PX[0],
+            self.camera.target_uv[1] * MAP_SIZE_PX[1],
+        ]
     }
 }
 
 pub fn fixed_scenes() -> Vec<MapBaselineScene> {
-    vec![
-        scene(
-            "western_europe_far",
-            "Western Europe far political readability",
-            [0.50, 0.34],
-            0.64,
-        ),
-        scene(
-            "germany_poland_mid",
-            "Germany and Poland medium province/border density",
-            [0.54, 0.32],
-            0.25,
-        ),
-        scene(
-            "italy_adriatic_coast",
-            "Italy and Adriatic coastline, islands and shallow water",
-            [0.54, 0.39],
-            0.18,
-        ),
-        scene(
-            "english_channel",
-            "English Channel water, coast foam and labels",
-            [0.48, 0.30],
-            0.16,
-        ),
-        scene(
-            "alps_close",
-            "Alps close terrain, snow, height and LOD stability",
-            [0.53, 0.36],
-            0.08,
-        ),
-        scene(
-            "japan_korea_close",
-            "Japan and Korea islands, coast precision and borders",
-            [0.82, 0.42],
-            0.15,
-        ),
-        scene(
-            "north_africa_desert",
-            "North Africa desert texture repetition and coast transition",
-            [0.52, 0.48],
-            0.24,
-        ),
-        scene(
-            "pacific_deep_ocean",
-            "Pacific deep ocean color, bloom and sea region borders",
-            [0.88, 0.53],
-            0.45,
-        ),
-        scene(
-            "soviet_winter_snow",
-            "Soviet winter snow line, season and fog brightness",
-            [0.63, 0.25],
-            0.32,
-        ),
-        scene(
-            "active_war_front",
-            "Active war front overlays, arrows, counters and occupation",
-            [0.57, 0.33],
-            0.18,
-        ),
-    ]
-}
-
-fn scene(
-    name: &'static str,
-    description: &'static str,
-    target_uv: [f32; 2],
-    distance_factor: f32,
-) -> MapBaselineScene {
-    MapBaselineScene {
-        name,
-        description,
-        map_mode: "political",
-        date: "1936-01-01T12:00:00",
-        camera: MapBaselineCamera {
-            target_uv,
-            distance_factor,
-            pitch_degrees: 65.0,
-            yaw_degrees: 0.0,
-        },
-    }
+    parse_scene_config(SCENE_CONFIG_TSV).expect("map_parity_scenes.tsv must be valid")
 }
 
 #[derive(Debug, Clone)]
@@ -271,6 +252,7 @@ pub struct MapBaselinePlannedCapture {
     pub layer: MapBaselineLayer,
     pub preset: MapBaselinePreset,
     pub filename: String,
+    pub vanilla_reference_filename: String,
     pub layer_mask: MapLayerMask,
     pub frame_time_ms: Option<f32>,
     pub asset_quality: MapAssetQuality,
@@ -283,6 +265,7 @@ pub struct MapBaselineReport {
     pub scenes: Vec<MapBaselineScene>,
     pub planned_captures: Vec<MapBaselinePlannedCapture>,
     pub asset_audit: MapAssetAudit,
+    pub binding_audit: BindingAudit,
     pub elapsed_ms: f64,
 }
 
@@ -291,12 +274,14 @@ impl MapBaselineReport {
         scenes: Vec<MapBaselineScene>,
         planned_captures: Vec<MapBaselinePlannedCapture>,
         asset_audit: MapAssetAudit,
+        binding_audit: BindingAudit,
         elapsed_ms: f64,
     ) -> Self {
         Self {
             scenes,
             planned_captures,
             asset_audit,
+            binding_audit,
             elapsed_ms,
         }
     }
@@ -324,7 +309,7 @@ impl MapBaselineReport {
                 "  - {}: mode={} date={} target_uv={:.3},{:.3} distance_factor={:.3}",
                 scene.name,
                 scene.map_mode,
-                scene.date,
+                format_game_date(scene.date),
                 scene.camera.target_uv[0],
                 scene.camera.target_uv[1],
                 scene.camera.distance_factor
@@ -347,6 +332,8 @@ impl MapBaselineReport {
         }
         out.push_str("\nasset_audit:\n");
         out.push_str(&self.asset_audit.to_text_report());
+        out.push_str("\nbinding_audit:\n");
+        out.push_str(&self.binding_audit.to_text_report());
         out
     }
 
@@ -354,27 +341,50 @@ impl MapBaselineReport {
         let mut out = String::new();
         out.push_str("{\n");
         let _ = writeln!(out, "  \"phase\": \"0\",");
+        out.push_str("  \"capture_type\": \"map_parity\",\n");
+        out.push_str("  \"scene_config\": \"crates/hoi4-app/map_parity_scenes.tsv\",\n");
+        out.push_str("  \"project_capture_root\": \"project\",\n");
+        out.push_str("  \"vanilla_reference_root\": \"vanilla_reference\",\n");
         let _ = writeln!(out, "  \"elapsed_ms\": {:.3},", self.elapsed_ms);
+        out.push_str("  \"fallback_status\": ");
+        write_fallback_status_json(
+            &mut out,
+            self.asset_audit.fallback,
+            self.asset_audit.quality,
+            self.asset_audit.can_use_for_visual_review(),
+            2,
+        );
+        out.push_str(",\n");
         out.push_str("  \"scenes\": [\n");
         for (idx, scene) in self.scenes.iter().enumerate() {
             out.push_str("    {\n");
-            let _ = writeln!(out, "      \"name\": \"{}\",", json_escape(scene.name));
+            let _ = writeln!(out, "      \"name\": \"{}\",", json_escape(&scene.name));
             let _ = writeln!(
                 out,
                 "      \"description\": \"{}\",",
-                json_escape(scene.description)
+                json_escape(&scene.description)
             );
             let _ = writeln!(out, "      \"map_mode\": \"{}\",", scene.map_mode);
-            let _ = writeln!(out, "      \"date\": \"{}\",", scene.date);
             let _ = writeln!(
                 out,
-                "      \"camera\": {{ \"target_uv\": [{:.6}, {:.6}], \"distance_factor\": {:.6}, \"pitch_degrees\": {:.3}, \"yaw_degrees\": {:.3} }}",
+                "      \"date_hour\": \"{}\",",
+                format_game_date(scene.date)
+            );
+            let map_px = scene.map_px_center();
+            let _ = writeln!(
+                out,
+                "      \"camera\": {{ \"target_uv\": [{:.6}, {:.6}], \"target_map_px\": [{:.3}, {:.3}], \"distance_factor\": {:.6}, \"pitch_degrees\": {:.3}, \"yaw_degrees\": {:.3} }},",
                 scene.camera.target_uv[0],
                 scene.camera.target_uv[1],
+                map_px[0],
+                map_px[1],
                 scene.camera.distance_factor,
                 scene.camera.pitch_degrees,
                 scene.camera.yaw_degrees
             );
+            out.push_str("      \"enabled_layers\": ");
+            write_layer_array_json(&mut out, &scene.enabled_layers);
+            out.push('\n');
             out.push_str("    }");
             out.push_str(comma(idx + 1, self.scenes.len()));
             out.push('\n');
@@ -394,6 +404,11 @@ impl MapBaselineReport {
                 out,
                 "      \"filename\": \"{}\",",
                 json_escape(&capture.filename)
+            );
+            let _ = writeln!(
+                out,
+                "      \"vanilla_reference_filename\": \"{}\",",
+                json_escape(&capture.vanilla_reference_filename)
             );
             let _ = writeln!(
                 out,
@@ -417,6 +432,17 @@ impl MapBaselineReport {
                 None => out.push_str("      \"frame_time_ms\": null,\n"),
             }
             write_layer_mask_json(&mut out, &capture.layer_mask);
+            out.push_str(",\n");
+            write_pass_status_json(&mut out, &capture.layer_mask);
+            out.push_str(",\n");
+            out.push_str("      \"fallback_status\": ");
+            write_fallback_status_json(
+                &mut out,
+                capture.asset_fallback_count,
+                capture.asset_quality,
+                capture.visual_review_usable,
+                6,
+            );
             out.push('\n');
             out.push_str("    }");
             out.push_str(comma(idx + 1, self.planned_captures.len()));
@@ -425,6 +451,9 @@ impl MapBaselineReport {
         out.push_str("  ],\n");
         out.push_str("  \"asset_audit\": ");
         indent_json_object(&mut out, &self.asset_audit.to_json_report(), 2);
+        out.push_str(",\n");
+        out.push_str("  \"binding_audit\": ");
+        indent_json_object(&mut out, &self.binding_audit.to_json_report(), 2);
         out.push('\n');
         out.push_str("}\n");
         out
@@ -433,13 +462,16 @@ impl MapBaselineReport {
 
 pub fn build_phase0_report(path_cfg: &PathConfig) -> MapBaselineReport {
     let started = Instant::now();
-    let asset_audit = build_asset_audit(path_cfg);
+    let vanilla_resources = VanillaResourceViews::load_for_audit(path_cfg);
+    let asset_audit = MapAssetAudit::from_map_set(&vanilla_resources.map_set);
+    let binding_audit = vanilla_resources.phase1_binding_audit();
     let scenes = fixed_scenes();
     let planned_captures = build_phase0_planned_captures(&scenes, &asset_audit);
     MapBaselineReport {
         scenes,
         planned_captures,
         asset_audit,
+        binding_audit,
         elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
     }
 }
@@ -450,12 +482,14 @@ pub fn build_phase0_planned_captures(
 ) -> Vec<MapBaselinePlannedCapture> {
     let mut planned_captures = Vec::with_capacity(scenes.len() * MapBaselineLayer::ALL.len());
     for scene in scenes {
-        for layer in MapBaselineLayer::ALL {
+        for &layer in &scene.enabled_layers {
             planned_captures.push(MapBaselinePlannedCapture {
-                scene_name: scene.name.to_string(),
+                scene_name: scene.name.clone(),
                 layer,
                 preset: MapBaselinePreset::High,
                 filename: scene.screenshot_name(layer, MapBaselinePreset::High),
+                vanilla_reference_filename: scene
+                    .vanilla_reference_name(layer, MapBaselinePreset::High),
                 layer_mask: MapLayerMask::for_layer(layer),
                 frame_time_ms: None,
                 asset_quality: asset_audit.quality,
@@ -479,16 +513,27 @@ pub fn write_phase0_report(path_cfg: &PathConfig, output_dir: &Path) -> std::io:
 }
 
 pub fn write_map_audit(path_cfg: &PathConfig, output_dir: &Path) -> std::io::Result<PathBuf> {
-    let audit = build_asset_audit(path_cfg);
-    write_map_audit_files(&audit, output_dir)
+    let vanilla_resources = VanillaResourceViews::load_for_audit(path_cfg);
+    let asset_audit = MapAssetAudit::from_map_set(&vanilla_resources.map_set);
+    let binding_audit = vanilla_resources.phase1_binding_audit();
+    write_map_audit_files(&asset_audit, &binding_audit, output_dir)
 }
 
-pub fn write_map_audit_files(audit: &MapAssetAudit, output_dir: &Path) -> std::io::Result<PathBuf> {
+pub fn write_map_audit_files(
+    audit: &MapAssetAudit,
+    binding_audit: &BindingAudit,
+    output_dir: &Path,
+) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(output_dir)?;
     let text_path = output_dir.join("latest.txt");
     let json_path = output_dir.join("latest.json");
-    std::fs::write(&text_path, audit.to_text_report())?;
-    std::fs::write(&json_path, audit.to_json_report())?;
+    std::fs::write(&text_path, combined_map_audit_text(audit, binding_audit))?;
+    std::fs::write(&json_path, combined_map_audit_json(audit, binding_audit))?;
+    std::fs::write(output_dir.join("asset_audit.json"), audit.to_json_report())?;
+    std::fs::write(
+        output_dir.join("binding_audit.json"),
+        binding_audit.to_json_report(),
+    )?;
     Ok(json_path)
 }
 
@@ -497,15 +542,72 @@ pub fn write_phase0_report_files(
     output_dir: &Path,
 ) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(output_dir)?;
-    let text_path = output_dir.join("phase0_latest.txt");
-    let json_path = output_dir.join("phase0_latest.json");
-    let audit_json_path = output_dir.join("asset_audit_latest.json");
-    let audit_text_path = output_dir.join("asset_audit_latest.txt");
+    for scene in &report.scenes {
+        std::fs::create_dir_all(output_dir.join("project").join(&scene.name))?;
+        std::fs::create_dir_all(output_dir.join("vanilla_reference").join(&scene.name))?;
+    }
+    std::fs::write(
+        output_dir.join("vanilla_reference").join("README.txt"),
+        vanilla_reference_readme(report),
+    )?;
+    let text_path = output_dir.join("report.txt");
+    let json_path = output_dir.join("report.json");
+    let audit_json_path = output_dir.join("asset_audit.json");
+    let audit_text_path = output_dir.join("asset_audit.txt");
+    let binding_json_path = output_dir.join("binding_audit.json");
+    let binding_text_path = output_dir.join("binding_audit.txt");
     std::fs::write(&text_path, report.to_text_report())?;
     std::fs::write(&json_path, report.to_json_report())?;
     std::fs::write(&audit_json_path, report.asset_audit.to_json_report())?;
     std::fs::write(&audit_text_path, report.asset_audit.to_text_report())?;
+    std::fs::write(&binding_json_path, report.binding_audit.to_json_report())?;
+    std::fs::write(&binding_text_path, report.binding_audit.to_text_report())?;
+    std::fs::write(
+        output_dir.join("phase0_latest.txt"),
+        report.to_text_report(),
+    )?;
+    std::fs::write(
+        output_dir.join("phase0_latest.json"),
+        report.to_json_report(),
+    )?;
+    std::fs::write(
+        output_dir.join("asset_audit_latest.json"),
+        report.asset_audit.to_json_report(),
+    )?;
+    std::fs::write(
+        output_dir.join("asset_audit_latest.txt"),
+        report.asset_audit.to_text_report(),
+    )?;
+    std::fs::write(
+        output_dir.join("binding_audit_latest.json"),
+        report.binding_audit.to_json_report(),
+    )?;
+    std::fs::write(
+        output_dir.join("binding_audit_latest.txt"),
+        report.binding_audit.to_text_report(),
+    )?;
     Ok(json_path)
+}
+
+fn combined_map_audit_text(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> String {
+    let mut out = audit.to_text_report();
+    out.push_str("\nbinding_audit:\n");
+    out.push_str(&binding_audit.to_text_report());
+    out
+}
+
+fn combined_map_audit_json(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> String {
+    let mut out = audit.to_json_report();
+    while out.ends_with('\n') {
+        out.pop();
+    }
+    if out.ends_with('}') {
+        out.pop();
+    }
+    out.push_str(",\n  \"binding_audit\": ");
+    indent_json_object(&mut out, &binding_audit.to_json_report(), 2);
+    out.push_str("\n}\n");
+    out
 }
 
 fn write_layer_mask_json(out: &mut String, mask: &MapLayerMask) {
@@ -527,6 +629,195 @@ fn write_layer_mask_json(out: &mut String, mask: &MapLayerMask) {
         mask.asset_fallback_debug
     );
     out.push_str(" }");
+}
+
+fn write_pass_status_json(out: &mut String, mask: &MapLayerMask) {
+    out.push_str("      \"pass_status\": { ");
+    let _ = write!(
+        out,
+        "\"terrain\": {}, \"water\": {}, \"borders\": {}, \"static_decals\": {}, \"overlays\": {}, \"objects\": {}, \"labels\": {}, \"postprocess\": {}, \"ui\": {}",
+        mask.terrain,
+        mask.water,
+        mask.borders,
+        mask.static_decals,
+        mask.overlays,
+        mask.objects,
+        mask.labels,
+        mask.postprocess,
+        mask.ui,
+    );
+    out.push_str(" }");
+}
+
+fn write_fallback_status_json(
+    out: &mut String,
+    fallback_count: usize,
+    quality: MapAssetQuality,
+    visual_review_usable: bool,
+    spaces: usize,
+) {
+    let pad = " ".repeat(spaces);
+    let _ = write!(
+        out,
+        "{{\n{pad}  \"asset_fallback_count\": {},\n{pad}  \"asset_quality\": \"{}\",\n{pad}  \"visual_review_usable\": {}\n{pad}}}",
+        fallback_count,
+        quality.as_str(),
+        visual_review_usable
+    );
+}
+
+fn write_layer_array_json(out: &mut String, layers: &[MapBaselineLayer]) {
+    out.push('[');
+    for (idx, layer) in layers.iter().enumerate() {
+        if idx > 0 {
+            out.push_str(", ");
+        }
+        let _ = write!(out, "\"{}\"", layer.as_str());
+    }
+    out.push(']');
+}
+
+pub fn phase0_batch_output_dir(root: &Path) -> PathBuf {
+    root.join(timestamp_utc_yyyymmdd_hhmmss())
+}
+
+fn timestamp_utc_yyyymmdd_hhmmss() -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let days = now.div_euclid(86_400);
+    let seconds = now.rem_euclid(86_400);
+    let (year, month, day) = civil_from_unix_days(days);
+    let hour = seconds / 3600;
+    let minute = (seconds % 3600) / 60;
+    let second = seconds % 60;
+    format!("{year:04}{month:02}{day:02}_{hour:02}{minute:02}{second:02}")
+}
+
+fn civil_from_unix_days(days: i64) -> (i32, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 }.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096).div_euclid(365);
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2).div_euclid(153);
+    let d = doy - (153 * mp + 2).div_euclid(5) + 1;
+    let m = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if m <= 2 { 1 } else { 0 };
+    (year as i32, m as u32, d as u32)
+}
+
+fn parse_scene_config(input: &str) -> Result<Vec<MapBaselineScene>, String> {
+    let mut scenes = Vec::new();
+    for (line_idx, raw_line) in input.lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let fields: Vec<&str> = line.split('|').map(str::trim).collect();
+        if fields.len() != 11 {
+            return Err(format!(
+                "line {}: expected 11 pipe-separated fields, got {}",
+                line_idx + 1,
+                fields.len()
+            ));
+        }
+        let date = GameDate::parse(fields[7]).ok_or_else(|| {
+            format!(
+                "line {}: invalid date '{}', expected HOI4 format yyyy.m.d.h",
+                line_idx + 1,
+                fields[7]
+            )
+        })?;
+        let enabled_layers = parse_layer_list(fields[10]).map_err(|err| {
+            format!(
+                "line {}: invalid enabled layer list '{}': {}",
+                line_idx + 1,
+                fields[10],
+                err
+            )
+        })?;
+        scenes.push(MapBaselineScene {
+            name: fields[0].to_string(),
+            description: fields[1].to_string(),
+            camera: MapBaselineCamera {
+                target_uv: [
+                    parse_f32(fields[2], "center_u", line_idx)?,
+                    parse_f32(fields[3], "center_v", line_idx)?,
+                ],
+                distance_factor: parse_f32(fields[4], "distance_factor", line_idx)?,
+                pitch_degrees: parse_f32(fields[5], "pitch_degrees", line_idx)?,
+                yaw_degrees: parse_f32(fields[6], "yaw_degrees", line_idx)?,
+            },
+            date,
+            map_mode: fields[8].to_string(),
+            enabled_layers,
+        });
+    }
+    if scenes.is_empty() {
+        return Err("scene config contained no scenes".to_string());
+    }
+    Ok(scenes)
+}
+
+fn parse_f32(value: &str, field: &str, line_idx: usize) -> Result<f32, String> {
+    value.parse::<f32>().map_err(|err| {
+        format!(
+            "line {}: invalid {} value '{}': {}",
+            line_idx + 1,
+            field,
+            value,
+            err
+        )
+    })
+}
+
+fn parse_layer_list(value: &str) -> Result<Vec<MapBaselineLayer>, String> {
+    let mut out = Vec::new();
+    for raw in value.split(',') {
+        let layer = MapBaselineLayer::from_config_name(raw)
+            .ok_or_else(|| format!("unknown layer '{}'", raw.trim()))?;
+        if !out.contains(&layer) {
+            out.push(layer);
+        }
+    }
+    if out.is_empty() {
+        return Err("no layers specified".to_string());
+    }
+    Ok(out)
+}
+
+fn format_game_date(date: GameDate) -> String {
+    format!(
+        "{}.{:02}.{:02}.{:02}",
+        date.year, date.month, date.day, date.hour
+    )
+}
+
+fn vanilla_reference_readme(report: &MapBaselineReport) -> String {
+    let mut out = String::new();
+    out.push_str("Vanilla HOI4 reference screenshots belong in this directory.\n");
+    out.push_str("Do not commit or redistribute Paradox screenshots or assets unless you have the right to do so.\n\n");
+    out.push_str("Use the matching scene subdirectory and layer filename from report.json.\n\n");
+    for scene in &report.scenes {
+        let map_px = scene.map_px_center();
+        let _ = writeln!(
+            out,
+            "- {}: map_px={:.0},{:.0} uv={:.4},{:.4} distance_factor={:.3} pitch={:.1} yaw={:.1} date={}",
+            scene.name,
+            map_px[0],
+            map_px[1],
+            scene.camera.target_uv[0],
+            scene.camera.target_uv[1],
+            scene.camera.distance_factor,
+            scene.camera.pitch_degrees,
+            scene.camera.yaw_degrees,
+            format_game_date(scene.date)
+        );
+    }
+    out
 }
 
 fn indent_json_object(out: &mut String, json: &str, spaces: usize) {
@@ -575,12 +866,15 @@ mod tests {
     #[test]
     fn fixed_scene_matrix_matches_phase0_scope() {
         let scenes = fixed_scenes();
-        assert_eq!(scenes.len(), 10);
-        assert_eq!(MapBaselineLayer::ALL.len(), 11);
+        assert_eq!(scenes.len(), 5);
+        assert_eq!(MapBaselineLayer::ALL.len(), 9);
         assert_eq!(
             scenes[0].screenshot_name(MapBaselineLayer::FinalFull, MapBaselinePreset::High),
-            "western_europe_far.final_full.high.png"
+            "project/western_europe_close/final.high.png"
         );
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::TerrainOnly));
     }
 
     #[test]
@@ -602,6 +896,10 @@ mod tests {
         let hdr_raw = MapLayerMask::for_layer(MapBaselineLayer::HdrRaw);
         assert!(hdr_raw.terrain);
         assert!(hdr_raw.postprocess);
+
+        let objects = MapLayerMask::for_layer(MapBaselineLayer::ObjectsOnly);
+        assert!(objects.objects);
+        assert!(!objects.terrain);
     }
 
     #[test]
@@ -624,6 +922,8 @@ mod tests {
                         layer,
                         preset: MapBaselinePreset::High,
                         filename: scene.screenshot_name(layer, MapBaselinePreset::High),
+                        vanilla_reference_filename: scene
+                            .vanilla_reference_name(layer, MapBaselinePreset::High),
                         layer_mask: MapLayerMask::for_layer(layer),
                         frame_time_ms: None,
                         asset_quality,
@@ -636,12 +936,21 @@ mod tests {
             scenes,
             planned_captures,
             asset_audit: audit,
+            binding_audit: BindingAudit::new(),
             elapsed_ms: 0.0,
         };
         let json = report.to_json_report();
         assert!(json.contains("\"phase\": \"0\""));
-        assert!(json.contains("asset_fallback_debug"));
+        assert!(json.contains("\"project_capture_root\": \"project\""));
+        assert!(json.contains("\"pass_status\""));
+        assert!(json.contains("\"binding_audit\""));
         assert!(json.contains("\"asset_quality\""));
-        assert!(json.contains("western_europe_far.final_full.high.png"));
+        assert!(json.contains("project/western_europe_close/final.high.png"));
+    }
+
+    #[test]
+    fn timestamp_conversion_formats_unix_epoch() {
+        assert_eq!(civil_from_unix_days(0), (1970, 1, 1));
+        assert_eq!(civil_from_unix_days(20_544), (2026, 4, 1));
     }
 }

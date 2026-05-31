@@ -102,12 +102,50 @@ impl TerrainCatalog {
         self.by_index.len()
     }
 
-    /// Build a 16-entry LUT: `terrain.bmp` palette index → atlas tile index.
-    /// Unmapped or out-of-range indices fall back to identity (idx → idx).
+    /// Build a 16-entry LUT: `terrain.bmp` palette index -> atlas tile index.
+    /// Unmapped or out-of-range indices fall back to identity (idx -> idx).
     pub fn atlas_idx_array(&self) -> [u8; 16] {
         let mut arr = [0u8; 16];
         for i in 0..16u8 {
             arr[i as usize] = self.by_index.get(&i).and_then(|e| e.atlas_idx).unwrap_or(i);
+        }
+        arr
+    }
+
+    /// Build the full shader LUT: `terrain.bmp` palette index -> atlas tile.
+    ///
+    /// Vanilla can use indices above 15 for snow/variant entries while still
+    /// pointing them at one of the 4x4 atlas tiles through `texture = N`.
+    /// Keeping all 256 entries prevents the shader from masking those indices
+    /// down and losing `perm_snow` semantics.
+    pub fn atlas_idx_array_256(&self) -> [u8; 256] {
+        let mut arr = [0u8; 256];
+        for i in 0..=255u8 {
+            arr[i as usize] = self
+                .by_index
+                .get(&i)
+                .and_then(|e| e.atlas_idx)
+                .unwrap_or(i & 15);
+        }
+        arr
+    }
+
+    /// Build a compact 256-entry flag LUT for shader-side terrain metadata.
+    ///
+    /// bit 0 = `perm_snow`, bit 1 = water terrain category.
+    pub fn terrain_flags_array_256(&self) -> [u8; 256] {
+        let mut arr = [0u8; 256];
+        for i in 0..=255u8 {
+            if let Some(entry) = self.by_index.get(&i) {
+                let mut flags = 0u8;
+                if entry.perm_snow {
+                    flags |= 1;
+                }
+                if entry.category.is_water() {
+                    flags |= 2;
+                }
+                arr[i as usize] = flags;
+            }
         }
         arr
     }
@@ -237,6 +275,16 @@ terrain = {
         assert_eq!(arr[1], 4);
         assert_eq!(arr[6], 11);
         assert_eq!(arr[2], 2);
+    }
+
+    #[test]
+    fn full_shader_luts_keep_variant_metadata() {
+        let cat = parse_terrain_catalog(SAMPLE).unwrap();
+        let atlas = cat.atlas_idx_array_256();
+        let flags = cat.terrain_flags_array_256();
+        assert_eq!(atlas[16], 11);
+        assert_eq!(flags[16] & 1, 1);
+        assert_eq!(atlas[200], 8);
     }
 
     #[test]

@@ -29,7 +29,7 @@ pub fn parse_cli() -> Cli {
         headless_days: 1,
         map_phase0: false,
         map_phase0_report_only: false,
-        map_phase0_output: std::path::PathBuf::from("target/map_baseline"),
+        map_phase0_output: std::path::PathBuf::from("target/map_parity"),
         map_audit: false,
         map_audit_output: std::path::PathBuf::from("target/map_audit"),
         help_requested: false,
@@ -53,12 +53,16 @@ pub fn parse_cli() -> Cli {
                     out.headless_days = v.parse().unwrap_or(1);
                 }
             }
-            "--map-phase0" | "--map-baseline-phase0" => out.map_phase0 = true,
-            "--map-phase0-report-only" | "--map-baseline-report-only" => {
+            "--map-phase0" | "--map-baseline-phase0" | "--map-parity-capture" => {
+                out.map_phase0 = true
+            }
+            "--map-phase0-report-only"
+            | "--map-baseline-report-only"
+            | "--map-parity-report-only" => {
                 out.map_phase0 = true;
                 out.map_phase0_report_only = true;
             }
-            "--map-phase0-output" | "--map-baseline-output" => {
+            "--map-phase0-output" | "--map-baseline-output" | "--map-parity-output" => {
                 if let Some(v) = args.next() {
                     out.map_phase0_output = std::path::PathBuf::from(v);
                 }
@@ -84,6 +88,7 @@ USAGE:
     hoi4-app [--game-path <PATH>] [--mod <PATH>]... [--headless [--headless-days N]]
     hoi4-app --map-audit [--map-audit-output <DIR>]
     hoi4-app --map-phase0 [--map-phase0-output <DIR>]
+    hoi4-app --map-parity-capture [--map-parity-output <DIR>]
     hoi4-app --map-phase0-report-only [--map-phase0-output <DIR>]
 
 OPTIONS:
@@ -94,8 +99,10 @@ OPTIONS:
     --map-audit             write map resource audit to target/map_audit/latest.json, then exit
     --map-audit-output DIR  output directory for map audit (default target/map_audit)
     --map-phase0            capture Map Renderer V2 Phase 0 screenshots, reports, audit, then exit
+    --map-parity-capture    alias for --map-phase0
     --map-phase0-report-only write Phase 0 manifest/audit without launching the renderer
-    --map-phase0-output DIR output directory for Phase 0 reports (default target/map_baseline)
+    --map-phase0-output DIR output root for timestamped Phase 0 batches (default target/map_parity)
+    --map-parity-output DIR alias for --map-phase0-output
     -h, --help              show this help"#
     );
 }
