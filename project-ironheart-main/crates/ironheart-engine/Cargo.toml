@@ -1,0 +1,10 @@
+[package]
+name = "ironheart-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+ironheart-render = { path = "../ironheart-render" }
+ironheart-sim = { path = "../ironheart-sim" }
+ironheart-ui = { path = "../ironheart-ui" }
