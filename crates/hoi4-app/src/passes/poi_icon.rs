@@ -283,7 +283,7 @@ impl PoiIconPass {
                 match detail_level {
                     0 => false,
                     1 => kind <= 2,
-                    2 => kind <= 8,
+                    2 => kind <= hoi4_render::buildings::PoiIconKind::RocketSite as u8,
                     _ => true,
                 }
             })

@@ -8,12 +8,26 @@
 use hoi4_data::resource::ResourceKind;
 use hoi4_state::World;
 
+pub const BUILDING_KIND_INDUSTRIAL: u8 = 0;
+pub const BUILDING_KIND_MILITARY: u8 = 1;
+pub const BUILDING_KIND_DOCKYARD: u8 = 2;
+pub const BUILDING_KIND_AIR_BASE: u8 = 3;
+pub const BUILDING_KIND_NAVAL_BASE: u8 = 4;
+pub const BUILDING_KIND_RADAR: u8 = 5;
+pub const BUILDING_KIND_ANTI_AIR: u8 = 6;
+pub const BUILDING_KIND_BUNKER: u8 = 7;
+pub const BUILDING_KIND_COASTAL_BUNKER: u8 = 8;
+pub const BUILDING_KIND_REFINERY: u8 = 9;
+pub const BUILDING_KIND_FUEL_SILO: u8 = 10;
+pub const BUILDING_KIND_NUCLEAR_REACTOR: u8 = 11;
+pub const BUILDING_KIND_ROCKET_SITE: u8 = 12;
+
 /// One building icon instance (Phase 3.5 legacy).
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
 pub struct BuildingInstance {
     pub pos: [f32; 3],
-    /// 0 = civilian, 1 = military, 2 = dockyard.
+    /// Encoded `BUILDING_KIND_*` value.
     pub kind: f32,
 }
 
@@ -25,22 +39,26 @@ pub enum PoiIconKind {
     ArmsFactory = 1,
     Dockyard = 2,
     AirBase = 3,
-    RadarStation = 4,
-    SyntheticRefinery = 5,
-    FuelSilo = 6,
-    NuclearReactor = 7,
-    RocketSite = 8,
-    Oil = 9,
-    Aluminium = 10,
-    Rubber = 11,
-    Tungsten = 12,
-    Steel = 13,
-    Chromium = 14,
-    Coal = 15,
+    NavalBase = 4,
+    Bunker = 5,
+    CoastalBunker = 6,
+    AntiAir = 7,
+    RadarStation = 8,
+    SyntheticRefinery = 9,
+    FuelSilo = 10,
+    NuclearReactor = 11,
+    RocketSite = 12,
+    Oil = 13,
+    Aluminium = 14,
+    Rubber = 15,
+    Tungsten = 16,
+    Steel = 17,
+    Chromium = 18,
+    Coal = 19,
 }
 
 impl PoiIconKind {
-    pub const COUNT: u8 = 16;
+    pub const COUNT: u8 = 20;
 
     pub fn from_u8(v: u8) -> Self {
         match v {
@@ -48,18 +66,22 @@ impl PoiIconKind {
             1 => Self::ArmsFactory,
             2 => Self::Dockyard,
             3 => Self::AirBase,
-            4 => Self::RadarStation,
-            5 => Self::SyntheticRefinery,
-            6 => Self::FuelSilo,
-            7 => Self::NuclearReactor,
-            8 => Self::RocketSite,
-            9 => Self::Oil,
-            10 => Self::Aluminium,
-            11 => Self::Rubber,
-            12 => Self::Tungsten,
-            13 => Self::Steel,
-            14 => Self::Chromium,
-            15 => Self::Coal,
+            4 => Self::NavalBase,
+            5 => Self::Bunker,
+            6 => Self::CoastalBunker,
+            7 => Self::AntiAir,
+            8 => Self::RadarStation,
+            9 => Self::SyntheticRefinery,
+            10 => Self::FuelSilo,
+            11 => Self::NuclearReactor,
+            12 => Self::RocketSite,
+            13 => Self::Oil,
+            14 => Self::Aluminium,
+            15 => Self::Rubber,
+            16 => Self::Tungsten,
+            17 => Self::Steel,
+            18 => Self::Chromium,
+            19 => Self::Coal,
             _ => Self::IndustrialComplex,
         }
     }
@@ -70,6 +92,10 @@ impl PoiIconKind {
             Self::ArmsFactory => "GFX_onmap_arms_factory_icon",
             Self::Dockyard => "GFX_onmap_dockyard_icon",
             Self::AirBase => "GFX_onmap_air_base_icon",
+            Self::NavalBase => "GFX_onmap_naval_base_icon",
+            Self::Bunker => "GFX_onmap_bunker_icon",
+            Self::CoastalBunker => "GFX_onmap_coastal_bunker_icon",
+            Self::AntiAir => "GFX_onmap_anti_air_icon",
             Self::RadarStation => "GFX_onmap_radar_station_icon",
             Self::SyntheticRefinery => "GFX_onmap_synthetic_refinery_icon",
             Self::FuelSilo => "GFX_onmap_fuel_silo_icon",
@@ -91,6 +117,10 @@ impl PoiIconKind {
             Self::ArmsFactory,
             Self::Dockyard,
             Self::AirBase,
+            Self::NavalBase,
+            Self::Bunker,
+            Self::CoastalBunker,
+            Self::AntiAir,
             Self::RadarStation,
             Self::SyntheticRefinery,
             Self::FuelSilo,
@@ -168,23 +198,18 @@ pub fn generate_buildings(
 
     for state_idx in 0..world.states.count {
         let state = hoi4_state::StateId(state_idx as u16);
-        let has_civilian = world.countries.buildings_v6.buildings.iter().any(|b| {
-            b.state == state
-                && b.level > 0
-                && b.kind != hoi4_state::BuildingKind::Military
-                && b.kind != hoi4_state::BuildingKind::MilitaryBase
-                && b.building_def_id != "shipyard"
-        });
-        let has_military = world.countries.buildings_v6.buildings.iter().any(|b| {
-            b.state == state && b.level > 0 && b.kind == hoi4_state::BuildingKind::Military
-        });
-        let has_shipyard = world
-            .countries
-            .buildings_v6
-            .buildings
-            .iter()
-            .any(|b| b.state == state && b.level > 0 && b.building_def_id == "shipyard");
-        if !has_civilian && !has_military && !has_shipyard {
+        let mut levels = [0u16; (BUILDING_KIND_ROCKET_SITE as usize) + 1];
+        for building in &world.countries.buildings_v6.buildings {
+            if building.state != state || building.level == 0 {
+                continue;
+            }
+            if let Some(kind) =
+                object_kind_for_building(building.building_def_id.as_str(), building.kind)
+            {
+                levels[kind as usize] = levels[kind as usize].saturating_add(building.level as u16);
+            }
+        }
+        if levels.iter().all(|&level| level == 0) {
             continue;
         }
         let pos =
@@ -193,26 +218,52 @@ pub fn generate_buildings(
                 None => continue,
             };
 
-        if has_civilian {
-            out.push(BuildingInstance {
-                pos: [pos[0] - 0.08, pos[1], pos[2]],
-                kind: 0.0,
-            });
-        }
-        if has_military {
-            out.push(BuildingInstance {
-                pos: [pos[0], pos[1], pos[2]],
-                kind: 1.0,
-            });
-        }
-        if has_shipyard {
-            out.push(BuildingInstance {
-                pos: [pos[0] + 0.08, pos[1], pos[2]],
-                kind: 2.0,
-            });
+        let mut col = 0i32;
+        let offset_step = 0.075;
+        for (kind, level) in levels.iter().copied().enumerate() {
+            if level == 0 {
+                continue;
+            }
+            for _ in 0..visual_instance_count(level) {
+                let x_offset = (col - 3) as f32 * offset_step;
+                let z_offset = ((col % 3) - 1) as f32 * offset_step * 0.65;
+                out.push(BuildingInstance {
+                    pos: [pos[0] + x_offset, pos[1], pos[2] + z_offset],
+                    kind: kind as f32,
+                });
+                col += 1;
+            }
         }
     }
     out
+}
+
+fn visual_instance_count(level: u16) -> u16 {
+    match level {
+        0 => 0,
+        1..=3 => 1,
+        4..=8 => 2,
+        _ => 3,
+    }
+}
+
+fn object_kind_for_building(def_id: &str, kind: hoi4_state::BuildingKind) -> Option<u8> {
+    match def_id {
+        "shipyard" | "dockyard" => Some(BUILDING_KIND_DOCKYARD),
+        "air_base" | "airbase" | "v6_air_base" | "airport" => Some(BUILDING_KIND_AIR_BASE),
+        "naval_base" | "v6_naval_base" | "port" => Some(BUILDING_KIND_NAVAL_BASE),
+        "radar_station" | "v6_radar" => Some(BUILDING_KIND_RADAR),
+        "anti_air_building" | "v6_anti_air" => Some(BUILDING_KIND_ANTI_AIR),
+        "bunker" | "v6_bunker" => Some(BUILDING_KIND_BUNKER),
+        "coastal_bunker" => Some(BUILDING_KIND_COASTAL_BUNKER),
+        "synthetic_refinery" | "oil_refinery" | "rubber_factory" => Some(BUILDING_KIND_REFINERY),
+        "fuel_silo" => Some(BUILDING_KIND_FUEL_SILO),
+        "nuclear_reactor" | "commercial_nuclear_reactor" => Some(BUILDING_KIND_NUCLEAR_REACTOR),
+        "rocket_site" => Some(BUILDING_KIND_ROCKET_SITE),
+        _ if kind == hoi4_state::BuildingKind::Military => Some(BUILDING_KIND_MILITARY),
+        _ if kind != hoi4_state::BuildingKind::MilitaryBase => Some(BUILDING_KIND_INDUSTRIAL),
+        _ => None,
+    }
 }
 
 /// Generate POI icon instances from world state (Phase 14 — vanilla POI icons).
@@ -235,72 +286,37 @@ pub fn generate_poi_icons(
                 None => continue,
             };
 
-        let infra = world.states.infrastructure[state_idx];
         let state = hoi4_state::StateId(state_idx as u16);
-        let civilian_level: u8 = world
-            .countries
-            .buildings_v6
-            .buildings
-            .iter()
-            .filter(|b| {
-                b.state == state
-                    && b.kind != hoi4_state::BuildingKind::Military
-                    && b.kind != hoi4_state::BuildingKind::MilitaryBase
-                    && b.building_def_id != "shipyard"
-            })
-            .map(|b| b.level)
-            .sum();
-        let military_level: u8 = world
-            .countries
-            .buildings_v6
-            .buildings
-            .iter()
-            .filter(|b| b.state == state && b.kind == hoi4_state::BuildingKind::Military)
-            .map(|b| b.level)
-            .sum();
-        let shipyard_level: u8 = world
-            .countries
-            .buildings_v6
-            .buildings
-            .iter()
-            .filter(|b| b.state == state && b.building_def_id == "shipyard")
-            .map(|b| b.level)
-            .sum();
+        let mut levels = [0.0_f32; PoiIconKind::COUNT as usize];
+        for building in &world.countries.buildings_v6.buildings {
+            if building.state != state || building.level == 0 {
+                continue;
+            }
+            let Some(kind) =
+                poi_kind_for_building(building.building_def_id.as_str(), building.kind)
+            else {
+                continue;
+            };
+            levels[kind as usize] += building.level as f32;
+        }
 
         let mut col = 0i32;
         let offset_step = 0.10;
         let base_x = pos[0];
 
-        if civilian_level > 0 {
+        for kind in PoiIconKind::all()
+            .iter()
+            .copied()
+            .filter(|kind| !poi_kind_is_resource(*kind))
+        {
+            let level = levels[kind as usize];
+            if level <= 0.0 {
+                continue;
+            }
             out.push(PoiIconInstance {
                 pos: [base_x + col as f32 * offset_step, pos[1], pos[2]],
-                kind: PoiIconKind::IndustrialComplex as u8 as f32,
-                level: civilian_level as f32,
-            });
-            col += 1;
-        }
-        if military_level > 0 {
-            out.push(PoiIconInstance {
-                pos: [base_x + col as f32 * offset_step, pos[1], pos[2]],
-                kind: PoiIconKind::ArmsFactory as u8 as f32,
-                level: military_level as f32,
-            });
-            col += 1;
-        }
-        if shipyard_level > 0 {
-            out.push(PoiIconInstance {
-                pos: [base_x + col as f32 * offset_step, pos[1], pos[2]],
-                kind: PoiIconKind::Dockyard as u8 as f32,
-                level: shipyard_level as f32,
-            });
-            col += 1;
-        }
-
-        if infra > 0 {
-            out.push(PoiIconInstance {
-                pos: [base_x + col as f32 * offset_step, pos[1], pos[2]],
-                kind: PoiIconKind::AirBase as u8 as f32,
-                level: infra as f32,
+                kind: kind as u8 as f32,
+                level,
             });
             col += 1;
         }
@@ -322,6 +338,29 @@ pub fn generate_poi_icons(
     out
 }
 
+fn poi_kind_for_building(def_id: &str, kind: hoi4_state::BuildingKind) -> Option<PoiIconKind> {
+    match object_kind_for_building(def_id, kind)? {
+        BUILDING_KIND_INDUSTRIAL => Some(PoiIconKind::IndustrialComplex),
+        BUILDING_KIND_MILITARY => Some(PoiIconKind::ArmsFactory),
+        BUILDING_KIND_DOCKYARD => Some(PoiIconKind::Dockyard),
+        BUILDING_KIND_AIR_BASE => Some(PoiIconKind::AirBase),
+        BUILDING_KIND_NAVAL_BASE => Some(PoiIconKind::NavalBase),
+        BUILDING_KIND_RADAR => Some(PoiIconKind::RadarStation),
+        BUILDING_KIND_ANTI_AIR => Some(PoiIconKind::AntiAir),
+        BUILDING_KIND_BUNKER => Some(PoiIconKind::Bunker),
+        BUILDING_KIND_COASTAL_BUNKER => Some(PoiIconKind::CoastalBunker),
+        BUILDING_KIND_REFINERY => Some(PoiIconKind::SyntheticRefinery),
+        BUILDING_KIND_FUEL_SILO => Some(PoiIconKind::FuelSilo),
+        BUILDING_KIND_NUCLEAR_REACTOR => Some(PoiIconKind::NuclearReactor),
+        BUILDING_KIND_ROCKET_SITE => Some(PoiIconKind::RocketSite),
+        _ => None,
+    }
+}
+
+fn poi_kind_is_resource(kind: PoiIconKind) -> bool {
+    (kind as u8) >= PoiIconKind::Oil as u8
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,6 +377,51 @@ mod tests {
 
     #[test]
     fn poi_icon_kind_count() {
-        assert_eq!(PoiIconKind::COUNT, 16);
+        assert_eq!(PoiIconKind::COUNT, 20);
+        assert_eq!(PoiIconKind::all().len(), PoiIconKind::COUNT as usize);
+    }
+
+    #[test]
+    fn object_kind_maps_vanilla_and_v6_ids() {
+        assert_eq!(
+            object_kind_for_building("v6_air_base", hoi4_state::BuildingKind::MilitaryBase),
+            Some(BUILDING_KIND_AIR_BASE)
+        );
+        assert_eq!(
+            object_kind_for_building("port", hoi4_state::BuildingKind::Infrastructure),
+            Some(BUILDING_KIND_NAVAL_BASE)
+        );
+        assert_eq!(
+            object_kind_for_building("v6_radar", hoi4_state::BuildingKind::MilitaryBase),
+            Some(BUILDING_KIND_RADAR)
+        );
+        assert_eq!(
+            object_kind_for_building("v6_bunker", hoi4_state::BuildingKind::MilitaryBase),
+            Some(BUILDING_KIND_BUNKER)
+        );
+        assert_eq!(
+            poi_kind_for_building("port", hoi4_state::BuildingKind::Infrastructure),
+            Some(PoiIconKind::NavalBase)
+        );
+        assert_eq!(
+            poi_kind_for_building("coastal_bunker", hoi4_state::BuildingKind::MilitaryBase),
+            Some(PoiIconKind::CoastalBunker)
+        );
+        assert_eq!(
+            object_kind_for_building("steel_mill", hoi4_state::BuildingKind::Industrial),
+            Some(BUILDING_KIND_INDUSTRIAL)
+        );
+        assert_eq!(
+            object_kind_for_building("arms_industry", hoi4_state::BuildingKind::Military),
+            Some(BUILDING_KIND_MILITARY)
+        );
+    }
+
+    #[test]
+    fn visual_instance_count_caps_dense_states() {
+        assert_eq!(visual_instance_count(0), 0);
+        assert_eq!(visual_instance_count(1), 1);
+        assert_eq!(visual_instance_count(4), 2);
+        assert_eq!(visual_instance_count(12), 3);
     }
 }

@@ -48,13 +48,24 @@
 
 #![allow(dead_code)]
 
-use hoi4_assets::{AssetDb, DdsImage, FsAssetDb, PdxMesh as PdxMeshAsset};
+use hoi4_assets::{AssetDb, AssetError, DdsImage, FsAssetDb, GfxIndex, PdxMesh as PdxMeshAsset};
 use hoi4_paths::PathConfig;
-use hoi4_render::buildings::BuildingInstance;
+use hoi4_render::buildings::{
+    BuildingInstance, BUILDING_KIND_AIR_BASE, BUILDING_KIND_ANTI_AIR, BUILDING_KIND_BUNKER,
+    BUILDING_KIND_COASTAL_BUNKER, BUILDING_KIND_DOCKYARD, BUILDING_KIND_FUEL_SILO,
+    BUILDING_KIND_INDUSTRIAL, BUILDING_KIND_MILITARY, BUILDING_KIND_NAVAL_BASE,
+    BUILDING_KIND_NUCLEAR_REACTOR, BUILDING_KIND_RADAR, BUILDING_KIND_REFINERY,
+    BUILDING_KIND_ROCKET_SITE,
+};
 use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
 use crate::vanilla_targets::VanillaRuntimeTargets;
+
+const PDXMESH_OBJECT_KIND_COUNT: usize = 13;
+const BASE_INSTANCE_SCALE: f32 = 0.022;
+const MESH_LOD_WORLD_SCALE: f32 = 0.02;
+const DEFAULT_LOD_DISTANCES: [f32; 3] = [14.0, 28.0, 10_000.0];
 
 // ─── 公共材质 uniform（与 wgsl `MeshMaterial` 字面对齐）─────────────────────
 
@@ -83,8 +94,8 @@ impl Default for MeshMaterial {
             diffuse_tint: [1.0, 1.0, 1.0, 1.0],
             // specular=0.4 / glossiness=0.55 / alpha_cutoff=0.3 / emissive=0.6
             pbr_packed: [0.4, 0.55, 0.3, 0.6],
-            // 关闭 normal/spec/emissive，保留小 snow_factor=0
-            feature_flags: [0.0, 0.0, 0.0, 0.0],
+            // normal/spec use flat fallback textures when a mesh omits them.
+            feature_flags: [1.0, 1.0, 0.0, 0.70],
             animate_uv: [0.0; 4],
             // 微弱 rim 蓝光衬建筑轮廓
             rim_color: [0.5, 0.6, 0.8, 0.2],
@@ -111,58 +122,115 @@ pub struct PdxMeshInstance {
 
 const _: () = assert!(std::mem::size_of::<PdxMeshInstance>() == 32);
 
-/// `BuildingInstance` (16 bytes) → `PdxMeshInstance` (32 bytes)：
-/// 按 `kind` 路由到三类 instance vec，加 hash-based 朝向抖动让建筑群不雷同。
-pub fn split_buildings_by_kind(buildings: &[BuildingInstance]) -> [Vec<PdxMeshInstance>; 3] {
-    let mut civ = Vec::new();
-    let mut mil = Vec::new();
-    let mut dock = Vec::new();
+/// `BuildingInstance` (16 bytes) -> `PdxMeshInstance` (32 bytes).
+///
+/// The output vector is indexed by `BUILDING_KIND_*`. Each object kind maps to
+/// a vanilla pdxmesh slot, while unknown kinds are ignored.
+pub fn split_buildings_by_kind(buildings: &[BuildingInstance]) -> Vec<Vec<PdxMeshInstance>> {
+    let mut split: Vec<Vec<PdxMeshInstance>> =
+        (0..PDXMESH_OBJECT_KIND_COUNT).map(|_| Vec::new()).collect();
     for (i, b) in buildings.iter().enumerate() {
         // 简单 hash 抖动：i * golden ratio 取小数 → [0, 2π)
         let h = ((i as u32).wrapping_mul(2654435761)) as f32 / u32::MAX as f32;
         let rotation_y = h * std::f32::consts::TAU;
+        let kind = b.kind as i32;
+        if kind < 0 || kind as usize >= split.len() {
+            continue;
+        }
         let inst = PdxMeshInstance {
             pos: b.pos,
-            scale: 0.022, // 建筑视觉高度约 0.04 世界单位 (~1.5 个像素的高)
+            scale: BASE_INSTANCE_SCALE * scale_for_kind(b.kind),
             tint: tint_for_kind(b.kind),
             rotation_y,
             _pad: [0.0; 2],
         };
-        let k = b.kind as i32;
-        match k {
-            0 => civ.push(inst),
-            1 => mil.push(inst),
-            2 => dock.push(inst),
-            _ => {}
-        }
+        split[kind as usize].push(inst);
     }
-    [civ, mil, dock]
+    split
 }
 
 fn tint_for_kind(kind: f32) -> [u8; 4] {
     match kind as i32 {
-        0 => [180, 220, 180, 255], // 民用：略冷的浅绿
-        1 => [220, 180, 180, 255], // 军事：略暖的浅红
-        2 => [180, 200, 220, 255], // 船坞：略冷的浅蓝
+        x if x == BUILDING_KIND_INDUSTRIAL as i32 => [190, 218, 178, 255],
+        x if x == BUILDING_KIND_MILITARY as i32 => [222, 178, 172, 255],
+        x if x == BUILDING_KIND_DOCKYARD as i32 => [176, 198, 222, 255],
+        x if x == BUILDING_KIND_AIR_BASE as i32 => [202, 205, 184, 255],
+        x if x == BUILDING_KIND_NAVAL_BASE as i32 => [170, 198, 210, 255],
+        x if x == BUILDING_KIND_RADAR as i32 => [190, 214, 226, 255],
+        x if x == BUILDING_KIND_ANTI_AIR as i32 => [210, 202, 180, 255],
+        x if x == BUILDING_KIND_BUNKER as i32 => [185, 185, 168, 255],
+        x if x == BUILDING_KIND_COASTAL_BUNKER as i32 => [182, 194, 178, 255],
+        x if x == BUILDING_KIND_REFINERY as i32 => [205, 190, 170, 255],
+        x if x == BUILDING_KIND_FUEL_SILO as i32 => [190, 188, 172, 255],
+        x if x == BUILDING_KIND_NUCLEAR_REACTOR as i32 => [188, 210, 190, 255],
+        x if x == BUILDING_KIND_ROCKET_SITE as i32 => [216, 200, 180, 255],
         _ => [255, 255, 255, 255],
+    }
+}
+
+fn scale_for_kind(kind: f32) -> f32 {
+    match kind as i32 {
+        x if x == BUILDING_KIND_NAVAL_BASE as i32 => 1.12,
+        x if x == BUILDING_KIND_AIR_BASE as i32 => 1.08,
+        x if x == BUILDING_KIND_RADAR as i32 => 1.16,
+        x if x == BUILDING_KIND_ANTI_AIR as i32 => 0.95,
+        x if x == BUILDING_KIND_BUNKER as i32 => 0.90,
+        x if x == BUILDING_KIND_COASTAL_BUNKER as i32 => 0.90,
+        x if x == BUILDING_KIND_ROCKET_SITE as i32 => 1.22,
+        x if x == BUILDING_KIND_NUCLEAR_REACTOR as i32 => 1.15,
+        _ => 1.0,
     }
 }
 
 // ─── 单个 mesh 类型的 GPU 资源 ────────────────────────────────────────────
 
-struct MeshTypeResources {
-    /// vertex buffer（pos+normal+uv，stride 32 bytes）
+#[derive(Debug, Clone)]
+struct MeshTypeSpec {
+    kind: u8,
+    label: &'static str,
+    names: &'static [&'static str],
+    fallback_mesh: &'static str,
+    fallback_diffuse: &'static str,
+    fallback_normal: &'static str,
+    fallback_specular: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedMeshTypeSpec {
+    kind: u8,
+    label: &'static str,
+    mesh_path: String,
+    fallback_diffuse: String,
+    fallback_normal: String,
+    fallback_specular: String,
+}
+
+struct MeshLodResources {
+    /// vertex buffer（pos+normal+uv，stride 48 bytes）
     vertex_buffer: wgpu::Buffer,
     /// index buffer（u32）
     index_buffer: wgpu::Buffer,
     index_count: u32,
-    /// 每实例 buffer（pos+scale+tint+rotation_y+pad，stride 32 bytes）
+    /// 每 LOD instance buffer（pos+scale+tint+rotation_y+pad，stride 32 bytes）
     instance_buffer: wgpu::Buffer,
     instance_count: u32,
+    instance_capacity: u32,
+}
+
+struct MeshTypeResources {
+    kind: u8,
+    label: &'static str,
+    /// Highest-to-lowest detail geometry.
+    lods: Vec<MeshLodResources>,
+    /// Source instance list split by object kind. Per-frame camera LOD upload
+    /// buckets these into `lods`.
+    all_instances: Vec<PdxMeshInstance>,
+    lod_distances: Vec<f32>,
     /// per-mesh 纹理 bind group（@group(2)）
     bind_group_2: wgpu::BindGroup,
     /// 是否成功加载（mesh + 至少 diffuse）
     loaded: bool,
+    source_mesh: String,
 }
 
 // ─── PdxMeshPass ──────────────────────────────────────────────────────────
@@ -175,12 +243,15 @@ pub struct PdxMeshPass {
     bind_group_1: wgpu::BindGroup,
     bgl_1: wgpu::BindGroupLayout,
     env_sampler: wgpu::Sampler,
-    /// 每类建筑各一份资源
-    types: [MeshTypeResources; 3],
+    /// 每类地图物件各一份资源
+    types: Vec<MeshTypeResources>,
     /// `MeshMaterial` GPU buffer（让 main.rs 可调 `update_material` 覆盖默认）
     material_buffer: wgpu::Buffer,
     /// 至少 1 类 mesh + diffuse 都加载成功；否则 main.rs 应回退到旧 buildings_pipeline
     pub any_loaded: bool,
+    lod_uploaded: bool,
+    lod_last_cam_pos: [f32; 3],
+    lod_bias: u8,
 }
 
 /// 单个 mesh 顶点的 GPU 表示（pos + normal + uv，32 字节包含 pad）。
@@ -370,6 +441,36 @@ impl PdxMeshPass {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 9,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 10,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 11,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let bind_group_1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -419,6 +520,18 @@ impl PdxMeshPass {
                 wgpu::BindGroupEntry {
                     binding: 8,
                     resource: wgpu::BindingResource::TextureView(&runtime_targets.fow.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::TextureView(&runtime_targets.light_data.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 10,
+                    resource: wgpu::BindingResource::TextureView(&runtime_targets.light_index.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 11,
+                    resource: wgpu::BindingResource::TextureView(&runtime_targets.mud_snow.view),
                 },
             ],
         });
@@ -580,65 +693,47 @@ impl PdxMeshPass {
             cache: None,
         });
 
-        // ── 加载 3 类 mesh ───────────────────────────────────────────────
+        // ── 加载 vanilla object meshes ───────────────────────────────────
         let db = FsAssetDb::new(path_cfg.clone());
+        let gfx_index = match load_buildings_gfx_index(&db) {
+            Some(index) => {
+                println!(
+                    "[pdxmesh] loaded {} .gfx files ({} meshes, {} entities)",
+                    index.files_loaded,
+                    index.meshes.len(),
+                    index.entities.len()
+                );
+                Some(index)
+            }
+            None => {
+                eprintln!("[pdxmesh] buildings.gfx unavailable; using hardcoded mesh fallbacks");
+                None
+            }
+        };
+        let defs = resolve_mesh_specs(gfx_index.as_ref());
 
-        // (mesh_path, fallback_diffuse_path, fallback_normal_path, fallback_specular_path)
-        // material 自己提取的优先于 fallback 路径。
-        let defs: [(&str, &str, &str, &str); 3] = [
-            (
-                "gfx/models/buildings/civ_factory.mesh",
-                "gfx/models/buildings/factory_d.dds",
-                "gfx/models/buildings/factory_n.dds",
-                "gfx/models/buildings/factory_s.dds",
-            ),
-            (
-                "gfx/models/buildings/factory.mesh",
-                "gfx/models/buildings/factory_d.dds",
-                "gfx/models/buildings/factory_n.dds",
-                "gfx/models/buildings/factory_s.dds",
-            ),
-            (
-                "gfx/models/buildings/dock_01.mesh",
-                "gfx/models/buildings/dock_diffuse.dds",
-                "gfx/models/buildings/dock_normal.dds",
-                "gfx/models/buildings/dock_specular.dds",
-            ),
-        ];
-
-        let mut types_vec: Vec<MeshTypeResources> = Vec::with_capacity(3);
+        let mut types: Vec<MeshTypeResources> = Vec::with_capacity(defs.len());
         let mut any_loaded = false;
-        for (i, (mesh_path, fb_diff, fb_norm, fb_spec)) in defs.iter().enumerate() {
-            let res = load_mesh_type(
-                device,
-                queue,
-                &db,
-                mesh_path,
-                fb_diff,
-                fb_norm,
-                fb_spec,
-                &bgl2,
-                &mat_sampler,
-            );
+        for (i, spec) in defs.iter().enumerate() {
+            let res = load_mesh_type(device, queue, &db, spec, &bgl2, &mat_sampler);
             if res.loaded {
                 any_loaded = true;
                 println!(
-                    "[pdxmesh] type {} loaded ({} verts, {} idx)",
+                    "[pdxmesh] type {} '{}' loaded from {} ({} lods, {} idx)",
                     i,
-                    res.index_count / 3,
-                    res.index_count
+                    spec.label,
+                    spec.mesh_path,
+                    res.lods.len(),
+                    res.lods.iter().map(|lod| lod.index_count).sum::<u32>()
                 );
             } else {
                 eprintln!(
-                    "[pdxmesh] type {} ({}) FAILED — falling back to empty buffers",
-                    i, mesh_path
+                    "[pdxmesh] type {} '{}' ({}) FAILED - empty buffers",
+                    i, spec.label, spec.mesh_path
                 );
             }
-            types_vec.push(res);
+            types.push(res);
         }
-        let types: [MeshTypeResources; 3] = types_vec
-            .try_into()
-            .unwrap_or_else(|_| panic!("[pdxmesh] internal: 3 types expected"));
 
         Self {
             pipeline,
@@ -649,26 +744,60 @@ impl PdxMeshPass {
             types,
             material_buffer,
             any_loaded,
+            lod_uploaded: false,
+            lod_last_cam_pos: [f32::NAN; 3],
+            lod_bias: 0,
         }
     }
 
-    /// 设置 / 更新建筑实例数据。按 `kind` 拆分到三类 instance buffer。
-    pub fn set_buildings(&mut self, device: &wgpu::Device, buildings: &[BuildingInstance]) {
+    /// 设置 / 更新建筑实例数据。按 `kind` 拆分到地图物件 instance buffer。
+    pub fn set_buildings(&mut self, _device: &wgpu::Device, buildings: &[BuildingInstance]) {
         let split = split_buildings_by_kind(buildings);
-        for (i, inst_vec) in split.iter().enumerate() {
-            // 为空时仍创建一个 1-instance dummy 占位（不画 — count = 0）
-            let bytes: &[u8] = if inst_vec.is_empty() {
-                &[0u8; std::mem::size_of::<PdxMeshInstance>()]
-            } else {
-                bytemuck::cast_slice(inst_vec)
-            };
-            self.types[i].instance_buffer =
-                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("pdxmesh_instances"),
-                    contents: bytes,
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-            self.types[i].instance_count = inst_vec.len() as u32;
+        for ty in &mut self.types {
+            ty.all_instances = split
+                .get(ty.kind as usize)
+                .cloned()
+                .unwrap_or_else(Vec::new);
+            for lod in &mut ty.lods {
+                lod.instance_count = 0;
+            }
+        }
+        self.lod_uploaded = false;
+    }
+
+    pub fn upload_lod_instances(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        cam_pos: [f32; 3],
+    ) {
+        for ty in &mut self.types {
+            upload_type_lod_instances(device, queue, ty, cam_pos, self.lod_bias);
+        }
+        self.lod_uploaded = true;
+        self.lod_last_cam_pos = cam_pos;
+    }
+
+    pub fn set_lod_bias(&mut self, lod_bias: u8) {
+        let lod_bias = lod_bias.min(2);
+        if self.lod_bias != lod_bias {
+            self.lod_bias = lod_bias;
+            self.lod_uploaded = false;
+        }
+    }
+
+    pub fn ensure_lod_uploaded(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        cam_pos: [f32; 3],
+    ) {
+        let last = self.lod_last_cam_pos;
+        let moved_sq = (cam_pos[0] - last[0]).powi(2)
+            + (cam_pos[1] - last[1]).powi(2)
+            + (cam_pos[2] - last[2]).powi(2);
+        if !self.lod_uploaded || !moved_sq.is_finite() || moved_sq > 4.0 {
+            self.upload_lod_instances(device, queue, cam_pos);
         }
     }
 
@@ -684,8 +813,10 @@ impl PdxMeshPass {
         opacity: f32,
         scale: f32,
         brightness: f32,
+        snow_factor: f32,
     ) {
         let material = MeshMaterial {
+            feature_flags: [1.0, 1.0, 0.0, snow_factor.clamp(0.0, 1.0)],
             phase8_controls: [
                 opacity.clamp(0.0, 1.0),
                 scale.clamp(0.25, 1.5),
@@ -753,6 +884,18 @@ impl PdxMeshPass {
                     binding: 8,
                     resource: wgpu::BindingResource::TextureView(&runtime_targets.fow.view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::TextureView(&runtime_targets.light_data.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 10,
+                    resource: wgpu::BindingResource::TextureView(&runtime_targets.light_index.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 11,
+                    resource: wgpu::BindingResource::TextureView(&runtime_targets.mud_snow.view),
+                },
             ],
         });
     }
@@ -767,79 +910,277 @@ impl PdxMeshPass {
         pass.set_bind_group(0, &self.bind_group_0, &[]);
         pass.set_bind_group(1, &self.bind_group_1, &[]);
         for ty in &self.types {
-            if !ty.loaded || ty.instance_count == 0 || ty.index_count == 0 {
+            if !ty.loaded {
                 continue;
             }
             pass.set_bind_group(2, &ty.bind_group_2, &[]);
-            pass.set_vertex_buffer(0, ty.vertex_buffer.slice(..));
-            pass.set_vertex_buffer(1, ty.instance_buffer.slice(..));
-            pass.set_index_buffer(ty.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..ty.index_count, 0, 0..ty.instance_count);
+            for lod in &ty.lods {
+                if lod.instance_count == 0 || lod.index_count == 0 {
+                    continue;
+                }
+                pass.set_vertex_buffer(0, lod.vertex_buffer.slice(..));
+                pass.set_vertex_buffer(1, lod.instance_buffer.slice(..));
+                pass.set_index_buffer(lod.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..lod.index_count, 0, 0..lod.instance_count);
+            }
         }
     }
 
-    /// 总实例数（3 类之和）— 用于调试 banner。
+    /// 总实例数（所有对象类型之和）— 用于调试 banner。
     pub fn total_instances(&self) -> u32 {
-        self.types.iter().map(|t| t.instance_count).sum()
+        self.types
+            .iter()
+            .map(|t| t.all_instances.len() as u32)
+            .sum()
+    }
+
+    pub fn mesh_type_count(&self) -> usize {
+        self.types.len()
+    }
+
+    pub fn loaded_draw_count(&self) -> u32 {
+        self.types
+            .iter()
+            .filter(|t| t.loaded)
+            .flat_map(|t| t.lods.iter())
+            .filter(|lod| lod.instance_count > 0 && lod.index_count > 0)
+            .count() as u32
     }
 }
 
 // ─── 私有 helpers ─────────────────────────────────────────────────────────
 
+const MESH_TYPE_SPECS: &[MeshTypeSpec] = &[
+    MeshTypeSpec {
+        kind: BUILDING_KIND_INDUSTRIAL,
+        label: "industrial",
+        names: &["building_industrial_complex"],
+        fallback_mesh: "gfx/models/buildings/civ_factory.mesh",
+        fallback_diffuse: "gfx/models/buildings/factory_d.dds",
+        fallback_normal: "gfx/models/buildings/factory_n.dds",
+        fallback_specular: "gfx/models/buildings/factory_s.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_MILITARY,
+        label: "military",
+        names: &["building_arms_factory"],
+        fallback_mesh: "gfx/models/buildings/factory.mesh",
+        fallback_diffuse: "gfx/models/buildings/factory_d.dds",
+        fallback_normal: "gfx/models/buildings/factory_n.dds",
+        fallback_specular: "gfx/models/buildings/factory_s.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_DOCKYARD,
+        label: "dockyard",
+        names: &[
+            "building_dockyard_1",
+            "building_dockyard_2",
+            "building_dockyard_3",
+        ],
+        fallback_mesh: "gfx/models/buildings/dock_01.mesh",
+        fallback_diffuse: "gfx/models/buildings/dock_diffuse.dds",
+        fallback_normal: "gfx/models/buildings/dock_normal.dds",
+        fallback_specular: "gfx/models/buildings/dock_specular.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_AIR_BASE,
+        label: "air_base",
+        names: &["building_air_base"],
+        fallback_mesh: "gfx/models/buildings/hangar_flight.mesh",
+        fallback_diffuse: "gfx/models/buildings/hangar_flight_diffuse.dds",
+        fallback_normal: "gfx/models/buildings/hangar_flight_normal.dds",
+        fallback_specular: "gfx/models/buildings/hangar_flight_specular.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_NAVAL_BASE,
+        label: "naval_base",
+        names: &[
+            "building_naval_base_1",
+            "building_naval_base_2",
+            "building_naval_base_3",
+        ],
+        fallback_mesh: "gfx/models/buildings/navalbase_01.mesh",
+        fallback_diffuse: "gfx/models/buildings/naval_diffuse.dds",
+        fallback_normal: "gfx/models/buildings/naval_normal.dds",
+        fallback_specular: "gfx/models/buildings/naval_specular.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_RADAR,
+        label: "radar",
+        names: &["building_radar_station_mesh", "building_radar_station"],
+        fallback_mesh: "gfx/models/buildings/radar.mesh",
+        fallback_diffuse: "gfx/models/buildings/radar_base_d.dds",
+        fallback_normal: "gfx/models/buildings/radar_base_n.dds",
+        fallback_specular: "gfx/models/buildings/radar_base_s.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_ANTI_AIR,
+        label: "anti_air",
+        names: &["building_anti_air_building"],
+        fallback_mesh: "gfx/models/buildings/88aagun.mesh",
+        fallback_diffuse: "gfx/models/buildings/88_aagun_d.dds",
+        fallback_normal: "gfx/models/buildings/88_aagun_n.dds",
+        fallback_specular: "gfx/models/buildings/88_aagun_s.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_BUNKER,
+        label: "bunker",
+        names: &["building_bunker"],
+        fallback_mesh: "gfx/models/buildings/bunker.mesh",
+        fallback_diffuse: "gfx/models/buildings/bunkercomplex_diffuse.dds",
+        fallback_normal: "gfx/models/buildings/bunkercomplex_normal.dds",
+        fallback_specular: "gfx/models/buildings/bunkercomplex_specular.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_COASTAL_BUNKER,
+        label: "coastal_bunker",
+        names: &["building_coastal_bunker"],
+        fallback_mesh: "gfx/models/buildings/navalfort_01.mesh",
+        fallback_diffuse: "gfx/models/buildings/navalfort_d.dds",
+        fallback_normal: "gfx/models/buildings/navalfort_d.dds",
+        fallback_specular: "gfx/models/buildings/navalfort_specular.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_REFINERY,
+        label: "refinery",
+        names: &["building_oil_refinery"],
+        fallback_mesh: "gfx/models/buildings/oil_refinery.mesh",
+        fallback_diffuse: "gfx/models/buildings/oil_refinery_diffuse.dds",
+        fallback_normal: "gfx/models/buildings/oil_refinery_normal.dds",
+        fallback_specular: "gfx/models/buildings/oil_refinery_specular.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_FUEL_SILO,
+        label: "fuel_silo",
+        names: &["building_fuel_silo"],
+        fallback_mesh: "gfx/models/buildings/fuel_silo.mesh",
+        fallback_diffuse: "gfx/models/buildings/fuel_silo_diffuse.dds",
+        fallback_normal: "gfx/models/buildings/fuel_silo_normal.dds",
+        fallback_specular: "gfx/models/buildings/fuel_silo_specular.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_NUCLEAR_REACTOR,
+        label: "nuclear_reactor",
+        names: &[
+            "building_nuclear_reactor",
+            "building_commercial_nuclear_reactor",
+        ],
+        fallback_mesh: "gfx/models/buildings/nuclear_reactor.mesh",
+        fallback_diffuse: "gfx/models/buildings/nuclearreactor_diffuse.dds",
+        fallback_normal: "gfx/models/buildings/nuclearreactor_normal.dds",
+        fallback_specular: "gfx/models/buildings/nuclearreactor_specular.dds",
+    },
+    MeshTypeSpec {
+        kind: BUILDING_KIND_ROCKET_SITE,
+        label: "rocket_site",
+        names: &["building_rocket_site"],
+        fallback_mesh: "gfx/models/buildings/rocket_site.mesh",
+        fallback_diffuse: "gfx/models/buildings/facility_diffuse.dds",
+        fallback_normal: "gfx/models/buildings/facility_normal.dds",
+        fallback_specular: "gfx/models/buildings/facility_specular.dds",
+    },
+];
+
+fn load_buildings_gfx_index(db: &FsAssetDb) -> Option<GfxIndex> {
+    let mut index = GfxIndex::new();
+    if let Err(e) = index.load_file(db, "gfx/entities/buildings.gfx") {
+        eprintln!("[pdxmesh] gfx/entities/buildings.gfx load failed: {}", e);
+        return None;
+    }
+    Some(index)
+}
+
+fn resolve_mesh_specs(index: Option<&GfxIndex>) -> Vec<ResolvedMeshTypeSpec> {
+    MESH_TYPE_SPECS
+        .iter()
+        .map(|spec| {
+            let resolved =
+                index.and_then(|idx| idx.first_mesh_for_names(spec.names.iter().copied()));
+            let mesh_path = resolved
+                .map(|m| m.file.clone())
+                .filter(|p| !p.is_empty())
+                .unwrap_or_else(|| spec.fallback_mesh.to_string());
+            let (fb_diff, fb_norm, fb_spec) =
+                resolve_gfx_material_fallbacks(resolved, &mesh_path, spec);
+            ResolvedMeshTypeSpec {
+                kind: spec.kind,
+                label: spec.label,
+                mesh_path,
+                fallback_diffuse: fb_diff,
+                fallback_normal: fb_norm,
+                fallback_specular: fb_spec,
+            }
+        })
+        .collect()
+}
+
+fn resolve_gfx_material_fallbacks(
+    mesh: Option<&hoi4_assets::GfxMeshDef>,
+    mesh_path: &str,
+    spec: &MeshTypeSpec,
+) -> (String, String, String) {
+    if let Some(settings) = mesh.and_then(|m| m.meshsettings.first()) {
+        let diff = settings
+            .texture_diffuse
+            .as_ref()
+            .map(|p| normalize_mesh_tex_path(p, mesh_path))
+            .unwrap_or_else(|| spec.fallback_diffuse.to_string());
+        let norm = settings
+            .texture_normal
+            .as_ref()
+            .map(|p| normalize_mesh_tex_path(p, mesh_path))
+            .unwrap_or_else(|| spec.fallback_normal.to_string());
+        let specular = settings
+            .texture_specular
+            .as_ref()
+            .map(|p| normalize_mesh_tex_path(p, mesh_path))
+            .unwrap_or_else(|| spec.fallback_specular.to_string());
+        return (diff, norm, specular);
+    }
+    (
+        spec.fallback_diffuse.to_string(),
+        spec.fallback_normal.to_string(),
+        spec.fallback_specular.to_string(),
+    )
+}
+
 fn load_mesh_type(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     db: &FsAssetDb,
-    mesh_path: &str,
-    fb_diff: &str,
-    fb_norm: &str,
-    fb_spec: &str,
+    spec: &ResolvedMeshTypeSpec,
     bgl2: &wgpu::BindGroupLayout,
     mat_sampler: &wgpu::Sampler,
 ) -> MeshTypeResources {
-    let parsed = match db.open(mesh_path) {
-        Ok(bytes) => match PdxMeshAsset::parse(&bytes) {
-            Ok(m) => Some(m),
-            Err(e) => {
-                eprintln!("[pdxmesh] {} parse error: {}", mesh_path, e);
-                None
-            }
-        },
+    let mesh_path = spec.mesh_path.as_str();
+    let parsed = match db.parse_or_get::<PdxMeshAsset, _>(mesh_path, |bytes| {
+        PdxMeshAsset::parse(bytes).map_err(|err| AssetError::parse(mesh_path, err.to_string()))
+    }) {
+        Ok(mesh) => Some(mesh),
         Err(e) => {
-            eprintln!("[pdxmesh] {} open failed: {}", mesh_path, e);
+            eprintln!("[pdxmesh] {} load failed: {}", mesh_path, e);
             None
         }
     };
 
-    let (vertices, indices, mat) = match parsed {
+    let mut lod_distances = DEFAULT_LOD_DISTANCES.to_vec();
+    let (lods, mat) = match parsed {
         Some(m) if !m.meshes.is_empty() => {
-            // 取第一个 SubMesh（最高 LOD）
-            let sub = m.meshes.into_iter().next().unwrap();
-            let mut verts = Vec::with_capacity(sub.positions.len());
-            for i in 0..sub.positions.len() {
-                let pos = sub.positions[i];
-                let normal = if i < sub.normals.len() {
-                    sub.normals[i]
-                } else {
-                    [0.0, 1.0, 0.0]
-                };
-                let uv = if i < sub.uvs.len() {
-                    sub.uvs[i]
-                } else {
-                    [0.0, 0.0]
-                };
-                verts.push(MeshVertex {
-                    pos,
-                    _pad0: 0.0,
-                    normal,
-                    _pad1: 0.0,
-                    uv,
-                    _pad2: [0.0; 2],
-                });
+            if !m.lod_distances.is_empty() {
+                lod_distances.clear();
+                for d in &m.lod_distances {
+                    lod_distances.push((*d * MESH_LOD_WORLD_SCALE).max(1.0));
+                }
+                while lod_distances.len() < m.meshes.len() {
+                    let next = lod_distances.last().copied().unwrap_or(28.0) * 2.0;
+                    lod_distances.push(next);
+                }
             }
-            (verts, sub.indices, Some(sub.material))
+            let first_mat = m.meshes.first().map(|sub| sub.material.clone());
+            let out = create_lod_resources_from_mesh(device, &m);
+            (out, first_mat)
         }
-        _ => (Vec::new(), Vec::new(), None),
+        _ => (Vec::new(), None),
     };
 
     // 解析 material 字符串 → 实际贴图路径（fall back to defaults）
@@ -851,16 +1192,16 @@ fn load_mesh_type(
     };
     let diffuse_path = mat
         .as_ref()
-        .map(|m| resolve_path(m.diffuse.as_ref(), fb_diff))
-        .unwrap_or_else(|| fb_diff.to_string());
-    let _normal_path = mat
+        .map(|m| resolve_path(m.diffuse.as_ref(), &spec.fallback_diffuse))
+        .unwrap_or_else(|| spec.fallback_diffuse.clone());
+    let normal_path = mat
         .as_ref()
-        .map(|m| resolve_path(m.normal.as_ref(), fb_norm))
-        .unwrap_or_else(|| fb_norm.to_string());
-    let _specular_path = mat
+        .map(|m| resolve_path(m.normal.as_ref(), &spec.fallback_normal))
+        .unwrap_or_else(|| spec.fallback_normal.clone());
+    let specular_path = mat
         .as_ref()
-        .map(|m| resolve_path(m.specular.as_ref(), fb_spec))
-        .unwrap_or_else(|| fb_spec.to_string());
+        .map(|m| resolve_path(m.specular.as_ref(), &spec.fallback_specular))
+        .unwrap_or_else(|| spec.fallback_specular.clone());
 
     // Phase 3.12.14: Log mesh shader name and validate against registry.
     if let Some(ref m) = mat {
@@ -879,7 +1220,7 @@ fn load_mesh_type(
         }
     }
 
-    // 加载 diffuse；其他先用 1×1 fallback（feature_flags 关）
+    // 加载 diffuse / normal / spec；缺失时绑定 1x1 fallback。
     let diffuse_view = load_dds_texture(device, queue, db, &diffuse_path, true);
     let mut loaded = false;
     let diffuse_view = match diffuse_view {
@@ -895,9 +1236,10 @@ fn load_mesh_type(
             create_1x1_white(device, queue)
         }
     };
-    // normal / spec / emissive 先全占位 — 3.12.5 不接（feature_flags 关），3.12 后续修
-    let normal_view = create_1x1_normal(device, queue);
-    let spec_view = create_1x1_white(device, queue);
+    let normal_view = load_dds_texture(device, queue, db, &normal_path, false)
+        .unwrap_or_else(|| create_1x1_normal(device, queue));
+    let spec_view = load_dds_texture(device, queue, db, &specular_path, false)
+        .unwrap_or_else(|| create_1x1_white(device, queue));
     let emissive_view = create_1x1_black(device, queue);
 
     let bind_group_2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -927,10 +1269,89 @@ fn load_mesh_type(
         ],
     });
 
-    if vertices.is_empty() || indices.is_empty() {
+    if lods.is_empty() || lods.iter().all(|lod| lod.index_count == 0) {
         loaded = false;
     }
 
+    MeshTypeResources {
+        kind: spec.kind,
+        label: spec.label,
+        lods,
+        all_instances: Vec::new(),
+        lod_distances,
+        bind_group_2,
+        loaded,
+        source_mesh: mesh_path.to_string(),
+    }
+}
+
+fn create_lod_resources_from_mesh(
+    device: &wgpu::Device,
+    mesh: &PdxMeshAsset,
+) -> Vec<MeshLodResources> {
+    let mut lod_numbers: Vec<u32> = mesh.meshes.iter().map(|sub| sub.lod).collect();
+    lod_numbers.sort_unstable();
+    lod_numbers.dedup();
+    if lod_numbers.len() <= 1 && mesh.meshes.len() > 1 && !mesh.lod_distances.is_empty() {
+        let approx_lods = mesh.lod_distances.len().min(mesh.meshes.len());
+        return (0..approx_lods)
+            .map(|idx| {
+                let submeshes = [&mesh.meshes[idx]];
+                mesh_lod_from_submeshes(device, &submeshes)
+            })
+            .collect();
+    }
+    lod_numbers
+        .iter()
+        .map(|lod| {
+            let matching: Vec<&hoi4_assets::SubMesh> =
+                mesh.meshes.iter().filter(|sub| sub.lod == *lod).collect();
+            mesh_lod_from_submeshes(device, &matching)
+        })
+        .collect()
+}
+
+fn mesh_lod_from_submeshes(
+    device: &wgpu::Device,
+    submeshes: &[&hoi4_assets::SubMesh],
+) -> MeshLodResources {
+    let vertex_count: usize = submeshes.iter().map(|sub| sub.positions.len()).sum();
+    let index_count: usize = submeshes.iter().map(|sub| sub.indices.len()).sum();
+    let mut vertices = Vec::with_capacity(vertex_count);
+    let mut indices = Vec::with_capacity(index_count);
+    for sub in submeshes {
+        let base = vertices.len() as u32;
+        for i in 0..sub.positions.len() {
+            let pos = sub.positions[i];
+            let normal = if i < sub.normals.len() {
+                sub.normals[i]
+            } else {
+                [0.0, 1.0, 0.0]
+            };
+            let uv = if i < sub.uvs.len() {
+                sub.uvs[i]
+            } else {
+                [0.0, 0.0]
+            };
+            vertices.push(MeshVertex {
+                pos,
+                _pad0: 0.0,
+                normal,
+                _pad1: 0.0,
+                uv,
+                _pad2: [0.0; 2],
+            });
+        }
+        indices.extend(sub.indices.iter().map(|idx| idx.saturating_add(base)));
+    }
+    create_lod_resources(device, vertices, &indices)
+}
+
+fn create_lod_resources(
+    device: &wgpu::Device,
+    vertices: Vec<MeshVertex>,
+    indices: &[u32],
+) -> MeshLodResources {
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("pdxmesh_verts"),
         contents: if vertices.is_empty() {
@@ -945,25 +1366,80 @@ fn load_mesh_type(
         contents: if indices.is_empty() {
             &[0u8; 4]
         } else {
-            bytemuck::cast_slice(&indices)
+            bytemuck::cast_slice(indices)
         },
         usage: wgpu::BufferUsages::INDEX,
     });
-    let index_count = indices.len() as u32;
     let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("pdxmesh_instances_init"),
         contents: &[0u8; std::mem::size_of::<PdxMeshInstance>()],
-        usage: wgpu::BufferUsages::VERTEX,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
     });
-
-    MeshTypeResources {
+    MeshLodResources {
         vertex_buffer,
         index_buffer,
-        index_count,
+        index_count: indices.len() as u32,
         instance_buffer,
         instance_count: 0,
-        bind_group_2,
-        loaded,
+        instance_capacity: 1,
+    }
+}
+
+fn upload_type_lod_instances(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    ty: &mut MeshTypeResources,
+    cam_pos: [f32; 3],
+    lod_bias: u8,
+) {
+    let num_lods = ty.lods.len();
+    if num_lods == 0 {
+        return;
+    }
+    if ty.all_instances.is_empty() {
+        for lod in &mut ty.lods {
+            lod.instance_count = 0;
+        }
+        return;
+    }
+
+    let mut buckets: Vec<Vec<PdxMeshInstance>> = (0..num_lods).map(|_| Vec::new()).collect();
+    for inst in &ty.all_instances {
+        let dx = inst.pos[0] - cam_pos[0];
+        let dz = inst.pos[2] - cam_pos[2];
+        let dist = (dx * dx + dz * dz).sqrt();
+        let mut assigned = num_lods - 1;
+        for (lod_idx, &threshold) in ty.lod_distances.iter().enumerate() {
+            if lod_idx >= num_lods {
+                break;
+            }
+            if dist < threshold {
+                assigned = lod_idx;
+                break;
+            }
+        }
+        let biased = (assigned + lod_bias as usize).min(num_lods - 1);
+        buckets[biased].push(*inst);
+    }
+
+    for (lod, bucket) in ty.lods.iter_mut().zip(buckets.iter()) {
+        let count = bucket.len() as u32;
+        if count == 0 {
+            lod.instance_count = 0;
+            continue;
+        }
+        if count > lod.instance_capacity {
+            let new_cap = count.next_power_of_two();
+            lod.instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("pdxmesh_instances_grow"),
+                size: (new_cap as u64) * std::mem::size_of::<PdxMeshInstance>() as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            lod.instance_capacity = new_cap;
+        }
+        queue.write_buffer(&lod.instance_buffer, 0, bytemuck::cast_slice(bucket));
+        lod.instance_count = count;
     }
 }
 
@@ -1022,6 +1498,11 @@ fn load_dds_texture(
     }
     .max(1);
 
+    let sample_type = if format == wgpu::TextureFormat::Bc5RgUnorm {
+        wgpu::TextureFormat::Rgba8Unorm
+    } else {
+        format
+    };
     let texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("pdxmesh_tex"),
         size: wgpu::Extent3d {
@@ -1032,10 +1513,39 @@ fn load_dds_texture(
         mip_level_count: valid_mips,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format,
+        format: sample_type,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
+    if format == wgpu::TextureFormat::Bc5RgUnorm {
+        let mip = &dds.mips[0];
+        let expanded = decode_bc5_to_rgba8(
+            &dds.data[mip.offset..mip.offset + mip.size],
+            mip.width,
+            mip.height,
+        )?;
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &expanded,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(mip.width * 4),
+                rows_per_image: None,
+            },
+            wgpu::Extent3d {
+                width: mip.width,
+                height: mip.height,
+                depth_or_array_layers: 1,
+            },
+        );
+        return Some(texture.create_view(&Default::default()));
+    }
+
     for (i, mip) in dds.mips.iter().take(valid_mips as usize).enumerate() {
         let data = &dds.data[mip.offset..mip.offset + mip.size];
         let (block_w, bpb): (u32, u32) = match dds.format {
@@ -1067,6 +1577,73 @@ fn load_dds_texture(
         );
     }
     Some(texture.create_view(&Default::default()))
+}
+
+fn decode_bc5_to_rgba8(data: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
+    if width == 0 || height == 0 {
+        return None;
+    }
+    let blocks_wide = (width + 3) / 4;
+    let blocks_high = (height + 3) / 4;
+    let expected = blocks_wide as usize * blocks_high as usize * 16;
+    if data.len() < expected {
+        return None;
+    }
+    let mut out = vec![0u8; width as usize * height as usize * 4];
+    for by in 0..blocks_high {
+        for bx in 0..blocks_wide {
+            let offset = ((by * blocks_wide + bx) * 16) as usize;
+            let r = decode_bc_channel(&data[offset..offset + 8]);
+            let g = decode_bc_channel(&data[offset + 8..offset + 16]);
+            for y in 0..4 {
+                for x in 0..4 {
+                    let px = bx * 4 + x;
+                    let py = by * 4 + y;
+                    if px >= width || py >= height {
+                        continue;
+                    }
+                    let src = (y * 4 + x) as usize;
+                    let dst = ((py * width + px) * 4) as usize;
+                    out[dst] = r[src];
+                    out[dst + 1] = g[src];
+                    out[dst + 2] = 255;
+                    out[dst + 3] = 255;
+                }
+            }
+        }
+    }
+    Some(out)
+}
+
+fn decode_bc_channel(block: &[u8]) -> [u8; 16] {
+    let a0 = block[0];
+    let a1 = block[1];
+    let mut table = [0u8; 8];
+    table[0] = a0;
+    table[1] = a1;
+    if a0 > a1 {
+        for i in 1..6 {
+            table[i + 1] = (((6 - i) as u16 * a0 as u16 + i as u16 * a1 as u16) / 7) as u8;
+        }
+    } else {
+        for i in 1..4 {
+            table[i + 1] = (((4 - i) as u16 * a0 as u16 + i as u16 * a1 as u16) / 5) as u8;
+        }
+        table[6] = 0;
+        table[7] = 255;
+    }
+
+    let mut bits = 0u64;
+    for i in 0..6 {
+        bits |= (block[2 + i] as u64) << (8 * i);
+    }
+    let mut out = [0u8; 16];
+    for item in &mut out {
+        let idx = (bits & 0x7) as usize;
+        *item = table[idx];
+        bits >>= 3;
+    }
+    out
 }
 
 fn create_1x1_white(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::TextureView {
@@ -1173,8 +1750,8 @@ fn create_grey_cubemap(device: &wgpu::Device, queue: &wgpu::Queue) -> wgpu::Text
 ///
 /// 与 [`hoi4_render::translations::pdxmesh.wgsl`] 同款风格但：
 ///
-/// - 顶点输入只取 pos / normal / uv（3D 建筑 mesh 普遍无 tangent；
-///   `feature_flags.x` 关掉 normal 贴图）
+/// - 顶点输入只取 pos / normal / uv；fragment 端用屏幕导数近似 TBN，
+///   因此 vanilla normal map 可以在 instanced path 中生效。
 /// - 加 4 个 instance attributes：`instance_pos: vec3` / `instance_scale: f32` /
 ///   `instance_tint: vec4` (Unorm8x4) / `instance_rotation_y: f32`
 /// - 顶点 shader 用 instance 数据把局部 mesh 顶点变换到世界空间（绕 Y 轴自旋
@@ -1204,6 +1781,9 @@ struct MeshMaterial {
 @group(1) @binding(6) var gradient_border_ch3: texture_2d<f32>;
 @group(1) @binding(7) var province_secondary_color: texture_2d<f32>;
 @group(1) @binding(8) var fow_tex: texture_2d<f32>;
+@group(1) @binding(9) var light_data_tex: texture_2d<f32>;
+@group(1) @binding(10) var light_index_tex: texture_2d<f32>;
+@group(1) @binding(11) var mud_snow_tex: texture_2d<f32>;
 
 @group(2) @binding(0) var diffuse_tex: texture_2d<f32>;
 @group(2) @binding(1) var normal_tex: texture_2d<f32>;
@@ -1291,12 +1871,34 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         secondary.a * 0.18,
     );
 
-    // 法线（无 tangent → 仅用 vertex normal）
-    let normal = normalize(in.normal);
+    // Approximate tangent-space normal mapping from screen derivatives. It is
+    // less exact than authored tangents but gives vanilla building normal maps
+    // visible relief while keeping the instanced vertex format compact.
+    var normal = normalize(in.normal);
+    if (material.feature_flags.x > 0.5) {
+        let normal_sample = textureSample(normal_tex, mat_sampler, in.uv).rgb;
+        let n_local = unpack_normal(normal_sample);
+        let dp1 = dpdx(in.world_pos);
+        let dp2 = dpdy(in.world_pos);
+        let duv1 = dpdx(in.uv);
+        let duv2 = dpdy(in.uv);
+        let denom = duv1.x * duv2.y - duv1.y * duv2.x;
+        if (abs(denom) > 0.00001) {
+            let tangent = normalize((dp1 * duv2.y - dp2 * duv1.y) / denom);
+            let bitangent = normalize((-dp1 * duv2.x + dp2 * duv1.x) / denom);
+            let tbn = mat3x3<f32>(tangent, bitangent, normal);
+            normal = normalize(tbn * n_local);
+        }
+    }
 
     // Specular
-    let specular_color = vec3<f32>(material.pbr_packed.x);
-    let glossiness = material.pbr_packed.y;
+    var specular_color = vec3<f32>(material.pbr_packed.x);
+    var glossiness = material.pbr_packed.y;
+    if (material.feature_flags.y > 0.5) {
+        let sg = textureSample(spec_gloss_tex, mat_sampler, in.uv);
+        specular_color = mix(specular_color, sg.rgb * material.pbr_packed.x, 0.85);
+        glossiness = mix(glossiness, sg.a, 0.85);
+    }
     let non_linear_gloss = get_non_linear_glossiness(glossiness);
 
     // 主太阳方向（与 vanilla LIGHT_SHADOW_DIRECTION 一致）
@@ -1329,19 +1931,27 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let semantic_d = textureSample(gradient_border_ch3, environment_sampler, map_uv).r * 255.0;
     let border_hint = 1.0 - smoothstep(0.0, 3.5, min(min(country_d, province_d), semantic_d));
     lit = mix(lit, lit * vec3<f32>(0.82, 0.84, 0.80), border_hint * 0.10);
+    let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
+    let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
 
     // Emissive（建筑窗户夜光）— feature_flags.z = 0 时跳过
     if (material.feature_flags.z > 0.5) {
         let emit = textureSample(emissive_tex, mat_sampler, in.uv).rgb;
-        let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
-        let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
         lit += emit * material.pbr_packed.w * (0.2 + night * 0.8);
     } else {
         // 即使没贴图也给一个固定亮度的"窗户夜光"模拟（建筑被夜半球时整体提亮）
         let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
-        let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
         lit += diffuse_albedo * material.pbr_packed.w * 0.25 * night;
     }
+
+    lit += calculate_point_lights(
+        light_data_tex,
+        light_index_tex,
+        in.map_px,
+        in.world_pos,
+        normal,
+        (0.18 + night * 0.82) * 0.52
+    ) * 0.20;
 
     // Rim light
     let rim = smoothstep(0.55, 0.6, 1.0 - max(dot(normal, to_camera), 0.0));
@@ -1350,7 +1960,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Snow accumulation (feature_flags.w = 0 时跳过)
     if (material.feature_flags.w > 0.0) {
         let up_factor = max(normal.y, 0.0);
-        let snow = up_factor * material.feature_flags.w;
+        let mud_snow = textureSample(mud_snow_tex, environment_sampler, map_uv);
+        let map_snow = get_snow(mud_snow, frame.fow_opacity_time_snow_max_speed.z);
+        let snow = up_factor * material.feature_flags.w * map_snow;
         lit = mix(lit, SNOW_COLOR_LIB, clamp(snow, 0.0, 0.85));
     }
 
@@ -1406,7 +2018,10 @@ mod tests {
                 kind: 99.0, // ignored
             },
         ];
-        let [civ, mil, dock] = split_buildings_by_kind(&buildings);
+        let split = split_buildings_by_kind(&buildings);
+        let civ = &split[BUILDING_KIND_INDUSTRIAL as usize];
+        let mil = &split[BUILDING_KIND_MILITARY as usize];
+        let dock = &split[BUILDING_KIND_DOCKYARD as usize];
         assert_eq!(civ.len(), 2);
         assert_eq!(mil.len(), 1);
         assert_eq!(dock.len(), 1);
@@ -1423,7 +2038,8 @@ mod tests {
                 kind: 0.0,
             })
             .collect();
-        let [civ, _, _] = split_buildings_by_kind(&buildings);
+        let split = split_buildings_by_kind(&buildings);
+        let civ = &split[BUILDING_KIND_INDUSTRIAL as usize];
         // 6 个建筑应有 6 个不同的 rotation_y（hash-based）
         let rotations: Vec<f32> = civ.iter().map(|i| i.rotation_y).collect();
         for i in 0..rotations.len() {
@@ -1440,12 +2056,22 @@ mod tests {
 
     #[test]
     fn tints_distinct_per_kind() {
-        let civ_tint = tint_for_kind(0.0);
-        let mil_tint = tint_for_kind(1.0);
-        let dock_tint = tint_for_kind(2.0);
+        let civ_tint = tint_for_kind(BUILDING_KIND_INDUSTRIAL as f32);
+        let mil_tint = tint_for_kind(BUILDING_KIND_MILITARY as f32);
+        let dock_tint = tint_for_kind(BUILDING_KIND_DOCKYARD as f32);
         assert_ne!(civ_tint, mil_tint);
         assert_ne!(mil_tint, dock_tint);
         assert_ne!(civ_tint, dock_tint);
+    }
+
+    #[test]
+    fn mesh_specs_cover_object_kinds() {
+        assert_eq!(MESH_TYPE_SPECS.len(), PDXMESH_OBJECT_KIND_COUNT);
+        for (idx, spec) in MESH_TYPE_SPECS.iter().enumerate() {
+            assert_eq!(spec.kind as usize, idx);
+            assert!(!spec.names.is_empty());
+            assert!(spec.fallback_mesh.ends_with(".mesh"));
+        }
     }
 
     #[test]
@@ -1484,5 +2110,23 @@ mod tests {
             eprintln!("{}", e);
         }
         assert!(result.is_ok(), "pdxmesh instanced wgsl should parse");
+    }
+
+    #[test]
+    fn pdxmesh_instanced_wgsl_references_phase5_light_maps() {
+        for token in [
+            "light_data_tex",
+            "light_index_tex",
+            "mud_snow_tex",
+            "calculate_point_lights(",
+            "@group(1) @binding(9)",
+            "@group(1) @binding(10)",
+            "@group(1) @binding(11)",
+        ] {
+            assert!(
+                PDXMESH_INSTANCED_WGSL.contains(token),
+                "missing Phase 5 mesh light token: {token}"
+            );
+        }
     }
 }

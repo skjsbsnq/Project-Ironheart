@@ -90,24 +90,8 @@ fn write_pixel(lut: &mut [u8], idx: usize, r: u8, g: u8, b: u8) {
     }
 }
 
-fn vivid_political_color(color: [u8; 3]) -> (u8, u8, u8) {
-    let r = color[0] as f32;
-    let g = color[1] as f32;
-    let b = color[2] as f32;
-    let lum = r * 0.299 + g * 0.587 + b * 0.114;
-    let darken = if lum > 180.0 {
-        0.86
-    } else if lum > 135.0 {
-        0.93
-    } else {
-        1.0
-    };
-    let tone = |channel: f32| -> u8 {
-        let saturated = lum + (channel - lum) * 1.38;
-        let contrasted = (saturated - 128.0) * 1.08 + 128.0;
-        (contrasted * darken).clamp(0.0, 255.0) as u8
-    };
-    (tone(r), tone(g), tone(b))
+fn political_lut_color(color: [u8; 3]) -> (u8, u8, u8) {
+    (color[0], color[1], color[2])
 }
 
 fn country_for_controller_color(
@@ -148,7 +132,7 @@ fn fill_political(world: &World, lut: &mut [u8]) {
             continue;
         }
         let c = world.countries.colors[country.0 as usize];
-        let (r, g, b) = vivid_political_color(c);
+        let (r, g, b) = political_lut_color(c);
         write_pixel(lut, prov_idx, r, g, b);
     }
 }
@@ -591,8 +575,8 @@ mod tests {
 
         let lut = build_color_lut(&world, MapMode::Political, None);
 
-        let ger_color = vivid_political_color(world.countries.colors[ger.0 as usize]);
-        let fra_color = vivid_political_color(world.countries.colors[fra.0 as usize]);
+        let ger_color = political_lut_color(world.countries.colors[ger.0 as usize]);
+        let fra_color = political_lut_color(world.countries.colors[fra.0 as usize]);
         assert_eq!(rgb_at(&lut, 1), [ger_color.0, ger_color.1, ger_color.2]);
         assert_eq!(rgb_at(&lut, 2), [fra_color.0, fra_color.1, fra_color.2]);
     }
@@ -614,9 +598,15 @@ mod tests {
         );
 
         let lut = build_color_lut(&world, MapMode::Political, None);
-        let ger_color = vivid_political_color(world.countries.colors[ger.0 as usize]);
+        let ger_color = political_lut_color(world.countries.colors[ger.0 as usize]);
 
         assert_eq!(rgb_at(&lut, 2), [ger_color.0, ger_color.1, ger_color.2]);
+    }
+
+    #[test]
+    fn political_lut_keeps_vanilla_country_color_ungraded() {
+        assert_eq!(political_lut_color([60, 90, 170]), (60, 90, 170));
+        assert_eq!(political_lut_color([210, 205, 180]), (210, 205, 180));
     }
 
     #[test]

@@ -16,8 +16,11 @@ pub struct Cli {
     pub map_phase0: bool,
     pub map_phase0_report_only: bool,
     pub map_phase0_output: std::path::PathBuf,
+    pub map_phase0_reference_root: Option<std::path::PathBuf>,
     pub map_audit: bool,
     pub map_audit_output: std::path::PathBuf,
+    pub map_image_diff: Option<(std::path::PathBuf, std::path::PathBuf)>,
+    pub map_image_diff_output: std::path::PathBuf,
     pub help_requested: bool,
 }
 
@@ -30,8 +33,11 @@ pub fn parse_cli() -> Cli {
         map_phase0: false,
         map_phase0_report_only: false,
         map_phase0_output: std::path::PathBuf::from("target/map_parity"),
+        map_phase0_reference_root: None,
         map_audit: false,
         map_audit_output: std::path::PathBuf::from("target/map_audit"),
+        map_image_diff: None,
+        map_image_diff_output: crate::map_image_diff::default_output_path(),
         help_requested: false,
     };
     let mut args = std::env::args().skip(1);
@@ -67,10 +73,38 @@ pub fn parse_cli() -> Cli {
                     out.map_phase0_output = std::path::PathBuf::from(v);
                 }
             }
+            "--map-phase0-reference-root" | "--map-parity-reference-root" => {
+                if let Some(v) = args.next() {
+                    out.map_phase0_reference_root = Some(std::path::PathBuf::from(v));
+                }
+            }
             "--map-audit" => out.map_audit = true,
             "--map-audit-output" => {
                 if let Some(v) = args.next() {
                     out.map_audit_output = std::path::PathBuf::from(v);
+                }
+            }
+            "--map-image-diff" | "--map-parity-diff" => {
+                let project = args.next();
+                let reference = args.next();
+                match (project, reference) {
+                    (Some(project), Some(reference)) => {
+                        out.map_image_diff = Some((
+                            std::path::PathBuf::from(project),
+                            std::path::PathBuf::from(reference),
+                        ));
+                    }
+                    _ => {
+                        eprintln!(
+                            "[hoi4-app] --map-image-diff requires <PROJECT.PNG> <REFERENCE.PNG>"
+                        );
+                        out.help_requested = true;
+                    }
+                }
+            }
+            "--map-image-diff-output" | "--map-parity-diff-output" => {
+                if let Some(v) = args.next() {
+                    out.map_image_diff_output = std::path::PathBuf::from(v);
                 }
             }
             "-h" | "--help" => out.help_requested = true,
@@ -90,6 +124,7 @@ USAGE:
     hoi4-app --map-phase0 [--map-phase0-output <DIR>]
     hoi4-app --map-parity-capture [--map-parity-output <DIR>]
     hoi4-app --map-phase0-report-only [--map-phase0-output <DIR>]
+    hoi4-app --map-image-diff <PROJECT.PNG> <REFERENCE.PNG> [--map-image-diff-output <JSON>]
 
 OPTIONS:
     --game-path <PATH>      HOI4 install directory
@@ -103,6 +138,9 @@ OPTIONS:
     --map-phase0-report-only write Phase 0 manifest/audit without launching the renderer
     --map-phase0-output DIR output root for timestamped Phase 0 batches (default target/map_parity)
     --map-parity-output DIR alias for --map-phase0-output
+    --map-phase0-reference-root DIR copy vanilla reference PNGs from DIR before diffing
+    --map-image-diff A B    write Phase 12 PNG diff metrics for project/reference screenshots
+    --map-image-diff-output JSON output path for diff report (default target/map_parity_diff/report.json)
     -h, --help              show this help"#
     );
 }
@@ -201,6 +239,7 @@ pub fn print_controls() {
     println!("  V           - cycle border debug view");
     println!("  F1          - toggle GUI debug overlay");
     println!("  F6          - cycle terrain debug view");
+    println!("  Shift+F8    - cycle map quality preset (low-end/high/ultra)");
     println!("  F10         - cycle water debug view");
     println!("  F11         - toggle borderless fullscreen");
     println!("  ESC         - quit\n");

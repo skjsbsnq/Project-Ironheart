@@ -627,8 +627,9 @@ impl WorldObjectSystem {
         budget.counters *= quality.label_density;
         budget.objects *= quality.tree_density.max(quality.border_detail).min(1.0);
         let strategic = 1.0 - smoothstep(0.60, 0.90, zoom);
-        let close = smoothstep(0.38, 0.72, zoom);
-        let very_close = smoothstep(0.62, 0.90, zoom);
+        let close = smoothstep(0.56, 0.86, zoom);
+        let very_close = smoothstep(0.78, 0.96, zoom);
+        let province_label_zoom = smoothstep(0.86, 0.98, zoom);
         let map_mode_object_focus = map_mode_object_factor(context.map_mode);
 
         let mut plan = WorldObjectPlan {
@@ -638,30 +639,34 @@ impl WorldObjectSystem {
 
         if mask.labels {
             let country_opacity =
-                budget.labels * mix(0.88, 0.62, close) * mix(0.82, 1.0, strategic);
-            let country_scale = mix(1.10, 0.76, close);
+                budget.labels * mix(0.62, 0.78, strategic) * mix(0.92, 0.70, close);
+            let country_scale = mix(0.92, 0.74, close);
             plan.country_names = WorldObjectDecision::visible(country_opacity, country_scale, 60);
 
-            let province_opacity = budget.labels * very_close;
-            let province_min_pixels = if zoom < 0.62 {
-                20_000
-            } else if zoom < 0.78 {
-                8_000
+            let province_opacity = budget.labels * province_label_zoom * 0.58;
+            let province_min_pixels = if zoom < 0.86 {
+                80_000
+            } else if zoom < 0.94 {
+                45_000
             } else {
-                2_500
+                18_000
             };
             let province_min_pixels =
                 ((province_min_pixels as f32) / quality.label_density.max(0.25)).round() as u32;
-            plan.province_names =
-                WorldObjectDecision::visible(province_opacity, mix(0.86, 1.0, very_close), 50);
+            plan.province_names = WorldObjectDecision::visible(
+                province_opacity,
+                mix(0.86, 1.0, province_label_zoom),
+                50,
+            );
             plan.province_name_min_pixels = province_min_pixels;
         }
 
         if mask.objects || mask.overlays {
-            let counter_base = budget.counters * smoothstep(0.10, 0.26, zoom);
-            let counter_scale = mix(0.82, 1.08, close);
+            let counter_visibility = smoothstep(0.52, 0.82, zoom);
+            let counter_base = budget.counters * mix(0.22, 1.0, counter_visibility);
+            let counter_scale = mix(0.58, 0.94, close);
             plan.counters = WorldObjectDecision::visible(counter_base, counter_scale, 90);
-            plan.counter_layout_density = mix(0.68, 1.0, close);
+            plan.counter_layout_density = mix(0.42, 0.90, close);
         }
 
         if mask.objects {
@@ -1145,11 +1150,11 @@ mod tests {
         assert!(!far_plan.draw.trees);
 
         let mut close = far;
-        close.zoom_factor = 0.82;
+        close.zoom_factor = 0.96;
         let close_plan = renderer.build_frame_plan(close, &registry);
         assert!(close_plan.draw.province_names);
         assert!(close_plan.draw.trees);
-        assert!(close_plan.world_objects.province_name_min_pixels < 10_000);
+        assert!(close_plan.world_objects.province_name_min_pixels <= 21_000);
     }
 
     #[test]
@@ -1159,7 +1164,7 @@ mod tests {
         renderer.register_passes(&mut registry);
 
         let mut high = test_context(MapLayerMask::all());
-        high.zoom_factor = 0.82;
+        high.zoom_factor = 0.96;
         high.settings =
             MapRenderSettings::with_quality(MapLayerMask::all(), MapQualityPreset::High);
         let mut ultra = high;

@@ -4,8 +4,8 @@
 //!
 //! ## Data source
 //!
-//! Currently uses mock data. Will be connected to `World.trade.routes`
-//! when the trade system is implemented.
+//! Reads `World.countries.trade.routes` and builds strip meshes from the
+//! route endpoints used by the simulation.
 //!
 //! ## Rendering
 //!
@@ -271,20 +271,24 @@ impl super::Pass for TradeRoutePass {
 
 // ─── Mesh generation ───────────────────────────────────────────────────────
 
-/// Generate a strip mesh along a path (list of world XZ points).
+/// Generate a strip mesh along a path (list of world XYZ points).
 /// Returns triangle-list vertices with UV for flowing dash effect.
-fn generate_route_strip(path: &[[f32; 2]], width: f32, amount: f32) -> Vec<TradeRouteVertex> {
+fn generate_route_strip(
+    path: &[[f32; 3]],
+    width: f32,
+    amount: f32,
+    height_lift: f32,
+) -> Vec<TradeRouteVertex> {
     if path.len() < 2 {
         return Vec::new();
     }
 
     let mut verts = Vec::new();
-    let y = 0.25; // slightly above terrain
 
     for i in 0..path.len() - 1 {
         let p0 = path[i];
         let p1 = path[i + 1];
-        let dir = [p1[0] - p0[0], p1[1] - p0[1]];
+        let dir = [p1[0] - p0[0], p1[2] - p0[2]];
         let len = (dir[0] * dir[0] + dir[1] * dir[1]).sqrt();
         if len < 0.0001 {
             continue;
@@ -296,38 +300,38 @@ fn generate_route_strip(path: &[[f32; 2]], width: f32, amount: f32) -> Vec<Trade
 
         // Two triangles forming a quad
         verts.push(TradeRouteVertex {
-            world_pos: [p0[0] + perp[0], y, p0[1] + perp[1]],
+            world_pos: [p0[0] + perp[0], p0[1] + height_lift, p0[2] + perp[1]],
             uv: [u_start, 0.0],
             trade_amount: amount,
             _pad: 0.0,
         });
         verts.push(TradeRouteVertex {
-            world_pos: [p0[0] - perp[0], y, p0[1] - perp[1]],
+            world_pos: [p0[0] - perp[0], p0[1] + height_lift, p0[2] - perp[1]],
             uv: [u_start, 1.0],
             trade_amount: amount,
             _pad: 0.0,
         });
         verts.push(TradeRouteVertex {
-            world_pos: [p1[0] + perp[0], y, p1[1] + perp[1]],
+            world_pos: [p1[0] + perp[0], p1[1] + height_lift, p1[2] + perp[1]],
             uv: [u_end, 0.0],
             trade_amount: amount,
             _pad: 0.0,
         });
 
         verts.push(TradeRouteVertex {
-            world_pos: [p0[0] - perp[0], y, p0[1] - perp[1]],
+            world_pos: [p0[0] - perp[0], p0[1] + height_lift, p0[2] - perp[1]],
             uv: [u_start, 1.0],
             trade_amount: amount,
             _pad: 0.0,
         });
         verts.push(TradeRouteVertex {
-            world_pos: [p1[0] - perp[0], y, p1[1] - perp[1]],
+            world_pos: [p1[0] - perp[0], p1[1] + height_lift, p1[2] - perp[1]],
             uv: [u_end, 1.0],
             trade_amount: amount,
             _pad: 0.0,
         });
         verts.push(TradeRouteVertex {
-            world_pos: [p1[0] + perp[0], y, p1[1] + perp[1]],
+            world_pos: [p1[0] + perp[0], p1[1] + height_lift, p1[2] + perp[1]],
             uv: [u_end, 0.0],
             trade_amount: amount,
             _pad: 0.0,
@@ -337,35 +341,195 @@ fn generate_route_strip(path: &[[f32; 2]], width: f32, amount: f32) -> Vec<Trade
     verts
 }
 
-/// Generate mock trade routes for testing.
-/// Returns vertices for a few hardcoded trade routes.
-/// Will be replaced by `World.trade.routes` data.
+/// Generate hardcoded trade routes for pass geometry tests.
+#[cfg(test)]
 pub fn generate_mock_trade_routes() -> Vec<TradeRouteVertex> {
     let s = 0.02; // WORLD_SCALE
 
     let mut all_verts = Vec::new();
 
     // Route 1: USA → UK (transatlantic)
-    let usa_cap = [30.0 * s, 52.0 * s];
-    let uk_cap = [34.0 * s, 50.0 * s];
+    let usa_cap = [30.0 * s, 0.25, 52.0 * s];
+    let uk_cap = [34.0 * s, 0.25, 50.0 * s];
     // Simple curved path across ocean
-    let mid = [(usa_cap[0] + uk_cap[0]) * 0.5, usa_cap[1] + 0.05];
+    let mid = [(usa_cap[0] + uk_cap[0]) * 0.5, 0.25, usa_cap[2] + 0.05];
     let path = vec![usa_cap, mid, uk_cap];
-    all_verts.extend(generate_route_strip(&path, 0.005, 0.8));
+    all_verts.extend(generate_route_strip(&path, 0.005, 0.8, 0.0));
 
     // Route 2: GER → SOV (east-west)
-    let ger_cap = [56.0 * s, 40.0 * s];
-    let sov_cap = [80.0 * s, 38.0 * s];
+    let ger_cap = [56.0 * s, 0.25, 40.0 * s];
+    let sov_cap = [80.0 * s, 0.25, 38.0 * s];
     let path2 = vec![ger_cap, sov_cap];
-    all_verts.extend(generate_route_strip(&path2, 0.005, 0.5));
+    all_verts.extend(generate_route_strip(&path2, 0.005, 0.5, 0.0));
 
     // Route 3: ITA → FRA
-    let ita_cap = [48.0 * s, 30.0 * s];
-    let fra_cap = [38.0 * s, 42.0 * s];
+    let ita_cap = [48.0 * s, 0.25, 30.0 * s];
+    let fra_cap = [38.0 * s, 0.25, 42.0 * s];
     let path3 = vec![ita_cap, fra_cap];
-    all_verts.extend(generate_route_strip(&path3, 0.004, 0.3));
+    all_verts.extend(generate_route_strip(&path3, 0.004, 0.3, 0.0));
 
     all_verts
+}
+
+/// Build trade-route strip vertices from the simulation's real route store.
+pub fn generate_trade_route_vertices(
+    world: &hoi4_state::World,
+    centroids: &[(f32, f32)],
+    world_scale: f32,
+    height_scale: f32,
+) -> Vec<TradeRouteVertex> {
+    let mut all_verts = Vec::new();
+    let max_throughput = world
+        .countries
+        .trade
+        .routes
+        .iter()
+        .filter(|route| !route.is_blockaded)
+        .map(|route| route.throughput.max(0.0))
+        .fold(0.0_f32, f32::max)
+        .max(1.0);
+
+    for route in &world.countries.trade.routes {
+        if route.is_blockaded || route.throughput <= 0.0 {
+            continue;
+        }
+        let Some(importer) =
+            country_capital_pos(world, route.importer, centroids, world_scale, height_scale)
+        else {
+            continue;
+        };
+        let Some(exporter) =
+            country_capital_pos(world, route.exporter, centroids, world_scale, height_scale)
+        else {
+            continue;
+        };
+
+        let amount = (route.throughput / max_throughput).clamp(0.15, 1.0);
+        let width = 0.004 + amount * 0.0035;
+        let lift = match route.kind {
+            hoi4_state::TradeRouteKind::Land => 0.035,
+            hoi4_state::TradeRouteKind::Transit => 0.04,
+            hoi4_state::TradeRouteKind::Sea | hoi4_state::TradeRouteKind::ImperialPreference => {
+                0.055
+            }
+        };
+
+        let mut path = Vec::with_capacity(3);
+        path.push(importer);
+        if let Some(port_state) = route.port_state {
+            if let Some(port) = state_pos(world, port_state, centroids, world_scale, height_scale) {
+                if distance_xz(importer, port) > 0.001 && distance_xz(port, exporter) > 0.001 {
+                    path.push(port);
+                }
+            }
+        } else if route.kind.uses_sea_lanes() {
+            path.push(curve_midpoint(importer, exporter, height_scale));
+        }
+        path.push(exporter);
+
+        all_verts.extend(generate_route_strip(&path, width, amount, lift));
+    }
+
+    all_verts
+}
+
+fn country_capital_pos(
+    world: &hoi4_state::World,
+    country: hoi4_state::CountryId,
+    centroids: &[(f32, f32)],
+    world_scale: f32,
+    height_scale: f32,
+) -> Option<[f32; 3]> {
+    if country.is_none() {
+        return None;
+    }
+    if let Some(&state) = world.countries.capitals.get(country.0 as usize) {
+        if let Some(pos) = state_pos(world, state, centroids, world_scale, height_scale) {
+            return Some(pos);
+        }
+    }
+    world
+        .states
+        .owners
+        .iter()
+        .enumerate()
+        .find_map(|(idx, &owner)| {
+            (owner == country).then(|| {
+                state_pos(
+                    world,
+                    hoi4_state::StateId(idx as u16),
+                    centroids,
+                    world_scale,
+                    height_scale,
+                )
+            })?
+        })
+}
+
+fn state_pos(
+    world: &hoi4_state::World,
+    state: hoi4_state::StateId,
+    centroids: &[(f32, f32)],
+    world_scale: f32,
+    height_scale: f32,
+) -> Option<[f32; 3]> {
+    if state.is_none() {
+        return None;
+    }
+    let provinces = world.states.provinces.get(state.0 as usize)?;
+    let mut sx = 0.0;
+    let mut sy = 0.0;
+    let mut n = 0.0;
+    for province in provinces {
+        let idx = province.0 as usize;
+        let Some(&(px, py)) = centroids.get(idx) else {
+            continue;
+        };
+        if px == 0.0 && py == 0.0 {
+            continue;
+        }
+        sx += px;
+        sy += py;
+        n += 1.0;
+    }
+    if n <= 0.0 {
+        return None;
+    }
+    let px = sx / n;
+    let py = sy / n;
+    Some([
+        px * world_scale,
+        sample_height(world, px, py, height_scale),
+        py * world_scale,
+    ])
+}
+
+fn sample_height(world: &hoi4_state::World, px: f32, py: f32, height_scale: f32) -> f32 {
+    let hmap = &world.map.heightmap;
+    if hmap.width == 0 || hmap.height == 0 || hmap.pixels.is_empty() {
+        return 0.0;
+    }
+    let x = px.clamp(0.0, hmap.width.saturating_sub(1) as f32) as u32;
+    let y = py.clamp(0.0, hmap.height.saturating_sub(1) as f32) as u32;
+    hmap.pixels[(y * hmap.width + x) as usize] as f32 / 255.0 * height_scale
+}
+
+fn curve_midpoint(a: [f32; 3], b: [f32; 3], height_scale: f32) -> [f32; 3] {
+    let dx = b[0] - a[0];
+    let dz = b[2] - a[2];
+    let len = (dx * dx + dz * dz).sqrt().max(0.0001);
+    let bend = (len * 0.18).clamp(0.04, 0.45);
+    [
+        (a[0] + b[0]) * 0.5 - dz / len * bend,
+        ((a[1] + b[1]) * 0.5).max(height_scale * 95.0 / 255.0),
+        (a[2] + b[2]) * 0.5 + dx / len * bend,
+    ]
+}
+
+fn distance_xz(a: [f32; 3], b: [f32; 3]) -> f32 {
+    let dx = b[0] - a[0];
+    let dz = b[2] - a[2];
+    (dx * dx + dz * dz).sqrt()
 }
 
 // ─── Inline WGSL ──────────────────────────────────────────────────────────
@@ -478,8 +642,9 @@ mod tests {
 
     #[test]
     fn route_strip_simple_path() {
-        let path = vec![[0.0, 0.0], [1.0, 0.0]];
-        let verts = generate_route_strip(&path, 0.05, 0.5);
+        let path = vec![[0.0, 0.2, 0.0], [1.0, 0.3, 0.0]];
+        let verts = generate_route_strip(&path, 0.05, 0.5, 0.05);
         assert_eq!(verts.len(), 6); // 1 quad = 2 triangles = 6 verts
+        assert!((verts[0].world_pos[1] - 0.25).abs() < 1e-5);
     }
 }

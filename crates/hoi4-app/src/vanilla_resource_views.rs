@@ -2,8 +2,11 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use hoi4_assets::{
-    dds_upload_plan, DdsImage, MapAssetAudit, MapResRole, MapSetError, VanillaMapSet,
+    dds_upload_plan, DdsImage, MapAssetAudit, MapResRole, MapSetError, PostEffectVolumeIndex,
+    TgaImage, VanillaMapSet,
 };
+
+use crate::vanilla_targets;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BindingSourceKind {
@@ -48,6 +51,11 @@ pub struct BindingAuditEntry {
     pub role: Option<MapResRole>,
     pub source_kind: BindingSourceKind,
     pub source_name: String,
+    pub source_detail: Option<String>,
+    pub resource_format: Option<String>,
+    pub resource_dimensions: Option<String>,
+    pub source_trace: Option<String>,
+    pub parity_status: Option<String>,
     pub loaded: bool,
     pub critical: bool,
     pub mock_name: Option<String>,
@@ -76,6 +84,11 @@ impl BindingAuditEntry {
                 BindingSourceKind::ProjectFallback
             },
             source_name: role.relative_path(),
+            source_detail: None,
+            resource_format: None,
+            resource_dimensions: None,
+            source_trace: None,
+            parity_status: None,
             loaded,
             critical,
             mock_name: None,
@@ -103,12 +116,56 @@ impl BindingAuditEntry {
             role: None,
             source_kind: BindingSourceKind::DynamicTarget,
             source_name: source_name.into(),
+            source_detail: None,
+            resource_format: None,
+            resource_dimensions: None,
+            source_trace: None,
+            parity_status: None,
             loaded: true,
             critical: false,
             mock_name: None,
             reason: None,
             visual_impact,
             blocking_level: BindingBlockingLevel::None,
+        }
+    }
+
+    pub fn plain_resource(
+        pass: &'static str,
+        binding: &'static str,
+        source_name: impl Into<String>,
+        loaded: bool,
+        critical: bool,
+        reason: Option<String>,
+        visual_impact: &'static str,
+    ) -> Self {
+        Self {
+            pass,
+            binding,
+            role: None,
+            source_kind: if loaded {
+                BindingSourceKind::VanillaResource
+            } else {
+                BindingSourceKind::ProjectFallback
+            },
+            source_name: source_name.into(),
+            source_detail: None,
+            resource_format: None,
+            resource_dimensions: None,
+            source_trace: None,
+            parity_status: None,
+            loaded,
+            critical,
+            mock_name: None,
+            reason,
+            visual_impact,
+            blocking_level: if loaded {
+                BindingBlockingLevel::None
+            } else if critical {
+                BindingBlockingLevel::Critical
+            } else {
+                BindingBlockingLevel::Degraded
+            },
         }
     }
 
@@ -125,6 +182,11 @@ impl BindingAuditEntry {
             role: None,
             source_kind: BindingSourceKind::DynamicTarget,
             source_name: source_name.into(),
+            source_detail: None,
+            resource_format: None,
+            resource_dimensions: None,
+            source_trace: None,
+            parity_status: None,
             loaded: true,
             critical: true,
             mock_name: None,
@@ -137,6 +199,22 @@ impl BindingAuditEntry {
     pub fn is_critical_mock_in_parity(&self) -> bool {
         self.source_kind == BindingSourceKind::Mock
             && matches!(self.blocking_level, BindingBlockingLevel::Critical)
+    }
+
+    pub fn with_runtime_target_metadata(
+        mut self,
+        source_detail: impl Into<String>,
+        resource_format: impl Into<String>,
+        resource_dimensions: impl Into<String>,
+        source_trace: impl Into<String>,
+        parity_status: impl Into<String>,
+    ) -> Self {
+        self.source_detail = Some(source_detail.into());
+        self.resource_format = Some(resource_format.into());
+        self.resource_dimensions = Some(resource_dimensions.into());
+        self.source_trace = Some(source_trace.into());
+        self.parity_status = Some(parity_status.into());
+        self
     }
 
     pub fn mock(
@@ -154,6 +232,11 @@ impl BindingAuditEntry {
             role: None,
             source_kind: BindingSourceKind::Mock,
             source_name: mock_name.clone(),
+            source_detail: None,
+            resource_format: None,
+            resource_dimensions: None,
+            source_trace: None,
+            parity_status: None,
             loaded: true,
             critical: blocking_level == BindingBlockingLevel::Critical,
             mock_name: Some(mock_name),
@@ -249,6 +332,21 @@ impl BindingAudit {
             if let Some(reason) = &entry.reason {
                 let _ = writeln!(out, "    reason={}", reason);
             }
+            if let Some(format) = &entry.resource_format {
+                let _ = writeln!(out, "    format={}", format);
+            }
+            if let Some(dimensions) = &entry.resource_dimensions {
+                let _ = writeln!(out, "    dimensions={}", dimensions);
+            }
+            if let Some(source_detail) = &entry.source_detail {
+                let _ = writeln!(out, "    source_detail={}", source_detail);
+            }
+            if let Some(source_trace) = &entry.source_trace {
+                let _ = writeln!(out, "    source_trace={}", source_trace);
+            }
+            if let Some(parity_status) = &entry.parity_status {
+                let _ = writeln!(out, "    parity_status={}", parity_status);
+            }
         }
         out
     }
@@ -293,6 +391,26 @@ impl BindingAudit {
                 "      \"source_name\": \"{}\",",
                 json_escape(&entry.source_name)
             );
+            write_json_string_option(&mut out, "source_detail", entry.source_detail.as_deref(), 6);
+            write_json_string_option(
+                &mut out,
+                "resource_format",
+                entry.resource_format.as_deref(),
+                6,
+            );
+            write_json_string_option(
+                &mut out,
+                "resource_dimensions",
+                entry.resource_dimensions.as_deref(),
+                6,
+            );
+            write_json_string_option(&mut out, "source_trace", entry.source_trace.as_deref(), 6);
+            write_json_string_option(
+                &mut out,
+                "parity_status",
+                entry.parity_status.as_deref(),
+                6,
+            );
             let _ = writeln!(out, "      \"loaded\": {},", entry.loaded);
             let _ = writeln!(out, "      \"critical\": {},", entry.critical);
             match &entry.mock_name {
@@ -332,21 +450,37 @@ impl BindingAudit {
 #[derive(Debug, Clone)]
 pub struct VanillaResourceViews {
     pub map_set: Arc<VanillaMapSet>,
+    pub posteffect_volumes: Option<Arc<PostEffectVolumeIndex>>,
+    pub posteffect_lut_count: usize,
+    pub posteffect_lut_loaded: usize,
+    pub posteffect_lut_warnings: Vec<String>,
 }
 
 impl VanillaResourceViews {
     pub fn load(path_cfg: &hoi4_paths::PathConfig) -> Result<Self, MapSetError> {
         let db = hoi4_assets::FsAssetDb::new(path_cfg.clone());
         let map_set = VanillaMapSet::load(&db)?;
+        let (posteffect_volumes, lut_loaded, lut_count, warnings) =
+            load_posteffect_volume_audit(&db);
         Ok(Self {
             map_set: Arc::new(map_set),
+            posteffect_volumes,
+            posteffect_lut_count: lut_count,
+            posteffect_lut_loaded: lut_loaded,
+            posteffect_lut_warnings: warnings,
         })
     }
 
     pub fn load_for_audit(path_cfg: &hoi4_paths::PathConfig) -> Self {
         let db = hoi4_assets::FsAssetDb::new(path_cfg.clone());
+        let (posteffect_volumes, lut_loaded, lut_count, warnings) =
+            load_posteffect_volume_audit(&db);
         Self {
             map_set: Arc::new(VanillaMapSet::load_for_audit(&db)),
+            posteffect_volumes,
+            posteffect_lut_count: lut_count,
+            posteffect_lut_loaded: lut_loaded,
+            posteffect_lut_warnings: warnings,
         }
     }
 
@@ -465,6 +599,22 @@ impl VanillaResourceViews {
         ]
     }
 
+    pub fn has_vanilla_color_cube(&self) -> bool {
+        self.posteffect_volumes
+            .as_ref()
+            .is_some_and(|index| index.default_lut().is_some())
+            && self.posteffect_lut_count > 0
+            && self.posteffect_lut_loaded == self.posteffect_lut_count
+    }
+
+    pub fn default_color_cube_source(&self) -> String {
+        self.posteffect_volumes
+            .as_ref()
+            .and_then(|index| index.default_lut())
+            .unwrap_or("identity_color_cube")
+            .to_string()
+    }
+
     pub fn phase1_binding_audit(&self) -> BindingAudit {
         let asset_audit = MapAssetAudit::from_map_set(&self.map_set);
         let mut audit = BindingAudit::new();
@@ -542,58 +692,9 @@ impl VanillaResourceViews {
                 "river mask is unavailable",
             ),
         ]);
-        audit.extend([
-            BindingAuditEntry::dynamic_target_blocker(
-                "terrain",
-                "light_data",
-                "light_data_empty_target",
-                "Vanilla point light render target is not generated yet",
-                "night lighting and local highlights are missing",
-            ),
-            BindingAuditEntry::dynamic_target_blocker(
-                "terrain",
-                "light_index",
-                "light_index_empty_target",
-                "Vanilla point light index target is not generated yet",
-                "point light lookup is disabled",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "terrain",
-                "province_secondary_color",
-                "ProvinceSecondaryColorMap",
-                "occupation, selection, hover, and map-mode secondary tint use a runtime map target",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "terrain",
-                "gradient_border_ch1",
-                "GradientBorderChannel1",
-                "country border gradient is generated from runtime ownership state",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "terrain",
-                "gradient_border_ch2",
-                "GradientBorderChannel2",
-                "province border gradient is generated from runtime province topology",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "terrain",
-                "gradient_border_ch3",
-                "GradientBorderChannel3",
-                "state, coast, and impassable border gradient is generated at runtime",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "terrain",
-                "fow",
-                "FOW",
-                "fog-of-war visibility is supplied as a runtime map target",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "terrain",
-                "mud_snow",
-                "MudSnow",
-                "mud and snow masks are supplied as a runtime map target",
-            ),
-        ]);
+        audit.extend(vanilla_targets::runtime_target_audit_entries_for_pass(
+            "terrain",
+        ));
         audit.extend([
             binding_from_asset_audit(
                 &asset_audit,
@@ -692,52 +793,9 @@ impl VanillaResourceViews {
                 "water refraction falls back to a flat underwater color",
             ),
         ]);
-        audit.extend([
-            BindingAuditEntry::dynamic_target(
-                "water",
-                "gradient_border_ch1",
-                "GradientBorderChannel1",
-                "country border gradient is shared with terrain",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "water",
-                "gradient_border_ch2",
-                "GradientBorderChannel2",
-                "province border gradient is shared with terrain",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "water",
-                "gradient_border_ch3",
-                "GradientBorderChannel3",
-                "semantic border gradient is shared with terrain",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "water",
-                "province_secondary_color",
-                "ProvinceSecondaryColorMap",
-                "water material receives selection and map-mode secondary tint",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "water",
-                "fow",
-                "FOW",
-                "water material receives runtime fog-of-war visibility",
-            ),
-            BindingAuditEntry::dynamic_target_blocker(
-                "water",
-                "light_data",
-                "light_data_empty_target",
-                "Vanilla point light render target is not generated yet",
-                "water does not receive local night highlights until Phase 5",
-            ),
-            BindingAuditEntry::dynamic_target_blocker(
-                "water",
-                "light_index",
-                "light_index_empty_target",
-                "Vanilla point light index target is not generated yet",
-                "water point light lookup is disabled until Phase 5",
-            ),
-        ]);
+        audit.extend(vanilla_targets::runtime_target_audit_entries_for_pass(
+            "water",
+        ));
         audit.extend([
             binding_from_asset_audit(
                 &asset_audit,
@@ -772,88 +830,10 @@ impl VanillaResourceViews {
                 "tree color no longer follows terrain ColorMap/ColorMapSecond",
             ),
         ]);
-        audit.extend([
-            BindingAuditEntry::dynamic_target(
-                "tree",
-                "gradient_border_ch1",
-                "GradientBorderChannel1",
-                "tree material shares country border gradient with terrain",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "tree",
-                "gradient_border_ch2",
-                "GradientBorderChannel2",
-                "tree material shares province border gradient with terrain",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "tree",
-                "gradient_border_ch3",
-                "GradientBorderChannel3",
-                "tree material shares semantic border gradient with terrain",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "tree",
-                "province_secondary_color",
-                "ProvinceSecondaryColorMap",
-                "tree material receives selection and map-mode secondary tint",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "tree",
-                "fow",
-                "FOW",
-                "tree material receives runtime fog-of-war visibility",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "tree",
-                "mud_snow",
-                "MudSnow",
-                "tree material receives runtime snow masks",
-            ),
-            BindingAuditEntry::dynamic_target_blocker(
-                "tree",
-                "light_data",
-                "light_data_empty_target",
-                "Vanilla point light render target is not generated yet",
-                "tree material does not receive local night highlights until Phase 5",
-            ),
-            BindingAuditEntry::dynamic_target_blocker(
-                "tree",
-                "light_index",
-                "light_index_empty_target",
-                "Vanilla point light index target is not generated yet",
-                "tree point light lookup is disabled until Phase 5",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "pdxmesh",
-                "gradient_border_ch1",
-                "GradientBorderChannel1",
-                "mesh material shares country border gradient with terrain",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "pdxmesh",
-                "gradient_border_ch2",
-                "GradientBorderChannel2",
-                "mesh material shares province border gradient with terrain",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "pdxmesh",
-                "gradient_border_ch3",
-                "GradientBorderChannel3",
-                "mesh material shares semantic border gradient with terrain",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "pdxmesh",
-                "province_secondary_color",
-                "ProvinceSecondaryColorMap",
-                "mesh material receives battle-plan, selection, and map-mode secondary tint",
-            ),
-            BindingAuditEntry::dynamic_target(
-                "pdxmesh",
-                "fow",
-                "FOW",
-                "mesh material receives runtime fog-of-war visibility",
-            ),
-        ]);
+        audit.extend(vanilla_targets::runtime_target_audit_entries_for_pass("tree"));
+        audit.extend(vanilla_targets::runtime_target_audit_entries_for_pass(
+            "pdxmesh",
+        ));
         for (binding, role, critical, impact) in [
             (
                 "river_diffuse_0",
@@ -907,8 +887,91 @@ impl VanillaResourceViews {
                 impact,
             )]);
         }
+        let color_cube_loaded = self.has_vanilla_color_cube();
+        let color_cube_source = self.default_color_cube_source();
+        let color_cube_reason = if color_cube_loaded {
+            None
+        } else if self.posteffect_volumes.is_none() {
+            Some("missing:gfx/posteffect_volumes.txt".to_string())
+        } else if self.posteffect_lut_count == 0 {
+            Some("posteffect_volumes_has_no_lut_entries".to_string())
+        } else {
+            Some(format!(
+                "loaded_luts={}/{}",
+                self.posteffect_lut_loaded, self.posteffect_lut_count
+            ))
+        };
+        audit.extend([
+            BindingAuditEntry::dynamic_target(
+                "postprocess",
+                "hdr_scene",
+                "HdrTarget",
+                "RestoreScene samples the full HDR scene before LDR conversion",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "postprocess",
+                "bloom",
+                "BloomChain",
+                "RestoreScene composites the generated vanilla bloom chain",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "postprocess",
+                "average_luminance",
+                "AverageLuminance",
+                "RestoreScene exposure uses generated average log luminance",
+            ),
+            BindingAuditEntry::plain_resource(
+                "postprocess",
+                "color_cube",
+                color_cube_source,
+                color_cube_loaded,
+                false,
+                color_cube_reason,
+                "RestoreScene samples vanilla posteffect ColorCube LUTs",
+            ),
+        ]);
         audit
     }
+}
+
+fn load_posteffect_volume_audit(
+    db: &impl hoi4_assets::AssetDb,
+) -> (
+    Option<Arc<PostEffectVolumeIndex>>,
+    usize,
+    usize,
+    Vec<String>,
+) {
+    let mut warnings = Vec::new();
+    let index = match PostEffectVolumeIndex::load(db) {
+        Ok(index) => index,
+        Err(err) => {
+            warnings.push(err.to_string());
+            return (None, 0, 0, warnings);
+        }
+    };
+    let paths = index.lut_paths();
+    let mut loaded = 0;
+    for path in &paths {
+        match hoi4_assets::load_tga(db, path) {
+            Ok(image) if is_color_cube_tga(&image) => loaded += 1,
+            Ok(image) => warnings.push(format!(
+                "{}: unsupported ColorCube TGA dimensions {}x{}",
+                path, image.width, image.height
+            )),
+            Err(err) => warnings.push(
+                err.with_referrer_path("gfx/posteffect_volumes.txt")
+                    .to_string(),
+            ),
+        }
+    }
+    (Some(Arc::new(index)), loaded, paths.len(), warnings)
+}
+
+fn is_color_cube_tga(image: &TgaImage) -> bool {
+    image.height >= 2
+        && image.width == image.height * image.height
+        && image.pixels.len() == (image.width * image.height * 4) as usize
 }
 
 fn binding_from_asset_audit(
@@ -1149,6 +1212,18 @@ fn json_escape(value: &str) -> String {
     out
 }
 
+fn write_json_string_option(out: &mut String, key: &str, value: Option<&str>, indent: usize) {
+    let padding = " ".repeat(indent);
+    match value {
+        Some(value) => {
+            let _ = writeln!(out, "{}\"{}\": \"{}\",", padding, key, json_escape(value));
+        }
+        None => {
+            let _ = writeln!(out, "{}\"{}\": null,", padding, key);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1158,6 +1233,10 @@ mod tests {
             map_set: Arc::new(VanillaMapSet {
                 entries: Vec::new(),
             }),
+            posteffect_volumes: None,
+            posteffect_lut_count: 0,
+            posteffect_lut_loaded: 0,
+            posteffect_lut_warnings: Vec::new(),
         }
     }
 
@@ -1214,7 +1293,8 @@ mod tests {
             entry.pass == "terrain"
                 && entry.binding == "light_data"
                 && entry.source_kind == BindingSourceKind::DynamicTarget
-                && entry.blocking_level == BindingBlockingLevel::Critical
+                && entry.source_name == "LightDataMap"
+                && entry.blocking_level == BindingBlockingLevel::None
         }));
     }
 
@@ -1249,5 +1329,73 @@ mod tests {
             ]
         );
         assert_eq!(VanillaResourceViews::border_texture_roles().len(), 18);
+    }
+
+    #[test]
+    fn postprocess_color_cube_fallback_is_not_mock() {
+        let audit = empty_views().phase1_binding_audit();
+        let color_cube = audit
+            .entries
+            .iter()
+            .find(|entry| entry.pass == "postprocess" && entry.binding == "color_cube")
+            .unwrap();
+        assert_eq!(color_cube.source_kind, BindingSourceKind::ProjectFallback);
+        assert_eq!(color_cube.source_name, "identity_color_cube");
+        assert_eq!(color_cube.blocking_level, BindingBlockingLevel::Degraded);
+        assert_eq!(audit.mock_count(), 0);
+    }
+
+    #[test]
+    fn map_audit_runtime_targets_include_phase4_metadata() {
+        let audit = empty_views().phase1_binding_audit();
+        for target in [
+            "GradientBorderChannel1",
+            "GradientBorderChannel2",
+            "GradientBorderChannel3",
+            "ProvinceSecondaryColorMap",
+            "FOW",
+            "MudSnow",
+            "LightDataMap",
+            "LightIndexMap",
+        ] {
+            let entry = audit
+                .entries
+                .iter()
+                .find(|entry| entry.source_name == target)
+                .unwrap_or_else(|| panic!("missing runtime target audit entry: {target}"));
+            assert_eq!(entry.source_kind, BindingSourceKind::DynamicTarget);
+            assert_eq!(entry.mock_name, None);
+            assert!(entry.resource_format.is_some(), "{target} missing format");
+            assert!(
+                entry.resource_dimensions.is_some(),
+                "{target} missing dimensions"
+            );
+            assert!(
+                entry
+                    .source_trace
+                    .as_deref()
+                    .is_some_and(|trace| trace.contains("runtime_targets.json")),
+                "{target} missing runtime trace provenance"
+            );
+            assert!(
+                entry.parity_status.is_some(),
+                "{target} missing parity status"
+            );
+        }
+
+        for fallback in ["FOW", "MudSnow"] {
+            let entry = audit
+                .entries
+                .iter()
+                .find(|entry| entry.source_name == fallback)
+                .unwrap();
+            assert!(
+                entry
+                    .parity_status
+                    .as_deref()
+                    .is_some_and(|status| status.contains("fallback")),
+                "{fallback} must be explicitly marked fallback"
+            );
+        }
     }
 }

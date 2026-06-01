@@ -56,6 +56,7 @@ mod content_bootstrap;
 mod debug_commands;
 mod flag_bank;
 mod map_baseline;
+mod map_image_diff;
 mod map_perf;
 mod map_renderer;
 mod mapname_atlas;
@@ -84,8 +85,9 @@ use menu_pass::{CountryEntry, MenuButton};
 use menu_scene::MenuKind;
 use panel_pass::PanelPass;
 use passes::{
-    DebugOverlay, GlobalUniformBuffer, HdrTarget, PassRegistry, PostProcessChain,
-    PostProcessDebugView, PostProcessMode, SimpleBlitPass, TerrainPass, HDR_FORMAT,
+    ColorCubeSource, DebugOverlay, GlobalUniformBuffer, HdrTarget, PassRegistry, PostProcessChain,
+    PostProcessDebugView, PostProcessLutSelection, PostProcessMode, SimpleBlitPass, TerrainPass,
+    HDR_FORMAT,
 };
 use vanilla_resource_views::VanillaResourceViews;
 use vanilla_targets::{
@@ -216,6 +218,7 @@ struct UiPanelBuildPerf {
 
 struct MapPhase0Run {
     output_dir: PathBuf,
+    reference_root: Option<PathBuf>,
     started: Instant,
     captures: Vec<map_baseline::MapBaselinePlannedCapture>,
     scenes: Vec<map_baseline::MapBaselineScene>,
@@ -227,7 +230,7 @@ struct MapPhase0Run {
 }
 
 impl MapPhase0Run {
-    fn new(path_cfg: &PathConfig, output_dir: PathBuf) -> Self {
+    fn new(path_cfg: &PathConfig, output_dir: PathBuf, reference_root: Option<PathBuf>) -> Self {
         let vanilla_resources = VanillaResourceViews::load_for_audit(path_cfg);
         let asset_audit = hoi4_assets::MapAssetAudit::from_map_set(&vanilla_resources.map_set);
         let binding_audit = vanilla_resources.phase1_binding_audit();
@@ -235,6 +238,7 @@ impl MapPhase0Run {
         let captures = map_baseline::build_phase0_planned_captures(&scenes, &asset_audit);
         Self {
             output_dir,
+            reference_root,
             started: Instant::now(),
             captures,
             scenes,
@@ -765,7 +769,7 @@ struct App {
     last_division_locations: Vec<hoi4_state::ProvinceId>,
     /// Phase 3.12.8: parsed seasons.txt for tree season computation.
     seasons: hoi4_map::SeasonsTxt,
-    /// Toggle: show province name labels (F7). Default OFF until the pass is fixed.
+    /// Toggle: show province name labels (F7).
     show_province_names: bool,
     /// Phase 4.3: currently open in-game panel (None = no panel).
     open_panel: Option<InGamePanel>,
@@ -833,6 +837,7 @@ struct App {
     /// 11.4锛歞irty hash for frontline arrow instances.
     prev_armies_hash: u64,
     frontline_overlay_hash: u64,
+    trade_route_overlay_hash: u64,
     /// 11.2锛歝urrently selected army (click frontline on map or select in bottom bar).
     selected_army_id: Option<hoi4_state::ArmyId>,
     template_editor_open: bool,
@@ -1094,6 +1099,8 @@ impl App {
             hoi4_map::load_seasons_txt(&path_cfg.game_path().join("map/seasons.txt"));
 
         let scenario_content = content_bootstrap::load_scenario_content("1936");
+        let map_refresh_owners = world.provinces.owners.clone();
+        let map_refresh_controllers = world.provinces.controllers.clone();
 
         // P0.1：在 world move 之前计算初始日期
         let initial_day = world.date.days_since_epoch();
@@ -1171,7 +1178,7 @@ impl App {
             division_motion: HashMap::new(),
             last_division_locations: Vec::new(),
             seasons: seasons_data,
-            show_province_names: false,
+            show_province_names: true,
             open_panel: None,
             diplomacy_sort_by_opinion: false,
             diplomacy_selected_country_tag: None,
@@ -1193,8 +1200,8 @@ impl App {
             pending_surrender_notifications: Vec::new(),
             last_surrender_sound_key: None,
             last_label_provinces: Vec::new(),
-            map_refresh_owners: Vec::new(),
-            map_refresh_controllers: Vec::new(),
+            map_refresh_owners,
+            map_refresh_controllers,
             last_war_count: 0,
             country_info_panel: hoi4_ui::country_info_panel::CountryInfoPanel::new(),
             province_info_card: hoi4_ui::province_info::ProvinceInfoCard::new(),
@@ -1220,6 +1227,7 @@ impl App {
             frontline_overlay_visible: true,
             prev_armies_hash: 0,
             frontline_overlay_hash: 0,
+            trade_route_overlay_hash: 0,
             selected_army_id: None,
             template_editor_open: false,
             selected_template_idx: None,
@@ -1234,8 +1242,8 @@ impl App {
         }
     }
 
-    fn enable_map_phase0(&mut self, output_dir: PathBuf) {
-        let run = MapPhase0Run::new(&self.path_cfg, output_dir);
+    fn enable_map_phase0(&mut self, output_dir: PathBuf, reference_root: Option<PathBuf>) {
+        let run = MapPhase0Run::new(&self.path_cfg, output_dir, reference_root);
         println!(
             "[map-phase0] starting capture batch: scenes={} layers={} captures={} output={}",
             run.scenes.len(),
@@ -1243,6 +1251,12 @@ impl App {
             run.captures.len(),
             run.output_dir.display()
         );
+        if let Some(reference_root) = &run.reference_root {
+            println!(
+                "[map-phase0] vanilla reference root={}",
+                reference_root.display()
+            );
+        }
         println!("[map-phase0] {}", run.asset_audit.summary_line());
         println!("[map-phase0] {}", run.binding_audit.summary_line());
         if !run.asset_audit.fallback_paths.is_empty() {
@@ -1384,8 +1398,12 @@ impl App {
         self.border_debug_view = passes::BorderDebugView::Off;
         self.postprocess_debug_view = match capture.layer {
             map_baseline::MapBaselineLayer::HdrRaw => PostProcessDebugView::HdrRaw,
+            map_baseline::MapBaselineLayer::AvgLuminance => PostProcessDebugView::AvgLuminance,
+            map_baseline::MapBaselineLayer::TonemapBefore => PostProcessDebugView::TonemapBefore,
             map_baseline::MapBaselineLayer::TonemapOnly => PostProcessDebugView::TonemapOnly,
             map_baseline::MapBaselineLayer::BloomOnly => PostProcessDebugView::BloomOnly,
+            map_baseline::MapBaselineLayer::LutBefore => PostProcessDebugView::LutBefore,
+            map_baseline::MapBaselineLayer::LutAfter => PostProcessDebugView::LutAfter,
             _ => PostProcessDebugView::Final,
         };
         if let Some(s) = self.state.as_mut() {
@@ -1445,7 +1463,11 @@ impl App {
             run.binding_audit.clone(),
             run.started.elapsed().as_secs_f64() * 1000.0,
         );
-        match map_baseline::write_phase0_report_files(&report, &run.output_dir) {
+        match map_baseline::write_phase0_report_files_with_references(
+            &report,
+            &run.output_dir,
+            run.reference_root.as_deref(),
+        ) {
             Ok(path) => println!("[map-phase0] wrote {}", path.display()),
             Err(err) => eprintln!("[map-phase0] report write failed: {err}"),
         }
@@ -3172,6 +3194,8 @@ impl App {
                 country_sdf: &country_sdf_data,
                 province_sdf: &province_sdf_data,
                 coast_sdf: &coast_sdf_data,
+                world_scale: WORLD_SCALE,
+                height_scale: HEIGHT_SCALE,
             },
         );
         let (terrain_atlas_view, _terrain_atlas_sampler, terrain_atlas_audit) =
@@ -4164,11 +4188,12 @@ impl App {
             None
         };
 
-        // Phase 3.12.5 ???pdxmesh pass for vanilla 3D buildings.
+        // Phase 9: pdxmesh pass for vanilla 3D map objects.
         // Constructed AFTER both `shadow_pass` (to share its depth view +
         // compare sampler) and `global_uniform_buf` (Phase 3.12.1 鍏变韩
-        // GlobalFrameUniform). Loads civ_factory.mesh / factory.mesh /
-        // dock_01.mesh + diffuse DDS + 1脳1脳6 grey cubemap fallback.
+        // GlobalFrameUniform). Resolves buildings.gfx pdxmesh records and
+        // falls back to known vanilla building mesh paths when an entry is
+        // missing.
         let mut pdxmesh_pass = passes::PdxMeshPass::new(
             &device,
             &queue,
@@ -4179,12 +4204,14 @@ impl App {
             &shadow_pass.compare_sampler,
             &vanilla_targets,
         );
-        // Push the building instance data through (split by kind into 3
-        // instance buffers ???civ / mil / dock).
+        // Push map object instance data through (split by object kind).
         pdxmesh_pass.set_buildings(&device, &building_instances);
+        let cam_eye = self.camera.eye();
+        pdxmesh_pass.upload_lod_instances(&device, &queue, [cam_eye.x, cam_eye.y, cam_eye.z]);
         println!(
-            "[pdxmesh] {} building instances split across 3 mesh types (any_loaded={})",
+            "[pdxmesh] {} map object instances split across {} mesh types (any_loaded={})",
             pdxmesh_pass.total_instances(),
+            pdxmesh_pass.mesh_type_count(),
             pdxmesh_pass.any_loaded
         );
 
@@ -4339,24 +4366,20 @@ impl App {
         );
 
         // Phase 16: Arrows family (maparrow / traderoute / strait).
-        let mut maparrow_pass =
+        let maparrow_pass =
             passes::MapArrowPass::new(&device, &queue, &global_uniform_buf.buffer, depth_format);
         let mut traderoute_pass =
             passes::TradeRoutePass::new(&device, &queue, &global_uniform_buf.buffer, depth_format);
         let mut strait_pass =
             passes::StraitPass::new(&device, &queue, &global_uniform_buf.buffer, depth_format);
 
-        let map_w = self.world.map.province_map.width as f32 * WORLD_SCALE;
-        let map_d = self.world.map.province_map.height as f32 * WORLD_SCALE;
-        let _ = (map_w, map_d);
-        if self.world.player_armies.is_empty() {
-            let mock_arrows = passes::maparrow::generate_mock_arrows([map_w, map_d]);
-            maparrow_pass.set_arrows(&device, &queue, &mock_arrows);
-        }
-
-        // Generate mock trade routes for testing.
-        let mock_trade_verts = passes::traderoute::generate_mock_trade_routes();
-        traderoute_pass.set_routes(&device, &queue, &mock_trade_verts);
+        let trade_verts = passes::traderoute::generate_trade_route_vertices(
+            &self.world,
+            &centroids,
+            WORLD_SCALE,
+            HEIGHT_SCALE,
+        );
+        traderoute_pass.set_routes(&device, &queue, &trade_verts);
 
         // Build strait geometry from adjacency data.
         strait_pass.build_straits(
@@ -4368,7 +4391,7 @@ impl App {
         );
         println!(
             "[arrows] trade_verts={}, strait_verts={}",
-            mock_trade_verts.len(),
+            trade_verts.len(),
             strait_pass.any_loaded as u32,
         );
         println!("[arrows] MapArrowPass / TradeRoutePass / StraitPass ready");
@@ -4383,8 +4406,10 @@ impl App {
                     depth_format,
                     obbs: &country_obbs,
                     atlas: Some(atlas),
+                    heightmap_view: &height_view,
                     world_scale: WORLD_SCALE,
                     label_y: HEIGHT_SCALE * 0.5,
+                    height_scale: HEIGHT_SCALE,
                 },
             )
         });
@@ -4473,7 +4498,9 @@ impl App {
                     global_uniform_buffer: &global_uniform_buf.buffer,
                     depth_format,
                     atlas: prov_atlas_opt.as_ref(),
+                    heightmap_view: &height_view,
                     instances: &prov_instances,
+                    height_scale: HEIGHT_SCALE,
                 },
             ))
         } else {
@@ -4489,13 +4516,19 @@ impl App {
         // ???SimpleBlitPass 妗ユ帴???swap chain??
         let hdr_target = HdrTarget::new(&device, config.width, config.height);
         let simple_blit = SimpleBlitPass::new(&device, format, &hdr_target.view);
+        let color_cube_source = ColorCubeSource::load_from_path_config(&self.path_cfg);
         let post_process = PostProcessChain::new(
             &device,
+            &queue,
             &hdr_target.view,
             hdr_target.width,
             hdr_target.height,
             format,
+            color_cube_source,
         );
+        for warning in &post_process.color_cube_warnings {
+            eprintln!("[postprocess] {warning}");
+        }
         let map_renderer = MapRenderer::new();
         let mut pass_registry = PassRegistry::new();
         map_renderer.register_passes(&mut pass_registry);
@@ -4512,12 +4545,13 @@ impl App {
                 .summary()
         );
         println!(
-            "[render] HDR offscreen RT ready ({}x{} {:?}); post-process mode = {:?}; {}",
+            "[render] HDR offscreen RT ready ({}x{} {:?}); post-process mode = {:?}; {}; color_cube={}",
             hdr_target.width,
             hdr_target.height,
             HDR_FORMAT,
             post_process.mode,
-            post_process.calibration.summary()
+            post_process.calibration.summary(),
+            post_process.color_cube_source
         );
 
         // Egui UI overlay must target the swapchain format.
@@ -7228,6 +7262,47 @@ impl App {
         s.maparrow_pass.set_arrows(&s.device, &s.queue, &arrows);
     }
 
+    fn trade_route_overlay_signature(&self) -> u64 {
+        let mut h = DefaultHasher::new();
+        self.world.countries.trade.routes.len().hash(&mut h);
+        for route in &self.world.countries.trade.routes {
+            route.id.hash(&mut h);
+            route.importer.hash(&mut h);
+            route.exporter.hash(&mut h);
+            route.good_id.hash(&mut h);
+            route.kind.hash(&mut h);
+            route.port_state.hash(&mut h);
+            route.throughput.to_bits().hash(&mut h);
+            route.is_blockaded.hash(&mut h);
+        }
+        self.world.countries.capitals.hash(&mut h);
+        h.finish()
+    }
+
+    fn update_trade_routes_overlay(&mut self) {
+        let sig = self.trade_route_overlay_signature();
+        if sig == self.trade_route_overlay_hash {
+            return;
+        }
+        self.trade_route_overlay_hash = sig;
+
+        let centroids = match self.state.as_ref() {
+            Some(s) => s.unit_counter_centroids.clone(),
+            None => return,
+        };
+        let routes = passes::traderoute::generate_trade_route_vertices(
+            &self.world,
+            &centroids,
+            WORLD_SCALE,
+            HEIGHT_SCALE,
+        );
+        let s = match self.state.as_mut() {
+            Some(s) => s,
+            None => return,
+        };
+        s.traderoute_pass.set_routes(&s.device, &s.queue, &routes);
+    }
+
     fn frontline_overlay_signature(&self) -> u64 {
         let mut h = DefaultHasher::new();
         self.world.diplomacy.wars.len().hash(&mut h);
@@ -7327,6 +7402,7 @@ impl App {
         let arrow_started = Instant::now();
         self.update_frontline_overlay();
         self.update_frontline_arrows();
+        self.update_trade_routes_overlay();
         let arrow_update_ms = arrow_started.elapsed().as_secs_f32() * 1000.0;
         self.perf_arrow_update_us = self
             .perf_arrow_update_us
@@ -12929,13 +13005,13 @@ impl App {
         params.sun_dir = RenderParams::shadow_sun_dir();
         params.month_phase = RenderParams::compute_month_phase(date.month, date.day);
         params.season_snow_offset = RenderParams::compute_season_snow_offset(params.month_phase);
-        // 3.6.1: Set terrain blend based on map mode.
-        // Political mode: low blend (country colors dominate).
-        // Terrain mode: high blend (terrain textures dominate).
+        // Political view must read as a political map at gameplay zooms. The
+        // shader still preserves atlas/colormap detail, but this is no longer
+        // limited to a far-distance-only tint.
         params.map_mode_terrain_blend = match self.map_mode {
-            MapMode::Political => 0.20,
-            MapMode::Terrain => 0.95,
-            _ => 0.40,
+            MapMode::Political => 0.85,
+            MapMode::Terrain => 0.05,
+            _ => 0.55,
         };
         // Diplomacy border lines in all modes except terrain.
         params.diplomacy_mode = match self.map_mode {
@@ -13078,7 +13154,7 @@ impl App {
                 5.0,
             ];
             gu.day_night_hour_sun_dir = {
-                let sd = params.sun_dir;
+                let sd = RenderParams::compute_sun_dir(12, self.world.date.month);
                 let hour = (self.world.date.hour as f32) / 24.0;
                 [hour, sd[0], sd[1], sd[2]]
             };
@@ -13242,7 +13318,17 @@ impl App {
             world_objects.buildings.opacity,
             world_objects.buildings.scale,
             0.86,
+            season_result
+                .season_blend
+                .max(params.season_snow_offset.max(0.0)),
         );
+        {
+            let eye = self.camera.eye();
+            s.pdxmesh_pass
+                .set_lod_bias(self.map_quality_preset.controls().object_lod_bias);
+            s.pdxmesh_pass
+                .ensure_lod_uploaded(&s.device, &s.queue, [eye.x, eye.y, eye.z]);
+        }
         let particle_quality = self.map_quality_preset.controls().particle_density;
         s.particle_pass.update_params(
             &s.queue,
@@ -13776,7 +13862,10 @@ impl App {
                         "3d_buildings",
                         pass_started.elapsed().as_secs_f32() * 1000.0,
                     );
-                    s.pass_registry.record_draw_calls("3d_buildings", 1);
+                    s.pass_registry.record_draw_calls(
+                        "3d_buildings",
+                        s.pdxmesh_pass.loaded_draw_count().max(1),
+                    );
                 } else if map_draw.buildings && s.buildings_count > 0 {
                     let pass_started = Instant::now();
                     let token = s
@@ -13837,8 +13926,6 @@ impl App {
 
                 // Phase 3.12.13 ???province-name labels (zoom-gated).
                 // Only visible at medium/close zoom (zoom_factor >= 0.4).
-                // Gated by show_province_names toggle (F7) ???disabled by default
-                // until the visual bugs are resolved.
                 if map_draw.province_names && self.show_province_names {
                     if let Some(pnp) = s.province_name_pass.as_ref() {
                         let pass_started = Instant::now();
@@ -13930,12 +14017,14 @@ impl App {
                 .gpu_profiler
                 .as_mut()
                 .and_then(|profiler| profiler.begin_encoder_span(&mut enc, "postprocess"));
-            s.post_process.prepare(&s.queue);
+            let lut_selection =
+                postprocess_lut_selection_for(&self.camera, &self.world, &vanilla_map_space);
+            s.post_process.prepare(&s.queue, lut_selection);
             s.post_process.render(&mut enc, output_view);
             if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
                 profiler.end_encoder_span(&mut enc, token);
             }
-            s.pass_registry.record_draw_calls("postprocess", 9);
+            s.pass_registry.record_draw_calls("postprocess", 10);
         } else {
             let token = s
                 .gpu_profiler
@@ -13951,6 +14040,7 @@ impl App {
             "postprocess",
             postprocess_started.elapsed().as_secs_f32() * 1000.0,
         );
+        record_phase12_pass_resources(s, use_full_chain);
 
         s.shadow_pass.render_debug(&mut enc, output_view);
 
@@ -14429,6 +14519,7 @@ impl App {
             }
         }
 
+        let ui_started = Instant::now();
         s.text_pass.prepare(&s.queue);
         s.panel_pass.prepare(&s.queue);
         // Legacy UI command rendering is removed; panel/text/flag passes remain.
@@ -14465,6 +14556,10 @@ impl App {
                 .write_buffer(&s.flag_vertex_buffer, 0, bytemuck::cast_slice(&v));
         }
 
+        let ui_gpu_token = s
+            .gpu_profiler
+            .as_mut()
+            .and_then(|profiler| profiler.begin_encoder_span(&mut enc, "ui"));
         {
             let mut ui_rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("ui_pass"),
@@ -14514,6 +14609,12 @@ impl App {
             output_view,
             [s.config.width, s.config.height],
         );
+        if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), ui_gpu_token) {
+            profiler.end_encoder_span(&mut enc, token);
+        }
+        s.pass_registry
+            .record_cpu_ms("ui", ui_started.elapsed().as_secs_f32() * 1000.0);
+        s.pass_registry.record_draw_calls("ui", 3);
 
         let pending_readback = if let (Some(texture), Some(path)) =
             (capture_texture.as_ref(), map_phase0_capture_path)
@@ -14564,6 +14665,62 @@ impl App {
             .saturating_add(render_started.elapsed().as_micros() as u64);
         self.perf_render_frames = self.perf_render_frames.saturating_add(1);
     }
+}
+
+fn record_phase12_pass_resources(s: &mut RenderState, postprocess_full: bool) {
+    let runtime_target_bytes = s.vanilla_targets.memory_bytes();
+    let postprocess_bytes =
+        estimate_frame_texture_memory_bytes(s.config.width, s.config.height, postprocess_full);
+
+    s.pass_registry.record_texture_memory_bytes(
+        "shadow_caster",
+        passes::SHADOW_MAP_SIZE as u64 * passes::SHADOW_MAP_SIZE as u64 * 4,
+    );
+    s.pass_registry
+        .record_fallback_count("3d_sky", if s.sky_pass.loaded { 0 } else { 1 });
+    s.pass_registry.record_texture_memory_bytes(
+        "3d_terrain",
+        runtime_target_bytes + s.config.width as u64 * s.config.height as u64 * 12,
+    );
+    s.pass_registry.record_fallback_count(
+        "3d_terrain",
+        s.terrain_pass.binding_audit.fallback_count() as u32,
+    );
+    s.pass_registry
+        .record_texture_memory_bytes("3d_water", runtime_target_bytes);
+    s.pass_registry.record_fallback_count(
+        "3d_water",
+        s.water_pass.binding_audit.fallback_count() as u32,
+    );
+    s.pass_registry
+        .record_texture_memory_bytes("3d_river", runtime_target_bytes / 8);
+    s.pass_registry.record_fallback_count(
+        "3d_river",
+        s.river_pass.binding_audit.fallback_count() as u32,
+    );
+    s.pass_registry
+        .record_fallback_count("3d_border", if s.border_pass.any_loaded { 0 } else { 1 });
+    if let Some(tree_full) = s.tree_full_pass.as_ref() {
+        s.pass_registry
+            .record_fallback_count("3d_trees", tree_full.binding_audit.fallback_count() as u32);
+    } else {
+        s.pass_registry.record_fallback_count("3d_trees", 1);
+    }
+    s.pass_registry.record_fallback_count(
+        "3d_buildings",
+        if s.pdxmesh_pass.any_loaded { 0 } else { 1 },
+    );
+    s.pass_registry
+        .record_texture_memory_bytes("postprocess", postprocess_bytes);
+    s.pass_registry.record_fallback_count(
+        "postprocess",
+        if s.post_process.color_cube_fallback {
+            1
+        } else {
+            0
+        },
+    );
+    s.pass_registry.record_fallback_count("ui", 0);
 }
 
 fn enqueue_png_readback(
@@ -14697,6 +14854,131 @@ fn terrain_bucket_signature(bucket: &[ChunkInstance]) -> u64 {
         instance.size_xz[1].to_bits().hash(&mut h);
     }
     h.finish()
+}
+
+fn calc_globe_normal_cpu(map_px: [f32; 2], day_night_hour: f32) -> [f32; 3] {
+    use hoi4_render::defines::{
+        GMT_OFFSET, MAP_SIZE_X, MAP_SIZE_Y, NORTH_POLE_OFFSET, SOUTH_POLE_OFFSET,
+    };
+    use std::f32::consts::{PI, TAU};
+
+    let x = ((map_px[0] - GMT_OFFSET) / MAP_SIZE_X + day_night_hour).rem_euclid(1.0);
+    let y0 = (map_px[1] / MAP_SIZE_Y).clamp(0.0, 1.0);
+    let pole = SOUTH_POLE_OFFSET + (NORTH_POLE_OFFSET - SOUTH_POLE_OFFSET) * y0;
+    let y = -(pole * PI).cos();
+    let xz_len = 1.0 - y.abs();
+    let n =
+        glam::Vec3::new((x * TAU).sin() * xz_len, y, (x * TAU).cos() * xz_len).normalize_or_zero();
+    [n.x, n.y, n.z]
+}
+
+fn calc_day_night_factor_cpu(globe_normal: [f32; 3], sun_dir: [f32; 3]) -> f32 {
+    use hoi4_render::defines::{FEATHER_MAX, FEATHER_MIN};
+
+    let d =
+        globe_normal[0] * sun_dir[0] + globe_normal[1] * sun_dir[1] + globe_normal[2] * sun_dir[2];
+    ((d - FEATHER_MIN) / (FEATHER_MAX - FEATHER_MIN)).clamp(0.0, 1.0)
+}
+
+fn postprocess_lut_selection_for(
+    camera: &Camera,
+    world: &hoi4_state::World,
+    map_space: &VanillaMapSpace,
+) -> PostProcessLutSelection {
+    let world_extent = camera.world_size.x.max(camera.world_size.y).max(1.0);
+    let camera_distance_t = (camera.distance / (world_extent * 1.6)).clamp(0.0, 1.0);
+    let night_factor = {
+        let eye = camera.eye();
+        let map_px = map_space.world_xz_to_map_px([eye.x, eye.z]);
+        let globe = calc_globe_normal_cpu(map_px, world.date.hour as f32 / 24.0);
+        let sun_dir = RenderParams::compute_sun_dir(12, world.date.month);
+        calc_day_night_factor_cpu(globe, [sun_dir[0], sun_dir[1], sun_dir[2]])
+    };
+    let water_factor = camera_target_water_factor_for(camera, world);
+    let month_phase = RenderParams::compute_month_phase(world.date.month, world.date.day);
+    let season_snow_offset = RenderParams::compute_season_snow_offset(month_phase);
+    let winter_factor = (-season_snow_offset / 0.10).clamp(0.0, 1.0);
+    PostProcessLutSelection {
+        camera_distance_t,
+        night_factor,
+        water_factor,
+        winter_factor,
+    }
+}
+
+fn camera_target_water_factor_for(camera: &Camera, world: &hoi4_state::World) -> f32 {
+    let samples = [
+        Vec2::new(0.0, 0.0),
+        Vec2::new(-0.72, -0.72),
+        Vec2::new(0.72, -0.72),
+        Vec2::new(-0.72, 0.72),
+        Vec2::new(0.72, 0.72),
+        Vec2::new(-0.72, 0.0),
+        Vec2::new(0.72, 0.0),
+        Vec2::new(0.0, -0.72),
+        Vec2::new(0.0, 0.72),
+        Vec2::new(-0.36, -0.36),
+        Vec2::new(0.36, -0.36),
+        Vec2::new(-0.36, 0.36),
+        Vec2::new(0.36, 0.36),
+    ];
+
+    let mut water = 0.0;
+    let mut valid = 0.0;
+    for ndc in samples {
+        let Some(world_xz) = camera.pick_world_xz(ndc) else {
+            continue;
+        };
+        let Some(sample) = water_factor_at_world_xz(world_xz, camera.world_size, world) else {
+            continue;
+        };
+        water += sample;
+        valid += 1.0;
+    }
+
+    if valid > 0.0 {
+        water / valid
+    } else {
+        water_factor_at_world_xz(
+            Vec2::new(camera.target.x, camera.target.z),
+            camera.world_size,
+            world,
+        )
+        .unwrap_or(0.0)
+    }
+}
+
+fn water_factor_at_world_xz(
+    world_xz: Vec2,
+    world_size: Vec2,
+    world: &hoi4_state::World,
+) -> Option<f32> {
+    if world_size.x <= 0.0 || world_size.y <= 0.0 {
+        return None;
+    }
+    let u = world_xz.x.rem_euclid(world_size.x) / world_size.x;
+    let v = world_xz.y / world_size.y;
+    if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+        return None;
+    }
+    let pmap = &world.map.province_map;
+    let px = ((u * pmap.width as f32) as u32).min(pmap.width.saturating_sub(1));
+    let py = ((v * pmap.height as f32) as u32).min(pmap.height.saturating_sub(1));
+    let pid = pmap.pixels[(py * pmap.width + px) as usize] as usize;
+    Some(
+        world
+            .map
+            .definitions
+            .get(pid)
+            .and_then(|def| def.as_ref())
+            .map(|def| {
+                matches!(
+                    def.province_type,
+                    hoi4_map::ProvinceType::Sea | hoi4_map::ProvinceType::Lake
+                ) as u8 as f32
+            })
+            .unwrap_or(0.0),
+    )
 }
 
 fn country_display_name_from_world(
@@ -17002,6 +17284,22 @@ fn main() {
         bootstrap::print_usage();
         return;
     }
+    if let Some((project, reference)) = &cli.map_image_diff {
+        match map_image_diff::write_diff_report(project, reference, &cli.map_image_diff_output) {
+            Ok(metrics) => {
+                println!("[map-image-diff] {}", metrics.summary());
+                println!(
+                    "[map-image-diff] wrote {}",
+                    cli.map_image_diff_output.display()
+                );
+            }
+            Err(err) => {
+                eprintln!("[map-image-diff] failed: {err}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
     let path_cfg = bootstrap::resolve_path_config(&cli);
 
     if cli.map_audit {
@@ -17017,7 +17315,11 @@ fn main() {
 
     if cli.map_phase0_report_only {
         let output_dir = map_baseline::phase0_batch_output_dir(&cli.map_phase0_output);
-        match map_baseline::write_phase0_report(&path_cfg, &output_dir) {
+        match map_baseline::write_phase0_report(
+            &path_cfg,
+            &output_dir,
+            cli.map_phase0_reference_root.as_deref(),
+        ) {
             Ok(path) => println!("[map-phase0] wrote {}", path.display()),
             Err(err) => {
                 eprintln!("[map-phase0] failed: {err}");
@@ -17036,7 +17338,12 @@ fn main() {
 
     if cli.map_phase0 {
         let output_dir = map_baseline::phase0_batch_output_dir(&cli.map_phase0_output);
-        app_shell::run_map_phase0(world, path_cfg, output_dir);
+        app_shell::run_map_phase0(
+            world,
+            path_cfg,
+            output_dir,
+            cli.map_phase0_reference_root.clone(),
+        );
         return;
     }
 

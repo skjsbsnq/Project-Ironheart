@@ -1,6 +1,9 @@
 use hoi4_map::ProvinceType;
-use hoi4_render::sdf::chamfer_distance_field;
-use hoi4_state::{StateId, World};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
+use hoi4_render::sdf::{chamfer_distance_field, compute_country_sdf};
+use hoi4_state::{CountryId, StateId, World};
 
 use super::VanillaRuntimeTargetInputs;
 
@@ -18,6 +21,23 @@ pub fn generate(inputs: VanillaRuntimeTargetInputs<'_>) -> GradientBorderCpuTarg
         ch2: copy_sdf_or_far(inputs.province_sdf, width, height),
         ch3: compute_channel3_distance(inputs.world, inputs.coast_sdf),
     }
+}
+
+pub fn generate_country_channel(world: &World) -> Vec<u8> {
+    compute_country_sdf(&world.map.province_map, &world.provinces.controllers)
+}
+
+pub fn country_signature(world: &World) -> u64 {
+    controllers_signature(&world.provinces.controllers)
+}
+
+fn controllers_signature(controllers: &[CountryId]) -> u64 {
+    let mut h = DefaultHasher::new();
+    controllers.len().hash(&mut h);
+    for controller in controllers {
+        controller.raw().hash(&mut h);
+    }
+    h.finish()
 }
 
 fn copy_sdf_or_far(source: &[u8], width: u32, height: u32) -> Vec<u8> {
@@ -123,5 +143,13 @@ mod tests {
         assert!(is_impassable_terrain("mountain_impassable"));
         assert!(is_impassable_terrain("wasteland"));
         assert!(!is_impassable_terrain("plains"));
+    }
+
+    #[test]
+    fn country_signature_tracks_control_changes() {
+        let mut controllers = vec![CountryId::NONE, CountryId(1), CountryId(1)];
+        let before = controllers_signature(&controllers);
+        controllers[2] = CountryId(2);
+        assert_ne!(before, controllers_signature(&controllers));
     }
 }

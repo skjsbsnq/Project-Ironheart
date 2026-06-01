@@ -41,7 +41,9 @@ pub struct MapnameParams {
     pub fade: f32,
     /// Phase 8: country-name quad scale controlled by the frame plan.
     pub scale: f32,
-    pub _pad1: f32,
+    pub height_scale: f32,
+    pub height_lift: f32,
+    pub _pad1: [f32; 3],
 }
 
 impl Default for MapnameParams {
@@ -52,12 +54,14 @@ impl Default for MapnameParams {
             distortion_amount: 0.5,
             fade: 1.0,
             scale: 1.0,
-            _pad1: 0.0,
+            height_scale: 1.45,
+            height_lift: 0.05,
+            _pad1: [0.0; 3],
         }
     }
 }
 
-const _: () = assert!(std::mem::size_of::<MapnameParams>() == 48);
+const _: () = assert!(std::mem::size_of::<MapnameParams>() == 64);
 
 // ─── Inline WGSL shader ───────────────────────────────────────────────────
 
@@ -74,7 +78,11 @@ struct MapnameParams {
     distortion_amount: f32,
     fade: f32,
     scale: f32,
-    _pad1: f32,
+    height_scale: f32,
+    height_lift: f32,
+    _pad1_0: f32,
+    _pad1_1: f32,
+    _pad1_2: f32,
 };
 
 @group(0) @binding(0) var<uniform> frame: GlobalFrameUniform;
@@ -82,6 +90,7 @@ struct MapnameParams {
 
 @group(1) @binding(0) var name_atlas: texture_2d<f32>;
 @group(1) @binding(1) var name_sampler: sampler;
+@group(1) @binding(2) var heightmap_tex: texture_2d<f32>;
 
 // Per-instance data (48 bytes, matches CountryNameInstance).
 struct InstanceData {
@@ -102,6 +111,27 @@ struct VsOut {
     @location(3) map_px: vec2<f32>,
 };
 
+fn sample_height_for_world_xz(world_xz: vec2<f32>) -> f32 {
+    let map_uv = world_xz_to_map_uv(world_xz, frame.vanilla_map_size_world_size.zw);
+    let dim = vec2<f32>(textureDimensions(heightmap_tex));
+    let coord_f = clamp(map_uv, vec2<f32>(0.0), vec2<f32>(1.0)) * (dim - vec2<f32>(1.0));
+    let coord_i = vec2<i32>(floor(coord_f));
+    let frac_xy = fract(coord_f);
+    let max_x = i32(dim.x) - 1;
+    let max_y = i32(dim.y) - 1;
+    let x0 = clamp(coord_i.x, 0, max_x);
+    let y0 = clamp(coord_i.y, 0, max_y);
+    let x1 = clamp(coord_i.x + 1, 0, max_x);
+    let y1 = clamp(coord_i.y + 1, 0, max_y);
+    let h00 = textureLoad(heightmap_tex, vec2<i32>(x0, y0), 0).r;
+    let h10 = textureLoad(heightmap_tex, vec2<i32>(x1, y0), 0).r;
+    let h01 = textureLoad(heightmap_tex, vec2<i32>(x0, y1), 0).r;
+    let h11 = textureLoad(heightmap_tex, vec2<i32>(x1, y1), 0).r;
+    let h0 = mix(h00, h10, frac_xy.x);
+    let h1 = mix(h01, h11, frac_xy.x);
+    return mix(h0, h1, frac_xy.y) * mn_params.height_scale + mn_params.height_lift;
+}
+
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32, inst: InstanceData) -> VsOut {
     // 6 verts → two triangles for a quad in [-1, +1] × [-1, +1].
@@ -115,9 +145,10 @@ fn vs_main(@builtin(vertex_index) vid: u32, inst: InstanceData) -> VsOut {
     // axis2_world: perpendicular in XZ (rotate 90° → (-y, +x)).
     let axis2_world = vec3<f32>(-inst.axis1.y, 0.0, inst.axis1.x);
 
-    let world_pos = inst.center
+    var world_pos = inst.center
         + axis1_world * (local_x * inst.width_world * mn_params.scale)
         + axis2_world * (local_y * inst.height_world * mn_params.scale);
+    world_pos.y = sample_height_for_world_xz(world_pos.xz);
 
     // Vanilla vDistortedPos: push toward camera to prevent z-fighting.
     let to_cam = normalize(frame.cam_pos - world_pos);
@@ -133,9 +164,9 @@ fn vs_main(@builtin(vertex_index) vid: u32, inst: InstanceData) -> VsOut {
         mix(inst.uv_min.x, inst.uv_max.x, (local_x + 1.0) * 0.5),
         mix(inst.uv_min.y, inst.uv_max.y, (local_y + 1.0) * 0.5),
     );
-    out.world_xz = inst.center.xz;
+    out.world_xz = world_pos.xz;
     out.world_pos = world_pos;
-    out.map_px = world_xz_to_map_px(inst.center.xz, frame.vanilla_map_size_world_size.zw);
+    out.map_px = world_xz_to_map_px(world_pos.xz, frame.vanilla_map_size_world_size.zw);
     return out;
 }
 
@@ -176,8 +207,10 @@ pub struct MapnamePassInputs<'a> {
     pub depth_format: wgpu::TextureFormat,
     pub obbs: &'a [Option<hoi4_render::mapname_3d::CountryObb>],
     pub atlas: Option<&'a CountryNameAtlas>,
+    pub heightmap_view: &'a wgpu::TextureView,
     pub world_scale: f32,
     pub label_y: f32,
+    pub height_scale: f32,
 }
 
 // ─── MapnamePass ───────────────────────────────────────────────────────────
@@ -187,6 +220,7 @@ pub struct MapnamePass {
     global_bind_group: wgpu::BindGroup,
     atlas_bind_group: wgpu::BindGroup,
     params_buffer: wgpu::Buffer,
+    height_scale: f32,
     instance_buffer: wgpu::Buffer,
     instance_count: u32,
     pub pixel_counts: Vec<u32>,
@@ -204,7 +238,8 @@ impl MapnamePass {
 
         // ─── Bind group layouts ───────────────────────────────────────────
         // group(0): GlobalFrameUniform + MapnameParams
-        // group(1): atlas texture + sampler
+        let height_sample_type = wgpu::TextureSampleType::Float { filterable: false };
+        // group(1): atlas texture + sampler + heightmap
         let bgl_global = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("mapname_vanilla_bgl_global"),
             entries: &[
@@ -250,11 +285,24 @@ impl MapnamePass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: height_sample_type,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
 
         // ─── MapnameParams uniform buffer ─────────────────────────────────
-        let params = MapnameParams::default();
+        let params = MapnameParams {
+            height_scale: inputs.height_scale,
+            ..Default::default()
+        };
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("mapname_vanilla_params"),
             contents: bytemuck::bytes_of(&params),
@@ -396,6 +444,10 @@ impl MapnamePass {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(inputs.heightmap_view),
+                },
             ],
         });
 
@@ -515,6 +567,7 @@ impl MapnamePass {
             global_bind_group,
             atlas_bind_group,
             params_buffer,
+            height_scale: inputs.height_scale,
             instance_buffer,
             instance_count,
             pixel_counts,
@@ -526,6 +579,7 @@ impl MapnamePass {
         let params = MapnameParams {
             fade,
             scale,
+            height_scale: self.height_scale,
             ..Default::default()
         };
         queue.write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(&params));
@@ -633,8 +687,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mapname_params_size_is_48() {
-        assert_eq!(std::mem::size_of::<MapnameParams>(), 48);
+    fn mapname_params_size_is_64() {
+        assert_eq!(std::mem::size_of::<MapnameParams>(), 64);
     }
 
     #[test]

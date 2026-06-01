@@ -187,6 +187,15 @@ fn lib_text_includes_expected_helpers() {
     }
 }
 
+#[test]
+fn shader_lib_uses_project_scaled_vanilla_fog() {
+    let lib = hoi4_render::SHADER_LIB_WGSL;
+    assert!(lib.contains("const FOG_COLOR: vec3<f32> = vec3<f32>(0.12, 0.28, 0.60);"));
+    assert!(lib.contains("const FOG_BEGIN: f32 = WORLD_EXTENT * 2.2;"));
+    assert!(lib.contains("const FOG_END: f32 = WORLD_EXTENT * 8.0;"));
+    assert!(lib.contains("const FOG_MAX: f32 = 0.12;"));
+}
+
 // =============================================================================
 // Phase 3.11.3 ~ 3.11.14 — 每个翻译过的 shader 单独做 naga parse 校验
 // =============================================================================
@@ -306,6 +315,11 @@ fn lut_blender_translation_parses() {
 #[test]
 fn restorescene_translation_parses() {
     let composed = compose_shader(hoi4_render::SHADER_RESTORESCENE_WGSL, true, false);
+    assert!(hoi4_render::SHADER_RESTORESCENE_WGSL.contains("hdr_tex"));
+    assert!(hoi4_render::SHADER_RESTORESCENE_WGSL.contains("bloom_tex"));
+    assert!(hoi4_render::SHADER_RESTORESCENE_WGSL.contains("lum_tex"));
+    assert!(hoi4_render::SHADER_RESTORESCENE_WGSL.contains("color_cube_tex"));
+    assert!(hoi4_render::SHADER_RESTORESCENE_WGSL.contains("srgb_target"));
     parse_wgsl("restorescene", &composed);
 }
 

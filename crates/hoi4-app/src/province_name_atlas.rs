@@ -246,6 +246,7 @@ pub fn build_province_label_instances(
 ) -> Vec<CountryNameInstance> {
     let n = labels.len().min(atlas.entries.len());
     let mut out: Vec<CountryNameInstance> = Vec::new();
+    let mut candidates: Vec<(u32, CountryNameInstance)> = Vec::new();
     for id in 1..n {
         let Some(label) = labels[id] else { continue };
         let Some(entry) = atlas.entries[id] else {
@@ -281,17 +282,62 @@ pub fn build_province_label_instances(
             width = height * aspect;
         }
 
-        out.push(CountryNameInstance {
-            center: [cx_world, label_y, cz_world],
-            width_world: width,
-            axis1: [label.axis1_dir.0, label.axis1_dir.1],
-            height_world: height,
-            _pad0: 0.0,
-            uv_min: entry.uv_min,
-            uv_max: entry.uv_max,
-        });
+        candidates.push((
+            label.pixel_count,
+            CountryNameInstance {
+                center: [cx_world, label_y, cz_world],
+                width_world: width,
+                axis1: [label.axis1_dir.0, label.axis1_dir.1],
+                height_world: height,
+                _pad0: 0.0,
+                uv_min: entry.uv_min,
+                uv_max: entry.uv_max,
+            },
+        ));
+    }
+    candidates.sort_by(|a, b| b.0.cmp(&a.0));
+
+    for (_, inst) in candidates {
+        if overlaps_accepted_label(&inst, &out) {
+            continue;
+        }
+        out.push(inst);
     }
     out
+}
+
+fn overlaps_accepted_label(inst: &CountryNameInstance, accepted: &[CountryNameInstance]) -> bool {
+    let a = label_aabb(inst);
+    accepted
+        .iter()
+        .any(|other| aabb_overlap_area_ratio(a, label_aabb(other)) > 0.18)
+}
+
+fn label_aabb(inst: &CountryNameInstance) -> [f32; 4] {
+    let ax = inst.axis1[0];
+    let az = inst.axis1[1];
+    let bx = -az;
+    let bz = ax;
+    let extent_x = ax.abs() * inst.width_world + bx.abs() * inst.height_world;
+    let extent_z = az.abs() * inst.width_world + bz.abs() * inst.height_world;
+    [
+        inst.center[0] - extent_x,
+        inst.center[2] - extent_z,
+        inst.center[0] + extent_x,
+        inst.center[2] + extent_z,
+    ]
+}
+
+fn aabb_overlap_area_ratio(a: [f32; 4], b: [f32; 4]) -> f32 {
+    let overlap_w = (a[2].min(b[2]) - a[0].max(b[0])).max(0.0);
+    let overlap_h = (a[3].min(b[3]) - a[1].max(b[1])).max(0.0);
+    if overlap_w <= 0.0 || overlap_h <= 0.0 {
+        return 0.0;
+    }
+    let overlap = overlap_w * overlap_h;
+    let area_a = ((a[2] - a[0]) * (a[3] - a[1])).max(0.0001);
+    let area_b = ((b[2] - b[0]) * (b[3] - b[1])).max(0.0001);
+    overlap / area_a.min(area_b)
 }
 
 #[cfg(test)]
@@ -348,5 +394,54 @@ mod tests {
             1,
             "only province 1 passes min_pixel_count=100"
         );
+    }
+
+    #[test]
+    fn build_province_label_instances_rejects_overlaps() {
+        use hoi4_render::province_labels::ProvinceLabel;
+        let labels = vec![
+            None,
+            Some(ProvinceLabel {
+                province_id: 1,
+                centroid_px: (100.0, 100.0),
+                axis1_dir: (1.0, 0.0),
+                half_extent_1: 50.0,
+                half_extent_2: 20.0,
+                pixel_count: 8000,
+                is_land: true,
+            }),
+            Some(ProvinceLabel {
+                province_id: 2,
+                centroid_px: (102.0, 100.0),
+                axis1_dir: (1.0, 0.0),
+                half_extent_1: 50.0,
+                half_extent_2: 20.0,
+                pixel_count: 3000,
+                is_land: true,
+            }),
+        ];
+        let atlas = ProvinceNameAtlas {
+            width: 2048,
+            height: 512,
+            data: vec![0; 2048 * 512],
+            entries: vec![
+                None,
+                Some(ProvinceAtlasEntry {
+                    uv_min: [0.0, 0.0],
+                    uv_max: [0.05, 0.02],
+                    width_px: 100,
+                    height_px: 20,
+                }),
+                Some(ProvinceAtlasEntry {
+                    uv_min: [0.1, 0.0],
+                    uv_max: [0.15, 0.02],
+                    width_px: 100,
+                    height_px: 20,
+                }),
+            ],
+        };
+        let instances = build_province_label_instances(&labels, &atlas, 0.02, 2.0, 100);
+        assert_eq!(instances.len(), 1);
+        assert!((instances[0].center[0] - 2.0).abs() < 1e-5);
     }
 }

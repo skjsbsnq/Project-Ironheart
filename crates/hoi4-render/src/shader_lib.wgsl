@@ -30,7 +30,6 @@
 // ## 不实现（推迟到后续 phase）
 //
 // - `CalculateShadow` PCF 采样（3.11.12 阴影管线时再加）
-// - `CalculatePointLights`（3.11.3 pdxmap 完整版才需要）
 // - `gradient_border_*` 系列（3.11.8 border 翻译时再加）
 // - `secondary_color_mask` / `dominance_fx_apply`（3.11.3 pdxmap 内）
 // - `SampleWater` / `BlendLEAN`（3.11.5 pdxwater 内）
@@ -48,17 +47,11 @@
 
 const LUMINANCE_VECTOR: vec3<f32> = vec3<f32>(0.2125, 0.7154, 0.0721);
 
-// Fog tuned so vanilla-style "extreme distance haze only" — the gameplay
-// camera (cam_y ≈ 6-25 units, look-at distance ≈ 50-150 units) lands
-// almost entirely below FOG_BEGIN, so the map keeps full saturation and
-// only a thin top-of-frame horizon haze remains visible at max zoom-out.
-// Compare the previous (1.7×, 6.7×, 0.18) which baked 5-15% global haze
-// into every wide-angle frame.
-const FOG_COLOR: vec3<f32> = vec3<f32>(0.62, 0.72, 0.82);
+const FOG_COLOR: vec3<f32> = vec3<f32>(0.12, 0.28, 0.60);
 const WORLD_EXTENT: f32 = 119.5;
-const FOG_BEGIN: f32 = WORLD_EXTENT * 4.0;
-const FOG_END: f32 = WORLD_EXTENT * 12.0;
-const FOG_MAX: f32 = 0.025;
+const FOG_BEGIN: f32 = WORLD_EXTENT * 2.2;
+const FOG_END: f32 = WORLD_EXTENT * 8.0;
+const FOG_MAX: f32 = 0.12;
 
 const FOW_CAMERA_MIN: f32 = 200.0;
 const FOW_CAMERA_MAX: f32 = 500.0;
@@ -94,6 +87,9 @@ const LIGHT_SHADOW_DIRECTION_Y: f32 = -8.0;
 const LIGHT_SHADOW_DIRECTION_Z: f32 = 5.0;
 
 const SHADOW_WEIGHT_TERRAIN_LIB: f32 = 0.7;
+
+const POINT_LIGHT_INDEX_TILE_PX: f32 = 16.0;
+const POINT_LIGHT_SENTINEL: i32 = 255;
 
 const MAP_ARROW_NORMALS_STR_TERR: f32 = 0.0125;
 const MAP_ARROW_NORMALS_STR_WATER: f32 = 0.08;
@@ -434,6 +430,80 @@ fn get_non_linear_glossiness(glossiness: f32) -> f32 {
 /// `standardfuncsgfx.fxh:562` — `GetEnvmapMipLevel`
 fn get_envmap_mip_level(glossiness: f32) -> f32 {
     return (1.0 - glossiness) * 8.0;
+}
+
+fn point_light_index_coord(map_px: vec2<f32>, dims: vec2<u32>) -> vec2<i32> {
+    let max_coord = vec2<i32>(i32(dims.x) - 1, i32(dims.y) - 1);
+    let raw = vec2<i32>(floor(map_px / POINT_LIGHT_INDEX_TILE_PX));
+    return clamp(raw, vec2<i32>(0), max_coord);
+}
+
+fn point_light_slot(packed: vec4<f32>, slot: i32) -> i32 {
+    var encoded = packed.r;
+    if (slot == 1) {
+        encoded = packed.g;
+    } else if (slot == 2) {
+        encoded = packed.b;
+    } else if (slot == 3) {
+        encoded = packed.a;
+    }
+    return i32(round(clamp(encoded, 0.0, 1.0) * 255.0));
+}
+
+fn calculate_point_light_slot(
+    light_data_tex: texture_2d<f32>,
+    packed_indices: vec4<f32>,
+    slot: i32,
+    world_pos: vec3<f32>,
+    normal: vec3<f32>,
+) -> vec3<f32> {
+    let idx = point_light_slot(packed_indices, slot);
+    if (idx >= POINT_LIGHT_SENTINEL) {
+        return vec3<f32>(0.0);
+    }
+    let base = idx * 2;
+    let data_dims = textureDimensions(light_data_tex);
+    if (base + 1 >= i32(data_dims.x)) {
+        return vec3<f32>(0.0);
+    }
+    let pos_radius = textureLoad(light_data_tex, vec2<i32>(base, 0), 0);
+    let color_falloff = textureLoad(light_data_tex, vec2<i32>(base + 1, 0), 0);
+    if (pos_radius.w <= 0.001) {
+        return vec3<f32>(0.0);
+    }
+    let delta = pos_radius.xyz - world_pos;
+    let dist = length(delta);
+    if (dist >= pos_radius.w) {
+        return vec3<f32>(0.0);
+    }
+    let to_light = delta / max(dist, 0.0001);
+    let radius_t = clamp(1.0 - dist / max(pos_radius.w, 0.001), 0.0, 1.0);
+    let falloff = max(color_falloff.w, 0.001);
+    let attenuation = pow(radius_t, 1.0 + falloff * 3.0);
+    let facing = 0.35 + 0.65 * clamp(dot(normalize(normal), to_light), 0.0, 1.0);
+    return color_falloff.rgb * attenuation * facing;
+}
+
+fn calculate_point_lights(
+    light_data_tex: texture_2d<f32>,
+    light_index_tex: texture_2d<f32>,
+    map_px: vec2<f32>,
+    world_pos: vec3<f32>,
+    normal: vec3<f32>,
+    intensity: f32,
+) -> vec3<f32> {
+    let index_dims = textureDimensions(light_index_tex);
+    if (index_dims.x == 0u || index_dims.y == 0u) {
+        return vec3<f32>(0.0);
+    }
+    let coord = point_light_index_coord(map_px, index_dims);
+    let packed_indices = textureLoad(light_index_tex, coord, 0);
+    var total = vec3<f32>(0.0);
+    total = total + calculate_point_light_slot(light_data_tex, packed_indices, 0, world_pos, normal);
+    total = total + calculate_point_light_slot(light_data_tex, packed_indices, 1, world_pos, normal);
+    total = total + calculate_point_light_slot(light_data_tex, packed_indices, 2, world_pos, normal);
+    total = total + calculate_point_light_slot(light_data_tex, packed_indices, 3, world_pos, normal);
+    return total * intensity;
 }
 
 // -----------------------------------------------------------------------------

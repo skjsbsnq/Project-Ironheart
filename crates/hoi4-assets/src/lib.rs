@@ -5,7 +5,7 @@
 //! 1. **AssetDb 抽象**（[`AssetDb`] / [`FsAssetDb`]） — 按相对路径取一个 vanilla
 //!    资产文件，缓存字节与解析结果。两层 LRU：原始字节 + 类型化结果。
 //! 2. **二进制资产解析器** — DDS（地图 / 国旗 / sprite 纹理）、TGA（主菜单背景与
-//!    旧 vanilla sprite 兼容路径）、PdxMesh（3D 模型）、`.asset` metadata、
+//!    旧 vanilla sprite 兼容路径）、PdxMesh（3D 模型）、`.gfx` entity metadata、`.asset` metadata、
 //!    `vanilla_map_set`（地图必备文件白名单）。
 //! 3. **`TextureBank`** — 显式路径 → wgpu 纹理缓存（V5 已去掉与 `.gfx`
 //!    `SpriteDef` 联动，`get_or_load_path` 直接走 [`AssetDb::open`]）。
@@ -22,6 +22,7 @@ mod db;
 pub mod dds;
 mod error;
 pub mod generated_flags;
+pub mod gfx;
 pub mod map_asset_audit;
 pub mod pdx_mesh;
 pub mod texture_bank;
@@ -37,6 +38,10 @@ pub use dds::{
 };
 pub use error::AssetError;
 pub use generated_flags::generated_historical_flag;
+pub use gfx::{
+    GfxEntityDef, GfxIndex, GfxMeshDef, GfxMeshSettings, PostEffectHeightVolume, PostEffectValues,
+    PostEffectVolume, PostEffectVolumeIndex,
+};
 pub use map_asset_audit::{
     audit_category_name, fallback_invalidates_visual_review, fallback_policy_for, requirement_for,
     MapAssetAudit, MapAssetAuditEntry, MapAssetCategoryStats, MapAssetDdsInfo,

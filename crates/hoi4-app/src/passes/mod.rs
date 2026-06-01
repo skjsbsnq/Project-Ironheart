@@ -73,7 +73,8 @@ pub use particle::ParticlePass;
 pub use pdxmesh::PdxMeshPass;
 pub use poi_icon::PoiIconPass;
 pub use postprocess::{
-    PostProcessCalibration, PostProcessChain, PostProcessDebugView, PostProcessMode,
+    ColorCubeSource, PostProcessCalibration, PostProcessChain, PostProcessDebugView,
+    PostProcessLutSelection, PostProcessMode,
 };
 pub use province_name::{ProvinceNameParams, ProvinceNamePass};
 pub use river::{RiverParams, RiverPass, RiverPassInputs};
@@ -130,6 +131,12 @@ pub struct PassEntry {
     pub gpu_ms: f32,
     /// Draw calls submitted by this pass during the current frame.
     pub draw_calls: u32,
+    /// Texture memory owned or directly consumed by this pass during the
+    /// current frame. This is an estimate for shared resources.
+    pub texture_memory_bytes: u64,
+    /// Number of fallback bindings affecting this pass during the current
+    /// frame.
+    pub fallback_count: u32,
 }
 
 impl PassRegistry {
@@ -145,6 +152,8 @@ impl PassRegistry {
             cpu_ms: 0.0,
             gpu_ms: 0.0,
             draw_calls: 0,
+            texture_memory_bytes: 0,
+            fallback_count: 0,
         });
     }
 
@@ -167,6 +176,8 @@ impl PassRegistry {
         for entry in &mut self.entries {
             entry.cpu_ms = 0.0;
             entry.draw_calls = 0;
+            entry.texture_memory_bytes = 0;
+            entry.fallback_count = 0;
         }
     }
 
@@ -188,6 +199,18 @@ impl PassRegistry {
         }
     }
 
+    pub fn record_texture_memory_bytes(&mut self, name: &str, bytes: u64) {
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.name == name) {
+            entry.texture_memory_bytes = bytes;
+        }
+    }
+
+    pub fn record_fallback_count(&mut self, name: &str, fallback_count: u32) {
+        if let Some(entry) = self.entries.iter_mut().find(|entry| entry.name == name) {
+            entry.fallback_count = fallback_count;
+        }
+    }
+
     pub fn total_cpu_ms(&self) -> f32 {
         self.entries.iter().map(|entry| entry.cpu_ms).sum()
     }
@@ -200,6 +223,20 @@ impl PassRegistry {
         self.entries
             .iter()
             .map(|entry| entry.draw_calls)
+            .fold(0u32, u32::saturating_add)
+    }
+
+    pub fn total_texture_memory_bytes(&self) -> u64 {
+        self.entries
+            .iter()
+            .map(|entry| entry.texture_memory_bytes)
+            .fold(0u64, u64::saturating_add)
+    }
+
+    pub fn total_fallback_count(&self) -> u32 {
+        self.entries
+            .iter()
+            .map(|entry| entry.fallback_count)
             .fold(0u32, u32::saturating_add)
     }
 }
@@ -229,14 +266,20 @@ mod tests {
         r.record_gpu_ms("terrain", 2.5);
         r.record_draw_calls("terrain", 3);
         r.record_draw_calls("terrain", 4);
+        r.record_texture_memory_bytes("terrain", 1024);
+        r.record_fallback_count("terrain", 2);
         assert!((r.total_cpu_ms() - 2.0).abs() < f32::EPSILON);
         assert!((r.total_gpu_ms() - 2.5).abs() < f32::EPSILON);
         assert_eq!(r.total_draw_calls(), 7);
+        assert_eq!(r.total_texture_memory_bytes(), 1024);
+        assert_eq!(r.total_fallback_count(), 2);
 
         r.begin_frame_stats();
         assert_eq!(r.total_cpu_ms(), 0.0);
         assert_eq!(r.total_draw_calls(), 0);
         assert_eq!(r.total_gpu_ms(), 2.5);
+        assert_eq!(r.total_texture_memory_bytes(), 0);
+        assert_eq!(r.total_fallback_count(), 0);
     }
 
     #[test]

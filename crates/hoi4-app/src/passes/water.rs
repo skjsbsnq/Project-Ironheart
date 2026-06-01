@@ -17,8 +17,8 @@
 //! 4. **ApplyIce**：`ice_diffuse.dds` + `ice_noise_0/1.dds`
 //! 5. **runtime targets**：GradientBorderChannel1/2/3、ProvinceSecondaryColorMap、
 //!    FOW 与 distance fog
-//! 6. **point lights**：绑定 `light_data` / `light_index` blocker target；真实
-//!    LightData/LightIndex 内容生成仍归 Phase 5。
+//! 6. **point lights**：共享 Phase 5 的 `LightDataMap` / `LightIndexMap`
+//!    runtime targets，水面接收与地形/树/建筑一致的本地点光。
 //!
 //! ## 几何复用策略
 //!
@@ -69,8 +69,7 @@ use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
 use crate::vanilla_resource_views::{
-    create_dynamic_target_1x1, upload_dds_or_fallback, BindingAudit, BindingAuditEntry,
-    DdsUploadRequest, VanillaResourceViews,
+    upload_dds_or_fallback, BindingAudit, DdsUploadRequest, VanillaResourceViews,
 };
 use crate::vanilla_targets::VanillaRuntimeTargets;
 
@@ -438,34 +437,8 @@ impl WaterPass {
                 .runtime_targets
                 .binding_audit_entries_for_pass("water"),
         );
-        binding_audit.extend([
-            BindingAuditEntry::dynamic_target_blocker(
-                "water",
-                "light_data",
-                "light_data_empty_target",
-                "Vanilla point light render target is not generated yet",
-                "water does not receive local night highlights until Phase 5",
-            ),
-            BindingAuditEntry::dynamic_target_blocker(
-                "water",
-                "light_index",
-                "light_index_empty_target",
-                "Vanilla point light index target is not generated yet",
-                "water point light lookup is disabled until Phase 5",
-            ),
-        ]);
         let [lean1_tex, lean2_tex, reflection_tex, fow_water_spec_tex, colormap_water_0_tex, colormap_water_1_tex, colormap_water_2_tex, ice_diffuse_tex, ice_noise_0_tex, ice_noise_1_tex, reflection_land_unit_tex, underwater_terrain_tex] =
             loaded_water_textures;
-        let (light_data_tex, light_data_view) =
-            create_dynamic_target_1x1(device, queue, "light_data_empty_target", [0, 0, 0, 0]);
-        let (light_index_tex, light_index_view) = create_dynamic_target_1x1(
-            device,
-            queue,
-            "light_index_empty_target",
-            [255, 255, 255, 255],
-        );
-        owned_textures.push(light_data_tex);
-        owned_textures.push(light_index_tex);
 
         // ── env cube fallback (1×1×6 dim-blue) ─────────────────────────
         let (env_cube_tex, env_cube_view) = create_dim_blue_cubemap(device, queue);
@@ -643,8 +616,9 @@ impl WaterPass {
                 fragment_tex_entry(16),
                 fragment_tex_entry(17),
                 fragment_tex_entry(18),
-                fragment_tex_entry(19),
+                fragment_tex_entry_nonfilter(19),
                 fragment_tex_entry(20),
+                fragment_tex_entry(21),
             ],
         });
         let bind_group_g2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -737,11 +711,21 @@ impl WaterPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 19,
-                    resource: wgpu::BindingResource::TextureView(&light_data_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.light_data.view,
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 20,
-                    resource: wgpu::BindingResource::TextureView(&light_index_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.light_index.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 21,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.mud_snow.view,
+                    ),
                 },
             ],
         });
@@ -904,6 +888,19 @@ fn fragment_tex_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         visibility: wgpu::ShaderStages::FRAGMENT,
         ty: wgpu::BindingType::Texture {
             sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+fn fragment_tex_entry_nonfilter(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: false },
             view_dimension: wgpu::TextureViewDimension::D2,
             multisampled: false,
         },
@@ -1156,6 +1153,7 @@ struct ChunkUniform {
 @group(2) @binding(18) var fow_tex: texture_2d<f32>;
 @group(2) @binding(19) var light_data_tex: texture_2d<f32>;
 @group(2) @binding(20) var light_index_tex: texture_2d<f32>;
+@group(2) @binding(21) var mud_snow_tex: texture_2d<f32>;
 
 const SEA_LEVEL: f32 = 95.0 / 255.0;
 const ID_NONE: u32 = 4294967295u;
@@ -1313,19 +1311,17 @@ fn sample_refraction(map_uv: vec2<f32>, normal: vec3<f32>, depth_ratio: f32) -> 
     return mix(water_lod, under, 0.35 * depth_ratio);
 }
 
-fn calculate_point_lights_water(world_pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-    let li = textureLoad(light_index_tex, vec2<i32>(0, 0), 0).r * 255.0;
-    if (li >= 255.0) {
-        return vec3<f32>(0.0);
-    }
-    let idx = i32(li);
-    let pos_radius = textureLoad(light_data_tex, vec2<i32>(idx * 2, 0), 0);
-    let color_falloff = textureLoad(light_data_tex, vec2<i32>(idx * 2 + 1, 0), 0);
-    let to_light = pos_radius.xyz - world_pos;
-    let d = length(to_light);
-    let attenuation = clamp((pos_radius.w - d) / max(color_falloff.w, 0.01), 0.0, 1.0);
-    let facing = clamp(dot(normalize(to_light), normal), 0.0, 1.0);
-    return color_falloff.rgb * attenuation * facing;
+fn calculate_point_lights_water(map_px: vec2<f32>, world_pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
+    let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
+    return calculate_point_lights(
+        light_data_tex,
+        light_index_tex,
+        map_px,
+        world_pos,
+        normal,
+        (0.15 + night * 0.85) * 0.40
+    );
 }
 
 struct IceResult {
@@ -1345,6 +1341,18 @@ fn apply_ice(map_uv: vec2<f32>, base_color: vec3<f32>) -> IceResult {
                  * (0.35 + 0.45 * noise0 + 0.20 * noise1);
     let mask = clamp(ice_mask, 0.0, 1.0);
     return IceResult(mix(base_color, ice, mask), mask);
+}
+
+fn apply_water_mud_snow(map_uv: vec2<f32>, base_color: vec3<f32>, depth_ratio: f32) -> vec3<f32> {
+    let mud_snow = textureSample(mud_snow_tex, water_sampler, map_uv);
+    let season = clamp(frame.fow_opacity_time_snow_max_speed.z, 0.0, 1.0);
+    let snow = get_snow(mud_snow, season);
+    let mud = mix(mud_snow.r, mud_snow.a, season);
+    let snow_tint = vec3<f32>(0.58, 0.68, 0.78);
+    let mud_tint = vec3<f32>(0.06, 0.10, 0.13);
+    var color = mix(base_color, mud_tint, mud * 0.12 * (1.0 - depth_ratio));
+    color = mix(color, snow_tint, snow * 0.20);
+    return color;
 }
 
 struct WaterMaterial {
@@ -1437,7 +1445,8 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, world_pos: vec3<f3
     let foam_alpha = foam * 0.10 * close_suppress * (1.0 - polar_edge);
     color = mix(color, vec3<f32>(0.78, 0.88, 0.92), foam_alpha);
 
-    color = color + calculate_point_lights_water(world_pos, normal) * 0.12;
+    color = color + calculate_point_lights_water(map_px, world_pos, normal) * 0.12;
+    color = apply_water_mud_snow(map_uv, color, depth_ratio);
     let ice_result = apply_ice(map_uv, color);
     color = ice_result.color;
 
@@ -1661,6 +1670,18 @@ mod tests {
         assert!(
             WATER_WGSL.contains("calculate_point_lights_water"),
             "needs point-light binding path"
+        );
+        assert!(
+            WATER_WGSL.contains("calculate_point_lights("),
+            "needs shared point-light helper"
+        );
+        assert!(
+            WATER_WGSL.contains("apply_water_mud_snow"),
+            "needs SnowMudTexture/MudSnow water path"
+        );
+        assert!(
+            WATER_WGSL.contains("textureSample(mud_snow_tex"),
+            "bound mud_snow_tex must be consumed by the water material"
         );
     }
 

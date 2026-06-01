@@ -4,6 +4,7 @@ use crate::passes::PassRegistry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapQualityPreset {
+    LowEnd,
     High,
     Ultra,
 }
@@ -15,10 +16,11 @@ impl Default for MapQualityPreset {
 }
 
 impl MapQualityPreset {
-    pub const ALL: [Self; 2] = [Self::High, Self::Ultra];
+    pub const ALL: [Self; 3] = [Self::LowEnd, Self::High, Self::Ultra];
 
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::LowEnd => "low_end",
             Self::High => "high",
             Self::Ultra => "ultra",
         }
@@ -34,6 +36,17 @@ impl MapQualityPreset {
 
     pub const fn controls(self) -> MapQualityControls {
         match self {
+            Self::LowEnd => MapQualityControls {
+                terrain_lod_density: 0.60,
+                tree_density: 0.35,
+                particle_density: 0.20,
+                border_detail: 0.55,
+                label_density: 0.62,
+                postprocess_chain: false,
+                point_lights: false,
+                runtime_target_scale: 0.50,
+                object_lod_bias: 1,
+            },
             Self::High => MapQualityControls {
                 terrain_lod_density: 0.92,
                 tree_density: 0.82,
@@ -41,6 +54,9 @@ impl MapQualityPreset {
                 border_detail: 0.90,
                 label_density: 0.88,
                 postprocess_chain: true,
+                point_lights: true,
+                runtime_target_scale: 1.0,
+                object_lod_bias: 0,
             },
             Self::Ultra => MapQualityControls {
                 terrain_lod_density: 1.0,
@@ -49,12 +65,23 @@ impl MapQualityPreset {
                 border_detail: 1.0,
                 label_density: 1.0,
                 postprocess_chain: true,
+                point_lights: true,
+                runtime_target_scale: 1.0,
+                object_lod_bias: 0,
             },
         }
     }
 
     pub const fn budget(self) -> MapPerformanceBudget {
         match self {
+            Self::LowEnd => MapPerformanceBudget {
+                frame_1080p_ms: 25.0,
+                frame_1440p_ms: 33.3,
+                pass_gpu_ms: 22.0,
+                cpu_prepare_ms: 5.0,
+                draw_calls: 72,
+                texture_memory_mb: 384,
+            },
             Self::High => MapPerformanceBudget {
                 frame_1080p_ms: 16.7,
                 frame_1440p_ms: 22.2,
@@ -83,12 +110,15 @@ pub struct MapQualityControls {
     pub border_detail: f32,
     pub label_density: f32,
     pub postprocess_chain: bool,
+    pub point_lights: bool,
+    pub runtime_target_scale: f32,
+    pub object_lod_bias: u8,
 }
 
 impl MapQualityControls {
     pub fn summary(self) -> String {
         format!(
-            "lod={:.2} tree={:.2} particle={:.2} border={:.2} label={:.2} pp={}",
+            "lod={:.2} tree={:.2} particle={:.2} border={:.2} label={:.2} pp={} point_lights={} rt_scale={:.2} object_lod_bias={}",
             self.terrain_lod_density,
             self.tree_density,
             self.particle_density,
@@ -98,7 +128,10 @@ impl MapQualityControls {
                 "full"
             } else {
                 "off"
-            }
+            },
+            self.point_lights,
+            self.runtime_target_scale,
+            self.object_lod_bias
         )
     }
 }
@@ -161,6 +194,11 @@ pub fn estimate_frame_texture_memory_bytes(width: u32, height: u32, postprocess_
             lw = (lw / 4).max(1);
             lh = (lh / 4).max(1);
         }
+
+        // Phase 10 identity ColorCube fallback: 16 slices laid out as a
+        // 256x16 RGBA8 2D LUT. Vanilla DDS loading can replace the contents
+        // without changing the memory shape.
+        total += 256 * 16 * 4;
     }
 
     total
@@ -168,6 +206,22 @@ pub fn estimate_frame_texture_memory_bytes(width: u32, height: u32, postprocess_
 
 pub fn mib(bytes: u64) -> f32 {
     bytes as f32 / (1024.0 * 1024.0)
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MapResourceCacheStats {
+    pub dds_upload_entries: usize,
+    pub mesh_parse_entries: usize,
+    pub runtime_target_cache_entries: usize,
+}
+
+impl MapResourceCacheStats {
+    pub fn summary(self) -> String {
+        format!(
+            "dds_upload={} mesh_parse={} runtime_targets={}",
+            self.dds_upload_entries, self.mesh_parse_entries, self.runtime_target_cache_entries
+        )
+    }
 }
 
 pub struct Phase10OverlayInput {
@@ -187,6 +241,8 @@ pub fn phase10_overlay_lines(input: Phase10OverlayInput, registry: &PassRegistry
     let cpu_pass_ms = registry.total_cpu_ms();
     let gpu_pass_ms = registry.total_gpu_ms();
     let texture_mb = mib(input.texture_memory_bytes);
+    let pass_texture_mb = mib(registry.total_texture_memory_bytes());
+    let fallback_count = registry.total_fallback_count();
 
     let frame_state = if input.last_frame_cpu_ms <= target_ms || input.last_frame_cpu_ms <= 0.0 {
         BudgetState::Within
@@ -216,7 +272,7 @@ pub fn phase10_overlay_lines(input: Phase10OverlayInput, registry: &PassRegistry
 
     vec![
         format!(
-            "phase10 preset={} budget frame {:.1}/{:.1}ms {} cpu_prepare {:.2}/{:.2}ms {}",
+            "phase12 preset={} budget frame {:.1}/{:.1}ms {} cpu_prepare {:.2}/{:.2}ms {}",
             input.preset.as_str(),
             input.last_frame_cpu_ms,
             target_ms,
@@ -226,7 +282,7 @@ pub fn phase10_overlay_lines(input: Phase10OverlayInput, registry: &PassRegistry
             cpu_state.as_str()
         ),
         format!(
-            "phase10 passes cpu={:.2}ms gpu={:.2}/{:.2}ms {} draw_calls={}/{} {}",
+            "phase12 passes cpu={:.2}ms gpu={:.2}/{:.2}ms {} draw_calls={}/{} {}",
             cpu_pass_ms,
             gpu_pass_ms,
             budget.pass_gpu_ms,
@@ -236,13 +292,15 @@ pub fn phase10_overlay_lines(input: Phase10OverlayInput, registry: &PassRegistry
             draw_state.as_str()
         ),
         format!(
-            "phase10 texture_est={:.1}/{} MiB {} gpu_timestamp={}",
+            "phase12 texture_est={:.1}/{} MiB {} pass_tex={:.1}MiB fallback={} gpu_timestamp={}",
             texture_mb,
             budget.texture_memory_mb,
             texture_state.as_str(),
+            pass_texture_mb,
+            fallback_count,
             input.gpu_status.summary()
         ),
-        format!("phase10 quality {}", input.preset.controls().summary()),
+        format!("phase12 quality {}", input.preset.controls().summary()),
     ]
 }
 
@@ -512,20 +570,26 @@ mod tests {
 
     #[test]
     fn phase10_quality_presets_are_ordered() {
+        let low = MapQualityPreset::LowEnd.controls();
         let high = MapQualityPreset::High.controls();
         let ultra = MapQualityPreset::Ultra.controls();
+        assert!(low.terrain_lod_density <= high.terrain_lod_density);
         assert!(high.terrain_lod_density <= ultra.terrain_lod_density);
         assert!(high.tree_density <= ultra.tree_density);
         assert!(high.particle_density <= ultra.particle_density);
+        assert!(!low.point_lights);
+        assert!(MapQualityPreset::LowEnd.next() == MapQualityPreset::High);
         assert!(MapQualityPreset::High.next() == MapQualityPreset::Ultra);
-        assert!(MapQualityPreset::Ultra.next() == MapQualityPreset::High);
+        assert!(MapQualityPreset::Ultra.next() == MapQualityPreset::LowEnd);
     }
 
     #[test]
     fn phase10_budgets_scale_with_resolution_and_preset() {
         let high = MapQualityPreset::High.budget();
         let ultra = MapQualityPreset::Ultra.budget();
+        let low = MapQualityPreset::LowEnd.budget();
         assert!(high.frame_target_ms(2560, 1440) > high.frame_target_ms(1920, 1080));
+        assert!(high.draw_calls > low.draw_calls);
         assert!(ultra.draw_calls > high.draw_calls);
         assert!(ultra.texture_memory_mb > high.texture_memory_mb);
     }
@@ -544,6 +608,8 @@ mod tests {
         registry.register("3d_terrain");
         registry.record_cpu_ms("3d_terrain", 1.25);
         registry.record_draw_calls("3d_terrain", 3);
+        registry.record_texture_memory_bytes("3d_terrain", 1024 * 1024);
+        registry.record_fallback_count("3d_terrain", 1);
         let lines = phase10_overlay_lines(
             Phase10OverlayInput {
                 preset: MapQualityPreset::High,
@@ -561,5 +627,19 @@ mod tests {
         assert!(lines
             .iter()
             .any(|line| line.contains("gpu_timestamp=unsupported")));
+        assert!(lines.iter().any(|line| line.contains("fallback=1")));
+    }
+
+    #[test]
+    fn resource_cache_stats_summary_is_stable() {
+        let stats = MapResourceCacheStats {
+            dds_upload_entries: 7,
+            mesh_parse_entries: 3,
+            runtime_target_cache_entries: 8,
+        };
+        assert_eq!(
+            stats.summary(),
+            "dds_upload=7 mesh_parse=3 runtime_targets=8"
+        );
     }
 }

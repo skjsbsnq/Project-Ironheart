@@ -1,5 +1,5 @@
-// Phase 3.5: Building icons — instanced colored squares.
-// Vertex layout: [f32;3] pos + f32 kind (0=civ, 1=mil, 2=dock)
+// Phase 3.5 fallback: building/object icons as instanced colored squares.
+// Vertex layout: [f32;3] pos + f32 kind (see BUILDING_KIND_* in buildings.rs)
 
 struct Camera {
     view_proj: mat4x4<f32>,
@@ -52,8 +52,16 @@ fn vs_main(in: VsIn) -> VsOut {
         out.color = vec3<f32>(0.2, 0.6, 0.2); // civilian = green
     } else if in.kind < 1.5 {
         out.color = vec3<f32>(0.7, 0.2, 0.2); // military = red
-    } else {
+    } else if in.kind < 2.5 {
         out.color = vec3<f32>(0.2, 0.3, 0.7); // dockyard = blue
+    } else if in.kind < 4.5 {
+        out.color = vec3<f32>(0.32, 0.50, 0.58); // air/port bases
+    } else if in.kind < 7.5 {
+        out.color = vec3<f32>(0.55, 0.52, 0.40); // radar/AA/bunker
+    } else if in.kind < 10.5 {
+        out.color = vec3<f32>(0.58, 0.47, 0.34); // refinery/fuel
+    } else {
+        out.color = vec3<f32>(0.48, 0.58, 0.46); // strategic sites
     }
     return out;
 }

@@ -856,10 +856,11 @@ pub(crate) fn run_map_phase0(
     world: hoi4_state::World,
     path_cfg: hoi4_paths::PathConfig,
     output_dir: std::path::PathBuf,
+    reference_root: Option<std::path::PathBuf>,
 ) {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Wait);
     let mut app = App::new(world, path_cfg);
-    app.enable_map_phase0(output_dir);
+    app.enable_map_phase0(output_dir, reference_root);
     event_loop.run_app(&mut app).unwrap();
 }

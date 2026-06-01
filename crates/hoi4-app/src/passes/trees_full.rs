@@ -33,7 +33,7 @@
 
 #![allow(dead_code)]
 
-use hoi4_assets::{AssetDb, DdsImage, FsAssetDb, MapResRole, PdxMesh};
+use hoi4_assets::{AssetDb, AssetError, DdsImage, FsAssetDb, MapResRole, PdxMesh};
 use hoi4_paths::PathConfig;
 use hoi4_render::trees::TreeInstance;
 use hoi4_render::trees_mesh::{build_tree_mesh, TreeMeshVertex, INSTANCE_CAP_PER_TYPE};
@@ -42,8 +42,7 @@ use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
 use crate::vanilla_resource_views::{
-    create_dynamic_target_1x1, upload_dds_or_fallback, BindingAudit, BindingAuditEntry,
-    DdsUploadRequest, VanillaResourceViews,
+    upload_dds_or_fallback, BindingAudit, BindingAuditEntry, DdsUploadRequest, VanillaResourceViews,
 };
 use crate::vanilla_targets::VanillaRuntimeTargets;
 
@@ -227,8 +226,6 @@ pub struct TreeFullPass {
     _tint_tex: wgpu::Texture,
     _mask_tex: wgpu::Texture,
     _colormap_tex: wgpu::Texture,
-    _light_data_tex: wgpu::Texture,
-    _light_index_tex: wgpu::Texture,
     _shadow_tex_held: bool,
     _owned_samplers: Vec<wgpu::Sampler>,
 }
@@ -262,23 +259,6 @@ impl TreeFullPass {
                 .runtime_targets
                 .binding_audit_entries_for_pass("tree"),
         );
-        binding_audit.extend([
-            BindingAuditEntry::dynamic_target_blocker(
-                "tree",
-                "light_data",
-                "light_data_empty_target",
-                "Vanilla point light render target is not generated yet",
-                "tree material does not receive local night highlights until Phase 5",
-            ),
-            BindingAuditEntry::dynamic_target_blocker(
-                "tree",
-                "light_index",
-                "light_index_empty_target",
-                "Vanilla point light index target is not generated yet",
-                "tree point light lookup is disabled until Phase 5",
-            ),
-        ]);
-
         let composed = hoi4_render::shader_rt::compose_shader(SHADER_WGSL, true, true);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("trees_full_shader"),
@@ -371,15 +351,6 @@ impl TreeFullPass {
         let colormap_tex = colormap.texture;
         let colormap_view = colormap.view;
 
-        let (light_data_tex, light_data_view) =
-            create_dynamic_target_1x1(device, queue, "light_data_empty_target", [0, 0, 0, 0]);
-        let (light_index_tex, light_index_view) = create_dynamic_target_1x1(
-            device,
-            queue,
-            "light_index_empty_target",
-            [255, 255, 255, 255],
-        );
-
         let tree_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("tree_sampler"),
             address_mode_u: wgpu::AddressMode::Repeat,
@@ -461,7 +432,7 @@ impl TreeFullPass {
                 fragment_tex_entry(10),
                 fragment_tex_entry(11),
                 fragment_tex_entry(12),
-                fragment_tex_entry(13),
+                fragment_tex_entry_nonfilter(13),
                 fragment_tex_entry(14),
             ],
         });
@@ -533,11 +504,15 @@ impl TreeFullPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 13,
-                    resource: wgpu::BindingResource::TextureView(&light_data_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.light_data.view,
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 14,
-                    resource: wgpu::BindingResource::TextureView(&light_index_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.light_index.view,
+                    ),
                 },
             ],
         });
@@ -579,20 +554,19 @@ impl TreeFullPass {
         let mut any_loaded = false;
 
         for (type_idx, (mesh_path, diff_path, norm_path)) in tree_defs.iter().enumerate() {
-            let parsed_mesh =
-                db.open(*mesh_path)
-                    .ok()
-                    .and_then(|bytes| match PdxMesh::parse(&bytes) {
-                        Ok(m) if !m.meshes.is_empty() => Some(m),
-                        Ok(_) => {
-                            eprintln!("[trees_full] {} parsed OK but 0 submeshes", mesh_path);
-                            None
-                        }
-                        Err(e) => {
-                            eprintln!("[trees_full] {} parse error: {}", mesh_path, e);
-                            None
-                        }
-                    });
+            let parsed_mesh = match db.parse_or_get::<PdxMesh, _>(*mesh_path, |bytes| {
+                PdxMesh::parse(bytes).map_err(|err| AssetError::parse(*mesh_path, err.to_string()))
+            }) {
+                Ok(m) if !m.meshes.is_empty() => Some(m),
+                Ok(_) => {
+                    eprintln!("[trees_full] {} parsed OK but 0 submeshes", mesh_path);
+                    None
+                }
+                Err(e) => {
+                    eprintln!("[trees_full] {} load failed: {}", mesh_path, e);
+                    None
+                }
+            };
 
             let parsed_mesh = match parsed_mesh {
                 Some(m) => m,
@@ -858,8 +832,6 @@ impl TreeFullPass {
             _tint_tex: tint_tex,
             _mask_tex: mask_tex,
             _colormap_tex: colormap_tex,
-            _light_data_tex: light_data_tex,
-            _light_index_tex: light_index_tex,
             _shadow_tex_held: false,
             _owned_samplers: owned_samplers,
         }
@@ -987,6 +959,19 @@ fn fragment_tex_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         visibility: wgpu::ShaderStages::FRAGMENT,
         ty: wgpu::BindingType::Texture {
             sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+fn fragment_tex_entry_nonfilter(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: false },
             view_dimension: wgpu::TextureViewDimension::D2,
             multisampled: false,
         },
@@ -1515,6 +1500,7 @@ mod tests {
             "light_index_tex",
             "apply_tree_snow",
             "calculate_point_lights_tree",
+            "calculate_point_lights(",
         ] {
             assert!(
                 SHADER_WGSL.contains(token),

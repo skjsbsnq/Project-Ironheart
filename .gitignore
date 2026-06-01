@@ -9,6 +9,7 @@
 # Logs and diagnostics
 *.log
 *.trace
+*.jsonl
 
 # Local-only Markdown docs
 *.md

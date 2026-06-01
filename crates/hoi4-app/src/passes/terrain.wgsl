@@ -132,6 +132,11 @@ const CITY_LIGHTS_INTENSITY_TERRAIN: f32 = 5.5;
 const MUD_TILING_TERRAIN: f32 = 0.09;
 const SNOW_TILING_TERRAIN: f32 = 0.05;
 const SNOW_NORMAL_START_TERRAIN: f32 = 0.7;
+const POLITICAL_TERRAIN_MODULATION: f32 = 0.68;
+const POLITICAL_TERRAIN_DIRECT_MIX: f32 = 0.28;
+const POLITICAL_TERRAIN_TINT_MIN: f32 = 0.48;
+const POLITICAL_TERRAIN_TINT_MAX: f32 = 0.76;
+const POLITICAL_NIGHT_DESAT_BLEND: f32 = 0.35;
 const ID_NONE: u32 = 4294967295u;
 
 const TERRAIN_DEBUG_OFF: u32 = 0u;
@@ -139,7 +144,7 @@ const TERRAIN_DEBUG_TERRAIN_ID: u32 = 1u;
 const TERRAIN_DEBUG_ATLAS_TILE_ID: u32 = 2u;
 const TERRAIN_DEBUG_BLEND_STATE: u32 = 3u;
 const TERRAIN_DEBUG_CORNERS: u32 = 4u;
-const TERRAIN_DEBUG_POLITICAL_COLOR: u32 = 5u;
+const TERRAIN_DEBUG_POLITICAL_BASE: u32 = 5u;
 const TERRAIN_DEBUG_TERRAIN_ALBEDO: u32 = 6u;
 const TERRAIN_DEBUG_NORMAL: u32 = 7u;
 const TERRAIN_DEBUG_HEIGHT_SLOPE: u32 = 8u;
@@ -162,6 +167,9 @@ const TERRAIN_DEBUG_FOW_ENEMY_SPOTTED: u32 = 24u;
 const TERRAIN_DEBUG_MUD_SNOW_SNOW_AMOUNT: u32 = 25u;
 const TERRAIN_DEBUG_MUD_SNOW_MUD_AMOUNT: u32 = 26u;
 const TERRAIN_DEBUG_MUD_SNOW_TARGET: u32 = 27u;
+const TERRAIN_DEBUG_POINT_LIGHT_CONTRIB: u32 = 28u;
+const TERRAIN_DEBUG_COLORMAP: u32 = 29u;
+const TERRAIN_DEBUG_FINAL_BEFORE_POSTPROCESS: u32 = 30u;
 
 struct TerrainMaterialWeights {
     terrain_albedo_weight: f32,
@@ -174,6 +182,8 @@ struct TerrainMaterialWeights {
 
 struct TerrainMaterial {
     hdr_color: vec3<f32>,
+    political_base: vec3<f32>,
+    colormap: vec3<f32>,
     terrain_albedo: vec3<f32>,
     normal: vec3<f32>,
     snow_mask: f32,
@@ -184,6 +194,7 @@ struct TerrainMaterial {
     city_lights_rgb: vec3<f32>,
     night_factor: f32,
     city_light_contribution: vec3<f32>,
+    point_light_contribution: vec3<f32>,
 };
 
 // =============================================================================
@@ -610,7 +621,7 @@ fn terrain_control_enabled(value: f32) -> bool {
 }
 
 fn terrain_debug_view() -> u32 {
-    return u32(clamp(params.terrain_controls.x + 0.5, 0.0, 27.0));
+    return u32(clamp(params.terrain_controls.x + 0.5, 0.0, 30.0));
 }
 
 fn terrain_owns_water_color() -> bool {
@@ -659,7 +670,6 @@ fn map_mode_overlay_opacity() -> f32 {
 
 fn terrain_material_weights() -> TerrainMaterialWeights {
     let base_blend = params.map_mode_terrain_blend;
-    let zoom_blend_adjust = (params.zoom_factor - 0.5) * 0.12;
 
     var weights: TerrainMaterialWeights;
     weights.terrain_albedo_weight = 0.72;
@@ -667,8 +677,24 @@ fn terrain_material_weights() -> TerrainMaterialWeights {
     weights.season_weight = 0.06;
     weights.detail_weight = close_detail_factor();
     weights.snow_weight = 1.0;
-    weights.map_mode_weight = clamp(base_blend + zoom_blend_adjust, 0.10, 1.00);
+    weights.map_mode_weight = clamp(base_blend, 0.0, 1.00);
     return weights;
+}
+
+fn political_terrain_tint_weight(map_mode_weight: f32) -> f32 {
+    let far_readability = 1.0 - smoothstep(0.34, 0.76, params.zoom_factor);
+    let zoom_weight = mix(POLITICAL_TERRAIN_TINT_MIN, POLITICAL_TERRAIN_TINT_MAX, far_readability);
+    return clamp(map_mode_weight * zoom_weight, 0.0, POLITICAL_TERRAIN_TINT_MAX);
+}
+
+fn apply_political_parity_tint(
+    terrain_color: vec3<f32>,
+    political_color: vec3<f32>,
+    map_mode_weight: f32,
+) -> vec3<f32> {
+    let overlay = get_overlay(terrain_color, political_color, POLITICAL_TERRAIN_MODULATION);
+    let political_terrain = mix(overlay, political_color, POLITICAL_TERRAIN_DIRECT_MIX);
+    return mix(terrain_color, political_terrain, political_terrain_tint_weight(map_mode_weight));
 }
 
 fn snow_mask_at(uv: vec2<f32>, real_h: f32) -> f32 {
@@ -792,8 +818,7 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
     let atlas_terr = terrain_atlas_color(frag.map_uv, frag.map_px);
     let cmap = sample_season_color(frag.map_uv);
     var terrain_albedo = get_overlay(atlas_terr, cmap, COLORMAP_OVERLAY_STRENGTH_TERRAIN);
-
-    var color = terrain_albedo;
+    var color = apply_political_parity_tint(terrain_albedo, political_color, weights.map_mode_weight);
     if (terrain_legacy_art_enabled()) {
         let atlas_terr2 = terrain_atlas_color(
             frag.map_uv,
@@ -903,7 +928,8 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
         }
 
         let secondary = province_secondary_at(frag.map_uv);
-        color = mix(color, secondary.rgb, secondary.a);
+        let secondary_weight = secondary.a * (1.0 - smoothstep(0.58, 0.92, params.zoom_factor));
+        color = mix(color, secondary.rgb, secondary_weight);
 
         let semantic_dist = gradient_border_ch3_dist_px(frag.map_uv);
         let semantic_edge = 1.0 - smoothstep(0.0, 3.5, semantic_dist);
@@ -941,9 +967,19 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
     let city_emit = select(0.0, textureSample(colormap_emissive_tex, generic_sampler, frag.map_uv).a, !terrain_is_water);
     let city_rgb = select(vec3<f32>(0.0), textureSample(citylights_tex, pass_sampler, vanilla_citylight_uv(frag.map_px)).rgb, !terrain_is_water);
     let city_contrib = city_rgb * city_emit * night * CITY_LIGHTS_INTENSITY_TERRAIN;
+    let point_contrib = calculate_point_lights(
+        light_data_tex,
+        light_index_tex,
+        frag.map_px,
+        frag.world_pos,
+        surface_normal,
+        (0.20 + night * 0.80) * 0.55
+    );
 
     var material: TerrainMaterial;
     material.hdr_color = color;
+    material.political_base = political_color;
+    material.colormap = cmap;
     material.terrain_albedo = terrain_albedo;
     material.normal = surface_normal;
     material.snow_mask = snow;
@@ -954,6 +990,7 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
     material.city_lights_rgb = city_rgb;
     material.night_factor = night;
     material.city_light_contribution = city_contrib;
+    material.point_light_contribution = point_contrib;
     return material;
 }
 
@@ -986,8 +1023,8 @@ fn terrain_debug_color(view: u32, frag: VsOut, material: TerrainMaterial, real_h
         }
         return false_color_from_id(ids.w);
     }
-    if (view == TERRAIN_DEBUG_POLITICAL_COLOR) {
-        return province_color(pid).rgb;
+    if (view == TERRAIN_DEBUG_POLITICAL_BASE) {
+        return material.political_base;
     }
     if (view == TERRAIN_DEBUG_TERRAIN_ALBEDO) {
         return material.terrain_albedo;
@@ -1073,6 +1110,15 @@ fn terrain_debug_color(view: u32, frag: VsOut, material: TerrainMaterial, real_h
         let ms = mud_snow_target_at(frag.map_uv);
         return vec3<f32>(ms.r, ms.b, ms.g);
     }
+    if (view == TERRAIN_DEBUG_POINT_LIGHT_CONTRIB) {
+        return material.point_light_contribution;
+    }
+    if (view == TERRAIN_DEBUG_COLORMAP) {
+        return material.colormap;
+    }
+    if (view == TERRAIN_DEBUG_FINAL_BEFORE_POSTPROCESS) {
+        return material.hdr_color;
+    }
     return material.hdr_color;
 }
 
@@ -1127,7 +1173,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     // ── 主光照（Lambert + 阴影 PCF）──
-    let sun_dir = normalize(frame.day_night_hour_sun_dir.yzw);
+    let sun_dir = normalize(vec3<f32>(0.408248, 0.816497, -0.408248));
     let nrm = normalize(material.normal);
     let lambert = max(dot(nrm, sun_dir), 0.0);
     let shadow = shadow_pcf(in.shadow_pos);
@@ -1147,7 +1193,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (!is_water) {
         let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
         color = color + material.city_light_contribution;
-        color = day_night(color, globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
+        color = color + material.point_light_contribution;
+        color = day_night_with_blend(
+            color,
+            globe_n,
+            frame.day_night_hour_sun_dir.yzw,
+            1.0,
+            POLITICAL_NIGHT_DESAT_BLEND
+        );
     }
 
     color = apply_distance_fog(color, in.world_pos, frame.cam_pos);

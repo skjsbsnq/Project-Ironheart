@@ -20,6 +20,11 @@ pub struct TextureUploadHelper {
     pub nearest_sampler: wgpu::Sampler,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TextureUploadCacheStats {
+    pub entries: usize,
+}
+
 impl TextureUploadHelper {
     pub fn new(device: &wgpu::Device, map_set: Arc<VanillaMapSet>) -> Self {
         let linear_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -52,6 +57,12 @@ impl TextureUploadHelper {
 
     pub fn loaded_count(&self) -> usize {
         self.cache.len()
+    }
+
+    pub fn cache_stats(&self) -> TextureUploadCacheStats {
+        TextureUploadCacheStats {
+            entries: self.cache.len(),
+        }
     }
 
     pub fn upload_role(
@@ -224,5 +235,11 @@ mod tests {
             dds_to_wgpu_format_for_role(DdsFormat::Bc5, MapResRole::Lean1),
             wgpu::TextureFormat::Bc5RgUnorm
         );
+    }
+
+    #[test]
+    fn cache_stats_default_to_empty() {
+        let stats = TextureUploadCacheStats::default();
+        assert_eq!(stats.entries, 0);
     }
 }

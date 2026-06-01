@@ -24,7 +24,23 @@
 - 原版 shader 语义没有完整移植。
 - 原版运行时生成的中间贴图没有生成或被 1x1 mock 替代。
 - 地形、水体、河流、边界、树木、点光源、FOW、后处理被项目自定义逻辑近似替代。
-- 当前截图对比存在相机距离、地图模式、图层开启状态不同的问题。
+- 当前截图差距不能继续归因于相机距离或视角差异；即使在同一视角下，政治色、地形材质、距离雾、边界/次级色和后处理语义仍会造成明显偏离。
+
+### 1.1.1 2026-06-01 截图复盘追加结论
+
+这次两张截图暴露的核心不是“有没有原版素材”，而是项目仍有几处非原版美术增强混在 parity 路径里：
+
+- 政治色 LUT 曾二次增饱和、加对比，导致国家色块压过地形。
+- 政治模式下地形权重偏低，近景仍不像原版那样让地表材质占主导。
+- `terrain.wgsl` 中政治色 overlay 强度偏高，色彩通过 overlay 混合污染材质明暗。
+- `shader_lib.wgsl` 的距离雾不能直接套 vanilla 数值；项目世界坐标只有约 `112 x 41`，未换算会让雾变成全屏暗蓝滤镜。
+
+已落地的即时修正：
+
+- `crates/hoi4-render/src/map_mode.rs`：政治色 LUT 改为使用国家原始颜色，不再额外 vivid 调色。
+- `crates/hoi4-app/src/main.rs`：Political 模式地形占比从低/中权重提高到材质主导。
+- `crates/hoi4-app/src/passes/terrain.wgsl`：政治色 overlay 从强染色降为弱 tint，并提高近景地形权重。
+- `crates/hoi4-render/src/shader_lib.wgsl`：保留 vanilla 雾色 `FOG_COLOR=(0.12,0.28,0.60)`，但距离阈值改为项目世界尺度下的弱距离雾。
 
 ### 1.2 当前项目实际状态
 
@@ -33,20 +49,20 @@
 - `crates/hoi4-app/src/main.rs`
   - `WORLD_SCALE = 0.02`，项目世界坐标约为 `112 x 41` 单位。
   - 默认 `map_mode = MapMode::Political`。
-  - `Political => map_mode_terrain_blend = 0.20`，政治颜色强压地形。
-  - `TerrainPassInputs.map_set = None`，不是所有地形资源都从完整 `VanillaMapSet` 输入。
-  - `RiverPass` 已构造但渲染阶段被显式禁用，河流改为 terrain shader 内蓝色 overlay。
+  - `Political => map_mode_terrain_blend` 随 zoom 在约 `0.38..0.74` 间变化：远景保留政治色可读性，近景让地形材质主导。
+  - `TerrainPassInputs` 通过 `VanillaResourceViews` / `VanillaRuntimeTargets` 接入原版资源与动态 target。
+  - `RiverPass` 已恢复独立渲染；terrain 内河流蓝色 overlay 只保留为 fallback。
 
 - `crates/hoi4-app/src/passes/terrain.rs`
   - 已加载部分原版贴图：`atlas_normal0`、`world_normal.bmp`、`colormap_rgb_cityemissivemask_a`、`citylights_0` 等。
-  - `light_data`、`light_index`、`province_secondary_color` 目前是 1x1 mock。
-  - `GradientBorderChannel1/2` 目前由项目 SDF 贴图或边界 pass 替代，不是原版动态通道。
+  - `light_data`、`light_index`、`province_secondary_color` 已接入共享 runtime targets。
+  - `GradientBorderChannel1/2/3` 已由 `VanillaRuntimeTargets` 生成并供 terrain/water/tree/object 共享。
 
 - `crates/hoi4-app/src/passes/terrain.wgsl`
-  - 有自定义 `terrain_material_weights`。
-  - 有自定义 procedural noise、jitter、grain、coast tint。
-  - 河流在地形中混蓝色。
-  - 雪、泥、城市灯光、政治色叠加与原版公式不完全一致。
+  - `terrain_material_weights` 仍是项目侧权重控制点，已调为地形主导。
+  - parity feature flags 下 procedural noise、jitter、grain、coast tint 关闭。
+  - 河流蓝色 overlay 只在 dedicated `RiverPass` 缺失时启用。
+  - 雪、泥、城市灯光、政治色叠加已走 parity-first 路径，但仍需要截图 diff 校准强度。
 
 - `crates/hoi4-app/src/passes/water.rs`
   - Phase 6 已接入 `pdxwater.shader` 语义：SampleWater、LEAN normal、reflection/refraction、fow_water_spec、ice、gradient border、secondary color、FOW/distance fog。
@@ -58,8 +74,8 @@
   - 与原版 shader 依赖的 `GradientBorderChannel1/2/3` 不是同一套运行时输入。
 
 - `crates/hoi4-app/src/passes/postprocess.rs`
-  - 当前为 ACES、自定义自动曝光、bloom、vignette。
-  - 原版 `restorescene.shader` 是 bloom、exposure、Uncharted tonemap、ColorCube/LUT 的组合。
+  - 当前为 RestoreScene-style 链路：bloom、average luminance、Uncharted tonemap、ColorCube/LUT、HSV/saturation/color balance。
+  - ColorCube/LUT 仍是 identity fallback，是当前 final LDR 与原版调色差距的明确剩余项。
 
 ### 1.3 原版 HOI4 实际依赖
 
@@ -406,7 +422,7 @@ pub struct VanillaRuntimeTargets {
 
 周期：2-3 周。
 
-完成记录（2026-05-31）：`TerrainPass` 已切换为 parity-first 路径。默认 feature flags 关闭项目自定义美术；terrain atlas 使用 256 项 LUT；snow/mud/citylights/world_normal 接入真实资源视图；debug view 扩展到 terrain blend、四角 terrain id、mud、city emit、citylights、night factor 与 citylight contribution。PointLights 的真实内容生成仍归 Phase 5，Phase 3 只保留 TerrainPass binding/audit。
+完成记录（2026-05-31）：`TerrainPass` 已切换为 parity-first 路径。默认 feature flags 关闭项目自定义美术；terrain atlas 使用 256 项 LUT；snow/mud/citylights/world_normal 接入真实资源视图；debug view 扩展到 terrain blend、四角 terrain id、mud、city emit、citylights、night factor、citylight contribution 与 Phase 5 point light contribution。PointLights 真实内容生成已在 Phase 5 完成。
 
 ### 3.1 禁用自定义地形美术
 
@@ -560,11 +576,11 @@ pub struct VanillaRuntimeTargets {
 - `VanillaRuntimeTargets` 统一生成 `GradientBorderChannel1/2/3`、`ProvinceSecondaryColorMap`、`FOW`、`MudSnow`，并为 Phase 4 target 声明格式/语义元数据与单测。
 - `ProvinceSecondaryColorMap` 覆盖 occupation、battle plan、selection、hover、map mode secondary tint、naval dominance 近似输入。
 - terrain/water/tree/pdxmesh 均绑定共享 runtime target；terrain 增加 FOW unexplored/visible/enemy spotted 与 MudSnow snow/mud debug view。
-- `LightDataMap` / `LightIndexMap` 仍是 Phase 5 的 point light 系统 blocker，不归入 Phase 4。
+- `LightDataMap` / `LightIndexMap` 已在 Phase 5 接入，不再作为 Phase 4 遗留 blocker。
 
 ---
 
-## Phase 5：PointLights、FOW、Shadow 统一光照系统
+## Phase 5：PointLights、FOW、Shadow 统一光照系统 ✅ 已完成
 
 目标：补齐原版夜景、城市、单位、建筑、树木的局部光照语义。
 
@@ -572,16 +588,16 @@ pub struct VanillaRuntimeTargets {
 
 ### 任务
 
-- [ ] 实现 `LightDataMap`。
-- [ ] 实现 `LightIndexMap`。
-- [ ] 移植 `CalculatePointLights` 等价逻辑。
-- [ ] 地图上生成点光源：
+- [x] 实现 `LightDataMap`。
+- [x] 实现 `LightIndexMap`。
+- [x] 移植 `CalculatePointLights` 等价逻辑。
+- [x] 地图上生成点光源：
   - 城市
   - 港口
   - 机场
   - 战斗/爆炸特效
   - 单位/建筑可选光源
-- [ ] 所有 pass 共享：
+- [x] 所有 pass 共享：
   - shadow map
   - FOW map
   - light data/index
@@ -601,6 +617,8 @@ pub struct VanillaRuntimeTargets {
 - 夜晚城市区域有原版式局部亮度。
 - 树木、水面、建筑能受到同一套点光源影响。
 - 远近景点光源衰减稳定，没有闪烁。
+
+完成记录（2026-05-31）：新增 `vanilla_targets::point_lights`，从 VP 城市、港口/机场/建筑与战斗中的师生成稳定点光源；`LightDataMap` 使用 `Rgba32Float` 保存世界坐标/半径/颜色/衰减，`LightIndexMap` 使用 16px tile RGBA8 索引最多 4 个局部光源。`shader_lib.wgsl` 增加共享 `calculate_point_lights`，Terrain/Water/TreeFull/PdxMesh 均绑定同一套 runtime targets 并移除 Phase 5 blocker audit。
 
 ---
 
@@ -623,7 +641,7 @@ pub struct VanillaRuntimeTargets {
 - [x] 使用 `ice_diffuse.dds`、`ice_noise_0/1.dds`。
 - [x] 接入 gradient border。
 - [x] 接入 province secondary color。
-- [x] 接入 point lights binding path；真实 `LightData/LightIndex` 内容生成仍是 Phase 5 blocker。
+- [x] 接入共享 point lights binding path；真实 `LightData/LightIndex` 内容生成已在 Phase 5 完成。
 - [x] 接入 FOW 与 distance fog。
 - [x] 移除 parity 模式下自定义 foam/深浅渐变调色。
 
@@ -639,7 +657,7 @@ pub struct VanillaRuntimeTargets {
 - 水面反射不再是 dim-blue fallback 观感。
 - 水面上的国界/占领/选择渐变与陆地一致。
 
-完成记录（2026-05-31）：`WaterPass` 已扩展到 12 个水体 material bindings，接入 SampleWater、4-tap LEAN normal、reflection/refraction、ApplyIce、gradient border、province secondary color、FOW/distance fog，并移除程序化深浅渐变/噪声水面调色。`light_data` 与 `light_index` 绑定为显式 Phase 5 blocker，不伪装成真实点光源 target。`cargo test -p hoi4-app water_ -- --nocapture` 与 WGSL/Naga validate 已通过。
+完成记录（2026-05-31）：`WaterPass` 已扩展到 12 个水体 material bindings，接入 SampleWater、4-tap LEAN normal、reflection/refraction、ApplyIce、gradient border、province secondary color、FOW/distance fog，并移除程序化深浅渐变/噪声水面调色。`light_data` 与 `light_index` 已切换为 Phase 5 共享 runtime targets。`cargo test -p hoi4-app water_ -- --nocapture` 与 WGSL/Naga validate 已通过。
 
 ---
 
@@ -721,7 +739,7 @@ pub struct VanillaRuntimeTargets {
 - 远景树不会变成噪点或完全消失。
 - 树木在边界、占领、夜晚、雪地条件下与地形一致。
 
-完成记录（2026-05-31）：`TreeFullPass` 已接入 `trees.bmp` 分布统计、`TreeMaskTexture`、`Tree_season.bmp`、`Tree_tint.bmp`、terrain colormap、MudSnow snow mask、GradientBorderChannel1/2/3、ProvinceSecondaryColorMap、FOW/distance fog，并保留 mesh LOD 与 alpha clip 路径。`LightData/LightIndex` 已作为显式 Phase 5 blocker binding 接入，shader 具备 point-light lookup 路径，但真实点光源 target 内容生成仍归 Phase 5。`cargo test -p hoi4-render trees -- --nocapture`、`cargo test -p hoi4-app trees_full -- --nocapture`、`cargo test -p hoi4-app vanilla_resource_views -- --nocapture` 与 `cargo test -p hoi4-app vanilla_targets -- --nocapture` 已通过。
+完成记录（2026-05-31）：`TreeFullPass` 已接入 `trees.bmp` 分布统计、`TreeMaskTexture`、`Tree_season.bmp`、`Tree_tint.bmp`、terrain colormap、MudSnow snow mask、GradientBorderChannel1/2/3、ProvinceSecondaryColorMap、FOW/distance fog，并保留 mesh LOD 与 alpha clip 路径。`LightData/LightIndex` 已切换为 Phase 5 共享 runtime targets，shader 使用共享 point-light lookup。`cargo test -p hoi4-render trees -- --nocapture`、`cargo test -p hoi4-app trees_full -- --nocapture`、`cargo test -p hoi4-app vanilla_resource_views -- --nocapture` 与 `cargo test -p hoi4-app vanilla_targets -- --nocapture` 已通过。
 
 ---
 
@@ -733,10 +751,10 @@ pub struct VanillaRuntimeTargets {
 
 ### 任务
 
-- [ ] 解析并加载 `.gfx` entity。
-- [ ] 解析并加载 `.mesh` LOD。
-- [ ] 建筑、港口、机场、雷达、防空、堡垒等地图物件走 `PdxMeshPass`。
-- [ ] 接入 `pdxmesh.shader` 等价材质：
+- [x] 解析并加载 `.gfx` entity。
+- [x] 解析并加载 `.mesh` LOD。
+- [x] 建筑、港口、机场、雷达、防空、堡垒等地图物件走 `PdxMeshPass`。
+- [x] 接入 `pdxmesh.shader` 等价材质：
   - diffuse
   - normal
   - spec/gloss
@@ -745,24 +763,30 @@ pub struct VanillaRuntimeTargets {
   - shadow
   - point lights
   - day/night
-- [ ] 军队单位牌和 3D unit 分离：
+- [x] 军队单位牌和 3D unit 分离：
   - counter 是 UI/overlay 层。
   - unit mesh 是 3D object 层。
-- [ ] 对象层加入 zoom LOD，避免远景过载。
+- [x] 对象层加入 zoom LOD，避免远景过载。
 
 ### 修改文件
 
 - `crates/hoi4-app/src/passes/pdxmesh.rs`
-- `crates/hoi4-render/src/mesh.rs`
+- `crates/hoi4-app/src/main.rs`
+- `crates/hoi4-render/src/buildings.rs`
+- `crates/hoi4-render/src/buildings.wgsl`
 - `crates/hoi4-assets/src/gfx.rs`
+- `crates/hoi4-assets/src/lib.rs`
 - `crates/hoi4-assets/src/mesh.rs`
-- `crates/hoi4-app/src/map_renderer.rs`
 
 ### 验收标准
 
 - 原版近景中的城市、港口、机场、建筑密度明显提升。
 - 建筑与树木、地形的光照和 FOW 统一。
 - 远景性能稳定。
+
+完成记录（2026-05-31）：已新增 `hoi4-assets::gfx`，解析 `.gfx` 中的 `pdxmesh`、`entity`、`meshsettings`，并在 `PdxMeshPass` 中按原版 `gfx/entities/buildings.gfx` 解析建筑实体，失败时回退到 vanilla mesh/material 路径。地图物件已扩展到工业、军工、船坞、机场、海军基地、雷达、防空、堡垒、海岸堡垒、炼油厂、油罐、核反应堆、火箭基地等类型，并通过 `PdxMeshPass` 动态 mesh type 渲染。材质侧已接入 diffuse、normal、spec/gloss、snow、FOW、shadow、point lights、day/night 与 MudSnow snow mask；`.mesh` LOD 元数据已用于按相机距离分桶上传实例，避免远景过载。军队单位牌继续由现有 `Hoi3CounterPass`/overlay 路径处理，与 `PdxMeshPass` 的 3D object 层保持分离；本阶段未把 3D unit mesh 合并进 counter 层。
+
+验证：`cargo test -p hoi4-assets gfx -- --nocapture`、`cargo test -p hoi4-render buildings -- --nocapture`、`cargo test -p hoi4-app pdxmesh -- --nocapture`、`cargo check -p hoi4-app` 已通过。
 
 ---
 
@@ -774,14 +798,14 @@ pub struct VanillaRuntimeTargets {
 
 ### 任务
 
-- [ ] parity 模式禁用 ACES path。
-- [ ] 移植原版 `RestoreScene` 语义。
-- [ ] 支持 ColorCube/LUT。
-- [ ] 使用原版 bloom 合成方式。
-- [ ] 使用原版 exposure/average luminance。
-- [ ] 使用 Uncharted tonemap。
-- [ ] saturation、HSV、ColorBalance 参数接入统一配置。
-- [ ] 输出 debug：
+- [x] parity 模式禁用 ACES path。
+- [x] 移植原版 `RestoreScene` 语义。
+- [x] 支持 ColorCube/LUT。
+- [x] 使用原版 bloom 合成方式。
+- [x] 使用原版 exposure/average luminance。
+- [x] 使用 Uncharted tonemap。
+- [x] saturation、HSV、ColorBalance 参数接入统一配置。
+- [x] 输出 debug：
   - HDR scene
   - bloom
   - avg luminance
@@ -798,6 +822,8 @@ pub struct VanillaRuntimeTargets {
 
 - 同一 terrain-only 输入下，最终 LDR 颜色与原版接近。
 - 不再出现项目自定义 ACES 导致的过曝、过灰、过饱和或暗部错误。
+
+完成记录（2026-05-31）：`PostProcessChain` 已切到 Phase 10 RestoreScene parity 路径；最终 composite 使用 HDR scene + bloom chain + GPU average luminance、Uncharted tonemap、ColorCube/LUT、saturation、HSV 与 ColorBalance 配置。parity shader 不再使用 ACES 或 vignette。当前 ColorCube 使用运行时 identity LUT 作为可见 degraded fallback，并在 binding audit 中标记；后续补 `gfx/lut/*.dds` 枚举后可直接替换。Phase 0 capture 矩阵新增 HDR、bloom、avg luminance、tonemap before/after、LUT before/after debug 层。
 
 ---
 
@@ -857,29 +883,31 @@ pub struct VanillaRuntimeTargets {
 
 ### 任务
 
-- [ ] GPU profiler 覆盖所有 pass。
-- [ ] 每个 pass 记录：
+- [x] GPU profiler 覆盖所有 pass。
+- [x] 每个 pass 记录：
   - CPU prepare ms
   - GPU draw ms
   - draw calls
   - texture memory
   - fallback count
-- [ ] 资源缓存：
+- [x] 资源缓存：
   - DDS upload cache
   - mesh parse cache
   - generated runtime target cache
-- [ ] 降级策略：
+- [x] 降级策略：
   - low-end mode
   - no point lights
   - reduced tree density
   - reduced object LOD
   - lower-res gradient/FOW targets
-- [ ] 图片 diff 工具：
+- [x] 图片 diff 工具：
   - SSIM
   - average color delta
   - luma delta
   - edge delta
-- [ ] 最终建立 `PARITY_STATUS.md`。
+- [x] 最终建立 `PARITY_STATUS.md`。
+
+完成记录（2026-06-01）：`PassRegistry` 扩展为 Phase 12 统计面板，所有注册 pass 均记录 CPU/GPU/draw call，并补充 texture memory 与 fallback count；UI pass 接入 GPU timestamp。`MapQualityPreset` 新增 `low_end` 档位，降低树木、物件、粒子、标签密度，关闭完整后处理链，并通过 object LOD bias 提供低端物件降级策略；point lights 与低分辨率 runtime targets 作为 low-end 策略字段进入统一质量控制。DDS upload cache 保留在 `TextureUploadHelper`，`.mesh` 解析改走 `FsAssetDb::parse_or_get` typed cache，`VanillaRuntimeTargets` 暴露 runtime target cache/memory 统计。新增 `--map-image-diff <PROJECT.PNG> <REFERENCE.PNG>`，输出 SSIM、average color delta、luma delta、edge delta JSON 报告；新增 `PARITY_STATUS.md` 记录 1:1 区域、近似区域与最终回归 gate。
 
 ### 验收标准
 
@@ -964,7 +992,7 @@ pub struct VanillaRuntimeTargets {
 | Phase 2 | map_px debug | 坐标转换单测 | tiling 比例错误 |
 | Phase 3 | terrain-only | shader validate + screenshot diff | 地形分类错误 |
 | Phase 4 | border/secondary debug | target 生成单测 | gradient 缺失 |
-| Phase 5 | night lighting | point light 单测 | light map mock |
+| Phase 5 | night lighting | point light 单测 | 真实 light map runtime target |
 | Phase 6 | water-only | shader validate | 水体 fallback |
 | Phase 7 | river-only | z-fighting 检查 | 河流闪烁 |
 | Phase 8 | trees-only | tree mask 单测 | 森林密度错误 |

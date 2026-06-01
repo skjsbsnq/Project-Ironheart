@@ -6,6 +6,7 @@ use hoi4_assets::{FsAssetDb, MapAssetAudit, MapAssetQuality, VanillaMapSet};
 use hoi4_paths::PathConfig;
 use hoi4_state::GameDate;
 
+use crate::map_image_diff::ImageDiffMetrics;
 use crate::vanilla_resource_views::{BindingAudit, VanillaResourceViews};
 
 const MAP_SIZE_PX: [f32; 2] = [5632.0, 2048.0];
@@ -25,11 +26,36 @@ impl MapBaselinePreset {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MapBaselineDiffStatus {
+    NotRun,
+    Ready,
+    MissingProject,
+    MissingReference,
+    Failed,
+}
+
+impl MapBaselineDiffStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotRun => "not_run",
+            Self::Ready => "ready",
+            Self::MissingProject => "missing_project",
+            Self::MissingReference => "missing_reference",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapBaselineLayer {
     FinalFull,
     PostprocessOff,
     HdrRaw,
+    AvgLuminance,
+    TonemapBefore,
     TonemapOnly,
+    LutBefore,
+    LutAfter,
     BloomOnly,
     TerrainOnly,
     WaterOnly,
@@ -42,7 +68,7 @@ pub enum MapBaselineLayer {
 }
 
 impl MapBaselineLayer {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 15] = [
         Self::FinalFull,
         Self::TerrainOnly,
         Self::WaterOnly,
@@ -50,6 +76,12 @@ impl MapBaselineLayer {
         Self::BordersOnly,
         Self::ObjectsOnly,
         Self::HdrRaw,
+        Self::BloomOnly,
+        Self::AvgLuminance,
+        Self::TonemapBefore,
+        Self::TonemapOnly,
+        Self::LutBefore,
+        Self::LutAfter,
         Self::PostprocessOff,
         Self::AssetFallbackDebug,
     ];
@@ -59,7 +91,11 @@ impl MapBaselineLayer {
             Self::FinalFull => "final",
             Self::PostprocessOff => "postprocess_off",
             Self::HdrRaw => "hdr",
+            Self::AvgLuminance => "avg_luminance",
+            Self::TonemapBefore => "tonemap_before",
             Self::TonemapOnly => "tonemap",
+            Self::LutBefore => "lut_before",
+            Self::LutAfter => "lut_after",
             Self::BloomOnly => "bloom",
             Self::TerrainOnly => "terrain",
             Self::WaterOnly => "water",
@@ -77,7 +113,11 @@ impl MapBaselineLayer {
             "final" | "final_full" => Some(Self::FinalFull),
             "postprocess_off" => Some(Self::PostprocessOff),
             "hdr" | "hdr_raw" => Some(Self::HdrRaw),
+            "avg_luminance" | "average_luminance" => Some(Self::AvgLuminance),
+            "tonemap_before" | "tonemap_input" => Some(Self::TonemapBefore),
             "tonemap" | "tonemap_only" => Some(Self::TonemapOnly),
+            "lut_before" => Some(Self::LutBefore),
+            "lut_after" => Some(Self::LutAfter),
             "bloom" | "bloom_only" => Some(Self::BloomOnly),
             "terrain" | "terrain_only" => Some(Self::TerrainOnly),
             "water" | "water_only" => Some(Self::WaterOnly),
@@ -118,7 +158,11 @@ impl MapLayerMask {
                 ..Self::all()
             },
             MapBaselineLayer::HdrRaw
+            | MapBaselineLayer::AvgLuminance
+            | MapBaselineLayer::TonemapBefore
             | MapBaselineLayer::TonemapOnly
+            | MapBaselineLayer::LutBefore
+            | MapBaselineLayer::LutAfter
             | MapBaselineLayer::BloomOnly => Self::all(),
             MapBaselineLayer::TerrainOnly => Self {
                 terrain: true,
@@ -237,6 +281,15 @@ impl MapBaselineScene {
         )
     }
 
+    pub fn diff_report_name(&self, layer: MapBaselineLayer, preset: MapBaselinePreset) -> String {
+        format!(
+            "diff/{}/{}.{}.json",
+            self.name,
+            layer.as_str(),
+            preset.as_str()
+        )
+    }
+
     pub fn map_px_center(&self) -> [f32; 2] {
         [
             self.camera.target_uv[0] * MAP_SIZE_PX[0],
@@ -256,11 +309,17 @@ pub struct MapBaselinePlannedCapture {
     pub preset: MapBaselinePreset,
     pub filename: String,
     pub vanilla_reference_filename: String,
+    pub diff_report_filename: String,
     pub layer_mask: MapLayerMask,
     pub frame_time_ms: Option<f32>,
     pub asset_quality: MapAssetQuality,
     pub asset_fallback_count: usize,
     pub visual_review_usable: bool,
+    pub project_png_exists: bool,
+    pub vanilla_reference_exists: bool,
+    pub diff_status: MapBaselineDiffStatus,
+    pub diff_metrics: Option<ImageDiffMetrics>,
+    pub diff_error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -269,6 +328,7 @@ pub struct MapBaselineReport {
     pub planned_captures: Vec<MapBaselinePlannedCapture>,
     pub asset_audit: MapAssetAudit,
     pub binding_audit: BindingAudit,
+    pub reference_source_root: Option<String>,
     pub elapsed_ms: f64,
 }
 
@@ -285,8 +345,44 @@ impl MapBaselineReport {
             planned_captures,
             asset_audit,
             binding_audit,
+            reference_source_root: None,
             elapsed_ms,
         }
+    }
+
+    fn project_png_count(&self) -> usize {
+        self.planned_captures
+            .iter()
+            .filter(|capture| capture.project_png_exists)
+            .count()
+    }
+
+    fn vanilla_reference_count(&self) -> usize {
+        self.planned_captures
+            .iter()
+            .filter(|capture| capture.vanilla_reference_exists)
+            .count()
+    }
+
+    fn diff_ready_count(&self) -> usize {
+        self.planned_captures
+            .iter()
+            .filter(|capture| capture.diff_status == MapBaselineDiffStatus::Ready)
+            .count()
+    }
+
+    fn diff_missing_reference_count(&self) -> usize {
+        self.planned_captures
+            .iter()
+            .filter(|capture| capture.diff_status == MapBaselineDiffStatus::MissingReference)
+            .count()
+    }
+
+    fn diff_missing_project_count(&self) -> usize {
+        self.planned_captures
+            .iter()
+            .filter(|capture| capture.diff_status == MapBaselineDiffStatus::MissingProject)
+            .count()
     }
 
     pub fn to_text_report(&self) -> String {
@@ -299,6 +395,22 @@ impl MapBaselineReport {
             self.planned_captures.len(),
             self.elapsed_ms
         );
+        let _ = writeln!(
+            out,
+            "project_png={} vanilla_reference_png={} diff_ready={} diff_missing_reference={}",
+            self.project_png_count(),
+            self.vanilla_reference_count(),
+            self.diff_ready_count(),
+            self.diff_missing_reference_count()
+        );
+        let _ = writeln!(
+            out,
+            "diff_missing_project={}",
+            self.diff_missing_project_count()
+        );
+        if let Some(root) = &self.reference_source_root {
+            let _ = writeln!(out, "reference_source_root={root}");
+        }
         let _ = writeln!(out, "{}", self.asset_audit.summary_line());
         let _ = writeln!(
             out,
@@ -307,20 +419,25 @@ impl MapBaselineReport {
         );
         out.push_str("\nscenes:\n");
         for scene in &self.scenes {
+            let map_px = scene.map_px_center();
             let _ = writeln!(
                 out,
-                "  - {}: mode={} date={} target_uv={:.3},{:.3} distance_factor={:.3}",
+                "  - {}: mode={} date={} target_uv={:.3},{:.3} target_map_px={:.0},{:.0} distance_factor={:.3} pitch_degrees={:.1} yaw_degrees={:.1}",
                 scene.name,
                 scene.map_mode,
                 format_game_date(scene.date),
                 scene.camera.target_uv[0],
                 scene.camera.target_uv[1],
-                scene.camera.distance_factor
+                map_px[0],
+                map_px[1],
+                scene.camera.distance_factor,
+                scene.camera.pitch_degrees,
+                scene.camera.yaw_degrees
             );
         }
         out.push_str("\nplanned_captures:\n");
         for capture in &self.planned_captures {
-            let _ = writeln!(
+            let _ = write!(
                 out,
                 "  - {} asset_quality={} fallback={} visual_review_usable={} frame_time_ms={}",
                 capture.filename,
@@ -332,6 +449,21 @@ impl MapBaselineReport {
                     .map(|ms| format!("{ms:.3}"))
                     .unwrap_or_else(|| "not_captured".to_string())
             );
+            let _ = write!(
+                out,
+                " project_png={} vanilla_reference_png={} diff_status={} diff_report={}",
+                capture.project_png_exists,
+                capture.vanilla_reference_exists,
+                capture.diff_status.as_str(),
+                capture.diff_report_filename
+            );
+            if let Some(metrics) = capture.diff_metrics {
+                let _ = write!(out, " {}", metrics.summary());
+            }
+            if let Some(err) = &capture.diff_error {
+                let _ = write!(out, " diff_error={}", err);
+            }
+            out.push('\n');
         }
         out.push_str("\nasset_audit:\n");
         out.push_str(&self.asset_audit.to_text_report());
@@ -348,6 +480,31 @@ impl MapBaselineReport {
         out.push_str("  \"scene_config\": \"crates/hoi4-app/map_parity_scenes.tsv\",\n");
         out.push_str("  \"project_capture_root\": \"project\",\n");
         out.push_str("  \"vanilla_reference_root\": \"vanilla_reference\",\n");
+        out.push_str("  \"diff_report_root\": \"diff\",\n");
+        out.push_str("  \"reference_source_root\": ");
+        write_json_string_option(&mut out, self.reference_source_root.as_deref());
+        out.push_str(",\n");
+        let _ = writeln!(
+            out,
+            "  \"project_png_count\": {},",
+            self.project_png_count()
+        );
+        let _ = writeln!(
+            out,
+            "  \"vanilla_reference_png_count\": {},",
+            self.vanilla_reference_count()
+        );
+        let _ = writeln!(out, "  \"diff_ready_count\": {},", self.diff_ready_count());
+        let _ = writeln!(
+            out,
+            "  \"diff_missing_project_count\": {},",
+            self.diff_missing_project_count()
+        );
+        let _ = writeln!(
+            out,
+            "  \"diff_missing_reference_count\": {},",
+            self.diff_missing_reference_count()
+        );
         let _ = writeln!(out, "  \"elapsed_ms\": {:.3},", self.elapsed_ms);
         out.push_str("  \"fallback_status\": ");
         write_fallback_status_json(
@@ -415,6 +572,32 @@ impl MapBaselineReport {
             );
             let _ = writeln!(
                 out,
+                "      \"diff_report_filename\": \"{}\",",
+                json_escape(&capture.diff_report_filename)
+            );
+            let _ = writeln!(
+                out,
+                "      \"project_png_exists\": {},",
+                capture.project_png_exists
+            );
+            let _ = writeln!(
+                out,
+                "      \"vanilla_reference_exists\": {},",
+                capture.vanilla_reference_exists
+            );
+            let _ = writeln!(
+                out,
+                "      \"diff_status\": \"{}\",",
+                capture.diff_status.as_str()
+            );
+            out.push_str("      \"diff_metrics\": ");
+            write_diff_metrics_json(&mut out, capture.diff_metrics, 6);
+            out.push_str(",\n");
+            out.push_str("      \"diff_error\": ");
+            write_json_string_option(&mut out, capture.diff_error.as_deref());
+            out.push_str(",\n");
+            let _ = writeln!(
+                out,
                 "      \"visual_review_usable\": {},",
                 capture.visual_review_usable
             );
@@ -475,6 +658,7 @@ pub fn build_phase0_report(path_cfg: &PathConfig) -> MapBaselineReport {
         planned_captures,
         asset_audit,
         binding_audit,
+        reference_source_root: None,
         elapsed_ms: started.elapsed().as_secs_f64() * 1000.0,
     }
 }
@@ -493,11 +677,17 @@ pub fn build_phase0_planned_captures(
                 filename: scene.screenshot_name(layer, MapBaselinePreset::High),
                 vanilla_reference_filename: scene
                     .vanilla_reference_name(layer, MapBaselinePreset::High),
+                diff_report_filename: scene.diff_report_name(layer, MapBaselinePreset::High),
                 layer_mask: MapLayerMask::for_layer(layer),
                 frame_time_ms: None,
                 asset_quality: asset_audit.quality,
                 asset_fallback_count: asset_audit.fallback,
                 visual_review_usable: asset_audit.can_use_for_visual_review(),
+                project_png_exists: false,
+                vanilla_reference_exists: false,
+                diff_status: MapBaselineDiffStatus::NotRun,
+                diff_metrics: None,
+                diff_error: None,
             });
         }
     }
@@ -510,33 +700,63 @@ pub fn build_asset_audit(path_cfg: &PathConfig) -> MapAssetAudit {
     MapAssetAudit::from_map_set(&map_set)
 }
 
-pub fn write_phase0_report(path_cfg: &PathConfig, output_dir: &Path) -> std::io::Result<PathBuf> {
+pub fn write_phase0_report(
+    path_cfg: &PathConfig,
+    output_dir: &Path,
+    reference_root: Option<&Path>,
+) -> std::io::Result<PathBuf> {
     let report = build_phase0_report(path_cfg);
-    write_phase0_report_files(&report, output_dir)
+    write_phase0_report_files_with_references(&report, output_dir, reference_root)
 }
 
 pub fn write_map_audit(path_cfg: &PathConfig, output_dir: &Path) -> std::io::Result<PathBuf> {
     let vanilla_resources = VanillaResourceViews::load_for_audit(path_cfg);
     let asset_audit = MapAssetAudit::from_map_set(&vanilla_resources.map_set);
     let binding_audit = vanilla_resources.phase1_binding_audit();
-    write_map_audit_files(&asset_audit, &binding_audit, output_dir)
+    let posteffect_values_report =
+        crate::passes::postprocess::build_posteffect_values_report_json(path_cfg);
+    let terrain_pdxmap_report =
+        crate::passes::terrain::build_terrain_pdxmap_report_json(&binding_audit);
+    write_map_audit_files(
+        &asset_audit,
+        &binding_audit,
+        Some(&posteffect_values_report),
+        Some(&terrain_pdxmap_report),
+        output_dir,
+    )
 }
 
 pub fn write_map_audit_files(
     audit: &MapAssetAudit,
     binding_audit: &BindingAudit,
+    posteffect_values_report: Option<&str>,
+    terrain_pdxmap_report: Option<&str>,
     output_dir: &Path,
 ) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(output_dir)?;
     let text_path = output_dir.join("latest.txt");
     let json_path = output_dir.join("latest.json");
     std::fs::write(&text_path, combined_map_audit_text(audit, binding_audit))?;
-    std::fs::write(&json_path, combined_map_audit_json(audit, binding_audit))?;
+    std::fs::write(
+        &json_path,
+        combined_map_audit_json(
+            audit,
+            binding_audit,
+            posteffect_values_report,
+            terrain_pdxmap_report,
+        ),
+    )?;
     std::fs::write(output_dir.join("asset_audit.json"), audit.to_json_report())?;
     std::fs::write(
         output_dir.join("binding_audit.json"),
         binding_audit.to_json_report(),
     )?;
+    if let Some(report) = posteffect_values_report {
+        std::fs::write(output_dir.join("posteffect_values.json"), report)?;
+    }
+    if let Some(report) = terrain_pdxmap_report {
+        std::fs::write(output_dir.join("terrain_pdxmap.json"), report)?;
+    }
     Ok(json_path)
 }
 
@@ -544,14 +764,27 @@ pub fn write_phase0_report_files(
     report: &MapBaselineReport,
     output_dir: &Path,
 ) -> std::io::Result<PathBuf> {
+    write_phase0_report_files_with_references(report, output_dir, None)
+}
+
+pub fn write_phase0_report_files_with_references(
+    report: &MapBaselineReport,
+    output_dir: &Path,
+    reference_root: Option<&Path>,
+) -> std::io::Result<PathBuf> {
+    let mut report = report.clone();
+    report.reference_source_root = reference_root.map(|root| root.display().to_string());
     std::fs::create_dir_all(output_dir)?;
     for scene in &report.scenes {
         std::fs::create_dir_all(output_dir.join("project").join(&scene.name))?;
         std::fs::create_dir_all(output_dir.join("vanilla_reference").join(&scene.name))?;
+        std::fs::create_dir_all(output_dir.join("diff").join(&scene.name))?;
     }
+    copy_phase0_reference_pngs(&mut report, output_dir, reference_root)?;
+    refresh_phase0_artifact_status(&mut report, output_dir)?;
     std::fs::write(
         output_dir.join("vanilla_reference").join("README.txt"),
-        vanilla_reference_readme(report),
+        vanilla_reference_readme(&report),
     )?;
     let text_path = output_dir.join("report.txt");
     let json_path = output_dir.join("report.json");
@@ -592,6 +825,148 @@ pub fn write_phase0_report_files(
     Ok(json_path)
 }
 
+fn copy_phase0_reference_pngs(
+    report: &mut MapBaselineReport,
+    output_dir: &Path,
+    reference_root: Option<&Path>,
+) -> std::io::Result<()> {
+    let Some(reference_root) = reference_root else {
+        return Ok(());
+    };
+
+    for capture in &report.planned_captures {
+        let Some(source) = resolve_reference_source(reference_root, capture) else {
+            continue;
+        };
+        let dest = output_dir.join(&capture.vanilla_reference_filename);
+        if same_existing_path(&source, &dest) {
+            continue;
+        }
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::copy(&source, &dest)?;
+    }
+    Ok(())
+}
+
+fn resolve_reference_source(
+    reference_root: &Path,
+    capture: &MapBaselinePlannedCapture,
+) -> Option<PathBuf> {
+    let direct = reference_root.join(&capture.vanilla_reference_filename);
+    if direct.is_file() {
+        return Some(direct);
+    }
+
+    let relative_without_root = capture
+        .vanilla_reference_filename
+        .strip_prefix("vanilla_reference/")
+        .unwrap_or(&capture.vanilla_reference_filename);
+    let nested = reference_root.join(relative_without_root);
+    if nested.is_file() {
+        Some(nested)
+    } else {
+        None
+    }
+}
+
+fn same_existing_path(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+fn refresh_phase0_artifact_status(
+    report: &mut MapBaselineReport,
+    output_dir: &Path,
+) -> std::io::Result<()> {
+    for capture in &mut report.planned_captures {
+        let project = output_dir.join(&capture.filename);
+        let reference = output_dir.join(&capture.vanilla_reference_filename);
+        let diff_report = output_dir.join(&capture.diff_report_filename);
+
+        capture.project_png_exists = project.is_file();
+        capture.vanilla_reference_exists = reference.is_file();
+        capture.diff_metrics = None;
+        capture.diff_error = None;
+
+        capture.diff_status = if !capture.project_png_exists {
+            MapBaselineDiffStatus::MissingProject
+        } else if !capture.vanilla_reference_exists {
+            MapBaselineDiffStatus::MissingReference
+        } else {
+            match crate::map_image_diff::diff_png_files(&project, &reference) {
+                Ok(metrics) => {
+                    capture.diff_metrics = Some(metrics);
+                    MapBaselineDiffStatus::Ready
+                }
+                Err(err) => {
+                    capture.diff_error = Some(err);
+                    MapBaselineDiffStatus::Failed
+                }
+            }
+        };
+
+        write_phase0_capture_diff_report(capture, &project, &reference, &diff_report)?;
+    }
+    Ok(())
+}
+
+fn write_phase0_capture_diff_report(
+    capture: &MapBaselinePlannedCapture,
+    project: &Path,
+    reference: &Path,
+    output_path: &Path,
+) -> std::io::Result<()> {
+    if let Some(parent) = output_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let mut out = String::new();
+    out.push_str("{\n");
+    out.push_str("  \"phase\": \"0\",\n");
+    out.push_str("  \"kind\": \"map_parity_diff\",\n");
+    let _ = writeln!(
+        out,
+        "  \"scene_name\": \"{}\",",
+        json_escape(&capture.scene_name)
+    );
+    let _ = writeln!(out, "  \"layer\": \"{}\",", capture.layer.as_str());
+    let _ = writeln!(out, "  \"preset\": \"{}\",", capture.preset.as_str());
+    let _ = writeln!(
+        out,
+        "  \"project\": \"{}\",",
+        json_escape(&project.display().to_string())
+    );
+    let _ = writeln!(
+        out,
+        "  \"reference\": \"{}\",",
+        json_escape(&reference.display().to_string())
+    );
+    let _ = writeln!(
+        out,
+        "  \"project_png_exists\": {},",
+        capture.project_png_exists
+    );
+    let _ = writeln!(
+        out,
+        "  \"vanilla_reference_exists\": {},",
+        capture.vanilla_reference_exists
+    );
+    let _ = writeln!(out, "  \"status\": \"{}\",", capture.diff_status.as_str());
+    out.push_str("  \"metrics\": ");
+    write_diff_metrics_json(&mut out, capture.diff_metrics, 2);
+    out.push_str(",\n");
+    out.push_str("  \"error\": ");
+    write_json_string_option(&mut out, capture.diff_error.as_deref());
+    out.push('\n');
+    out.push_str("}\n");
+
+    std::fs::write(output_path, out)
+}
+
 fn combined_map_audit_text(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> String {
     let mut out = audit.to_text_report();
     out.push_str("\nbinding_audit:\n");
@@ -599,7 +974,12 @@ fn combined_map_audit_text(audit: &MapAssetAudit, binding_audit: &BindingAudit) 
     out
 }
 
-fn combined_map_audit_json(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> String {
+fn combined_map_audit_json(
+    audit: &MapAssetAudit,
+    binding_audit: &BindingAudit,
+    posteffect_values_report: Option<&str>,
+    terrain_pdxmap_report: Option<&str>,
+) -> String {
     let mut out = audit.to_json_report();
     while out.ends_with('\n') {
         out.pop();
@@ -609,6 +989,14 @@ fn combined_map_audit_json(audit: &MapAssetAudit, binding_audit: &BindingAudit) 
     }
     out.push_str(",\n  \"binding_audit\": ");
     indent_json_object(&mut out, &binding_audit.to_json_report(), 2);
+    if let Some(report) = posteffect_values_report {
+        out.push_str(",\n  \"posteffect_values\": ");
+        indent_json_object(&mut out, report, 2);
+    }
+    if let Some(report) = terrain_pdxmap_report {
+        out.push_str(",\n  \"terrain_pdxmap\": ");
+        indent_json_object(&mut out, report, 2);
+    }
     out.push_str("\n}\n");
     out
 }
@@ -669,6 +1057,36 @@ fn write_fallback_status_json(
         quality.as_str(),
         visual_review_usable
     );
+}
+
+fn write_diff_metrics_json(out: &mut String, metrics: Option<ImageDiffMetrics>, spaces: usize) {
+    let Some(metrics) = metrics else {
+        out.push_str("null");
+        return;
+    };
+    let pad = " ".repeat(spaces);
+    let _ = write!(
+        out,
+        "{{\n{pad}  \"width\": {},\n{pad}  \"height\": {},\n{pad}  \"pixels\": {},\n{pad}  \"ssim_luma\": {:.8},\n{pad}  \"average_color_delta\": {:.8},\n{pad}  \"luma_delta\": {:.8},\n{pad}  \"edge_delta\": {:.8}\n{pad}}}",
+        metrics.width,
+        metrics.height,
+        metrics.pixels,
+        metrics.ssim_luma,
+        metrics.average_color_delta,
+        metrics.luma_delta,
+        metrics.edge_delta
+    );
+}
+
+fn write_json_string_option(out: &mut String, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            out.push('"');
+            out.push_str(&json_escape(value));
+            out.push('"');
+        }
+        None => out.push_str("null"),
+    }
 }
 
 fn write_layer_array_json(out: &mut String, layers: &[MapBaselineLayer]) {
@@ -871,15 +1289,24 @@ mod tests {
     #[test]
     fn fixed_scene_matrix_matches_phase0_scope() {
         let scenes = fixed_scenes();
-        assert_eq!(scenes.len(), 5);
-        assert_eq!(MapBaselineLayer::ALL.len(), 9);
+        assert_eq!(scenes.len(), 6);
+        assert_eq!(MapBaselineLayer::ALL.len(), 15);
         assert_eq!(
             scenes[0].screenshot_name(MapBaselineLayer::FinalFull, MapBaselinePreset::High),
             "project/western_europe_close/final.high.png"
         );
+        assert!(scenes.iter().any(|scene| scene.name.contains("mountain")));
+        assert!(scenes.iter().any(|scene| scene.name.contains("night")));
+        assert!(scenes.iter().any(|scene| scene.name.contains("distant")));
         assert!(scenes[0]
             .enabled_layers
             .contains(&MapBaselineLayer::TerrainOnly));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::AvgLuminance));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::LutAfter));
     }
 
     #[test]
@@ -910,6 +1337,14 @@ mod tests {
         assert!(hdr_raw.terrain);
         assert!(hdr_raw.postprocess);
 
+        let avg_lum = MapLayerMask::for_layer(MapBaselineLayer::AvgLuminance);
+        assert!(avg_lum.terrain);
+        assert!(avg_lum.postprocess);
+
+        let lut_after = MapLayerMask::for_layer(MapBaselineLayer::LutAfter);
+        assert!(lut_after.terrain);
+        assert!(lut_after.postprocess);
+
         let objects = MapLayerMask::for_layer(MapBaselineLayer::ObjectsOnly);
         assert!(objects.objects);
         assert!(!objects.terrain);
@@ -921,44 +1356,57 @@ mod tests {
             entries: Vec::new(),
         };
         let audit = MapAssetAudit::from_map_set(&map_set);
-        let visual_review_usable = audit.can_use_for_visual_review();
-        let asset_quality = audit.quality;
-        let asset_fallback_count = audit.fallback;
         let scenes = fixed_scenes();
-        let planned_captures = scenes
-            .iter()
-            .flat_map(|scene| {
-                MapBaselineLayer::ALL
-                    .into_iter()
-                    .map(move |layer| MapBaselinePlannedCapture {
-                        scene_name: scene.name.to_string(),
-                        layer,
-                        preset: MapBaselinePreset::High,
-                        filename: scene.screenshot_name(layer, MapBaselinePreset::High),
-                        vanilla_reference_filename: scene
-                            .vanilla_reference_name(layer, MapBaselinePreset::High),
-                        layer_mask: MapLayerMask::for_layer(layer),
-                        frame_time_ms: None,
-                        asset_quality,
-                        asset_fallback_count,
-                        visual_review_usable,
-                    })
-            })
-            .collect();
+        let planned_captures = build_phase0_planned_captures(&scenes, &audit);
         let report = MapBaselineReport {
             scenes,
             planned_captures,
             asset_audit: audit,
             binding_audit: BindingAudit::new(),
+            reference_source_root: None,
             elapsed_ms: 0.0,
         };
         let json = report.to_json_report();
         assert!(json.contains("\"phase\": \"0\""));
         assert!(json.contains("\"project_capture_root\": \"project\""));
+        assert!(json.contains("\"diff_report_root\": \"diff\""));
+        assert!(json.contains("\"diff_report_filename\""));
         assert!(json.contains("\"pass_status\""));
         assert!(json.contains("\"binding_audit\""));
         assert!(json.contains("\"asset_quality\""));
         assert!(json.contains("project/western_europe_close/final.high.png"));
+    }
+
+    #[test]
+    fn phase0_report_writes_diff_placeholders() {
+        let dir = std::env::temp_dir().join("hoi4_phase0_report_diff_placeholder_test");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let map_set = VanillaMapSet {
+            entries: Vec::new(),
+        };
+        let audit = MapAssetAudit::from_map_set(&map_set);
+        let scenes = vec![fixed_scenes().remove(0)];
+        let mut planned_captures = build_phase0_planned_captures(&scenes, &audit);
+        planned_captures.truncate(1);
+        let report = MapBaselineReport {
+            scenes,
+            planned_captures,
+            asset_audit: audit,
+            binding_audit: BindingAudit::new(),
+            reference_source_root: None,
+            elapsed_ms: 0.0,
+        };
+
+        write_phase0_report_files(&report, &dir).unwrap();
+        let diff = dir.join("diff/western_europe_close/final.high.json");
+        let diff_json = std::fs::read_to_string(diff).unwrap();
+        assert!(diff_json.contains("\"status\": \"missing_project\""));
+        let report_json = std::fs::read_to_string(dir.join("report.json")).unwrap();
+        assert!(report_json.contains("\"diff_missing_project_count\": 1"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

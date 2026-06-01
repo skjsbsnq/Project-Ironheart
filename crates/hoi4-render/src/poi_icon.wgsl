@@ -63,22 +63,26 @@ fn get_icon_color(kind: f32) -> vec3<f32> {
     if k == 1 { return vec3<f32>(0.70, 0.20, 0.20); }   // arms_factory = red
     if k == 2 { return vec3<f32>(0.20, 0.35, 0.70); }   // dockyard = blue
     if k == 3 { return vec3<f32>(0.45, 0.55, 0.80); }   // air_base = light blue
-    if k == 4 { return vec3<f32>(0.60, 0.60, 0.20); }   // radar = yellow-green
-    if k == 5 { return vec3<f32>(0.55, 0.30, 0.60); }   // synthetic_refinery = purple
-    if k == 6 { return vec3<f32>(0.40, 0.50, 0.55); }   // fuel_silo = slate
-    if k == 7 { return vec3<f32>(0.80, 0.75, 0.15); }   // nuclear = yellow
-    if k == 8 { return vec3<f32>(0.60, 0.40, 0.20); }   // rocket_site = brown
-    if k == 9 { return vec3<f32>(0.15, 0.15, 0.15); }   // oil = black
-    if k == 10 { return vec3<f32>(0.70, 0.70, 0.75); }  // aluminium = silver
-    if k == 11 { return vec3<f32>(0.60, 0.20, 0.55); }   // rubber = magenta
-    if k == 12 { return vec3<f32>(0.50, 0.50, 0.15); }   // tungsten = olive
-    if k == 13 { return vec3<f32>(0.55, 0.55, 0.55); }   // steel = grey
-    if k == 14 { return vec3<f32>(0.40, 0.55, 0.30); }   // chromium = green-grey
+    if k == 4 { return vec3<f32>(0.22, 0.50, 0.72); }   // naval_base = blue-cyan
+    if k == 5 { return vec3<f32>(0.48, 0.46, 0.38); }   // bunker = stone
+    if k == 6 { return vec3<f32>(0.38, 0.50, 0.44); }   // coastal_bunker = green-grey
+    if k == 7 { return vec3<f32>(0.72, 0.64, 0.35); }   // anti_air = brass
+    if k == 8 { return vec3<f32>(0.60, 0.60, 0.20); }   // radar = yellow-green
+    if k == 9 { return vec3<f32>(0.55, 0.30, 0.60); }   // synthetic_refinery = purple
+    if k == 10 { return vec3<f32>(0.40, 0.50, 0.55); }  // fuel_silo = slate
+    if k == 11 { return vec3<f32>(0.80, 0.75, 0.15); }  // nuclear = yellow
+    if k == 12 { return vec3<f32>(0.60, 0.40, 0.20); }  // rocket_site = brown
+    if k == 13 { return vec3<f32>(0.15, 0.15, 0.15); }  // oil = black
+    if k == 14 { return vec3<f32>(0.70, 0.70, 0.75); }  // aluminium = silver
+    if k == 15 { return vec3<f32>(0.60, 0.20, 0.55); }  // rubber = magenta
+    if k == 16 { return vec3<f32>(0.50, 0.50, 0.15); }  // tungsten = olive
+    if k == 17 { return vec3<f32>(0.55, 0.55, 0.55); }  // steel = grey
+    if k == 18 { return vec3<f32>(0.40, 0.55, 0.30); }  // chromium = green-grey
     return vec3<f32>(0.30, 0.30, 0.30);                  // coal + default
 }
 
 fn is_resource(kind: f32) -> bool {
-    return i32(kind) >= 9;
+    return i32(kind) >= 13;
 }
 
 fn icon_shape(uv: vec2<f32>, kind: f32) -> f32 {
@@ -101,17 +105,27 @@ fn icon_shape(uv: vec2<f32>, kind: f32) -> f32 {
         let d = cy + 0.35 - abs(cx) * 1.5;
         return 1.0 - smoothstep(-0.03, 0.03, -d);
     }
-    // Radar (4): small circle
+    // Naval base (4): diamond
     if k == 4 {
-        let d = length(vec2<f32>(cx, cy)) - 0.30;
+        let d = abs(cx) + abs(cy) - 0.32;
         return 1.0 - smoothstep(-0.03, 0.03, d);
     }
-    // Other buildings (5-8): small square
-    if k <= 8 {
+    // Bunkers / anti-air (5-7): compact square
+    if k >= 5 && k <= 7 {
         let d = max(abs(cx), abs(cy)) - 0.30;
         return 1.0 - smoothstep(-0.03, 0.03, d);
     }
-    // Resources (9-15): circle
+    // Radar (8): small circle
+    if k == 8 {
+        let d = length(vec2<f32>(cx, cy)) - 0.30;
+        return 1.0 - smoothstep(-0.03, 0.03, d);
+    }
+    // Other buildings (9-12): small square
+    if k <= 12 {
+        let d = max(abs(cx), abs(cy)) - 0.30;
+        return 1.0 - smoothstep(-0.03, 0.03, d);
+    }
+    // Resources (13-19): circle
     let d = length(vec2<f32>(cx, cy)) - 0.28;
     return 1.0 - smoothstep(-0.03, 0.03, d);
 }
@@ -128,8 +142,12 @@ fn icon_border(uv: vec2<f32>, kind: f32) -> f32 {
     } else if k == 3 {
         d = abs(cy + 0.05) + abs(cx) * 1.25 - 0.42;
     } else if k == 4 {
+        d = abs(cx) + abs(cy) - 0.32;
+    } else if k >= 5 && k <= 7 {
+        d = max(abs(cx), abs(cy)) - 0.30;
+    } else if k == 8 {
         d = length(vec2<f32>(cx, cy)) - 0.30;
-    } else if k <= 8 {
+    } else if k <= 12 {
         d = max(abs(cx), abs(cy)) - 0.30;
     } else {
         d = length(vec2<f32>(cx, cy)) - 0.28;

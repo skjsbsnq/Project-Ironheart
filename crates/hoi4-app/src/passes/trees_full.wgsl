@@ -85,19 +85,17 @@ fn apply_tree_snow(map_uv: vec2<f32>, base_color: vec3<f32>) -> vec3<f32> {
     return mix(base_color, snow_color, snow_mask * 0.62);
 }
 
-fn calculate_point_lights_tree(world_pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-    let li = textureLoad(light_index_tex, vec2<i32>(0, 0), 0).r * 255.0;
-    if (li >= 255.0) {
-        return vec3<f32>(0.0);
-    }
-    let idx = i32(li);
-    let pos_radius = textureLoad(light_data_tex, vec2<i32>(idx * 2, 0), 0);
-    let color_falloff = textureLoad(light_data_tex, vec2<i32>(idx * 2 + 1, 0), 0);
-    let to_light = pos_radius.xyz - world_pos;
-    let d = length(to_light);
-    let attenuation = clamp((pos_radius.w - d) / max(color_falloff.w, 0.01), 0.0, 1.0);
-    let facing = clamp(dot(normalize(to_light), normal), 0.0, 1.0);
-    return color_falloff.rgb * attenuation * (0.35 + 0.65 * facing);
+fn calculate_point_lights_tree(map_px: vec2<f32>, world_pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
+    let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
+    return calculate_point_lights(
+        light_data_tex,
+        light_index_tex,
+        map_px,
+        world_pos,
+        normal,
+        (0.15 + night * 0.85) * 0.50
+    );
 }
 
 @vertex
@@ -165,7 +163,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let sun_dir = normalize(-vec3<f32>(0.408, -0.816, 0.408));
     let n_dot_l = max(dot(normal, sun_dir), 0.2);
     var lit = color * (vec3<f32>(0.45) + frame.sun_diffuse_intensity.rgb * n_dot_l * shadow);
-    lit = lit + calculate_point_lights_tree(in.world_pos, normal) * 0.16;
+    lit = lit + calculate_point_lights_tree(in.map_px, in.world_pos, normal) * 0.16;
     let country_d = textureSample(gradient_border_ch1, map_sampler, map_uv).r * 255.0;
     let province_d = textureSample(gradient_border_ch2, map_sampler, map_uv).r * 255.0;
     let semantic_d = textureSample(gradient_border_ch3, map_sampler, map_uv).r * 255.0;

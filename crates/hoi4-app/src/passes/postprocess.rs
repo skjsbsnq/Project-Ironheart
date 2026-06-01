@@ -38,20 +38,39 @@
 
 use crate::passes::HDR_FORMAT;
 
+use std::collections::{BTreeSet, HashMap};
+use std::fmt::Write as _;
+use std::path::Path;
+
+use hoi4_assets::{AssetDb, FsAssetDb, PostEffectValues, PostEffectVolumeIndex, TgaImage};
+use hoi4_paths::PathConfig;
+
+const POST_PROCESS_LUT_KEY_COUNT: usize = 10;
+const STANDARD_TONEMAP_MIDDLE_GREY: f32 = 0.55;
+const WATER_LUT_FRAME_THRESHOLD: f32 = 0.90;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostProcessDebugView {
     Final,
     HdrRaw,
-    TonemapOnly,
     BloomOnly,
+    AvgLuminance,
+    TonemapBefore,
+    TonemapOnly,
+    LutBefore,
+    LutAfter,
 }
 
 impl PostProcessDebugView {
-    pub const ALL: [Self; 4] = [
+    pub const ALL: [Self; 8] = [
         Self::Final,
         Self::HdrRaw,
-        Self::TonemapOnly,
         Self::BloomOnly,
+        Self::AvgLuminance,
+        Self::TonemapBefore,
+        Self::TonemapOnly,
+        Self::LutBefore,
+        Self::LutAfter,
     ];
 
     pub fn next(self) -> Self {
@@ -63,8 +82,12 @@ impl PostProcessDebugView {
         match self {
             Self::Final => "final",
             Self::HdrRaw => "hdr_raw",
-            Self::TonemapOnly => "tonemap_only",
             Self::BloomOnly => "bloom_only",
+            Self::AvgLuminance => "avg_luminance",
+            Self::TonemapBefore => "tonemap_before",
+            Self::TonemapOnly => "tonemap_after",
+            Self::LutBefore => "lut_before",
+            Self::LutAfter => "lut_after",
         }
     }
 
@@ -72,8 +95,12 @@ impl PostProcessDebugView {
         match self {
             Self::Final => 0.0,
             Self::HdrRaw => 1.0,
-            Self::TonemapOnly => 2.0,
-            Self::BloomOnly => 3.0,
+            Self::BloomOnly => 2.0,
+            Self::AvgLuminance => 3.0,
+            Self::TonemapBefore => 4.0,
+            Self::TonemapOnly => 5.0,
+            Self::LutBefore => 6.0,
+            Self::LutAfter => 7.0,
         }
     }
 }
@@ -91,51 +118,707 @@ pub struct PostProcessCalibration {
     pub middle_grey: f32,
     pub exposure_min: f32,
     pub exposure_max: f32,
-    pub aces_input_scale: f32,
+    pub exposure_bias: f32,
+    pub uncharted_white_point: f32,
     pub final_bloom_strength: f32,
+    pub lut_strength: f32,
     pub saturation: f32,
-    pub vignette_strength: f32,
+    pub hsv_hue_shift: f32,
+    pub hsv_saturation: f32,
+    pub hsv_value: f32,
+    pub color_balance: [f32; 3],
     pub bloom_debug_gain: f32,
 }
 
 impl PostProcessCalibration {
-    pub const fn phase9_high() -> Self {
+    pub const fn phase10_vanilla() -> Self {
         Self {
-            bloom_bright_threshold: 1.05,
-            bloom_prefilter_strength: 0.6,
-            middle_grey: 0.18,
-            exposure_min: 0.6,
-            exposure_max: 1.3,
-            aces_input_scale: 0.6,
-            final_bloom_strength: 0.05,
+            bloom_bright_threshold: 0.90,
+            bloom_prefilter_strength: 0.90,
+            middle_grey: STANDARD_TONEMAP_MIDDLE_GREY,
+            exposure_min: 0.125,
+            exposure_max: 8.0,
+            exposure_bias: 1.08,
+            uncharted_white_point: 11.2,
+            final_bloom_strength: 0.22,
+            lut_strength: 1.0,
             saturation: 1.0,
-            vignette_strength: 0.08,
+            hsv_hue_shift: 0.0,
+            hsv_saturation: 1.0,
+            hsv_value: 1.0,
+            color_balance: [0.0, 0.0, 0.0],
             bloom_debug_gain: 4.0,
         }
     }
 
+    pub const fn phase9_high() -> Self {
+        Self::phase10_vanilla()
+    }
+
     pub fn summary(self) -> String {
         format!(
-            "exposure=[{:.2},{:.2}] middle_grey={:.2} aces_scale={:.2} bloom={:.2}/{:.2} sat={:.2} vignette={:.2}",
+            "restore=uncharted aces=off exposure=[{:.3},{:.1}] middle_grey={:.2} bias={:.2} white={:.1} bloom={:.2}/{:.2} lut={:.2} sat={:.2} hsv={:.2}/{:.2}/{:.2} balance={:.2},{:.2},{:.2}",
             self.exposure_min,
             self.exposure_max,
             self.middle_grey,
-            self.aces_input_scale,
+            self.exposure_bias,
+            self.uncharted_white_point,
             self.bloom_bright_threshold,
             self.final_bloom_strength,
+            self.lut_strength,
             self.saturation,
-            self.vignette_strength
+            self.hsv_hue_shift,
+            self.hsv_saturation,
+            self.hsv_value,
+            self.color_balance[0],
+            self.color_balance[1],
+            self.color_balance[2],
         )
     }
 }
 
 impl Default for PostProcessCalibration {
     fn default() -> Self {
-        Self::phase9_high()
+        Self::phase10_vanilla()
     }
 }
 
 /// 后处理执行模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostProcessLutKey {
+    DefaultDay,
+    DefaultNight,
+    MidDistanceDay,
+    MidDistanceNight,
+    FarDistanceDay,
+    FarDistanceNight,
+    WaterDay,
+    WaterNight,
+    WinterDay,
+    WinterNight,
+}
+
+impl PostProcessLutKey {
+    pub const fn ordered() -> &'static [Self] {
+        &[
+            Self::DefaultDay,
+            Self::DefaultNight,
+            Self::MidDistanceDay,
+            Self::MidDistanceNight,
+            Self::FarDistanceDay,
+            Self::FarDistanceNight,
+            Self::WaterDay,
+            Self::WaterNight,
+            Self::WinterDay,
+            Self::WinterNight,
+        ]
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DefaultDay => "default_day",
+            Self::DefaultNight => "default_night",
+            Self::MidDistanceDay => "mid_distance_day",
+            Self::MidDistanceNight => "mid_distance_night",
+            Self::FarDistanceDay => "max_distance_day",
+            Self::FarDistanceNight => "max_distance_night",
+            Self::WaterDay => "blue_water_day",
+            Self::WaterNight => "blue_water_night",
+            Self::WinterDay => "winter_day",
+            Self::WinterNight => "winter_night",
+        }
+    }
+
+    pub const fn values_name(self) -> &'static str {
+        match self {
+            Self::DefaultDay => "default",
+            Self::DefaultNight => "default_night",
+            Self::MidDistanceDay => "mid_distance",
+            Self::MidDistanceNight => "mid_distance_night",
+            Self::FarDistanceDay => "max_distance",
+            Self::FarDistanceNight => "max_distance_night",
+            Self::WaterDay => "blue_water",
+            Self::WaterNight => "blue_water_night",
+            Self::WinterDay => "winter_values_day",
+            Self::WinterNight => "winter_values_night",
+        }
+    }
+
+    pub const fn selection_rule(self) -> &'static str {
+        match self {
+            Self::DefaultDay => "day, land, close camera, winter_factor <= 0.55",
+            Self::DefaultNight => {
+                "night blend target for land, close camera, winter_factor <= 0.55"
+            }
+            Self::MidDistanceDay => "day, land, 0.36 < camera_distance_t <= 0.72",
+            Self::MidDistanceNight => {
+                "night blend target for land, 0.36 < camera_distance_t <= 0.72"
+            }
+            Self::FarDistanceDay => "day, land, camera_distance_t > 0.72",
+            Self::FarDistanceNight => "night blend target for land, camera_distance_t > 0.72",
+            Self::WaterDay => "day, water-dominant frame",
+            Self::WaterNight => "night blend target for water-dominant frame",
+            Self::WinterDay => "day, land, close camera, winter_factor > 0.55",
+            Self::WinterNight => "night blend target for land, close camera, winter_factor > 0.55",
+        }
+    }
+
+    pub const fn tonemap_middle_grey(self) -> f32 {
+        match self {
+            Self::DefaultDay
+            | Self::DefaultNight
+            | Self::MidDistanceDay
+            | Self::MidDistanceNight
+            | Self::FarDistanceDay => 0.55,
+            Self::FarDistanceNight => 0.65,
+            Self::WaterDay => 0.50,
+            Self::WaterNight => 0.40,
+            Self::WinterDay | Self::WinterNight => 0.80,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ColorCubeImage {
+    pub source_path: String,
+    pub size: u32,
+    pub pixels: Vec<u8>,
+}
+
+impl ColorCubeImage {
+    pub fn from_tga(source_path: impl Into<String>, image: TgaImage) -> Result<Self, String> {
+        if image.height < 2 || image.width != image.height * image.height {
+            return Err(format!(
+                "unsupported ColorCube dimensions {}x{}",
+                image.width, image.height
+            ));
+        }
+        let expected_len = (image.width * image.height * 4) as usize;
+        if image.pixels.len() != expected_len {
+            return Err(format!(
+                "ColorCube pixel data has {} bytes, expected {}",
+                image.pixels.len(),
+                expected_len
+            ));
+        }
+        Ok(Self {
+            source_path: source_path.into(),
+            size: image.height,
+            pixels: image.pixels,
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ColorCubeSource {
+    pub cubes: Vec<ColorCubeImage>,
+    pub bindings: [usize; POST_PROCESS_LUT_KEY_COUNT],
+    pub warnings: Vec<String>,
+}
+
+impl ColorCubeSource {
+    pub fn identity() -> Self {
+        Self {
+            cubes: vec![identity_color_cube_image()],
+            bindings: [0; POST_PROCESS_LUT_KEY_COUNT],
+            warnings: vec!["using identity ColorCube fallback".to_string()],
+        }
+    }
+
+    pub fn load_from_path_config(path_cfg: &PathConfig) -> Self {
+        let db = FsAssetDb::new(path_cfg.clone());
+        Self::load_from_db(&db)
+    }
+
+    pub fn load_from_db(db: &impl AssetDb) -> Self {
+        let mut warnings = Vec::new();
+        let index = match PostEffectVolumeIndex::load(db) {
+            Ok(index) => index,
+            Err(err) => {
+                warnings.push(err.to_string());
+                return Self::identity_with_warnings(warnings);
+            }
+        };
+        Self::load_from_index(db, &index, warnings)
+    }
+
+    fn load_from_index(
+        db: &impl AssetDb,
+        index: &PostEffectVolumeIndex,
+        mut warnings: Vec<String>,
+    ) -> Self {
+        let mut by_path: HashMap<String, usize> = HashMap::new();
+        let mut cubes = Vec::new();
+        let mut binding_paths = Vec::with_capacity(POST_PROCESS_LUT_KEY_COUNT);
+        let mut load_paths = BTreeSet::new();
+
+        for key in PostProcessLutKey::ordered() {
+            let path = index
+                .resolved_lut_for_values(key.values_name())
+                .or_else(|| index.default_lut())
+                .map(normalize_lut_path);
+            if let Some(path) = &path {
+                load_paths.insert(path.clone());
+            }
+            binding_paths.push(path);
+        }
+
+        for path in index.lut_paths() {
+            load_paths.insert(normalize_lut_path(path));
+        }
+
+        for path in &load_paths {
+            if by_path.contains_key(path) {
+                continue;
+            }
+            match hoi4_assets::load_tga(db, path.as_str()) {
+                Ok(image) => match ColorCubeImage::from_tga(path.as_str(), image) {
+                    Ok(cube) => {
+                        let idx = cubes.len();
+                        cubes.push(cube);
+                        by_path.insert(path.clone(), idx);
+                    }
+                    Err(err) => warnings.push(format!("{path}: {err}")),
+                },
+                Err(err) => warnings.push(
+                    err.with_referrer_path("gfx/posteffect_volumes.txt")
+                        .to_string(),
+                ),
+            }
+        }
+
+        if cubes.is_empty() {
+            return Self::identity_with_warnings(warnings);
+        }
+
+        let default_idx = binding_paths
+            .first()
+            .and_then(|path| path.as_ref())
+            .and_then(|path| by_path.get(path).copied())
+            .unwrap_or(0);
+        let mut bindings = [default_idx; POST_PROCESS_LUT_KEY_COUNT];
+        for (idx, path) in binding_paths.iter().enumerate() {
+            if let Some(cube_idx) = path.as_ref().and_then(|path| by_path.get(path).copied()) {
+                bindings[idx] = cube_idx;
+            }
+        }
+
+        Self {
+            cubes,
+            bindings,
+            warnings,
+        }
+    }
+
+    fn identity_with_warnings(mut warnings: Vec<String>) -> Self {
+        warnings.push("using identity ColorCube fallback".to_string());
+        Self {
+            cubes: vec![identity_color_cube_image()],
+            bindings: [0; POST_PROCESS_LUT_KEY_COUNT],
+            warnings,
+        }
+    }
+
+    pub fn is_identity_fallback(&self) -> bool {
+        self.cubes.len() == 1 && self.cubes[0].source_path == "identity_color_cube"
+    }
+
+    pub fn source_summary(&self) -> String {
+        if self.is_identity_fallback() {
+            return "identity_color_cube".to_string();
+        }
+        let mut paths: Vec<&str> = self
+            .cubes
+            .iter()
+            .map(|cube| cube.source_path.as_str())
+            .collect();
+        paths.sort_unstable();
+        paths.dedup();
+        format!(
+            "{} vanilla ColorCube LUTs: {}",
+            paths.len(),
+            paths.join(", ")
+        )
+    }
+}
+
+pub fn build_posteffect_values_report_json(path_cfg: &PathConfig) -> String {
+    let db = FsAssetDb::new(path_cfg.clone());
+    build_posteffect_values_report_json_from_db(&db)
+}
+
+pub fn build_posteffect_values_report_json_from_db(db: &impl AssetDb) -> String {
+    let mut warnings = Vec::new();
+    let index = match PostEffectVolumeIndex::load(db) {
+        Ok(index) => Some(index),
+        Err(err) => {
+            warnings.push(err.to_string());
+            None
+        }
+    };
+    let color_cube_source = match &index {
+        Some(index) => ColorCubeSource::load_from_index(db, index, warnings.clone()),
+        None => ColorCubeSource::identity_with_warnings(warnings.clone()),
+    };
+    warnings.extend(color_cube_source.warnings.iter().cloned());
+    warnings.sort();
+    warnings.dedup();
+
+    let empty_index = PostEffectVolumeIndex::new();
+    let index_ref = index.as_ref().unwrap_or(&empty_index);
+    let lut_paths = index_ref.lut_paths();
+    let cube_by_path: HashMap<&str, &ColorCubeImage> = color_cube_source
+        .cubes
+        .iter()
+        .map(|cube| (cube.source_path.as_str(), cube))
+        .collect();
+    let calibration = PostProcessCalibration::phase10_vanilla();
+
+    let mut out = String::new();
+    out.push_str("{\n");
+    out.push_str("  \"phase\": \"5\",\n");
+    out.push_str("  \"kind\": \"posteffect_values_audit\",\n");
+    out.push_str("  \"source_inputs\": [\n");
+    out.push_str("    \"gfx/posteffect_volumes.txt\",\n");
+    out.push_str("    \"tools/vanilla_trace/shader_bindings.json\",\n");
+    out.push_str("    \"tools/vanilla_trace/render_passes.json\",\n");
+    out.push_str("    \"tools/vanilla_trace/runtime_targets.json\"\n");
+    out.push_str("  ],\n");
+    let _ = writeln!(out, "  \"index_loaded\": {},", index.is_some());
+    let _ = writeln!(
+        out,
+        "  \"posteffect_values_count\": {},",
+        index_ref.values.len()
+    );
+    let _ = writeln!(
+        out,
+        "  \"posteffect_height_volume_count\": {},",
+        index_ref.height_volumes.len()
+    );
+    let _ = writeln!(
+        out,
+        "  \"posteffect_volume_count\": {},",
+        index_ref.volumes.len()
+    );
+    let _ = writeln!(out, "  \"color_cube_lut_count\": {},", lut_paths.len());
+    let _ = writeln!(
+        out,
+        "  \"color_cube_loaded_count\": {},",
+        color_cube_source
+            .cubes
+            .iter()
+            .filter(|cube| cube.source_path != "identity_color_cube")
+            .count()
+    );
+    let _ = writeln!(
+        out,
+        "  \"identity_fallback\": {},",
+        color_cube_source.is_identity_fallback()
+    );
+    out.push_str("  \"responsibility_boundary\": {\n");
+    out.push_str("    \"hdr_scene\": \"render passes write linear HDR into Rgba16Float\",\n");
+    out.push_str(
+        "    \"tonemap\": \"restorescene applies Uncharted2 tonemap after exposure and bloom\",\n",
+    );
+    out.push_str("    \"lut\": \"restorescene samples vanilla ColorCube TGA layers selected from gfx/posteffect_volumes.txt\",\n");
+    out.push_str(
+        "    \"swapchain_srgb\": \"Bgra8UnormSrgb targets use hardware sRGB encoding\",\n",
+    );
+    out.push_str(
+        "    \"manual_gamma\": \"only enabled when the final target format is not sRGB\"\n",
+    );
+    out.push_str("  },\n");
+    out.push_str("  \"restore_scene_bindings\": [\n");
+    out.push_str("    { \"vanilla\": \"MainScene\", \"vanilla_slot\": \"t0/s0\", \"project\": \"hdr_tex/hdr_sampler\", \"project_binding\": \"@group(0) @binding(0/1)\" },\n");
+    out.push_str("    { \"vanilla\": \"RestoreBloom\", \"vanilla_slot\": \"t1/s1\", \"project\": \"bloom_tex/bloom_sampler\", \"project_binding\": \"@group(0) @binding(2/3)\" },\n");
+    out.push_str("    { \"vanilla\": \"AverageLuminanceTexture\", \"vanilla_slot\": \"t3/s3\", \"project\": \"lum_tex/lum_sampler\", \"project_binding\": \"@group(0) @binding(4/5)\" },\n");
+    out.push_str("    { \"vanilla\": \"ColorCube\", \"vanilla_slot\": \"t2/s2\", \"project\": \"color_cube_tex/color_cube_sampler\", \"project_binding\": \"@group(0) @binding(6/7)\" }\n");
+    out.push_str("  ],\n");
+    out.push_str("  \"selection_thresholds\": {\n");
+    let _ = writeln!(
+        out,
+        "    \"water\": \"water_factor >= {:.2} selects blue_water day/night\",",
+        WATER_LUT_FRAME_THRESHOLD
+    );
+    out.push_str(
+        "    \"far_distance\": \"camera_distance_t > 0.72 selects max_distance day/night\",\n",
+    );
+    out.push_str(
+        "    \"mid_distance\": \"camera_distance_t > 0.36 selects mid_distance day/night\",\n",
+    );
+    out.push_str("    \"winter\": \"winter_factor > 0.55 selects winter_values_day/night for close land\",\n");
+    out.push_str("    \"night\": \"night_factor blends day layer to night layer\"\n");
+    out.push_str("  },\n");
+    out.push_str("  \"default_calibration\": {\n");
+    let _ = writeln!(
+        out,
+        "    \"lut_strength\": {:.3},",
+        calibration.lut_strength
+    );
+    let _ = writeln!(out, "    \"saturation\": {:.3},", calibration.saturation);
+    let _ = writeln!(
+        out,
+        "    \"hsv_saturation\": {:.3},",
+        calibration.hsv_saturation
+    );
+    let _ = writeln!(out, "    \"hsv_value\": {:.3},", calibration.hsv_value);
+    let _ = writeln!(
+        out,
+        "    \"color_balance\": [{:.3}, {:.3}, {:.3}],",
+        calibration.color_balance[0], calibration.color_balance[1], calibration.color_balance[2]
+    );
+    out.push_str("    \"manual_vivid_adjustment\": false\n");
+    out.push_str("  },\n");
+    out.push_str("  \"runtime_lut_bindings\": [\n");
+    for (idx, key) in PostProcessLutKey::ordered().iter().enumerate() {
+        let values_name = key.values_name();
+        let lut_path = index_ref
+            .resolved_lut_for_values(values_name)
+            .or_else(|| index_ref.default_lut())
+            .map(normalize_lut_path);
+        let layer = color_cube_source.bindings[idx];
+        let cube = lut_path
+            .as_deref()
+            .and_then(|path| cube_by_path.get(path).copied());
+        out.push_str("    {\n");
+        let _ = writeln!(out, "      \"key\": \"{}\",", key.as_str());
+        let _ = writeln!(
+            out,
+            "      \"posteffect_values\": \"{}\",",
+            json_escape(values_name)
+        );
+        let _ = writeln!(
+            out,
+            "      \"selection_rule\": \"{}\",",
+            json_escape(key.selection_rule())
+        );
+        out.push_str("      \"lut_path\": ");
+        write_json_string_option(&mut out, lut_path.as_deref());
+        out.push_str(",\n");
+        let _ = writeln!(out, "      \"array_layer\": {},", layer);
+        let _ = writeln!(out, "      \"loaded\": {},", cube.is_some());
+        out.push_str("      \"dimensions\": ");
+        match cube {
+            Some(cube) => {
+                let _ = write!(out, "\"{}x{}\"", cube.size * cube.size, cube.size);
+            }
+            None => out.push_str("null"),
+        }
+        out.push_str(",\n");
+        out.push_str("      \"effective_values\": ");
+        write_posteffect_values_json(
+            &mut out,
+            index_ref.effective_values(values_name).as_ref(),
+            6,
+        );
+        out.push('\n');
+        out.push_str("    }");
+        out.push_str(comma(idx + 1, PostProcessLutKey::ordered().len()));
+        out.push('\n');
+    }
+    out.push_str("  ],\n");
+    out.push_str("  \"color_cube_luts\": [\n");
+    for (idx, path) in lut_paths.iter().enumerate() {
+        let cube = cube_by_path.get(path.as_str()).copied();
+        out.push_str("    {\n");
+        let _ = writeln!(out, "      \"path\": \"{}\",", json_escape(path));
+        let _ = writeln!(out, "      \"loaded\": {},", cube.is_some());
+        out.push_str("      \"dimensions\": ");
+        match cube {
+            Some(cube) => {
+                let _ = write!(out, "\"{}x{}\"", cube.size * cube.size, cube.size);
+            }
+            None => out.push_str("null"),
+        }
+        out.push('\n');
+        out.push_str("    }");
+        out.push_str(comma(idx + 1, lut_paths.len()));
+        out.push('\n');
+    }
+    out.push_str("  ],\n");
+    out.push_str("  \"warnings\": ");
+    write_json_string_array(&mut out, &warnings, 2);
+    out.push('\n');
+    out.push_str("}\n");
+    out
+}
+
+fn write_posteffect_values_json(
+    out: &mut String,
+    values: Option<&PostEffectValues>,
+    indent: usize,
+) {
+    let Some(values) = values else {
+        out.push_str("null");
+        return;
+    };
+    let pad = " ".repeat(indent);
+    let _ = writeln!(out, "{{");
+    let _ = writeln!(out, "{pad}  \"name\": \"{}\",", json_escape(&values.name));
+    let _ = write!(out, "{pad}  \"inherit\": ");
+    write_json_string_option(out, values.inherit.as_deref());
+    out.push_str(",\n");
+    let _ = write!(out, "{pad}  \"lut\": ");
+    write_json_string_option(out, values.lut.as_deref());
+    out.push_str(",\n");
+    write_f32_option_json(
+        out,
+        "tonemap_middlegrey",
+        values.tonemap_middlegrey,
+        indent + 2,
+        true,
+    );
+    write_f32_option_json(out, "bloom_width", values.bloom_width, indent + 2, true);
+    write_f32_option_json(out, "bloom_scale", values.bloom_scale, indent + 2, true);
+    write_f32_option_json(
+        out,
+        "bright_threshold",
+        values.bright_threshold,
+        indent + 2,
+        true,
+    );
+    write_f32_option_json(
+        out,
+        "hdr_min_adjustment",
+        values.hdr_min_adjustment,
+        indent + 2,
+        true,
+    );
+    write_f32_option_json(
+        out,
+        "hdr_max_adjustment",
+        values.hdr_max_adjustment,
+        indent + 2,
+        false,
+    );
+    let _ = write!(out, "{pad}}}");
+}
+
+fn write_f32_option_json(
+    out: &mut String,
+    key: &str,
+    value: Option<f32>,
+    indent: usize,
+    trailing_comma: bool,
+) {
+    let pad = " ".repeat(indent);
+    let _ = write!(out, "{pad}\"{}\": ", key);
+    match value {
+        Some(value) => {
+            let _ = write!(out, "{value:.6}");
+        }
+        None => out.push_str("null"),
+    }
+    if trailing_comma {
+        out.push(',');
+    }
+    out.push('\n');
+}
+
+fn write_json_string_option(out: &mut String, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            out.push('"');
+            out.push_str(&json_escape(value));
+            out.push('"');
+        }
+        None => out.push_str("null"),
+    }
+}
+
+fn write_json_string_array(out: &mut String, values: &[String], indent: usize) {
+    if values.is_empty() {
+        out.push_str("[]");
+        return;
+    }
+    let pad = " ".repeat(indent);
+    out.push_str("[\n");
+    for (idx, value) in values.iter().enumerate() {
+        let _ = write!(out, "{pad}  \"{}\"", json_escape(value));
+        out.push_str(comma(idx + 1, values.len()));
+        out.push('\n');
+    }
+    let _ = write!(out, "{pad}]");
+}
+
+fn comma(done: usize, total: usize) -> &'static str {
+    if done < total {
+        ","
+    } else {
+        ""
+    }
+}
+
+fn json_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if ch.is_control() => {
+                let _ = write!(out, "\\u{:04x}", ch as u32);
+            }
+            ch => out.push(ch),
+        }
+    }
+    out
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct PostProcessLutSelection {
+    pub camera_distance_t: f32,
+    pub night_factor: f32,
+    pub water_factor: f32,
+    pub winter_factor: f32,
+}
+
+impl PostProcessLutSelection {
+    pub fn key(self, night: bool) -> PostProcessLutKey {
+        if self.water_factor >= WATER_LUT_FRAME_THRESHOLD {
+            return if night {
+                PostProcessLutKey::WaterNight
+            } else {
+                PostProcessLutKey::WaterDay
+            };
+        }
+        if self.camera_distance_t > 0.72 {
+            return if night {
+                PostProcessLutKey::FarDistanceNight
+            } else {
+                PostProcessLutKey::FarDistanceDay
+            };
+        }
+        if self.camera_distance_t > 0.36 {
+            return if night {
+                PostProcessLutKey::MidDistanceNight
+            } else {
+                PostProcessLutKey::MidDistanceDay
+            };
+        }
+        if self.winter_factor > 0.55 {
+            return if night {
+                PostProcessLutKey::WinterNight
+            } else {
+                PostProcessLutKey::WinterDay
+            };
+        }
+        if night {
+            PostProcessLutKey::DefaultNight
+        } else {
+            PostProcessLutKey::DefaultDay
+        }
+    }
+
+    pub fn tonemap_middle_grey(self) -> f32 {
+        let day = self.key(false).tonemap_middle_grey();
+        let night = self.key(true).tonemap_middle_grey();
+        day + (night - day) * self.night_factor.clamp(0.0, 1.0)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostProcessMode {
     /// 简化模式：跳过完整后处理链，由 [`super::SimpleBlitPass`] 接管。
@@ -303,6 +986,164 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
 // ─── Uniform 结构 ────────────────────────────────────────────────────────────
 
+const RESTORESCENE_PHASE10_WGSL: &str = r#"
+@group(0) @binding(0) var hdr_tex: texture_2d<f32>;
+@group(0) @binding(1) var hdr_sampler: sampler;
+@group(0) @binding(2) var bloom_tex: texture_2d<f32>;
+@group(0) @binding(3) var bloom_sampler: sampler;
+@group(0) @binding(4) var lum_tex: texture_2d<f32>;
+@group(0) @binding(5) var lum_sampler: sampler;
+@group(0) @binding(6) var color_cube_tex: texture_2d_array<f32>;
+@group(0) @binding(7) var color_cube_sampler: sampler;
+
+struct RestoreParams {
+    middle_grey: f32,
+    bloom_strength: f32,
+    srgb_target: f32,
+    exposure_bias: f32,
+    exposure_min: f32,
+    exposure_max: f32,
+    uncharted_white_point: f32,
+    saturation: f32,
+    debug_view: f32,
+    bloom_debug_gain: f32,
+    lut_strength: f32,
+    lut_size: f32,
+    hsv_hue_shift: f32,
+    hsv_saturation: f32,
+    hsv_value: f32,
+    _pad0: f32,
+    color_balance: vec4<f32>,
+    lut_blend: vec4<f32>,
+};
+@group(0) @binding(8) var<uniform> rp: RestoreParams;
+
+struct VsOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
+    var out: VsOut;
+    let uv = vec2<f32>(f32((vid << 1u) & 2u), f32(vid & 2u));
+    out.clip_pos = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+    out.uv = vec2<f32>(uv.x, 1.0 - uv.y);
+    return out;
+}
+
+fn uncharted2_tonemap_partial(x: vec3<f32>) -> vec3<f32> {
+    let a = 0.15;
+    let b = 0.50;
+    let c = 0.10;
+    let d = 0.20;
+    let e = 0.02;
+    let f = 0.30;
+    return ((x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f)) - e / f;
+}
+
+fn uncharted2_tonemap(color: vec3<f32>, white_point: f32) -> vec3<f32> {
+    let curr = uncharted2_tonemap_partial(color);
+    let white_scale = 1.0 / uncharted2_tonemap_partial(vec3<f32>(max(white_point, 0.001))).r;
+    return clamp(curr * white_scale, vec3<f32>(0.0), vec3<f32>(1.0));
+}
+
+fn rgb_to_hsv(c: vec3<f32>) -> vec3<f32> {
+    let k = vec4<f32>(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
+    let p = select(vec4<f32>(c.bg, k.wz), vec4<f32>(c.gb, k.xy), c.b < c.g);
+    let q = select(vec4<f32>(p.xyw, c.r), vec4<f32>(c.r, p.yzx), p.x < c.r);
+    let d = q.x - min(q.w, q.y);
+    let e = 1.0e-10;
+    return vec3<f32>(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
+}
+
+fn hsv_to_rgb(c: vec3<f32>) -> vec3<f32> {
+    let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(c.xxx + k.xyz) * 6.0 - k.www);
+    return c.z * mix(k.xxx, clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), c.y);
+}
+
+fn apply_hsv(color: vec3<f32>) -> vec3<f32> {
+    var hsv = rgb_to_hsv(clamp(color, vec3<f32>(0.0), vec3<f32>(1.0)));
+    hsv.x = fract(hsv.x + rp.hsv_hue_shift);
+    hsv.y = clamp(hsv.y * rp.hsv_saturation, 0.0, 2.0);
+    hsv.z = max(hsv.z * rp.hsv_value, 0.0);
+    return hsv_to_rgb(hsv);
+}
+
+fn apply_color_cube(color: vec3<f32>) -> vec3<f32> {
+    let n = max(rp.lut_size, 2.0);
+    let c = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
+    let b_idx = c.b * (n - 1.0);
+    let b_lo = floor(b_idx);
+    let b_hi = min(b_lo + 1.0, n - 1.0);
+    let b_frac = b_idx - b_lo;
+    let inv_n = 1.0 / n;
+    let cell_w = inv_n;
+    let u_lo = (b_lo + c.r * (1.0 - inv_n) + 0.5 * inv_n) * cell_w;
+    let u_hi = (b_hi + c.r * (1.0 - inv_n) + 0.5 * inv_n) * cell_w;
+    let v = c.g * (1.0 - inv_n) + 0.5 * inv_n;
+    let day_layer = i32(max(rp.lut_blend.x, 0.0));
+    let night_layer = i32(max(rp.lut_blend.y, 0.0));
+    let lo_day = textureSample(color_cube_tex, color_cube_sampler, vec2<f32>(u_lo, v), day_layer).rgb;
+    let hi_day = textureSample(color_cube_tex, color_cube_sampler, vec2<f32>(u_hi, v), day_layer).rgb;
+    let lo_night = textureSample(color_cube_tex, color_cube_sampler, vec2<f32>(u_lo, v), night_layer).rgb;
+    let hi_night = textureSample(color_cube_tex, color_cube_sampler, vec2<f32>(u_hi, v), night_layer).rgb;
+    let lut_day = mix(lo_day, hi_day, b_frac);
+    let lut_night = mix(lo_night, hi_night, b_frac);
+    let lut = mix(lut_day, lut_night, clamp(rp.lut_blend.z, 0.0, 1.0));
+    return mix(c, lut, clamp(rp.lut_strength, 0.0, 1.0));
+}
+
+fn apply_saturation(color: vec3<f32>, saturation: f32) -> vec3<f32> {
+    let lum = dot(color, vec3<f32>(0.2125, 0.7154, 0.0721));
+    return mix(vec3<f32>(lum), color, saturation);
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let scene = textureSample(hdr_tex, hdr_sampler, in.uv).rgb;
+    let bloom = textureSample(bloom_tex, bloom_sampler, in.uv).rgb;
+    let scene_with_bloom = scene + bloom * rp.bloom_strength;
+
+    let raw_log_lum = textureSample(lum_tex, lum_sampler, vec2<f32>(0.5, 0.5)).r;
+    let avg_log_lum = clamp(raw_log_lum, -8.0, 8.0);
+    let avg_lum = max(exp(avg_log_lum), 1e-3);
+    let exposure = clamp((rp.middle_grey / avg_lum) * rp.exposure_bias, rp.exposure_min, rp.exposure_max);
+    let tonemap_input = scene_with_bloom * exposure;
+    let tonemapped = uncharted2_tonemap(tonemap_input, rp.uncharted_white_point);
+
+    var graded = apply_color_cube(tonemapped);
+    graded = apply_hsv(graded);
+    graded = apply_saturation(graded, rp.saturation);
+    graded = max(graded + rp.color_balance.rgb, vec3<f32>(0.0));
+    var ldr = clamp(graded, vec3<f32>(0.0), vec3<f32>(1.0));
+
+    if (rp.debug_view > 0.5 && rp.debug_view < 1.5) {
+        ldr = clamp(scene, vec3<f32>(0.0), vec3<f32>(1.0));
+    } else if (rp.debug_view > 1.5 && rp.debug_view < 2.5) {
+        ldr = clamp(bloom * rp.bloom_debug_gain, vec3<f32>(0.0), vec3<f32>(1.0));
+    } else if (rp.debug_view > 2.5 && rp.debug_view < 3.5) {
+        let lum_debug = clamp(log2(max(avg_lum, 1e-4)) / 8.0 + 0.5, 0.0, 1.0);
+        ldr = vec3<f32>(lum_debug);
+    } else if (rp.debug_view > 3.5 && rp.debug_view < 4.5) {
+        ldr = clamp(tonemap_input / max(rp.uncharted_white_point, 1.0), vec3<f32>(0.0), vec3<f32>(1.0));
+    } else if (rp.debug_view > 4.5 && rp.debug_view < 5.5) {
+        ldr = tonemapped;
+    } else if (rp.debug_view > 5.5 && rp.debug_view < 6.5) {
+        ldr = tonemapped;
+    } else if (rp.debug_view > 6.5 && rp.debug_view < 7.5) {
+        ldr = clamp(graded, vec3<f32>(0.0), vec3<f32>(1.0));
+    }
+
+    if (rp.srgb_target < 0.5) {
+        ldr = pow(ldr, vec3<f32>(1.0 / 2.2));
+    }
+
+    return vec4<f32>(ldr, 1.0);
+}
+"#;
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct BloomParams {
@@ -331,17 +1172,22 @@ struct LumParams {
 struct RestoreParams {
     middle_grey: f32,
     bloom_strength: f32,
-    vignette_strength: f32,
     srgb_target: f32,
+    exposure_bias: f32,
     exposure_min: f32,
     exposure_max: f32,
-    aces_input_scale: f32,
+    uncharted_white_point: f32,
     saturation: f32,
     debug_view: f32,
     bloom_debug_gain: f32,
-    _pad0: [f32; 2],
-    center_uv: [f32; 2],
-    _pad: [f32; 2],
+    lut_strength: f32,
+    lut_size: f32,
+    hsv_hue_shift: f32,
+    hsv_saturation: f32,
+    hsv_value: f32,
+    _pad0: f32,
+    color_balance: [f32; 4],
+    lut_blend: [f32; 4],
 }
 
 // ─── 单个 RT + bind group 的小辅助 ─────────────────────────────────────────────
@@ -382,6 +1228,105 @@ fn make_target(
         width: width.max(1),
         height: height.max(1),
     }
+}
+
+fn identity_color_cube_image() -> ColorCubeImage {
+    const LUT_SIZE: u32 = 16;
+    let width = LUT_SIZE * LUT_SIZE;
+    let height = LUT_SIZE;
+    let mut data = Vec::with_capacity((width * height * 4) as usize);
+    for g in 0..LUT_SIZE {
+        for b in 0..LUT_SIZE {
+            for r in 0..LUT_SIZE {
+                data.push(((r * 255) / (LUT_SIZE - 1)) as u8);
+                data.push(((g * 255) / (LUT_SIZE - 1)) as u8);
+                data.push(((b * 255) / (LUT_SIZE - 1)) as u8);
+                data.push(255);
+            }
+        }
+    }
+    ColorCubeImage {
+        source_path: "identity_color_cube".to_string(),
+        size: LUT_SIZE,
+        pixels: data,
+    }
+}
+
+fn make_color_cube_array(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    source: &ColorCubeSource,
+) -> (wgpu::Texture, wgpu::TextureView) {
+    let lut_size = source.cubes.first().map(|cube| cube.size).unwrap_or(16);
+    let width = lut_size * lut_size;
+    let height = lut_size;
+    let layers = source.cubes.len().max(1) as u32;
+    let identity = identity_color_cube_image();
+    let mut data = Vec::with_capacity((width * height * 4 * layers) as usize);
+    for cube in &source.cubes {
+        if cube.size == lut_size && cube.pixels.len() == (width * height * 4) as usize {
+            data.extend_from_slice(&cube.pixels);
+        } else if identity.pixels.len() == (width * height * 4) as usize {
+            data.extend_from_slice(&identity.pixels);
+        } else {
+            data.resize(data.len() + (width * height * 4) as usize, 255);
+        }
+    }
+    if data.is_empty() {
+        data.extend_from_slice(&identity.pixels);
+    }
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(if source.is_identity_fallback() {
+            "postprocess_identity_color_cube"
+        } else {
+            "postprocess_vanilla_color_cube"
+        }),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: layers,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: layers,
+        },
+    );
+    let view = texture.create_view(&wgpu::TextureViewDescriptor {
+        label: Some("postprocess_color_cube_array_view"),
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    (texture, view)
+}
+
+fn normalize_lut_path(path: impl AsRef<str>) -> String {
+    let path = path.as_ref().replace('\\', "/");
+    Path::new(&path)
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 // ─── 共享 BGL：全屏 sample + uniform ──────────────────────────────────────────
@@ -528,6 +1473,14 @@ pub struct PostProcessChain {
     restore_pipeline: wgpu::RenderPipeline,
     restore_uniform: wgpu::Buffer,
     restore_bind_group: wgpu::BindGroup,
+    #[allow(dead_code)]
+    color_cube_texture: wgpu::Texture,
+    color_cube_view: wgpu::TextureView,
+    color_cube_lut_size: f32,
+    color_cube_bindings: [usize; POST_PROCESS_LUT_KEY_COUNT],
+    pub color_cube_source: String,
+    pub color_cube_fallback: bool,
+    pub color_cube_warnings: Vec<String>,
 
     /// HDR full-res 尺寸（用来计算各级链尺寸）。
     hdr_w: u32,
@@ -541,10 +1494,12 @@ pub struct PostProcessChain {
 impl PostProcessChain {
     pub fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         hdr_view: &wgpu::TextureView,
         hdr_w: u32,
         hdr_h: u32,
         swap_format: wgpu::TextureFormat,
+        color_cube_source: ColorCubeSource,
     ) -> Self {
         let _ = HDR_FORMAT; // sanity reference
 
@@ -600,6 +1555,17 @@ impl PostProcessChain {
         );
 
         // ── restore ─────────────────────────────────────────────────────
+        let (color_cube_texture, color_cube_view) =
+            make_color_cube_array(device, queue, &color_cube_source);
+        let color_cube_lut_size = color_cube_source
+            .cubes
+            .first()
+            .map(|cube| cube.size as f32)
+            .unwrap_or(16.0);
+        let color_cube_bindings = color_cube_source.bindings;
+        let color_cube_source_summary = color_cube_source.source_summary();
+        let color_cube_fallback = color_cube_source.is_identity_fallback();
+        let color_cube_warnings = color_cube_source.warnings.clone();
         let restore_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("restore_bgl"),
             entries: &[
@@ -654,6 +1620,22 @@ impl PostProcessChain {
                 wgpu::BindGroupLayoutEntry {
                     binding: 6,
                     visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 7,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 8,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -665,7 +1647,7 @@ impl PostProcessChain {
         });
         let restore_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("restore_live"),
-            source: wgpu::ShaderSource::Wgsl(RESTORESCENE_LIVE_WGSL.into()),
+            source: wgpu::ShaderSource::Wgsl(RESTORESCENE_PHASE10_WGSL.into()),
         });
         let restore_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("restore_pl"),
@@ -735,11 +1717,21 @@ impl PostProcessChain {
                 }),
                 entries: &[],
             }),
+            color_cube_texture,
+            color_cube_view,
+            color_cube_lut_size,
+            color_cube_bindings,
+            color_cube_source: color_cube_source_summary,
+            color_cube_fallback,
+            color_cube_warnings,
             hdr_w,
             hdr_h,
             swap_format,
             srgb_target_flag,
         };
+        if !color_cube_fallback {
+            chain.calibration.lut_strength = 1.0;
+        }
         chain.rebuild_targets(device, hdr_view, hdr_w, hdr_h);
         chain
     }
@@ -892,6 +1884,14 @@ impl PostProcessChain {
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&self.color_cube_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 7,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
                     resource: self.restore_uniform.as_entire_binding(),
                 },
             ],
@@ -899,7 +1899,7 @@ impl PostProcessChain {
     }
 
     /// 每帧调一次，更新所有 uniform。
-    pub fn prepare(&self, queue: &wgpu::Queue) {
+    pub fn prepare(&self, queue: &wgpu::Queue, selection: PostProcessLutSelection) {
         // bloom bright pass：threshold 抬到 1.05 → 仅真正 HDR 高光（>1.0）参与 bloom，
         // 防止 LDR 区域整体染上一层"奶白"提亮。strength 0.6 让 9-tap 模糊不超过场景亮度。
         let bp = BloomParams {
@@ -937,26 +1937,51 @@ impl PostProcessChain {
             queue.write_buffer(buf, 0, bytemuck::bytes_of(&lp));
         }
 
-        // restore params（摄影标准 18% 中灰 + 微弱 bloom 叠加 + 轻 vignette）。
-        // 之前 middle_grey=0.5 把"目标显示亮度"定在 50% gray，配合自动曝光把当前
-        // 平均场景值（典型 ~0.2）×2.5 倍后 ACES 仍偏亮 → 整体过曝。
-        // 0.18 是行业标准（sRGB ~0.46），与 vanilla `MiddleGray` 同 ballpark。
+        let selected_middle_grey = selection.tonemap_middle_grey();
+        let middle_grey =
+            self.calibration.middle_grey * (selected_middle_grey / STANDARD_TONEMAP_MIDDLE_GREY);
+
+        // Restore params. Vanilla posteffect values use tonemap_middlegrey in
+        // the 0.50-0.80 range depending on LUT volume; a hard-coded 0.18 makes
+        // the map under-expose and then lets the LUT dominate the remaining
+        // contrast.
         let rp = RestoreParams {
-            middle_grey: self.calibration.middle_grey,
+            middle_grey,
             bloom_strength: self.calibration.final_bloom_strength,
-            vignette_strength: self.calibration.vignette_strength,
             srgb_target: self.srgb_target_flag,
+            exposure_bias: self.calibration.exposure_bias,
             exposure_min: self.calibration.exposure_min,
             exposure_max: self.calibration.exposure_max,
-            aces_input_scale: self.calibration.aces_input_scale,
+            uncharted_white_point: self.calibration.uncharted_white_point,
             saturation: self.calibration.saturation,
             debug_view: self.debug_view.as_shader_value(),
             bloom_debug_gain: self.calibration.bloom_debug_gain,
-            _pad0: [0.0; 2],
-            center_uv: [0.5, 0.5],
-            _pad: [0.0; 2],
+            lut_strength: self.calibration.lut_strength,
+            lut_size: self.color_cube_lut_size,
+            hsv_hue_shift: self.calibration.hsv_hue_shift,
+            hsv_saturation: self.calibration.hsv_saturation,
+            hsv_value: self.calibration.hsv_value,
+            _pad0: 0.0,
+            color_balance: [
+                self.calibration.color_balance[0],
+                self.calibration.color_balance[1],
+                self.calibration.color_balance[2],
+                0.0,
+            ],
+            lut_blend: self.lut_blend(selection),
         };
         queue.write_buffer(&self.restore_uniform, 0, bytemuck::bytes_of(&rp));
+    }
+
+    fn lut_blend(&self, selection: PostProcessLutSelection) -> [f32; 4] {
+        let day_key = selection.key(false) as usize;
+        let night_key = selection.key(true) as usize;
+        [
+            self.color_cube_bindings[day_key] as f32,
+            self.color_cube_bindings[night_key] as f32,
+            selection.night_factor.clamp(0.0, 1.0),
+            0.0,
+        ]
     }
 
     /// 在已开 encoder 中提交完整链。
@@ -1055,10 +2080,15 @@ mod tests {
         assert!(!DOWNSAMPLE_WGSL.is_empty());
         assert!(!LUM_LOG_WGSL.is_empty());
         assert!(LUM_AVG_WGSL.contains("vs_main"));
-        assert!(RESTORESCENE_LIVE_WGSL.contains("aces_tonemap"));
-        assert!(RESTORESCENE_LIVE_WGSL.contains("srgb_target"));
-        assert!(RESTORESCENE_LIVE_WGSL.contains("debug_view"));
-        assert!(RESTORESCENE_LIVE_WGSL.contains("bloom_debug_gain"));
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("uncharted2_tonemap"));
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("apply_color_cube"));
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("rgb_to_hsv"));
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("color_balance"));
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("srgb_target"));
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("debug_view"));
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("bloom_debug_gain"));
+        assert!(!RESTORESCENE_PHASE10_WGSL.contains("aces_tonemap"));
+        assert!(!RESTORESCENE_PHASE10_WGSL.contains("vignette_strength"));
     }
 
     #[test]
@@ -1071,13 +2101,23 @@ mod tests {
     }
 
     #[test]
-    fn phase9_calibration_is_conservative() {
-        let calibration = PostProcessCalibration::phase9_high();
-        assert!((calibration.middle_grey - 0.18).abs() < f32::EPSILON);
-        assert!(calibration.exposure_min >= 0.5);
-        assert!(calibration.exposure_max <= 1.5);
-        assert!(calibration.final_bloom_strength <= 0.08);
-        assert!(calibration.saturation <= 1.0);
+    fn phase10_calibration_is_vanilla_restore_scene() {
+        let calibration = PostProcessCalibration::phase10_vanilla();
+        assert!((calibration.middle_grey - 0.55).abs() < f32::EPSILON);
+        assert!(calibration.exposure_min <= 0.125);
+        assert!(calibration.exposure_max >= 8.0);
+        assert!((calibration.exposure_bias - 1.08).abs() < f32::EPSILON);
+        assert!((calibration.uncharted_white_point - 11.2).abs() < f32::EPSILON);
+        assert!((calibration.bloom_bright_threshold - 0.90).abs() < f32::EPSILON);
+        assert!((calibration.bloom_prefilter_strength - 0.90).abs() < f32::EPSILON);
+        assert_eq!(calibration.lut_strength, 1.0);
+        assert_eq!(calibration.saturation, 1.0);
+        assert_eq!(calibration.hsv_saturation, 1.0);
+        assert_eq!(calibration.hsv_value, 1.0);
+        assert_eq!(calibration.color_balance, [0.0, 0.0, 0.0]);
+        assert!(calibration.summary().contains("aces=off"));
+        assert!(calibration.summary().contains("lut=1.00"));
+        assert!(calibration.summary().contains("restore=uncharted"));
     }
 
     #[test]
@@ -1091,11 +2131,16 @@ mod tests {
         assert_eq!(seen, PostProcessDebugView::ALL);
         assert_eq!(view, PostProcessDebugView::Final);
         assert_eq!(PostProcessDebugView::BloomOnly.name(), "bloom_only");
+        assert_eq!(PostProcessDebugView::AvgLuminance.name(), "avg_luminance");
+        assert_eq!(PostProcessDebugView::TonemapBefore.name(), "tonemap_before");
+        assert_eq!(PostProcessDebugView::TonemapOnly.name(), "tonemap_after");
+        assert_eq!(PostProcessDebugView::LutBefore.name(), "lut_before");
+        assert_eq!(PostProcessDebugView::LutAfter.name(), "lut_after");
     }
 
     #[test]
     fn restore_shader_validates() {
-        let module = naga::front::wgsl::parse_str(RESTORESCENE_LIVE_WGSL)
+        let module = naga::front::wgsl::parse_str(RESTORESCENE_PHASE10_WGSL)
             .expect("restore shader should parse");
         let mut validator = naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
@@ -1104,5 +2149,83 @@ mod tests {
         validator
             .validate(&module)
             .expect("restore shader should validate");
+    }
+
+    #[test]
+    fn color_cube_tga_accepts_32_cube_layout() {
+        let image = TgaImage {
+            width: 1024,
+            height: 32,
+            pixels: vec![0; 1024 * 32 * 4],
+        };
+        let cube = ColorCubeImage::from_tga("gfx/world/colorcorrection.tga", image).unwrap();
+        assert_eq!(cube.size, 32);
+    }
+
+    #[test]
+    fn lut_selection_uses_distance_water_and_night_variants() {
+        assert_eq!(
+            PostProcessLutSelection {
+                camera_distance_t: 0.1,
+                night_factor: 0.0,
+                water_factor: 0.0,
+                winter_factor: 0.0,
+            }
+            .key(false),
+            PostProcessLutKey::DefaultDay
+        );
+        assert_eq!(
+            PostProcessLutSelection {
+                camera_distance_t: 0.8,
+                night_factor: 1.0,
+                water_factor: 0.0,
+                winter_factor: 0.0,
+            }
+            .key(true),
+            PostProcessLutKey::FarDistanceNight
+        );
+        assert_eq!(
+            PostProcessLutSelection {
+                camera_distance_t: 0.1,
+                night_factor: 0.0,
+                water_factor: 0.95,
+                winter_factor: 0.0,
+            }
+            .key(false),
+            PostProcessLutKey::WaterDay
+        );
+        assert_eq!(
+            PostProcessLutSelection {
+                camera_distance_t: 0.1,
+                night_factor: 0.0,
+                water_factor: 0.60,
+                winter_factor: 0.0,
+            }
+            .key(false),
+            PostProcessLutKey::DefaultDay
+        );
+        assert_eq!(
+            PostProcessLutSelection {
+                camera_distance_t: 0.1,
+                night_factor: 0.0,
+                water_factor: 0.0,
+                winter_factor: 1.0,
+            }
+            .key(false),
+            PostProcessLutKey::WinterDay
+        );
+        assert!((PostProcessLutKey::WinterDay.tonemap_middle_grey() - 0.80).abs() < f32::EPSILON);
+        assert!(
+            (PostProcessLutSelection {
+                camera_distance_t: 0.1,
+                night_factor: 1.0,
+                water_factor: 0.95,
+                winter_factor: 0.0,
+            }
+            .tonemap_middle_grey()
+                - 0.40)
+                .abs()
+                < f32::EPSILON
+        );
     }
 }

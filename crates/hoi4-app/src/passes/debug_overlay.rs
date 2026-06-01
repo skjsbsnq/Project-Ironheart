@@ -61,10 +61,22 @@ impl DebugOverlay {
 
 fn format_entry(idx: usize, e: &PassEntry) -> String {
     let on = if e.enabled { "ON " } else { "OFF" };
-    if e.cpu_ms > 0.0 || e.gpu_ms > 0.0 || e.draw_calls > 0 {
+    if e.cpu_ms > 0.0
+        || e.gpu_ms > 0.0
+        || e.draw_calls > 0
+        || e.texture_memory_bytes > 0
+        || e.fallback_count > 0
+    {
         format!(
-            "  [{:>2}] {} {:<24} cpu={:>5.2} gpu={:>5.2} draw={}",
-            idx, on, e.name, e.cpu_ms, e.gpu_ms, e.draw_calls
+            "  [{:>2}] {} {:<24} cpu={:>5.2} gpu={:>5.2} draw={} tex={:.1}MiB fallback={}",
+            idx,
+            on,
+            e.name,
+            e.cpu_ms,
+            e.gpu_ms,
+            e.draw_calls,
+            e.texture_memory_bytes as f32 / (1024.0 * 1024.0),
+            e.fallback_count
         )
     } else {
         format!("  [{:>2}] {} {}", idx, on, e.name)
@@ -103,13 +115,15 @@ mod tests {
         reg.record_cpu_ms("terrain", 1.0);
         reg.record_gpu_ms("terrain", 2.0);
         reg.record_draw_calls("terrain", 3);
+        reg.record_texture_memory_bytes("terrain", 1024 * 1024);
+        reg.record_fallback_count("terrain", 1);
 
         let mut ov = DebugOverlay::new();
         ov.toggle();
         ov.refresh(&reg, 1920, 1080, "simple_blit");
-        assert!(ov
-            .latest_lines()
-            .iter()
-            .any(|line| line.contains("cpu=") && line.contains("draw=3")));
+        assert!(ov.latest_lines().iter().any(|line| line.contains("cpu=")
+            && line.contains("draw=3")
+            && line.contains("tex=1.0MiB")
+            && line.contains("fallback=1")));
     }
 }

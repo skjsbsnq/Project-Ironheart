@@ -14,9 +14,9 @@ pub struct ProvinceNameParams {
     pub zoom_threshold_near: f32,
     pub zoom_threshold_far: f32,
     pub scale: f32,
-    pub _pad0: f32,
+    pub height_scale: f32,
+    pub height_lift: f32,
     pub _pad1: f32,
-    pub _pad2: f32,
 }
 
 impl Default for ProvinceNameParams {
@@ -29,9 +29,9 @@ impl Default for ProvinceNameParams {
             zoom_threshold_near: 0.7,
             zoom_threshold_far: 0.4,
             scale: 1.0,
-            _pad0: 0.0,
+            height_scale: 1.45,
+            height_lift: 0.045,
             _pad1: 0.0,
-            _pad2: 0.0,
         }
     }
 }
@@ -47,9 +47,9 @@ struct ProvinceNameParams {
     zoom_threshold_near: f32,
     zoom_threshold_far: f32,
     scale: f32,
-    _pad0: f32,
+    height_scale: f32,
+    height_lift: f32,
     _pad1: f32,
-    _pad2: f32,
 };
 
 @group(0) @binding(0) var<uniform> frame: GlobalFrameUniform;
@@ -57,6 +57,7 @@ struct ProvinceNameParams {
 
 @group(1) @binding(0) var name_atlas: texture_2d<f32>;
 @group(1) @binding(1) var name_sampler: sampler;
+@group(1) @binding(2) var heightmap_tex: texture_2d<f32>;
 
 struct InstanceData {
     @location(0) center: vec3<f32>,
@@ -76,6 +77,27 @@ struct VsOut {
     @location(3) map_px: vec2<f32>,
 };
 
+fn sample_height_for_world_xz(world_xz: vec2<f32>) -> f32 {
+    let map_uv = world_xz_to_map_uv(world_xz, frame.vanilla_map_size_world_size.zw);
+    let dim = vec2<f32>(textureDimensions(heightmap_tex));
+    let coord_f = clamp(map_uv, vec2<f32>(0.0), vec2<f32>(1.0)) * (dim - vec2<f32>(1.0));
+    let coord_i = vec2<i32>(floor(coord_f));
+    let frac_xy = fract(coord_f);
+    let max_x = i32(dim.x) - 1;
+    let max_y = i32(dim.y) - 1;
+    let x0 = clamp(coord_i.x, 0, max_x);
+    let y0 = clamp(coord_i.y, 0, max_y);
+    let x1 = clamp(coord_i.x + 1, 0, max_x);
+    let y1 = clamp(coord_i.y + 1, 0, max_y);
+    let h00 = textureLoad(heightmap_tex, vec2<i32>(x0, y0), 0).r;
+    let h10 = textureLoad(heightmap_tex, vec2<i32>(x1, y0), 0).r;
+    let h01 = textureLoad(heightmap_tex, vec2<i32>(x0, y1), 0).r;
+    let h11 = textureLoad(heightmap_tex, vec2<i32>(x1, y1), 0).r;
+    let h0 = mix(h00, h10, frac_xy.x);
+    let h1 = mix(h01, h11, frac_xy.x);
+    return mix(h0, h1, frac_xy.y) * pn_params.height_scale + pn_params.height_lift;
+}
+
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32, inst: InstanceData) -> VsOut {
     var local_x: f32 = -1.0;
@@ -83,8 +105,10 @@ fn vs_main(@builtin(vertex_index) vid: u32, inst: InstanceData) -> VsOut {
     if (vid == 1u || vid == 2u || vid == 4u) { local_x = 1.0; }
     if (vid == 2u || vid == 4u || vid == 5u) { local_y = 1.0; }
 
-    let to_cam = normalize(frame.cam_pos - inst.center);
-    let distorted = inst.center + to_cam * pn_params.distortion_amount;
+    var center = inst.center;
+    center.y = sample_height_for_world_xz(center.xz);
+    let to_cam = normalize(frame.cam_pos - center);
+    let distorted = center + to_cam * pn_params.distortion_amount;
     let center_clip = frame.view_proj * vec4<f32>(distorted, 1.0);
     let center_ndc_w = center_clip.w;
 
@@ -113,13 +137,16 @@ fn vs_main(@builtin(vertex_index) vid: u32, inst: InstanceData) -> VsOut {
 
     var out: VsOut;
     out.clip_pos = clip;
+    // This is a screen-space billboard: local_y = +1 moves up in clip
+    // space, while the R8 atlas data is uploaded top-down. Flip V so text
+    // reads upright on screen.
     out.uv = vec2<f32>(
         mix(inst.uv_min.x, inst.uv_max.x, (local_x + 1.0) * 0.5),
-        mix(inst.uv_min.y, inst.uv_max.y, (local_y + 1.0) * 0.5),
+        mix(inst.uv_max.y, inst.uv_min.y, (local_y + 1.0) * 0.5),
     );
-    out.world_xz = inst.center.xz;
-    out.world_pos = inst.center;
-    out.map_px = world_xz_to_map_px(inst.center.xz, frame.vanilla_map_size_world_size.zw);
+    out.world_xz = center.xz;
+    out.world_pos = center;
+    out.map_px = world_xz_to_map_px(center.xz, frame.vanilla_map_size_world_size.zw);
     return out;
 }
 
@@ -151,7 +178,9 @@ pub struct ProvinceNamePassInputs<'a> {
     pub global_uniform_buffer: &'a wgpu::Buffer,
     pub depth_format: wgpu::TextureFormat,
     pub atlas: Option<&'a crate::province_name_atlas::ProvinceNameAtlas>,
+    pub heightmap_view: &'a wgpu::TextureView,
     pub instances: &'a [CountryNameInstance],
+    pub height_scale: f32,
 }
 
 pub struct ProvinceNamePass {
@@ -159,6 +188,7 @@ pub struct ProvinceNamePass {
     global_bind_group: wgpu::BindGroup,
     atlas_bind_group: wgpu::BindGroup,
     params_buffer: wgpu::Buffer,
+    height_scale: f32,
     instance_buffer: wgpu::Buffer,
     instance_count: u32,
     pixel_counts: Vec<u32>,
@@ -222,10 +252,23 @@ impl ProvinceNamePass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
 
-        let params = ProvinceNameParams::default();
+        let params = ProvinceNameParams {
+            height_scale: inputs.height_scale,
+            ..Default::default()
+        };
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("province_name_params"),
             contents: bytemuck::bytes_of(&params),
@@ -341,6 +384,10 @@ impl ProvinceNamePass {
                     binding: 1,
                     resource: wgpu::BindingResource::Sampler(&sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(inputs.heightmap_view),
+                },
             ],
         });
 
@@ -451,6 +498,7 @@ impl ProvinceNamePass {
             global_bind_group,
             atlas_bind_group,
             params_buffer,
+            height_scale: inputs.height_scale,
             instance_buffer,
             instance_count,
             pixel_counts,
@@ -461,6 +509,7 @@ impl ProvinceNamePass {
         let params = ProvinceNameParams {
             fade,
             scale,
+            height_scale: self.height_scale,
             ..Default::default()
         };
         queue.write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(&params));
@@ -471,7 +520,7 @@ impl ProvinceNamePass {
             return;
         }
 
-        if zoom_factor < 0.62 {
+        if zoom_factor < 0.78 {
             return;
         }
 
@@ -484,12 +533,12 @@ impl ProvinceNamePass {
         pass.set_bind_group(0, &self.global_bind_group, &[]);
         pass.set_bind_group(1, &self.atlas_bind_group, &[]);
         pass.set_vertex_buffer(0, self.instance_buffer.slice(..));
-        let min_area = if zoom_factor < 0.70 {
+        let min_area = if zoom_factor < 0.88 {
+            45_000
+        } else if zoom_factor < 0.94 {
             18_000
-        } else if zoom_factor < 0.84 {
-            7_000
         } else {
-            1_800
+            7_000
         };
         let visible: Vec<u32> = self
             .pixel_counts

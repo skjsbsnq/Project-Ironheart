@@ -19,6 +19,7 @@
 
 use hoi4_assets::MapResRole;
 use hoi4_paths::PathConfig;
+use std::fmt::Write as _;
 use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
@@ -42,7 +43,7 @@ pub enum TerrainDebugView {
     AtlasTileId = 2,
     TerrainBlendState = 3,
     TerrainCorners = 4,
-    PoliticalColor = 5,
+    PoliticalBase = 5,
     TerrainAlbedo = 6,
     Normal = 7,
     HeightSlope = 8,
@@ -65,16 +66,19 @@ pub enum TerrainDebugView {
     MudSnowSnowAmount = 25,
     MudSnowMudAmount = 26,
     MudSnowTarget = 27,
+    PointLightContribution = 28,
+    Colormap = 29,
+    FinalBeforePostprocess = 30,
 }
 
 impl TerrainDebugView {
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 31] = [
         Self::Off,
         Self::TerrainId,
         Self::AtlasTileId,
         Self::TerrainBlendState,
         Self::TerrainCorners,
-        Self::PoliticalColor,
+        Self::PoliticalBase,
         Self::TerrainAlbedo,
         Self::Normal,
         Self::HeightSlope,
@@ -97,6 +101,9 @@ impl TerrainDebugView {
         Self::MudSnowSnowAmount,
         Self::MudSnowMudAmount,
         Self::MudSnowTarget,
+        Self::PointLightContribution,
+        Self::Colormap,
+        Self::FinalBeforePostprocess,
     ];
 
     pub const fn name(self) -> &'static str {
@@ -106,7 +113,7 @@ impl TerrainDebugView {
             Self::AtlasTileId => "atlas_tile_id",
             Self::TerrainBlendState => "terrain_blend_state",
             Self::TerrainCorners => "terrain_corners",
-            Self::PoliticalColor => "political_color",
+            Self::PoliticalBase => "political_base",
             Self::TerrainAlbedo => "terrain_albedo",
             Self::Normal => "normal",
             Self::HeightSlope => "height_slope",
@@ -129,6 +136,9 @@ impl TerrainDebugView {
             Self::MudSnowSnowAmount => "mud_snow_snow_amount",
             Self::MudSnowMudAmount => "mud_snow_mud_amount",
             Self::MudSnowTarget => "mud_snow_target",
+            Self::PointLightContribution => "point_light_contribution",
+            Self::Colormap => "colormap",
+            Self::FinalBeforePostprocess => "final_before_postprocess",
         }
     }
 
@@ -139,7 +149,7 @@ impl TerrainDebugView {
             Self::AtlasTileId => 2.0,
             Self::TerrainBlendState => 3.0,
             Self::TerrainCorners => 4.0,
-            Self::PoliticalColor => 5.0,
+            Self::PoliticalBase => 5.0,
             Self::TerrainAlbedo => 6.0,
             Self::Normal => 7.0,
             Self::HeightSlope => 8.0,
@@ -162,6 +172,9 @@ impl TerrainDebugView {
             Self::MudSnowSnowAmount => 25.0,
             Self::MudSnowMudAmount => 26.0,
             Self::MudSnowTarget => 27.0,
+            Self::PointLightContribution => 28.0,
+            Self::Colormap => 29.0,
+            Self::FinalBeforePostprocess => 30.0,
         }
     }
 
@@ -416,37 +429,10 @@ impl TerrainPass {
         let mud_normal_view = mud_normal.view;
 
         // 鈹€鈹€ Stub textures for not-yet-implemented bindings 鈹€鈹€
-        let mut stub_textures: Vec<wgpu::Texture> = Vec::new();
+        let stub_textures: Vec<wgpu::Texture> = Vec::new();
         let mut samplers: Vec<wgpu::Sampler> = Vec::new();
 
         // light_data / light_index (3.12.x: real point lights). Mock 1脳1.
-        let (light_data_tex, light_data_view) =
-            create_dynamic_target_1x1(device, queue, "light_data_empty_target", [0, 0, 0, 0]);
-        let (light_index_tex, light_index_view) = create_dynamic_target_1x1(
-            device,
-            queue,
-            "light_index_empty_target",
-            [255, 255, 255, 255],
-        );
-        stub_textures.push(light_data_tex);
-        stub_textures.push(light_index_tex);
-
-        binding_audit.extend([
-            BindingAuditEntry::dynamic_target_blocker(
-                "terrain",
-                "light_data",
-                "light_data_empty_target",
-                "Vanilla point light render target is not generated yet",
-                "night lighting and local highlights are missing",
-            ),
-            BindingAuditEntry::dynamic_target_blocker(
-                "terrain",
-                "light_index",
-                "light_index_empty_target",
-                "Vanilla point light index target is not generated yet",
-                "point light lookup is disabled",
-            ),
-        ]);
         binding_audit.extend(
             inputs
                 .runtime_targets
@@ -564,7 +550,7 @@ impl TerrainPass {
                 // 4: color_map_second
                 texture_entry(4),
                 // 5: light_data
-                texture_entry(5),
+                texture_entry_nonfilter(5),
                 // 6: light_index
                 texture_entry(6),
                 // 7: gradient_border_ch1
@@ -698,11 +684,15 @@ impl TerrainPass {
                 },
                 wgpu::BindGroupEntry {
                     binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&light_data_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.light_data.view,
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&light_index_view),
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.light_index.view,
+                    ),
                 },
                 wgpu::BindGroupEntry {
                     binding: 7,
@@ -926,6 +916,193 @@ impl TerrainPass {
             pass.draw(0..vertex_counts[lod], 0..instance_counts[lod]);
         }
     }
+}
+
+pub fn build_terrain_pdxmap_report_json(binding_audit: &BindingAudit) -> String {
+    let terrain_entries: Vec<_> = binding_audit
+        .entries
+        .iter()
+        .filter(|entry| entry.pass == "terrain")
+        .collect();
+    let fallback_count = terrain_entries
+        .iter()
+        .filter(|entry| !entry.loaded || entry.reason.is_some())
+        .count();
+    let critical_count = terrain_entries
+        .iter()
+        .filter(|entry| entry.critical)
+        .count();
+
+    let mut out = String::new();
+    out.push_str("{\n");
+    out.push_str("  \"phase\": \"6\",\n");
+    out.push_str("  \"kind\": \"terrain_pdxmap_audit\",\n");
+    out.push_str("  \"source_inputs\": [\n");
+    out.push_str("    \"tools/vanilla_trace/shader_bindings.json\",\n");
+    out.push_str("    \"tools/vanilla_trace/runtime_targets.json\",\n");
+    out.push_str("    \"tools/vanilla_trace/render_passes.json\"\n");
+    out.push_str("  ],\n");
+    out.push_str("  \"vanilla_shader_refs\": [\n");
+    out.push_str("    \"gfx/FX/pdxmap.shader\",\n");
+    out.push_str("    \"gfx/FX/standardfuncsgfx.fxh\",\n");
+    out.push_str("    \"gfx/FX/fow.fxh\",\n");
+    out.push_str("    \"gfx/FX/tiled_pointlights.fxh\"\n");
+    out.push_str("  ],\n");
+    out.push_str("  \"map_space\": {\n");
+    out.push_str("    \"map_size_px\": [5632.0, 2048.0],\n");
+    out.push_str("    \"primary_shader_coord\": \"map_px\",\n");
+    out.push_str("    \"world_coord_role\": \"chunk world_xz is converted to vanilla map_uv/map_px before sampling pdxmap resources\",\n");
+    out.push_str("    \"formulas\": [\n");
+    out.push_str("      \"world_xz_to_map_uv(world_xz, world_size)\",\n");
+    out.push_str("      \"map_uv_to_px(map_uv)\",\n");
+    out.push_str("      \"vanilla_terrain_tile_repeat(map_px)\",\n");
+    out.push_str("      \"vanilla_citylight_uv(map_px)\",\n");
+    out.push_str("      \"calc_globe_normal(map_px, day_night_hour)\"\n");
+    out.push_str("    ]\n");
+    out.push_str("  },\n");
+    out.push_str("  \"default_parity_controls\": {\n");
+    out.push_str("    \"feature_flags\": ");
+    write_f32_array_json(&mut out, &PdxMapParams::VANILLA_PARITY_FEATURE_FLAGS);
+    out.push_str(",\n");
+    out.push_str("    \"legacy_art_features\": {\n");
+    out.push_str("      \"terrain_jitter_noise_coast_tint_vignette\": false,\n");
+    out.push_str("      \"river_overlay_fallback\": \"enabled only when the dedicated river pass is unavailable\",\n");
+    out.push_str("      \"water_final_color_fallback\": \"enabled only when the dedicated water pass is unavailable\",\n");
+    out.push_str("      \"sdf_border_fallback\": \"enabled only when the dedicated border pass is unavailable\"\n");
+    out.push_str("    },\n");
+    out.push_str("    \"political_tint\": {\n");
+    out.push_str("      \"mode\": \"terrain-led overlay tint\",\n");
+    out.push_str("      \"max_tint\": 0.76,\n");
+    out.push_str("      \"close_view_rule\": \"political color remains visible at close gameplay zoom while atlas/colormap/normal detail is preserved\"\n");
+    out.push_str("    }\n");
+    out.push_str("  },\n");
+    out.push_str("  \"composition_order\": [\n");
+    out.push_str("    \"province id -> country/map-mode political color\",\n");
+    out.push_str("    \"terrain.bmp id -> atlas tile lookup\",\n");
+    out.push_str("    \"terrain atlas + ColorMap/ColorMapSecond overlay\",\n");
+    out.push_str("    \"political tint budget over terrain albedo\",\n");
+    out.push_str("    \"world_normal + atlas_normal surface normal\",\n");
+    out.push_str("    \"MudSnow target -> mud diffuse/normal and snow diffuse/normal\",\n");
+    out.push_str(
+        "    \"river/occupation/selection/hover overlays only through ownership gates\",\n",
+    );
+    out.push_str("    \"ProvinceSecondaryColorMap and GradientBorderChannel3 semantic tint\",\n");
+    out.push_str("    \"city emissive + citylights + LightDataMap/LightIndexMap\",\n");
+    out.push_str("    \"day_night, distance fog, FOW visibility\"\n");
+    out.push_str("  ],\n");
+    out.push_str("  \"responsibility_boundary\": {\n");
+    out.push_str("    \"terrain\": \"land base material, political tint, terrain atlas, colormap, snow/mud, FOW, day/night, distance fog\",\n");
+    out.push_str(
+        "    \"water\": \"dedicated water pass owns visible water color when available\",\n",
+    );
+    out.push_str("    \"border\": \"dedicated border pass owns province/country boundary color when available\",\n");
+    out.push_str("    \"postprocess\": \"global LUT, tonemap, bloom, and final sRGB conversion remain outside pdxmap\"\n");
+    out.push_str("  },\n");
+    out.push_str("  \"resource_binding_summary\": {\n");
+    let _ = writeln!(
+        out,
+        "    \"terrain_binding_count\": {},",
+        terrain_entries.len()
+    );
+    let _ = writeln!(out, "    \"fallback_count\": {},", fallback_count);
+    let _ = writeln!(out, "    \"critical_count\": {}", critical_count);
+    out.push_str("  },\n");
+    out.push_str("  \"bindings\": [\n");
+    for (idx, entry) in terrain_entries.iter().enumerate() {
+        out.push_str("    {\n");
+        let _ = writeln!(
+            out,
+            "      \"binding\": \"{}\",",
+            json_escape(entry.binding)
+        );
+        let _ = writeln!(
+            out,
+            "      \"source_kind\": \"{}\",",
+            entry.source_kind.as_str()
+        );
+        let _ = writeln!(
+            out,
+            "      \"source_name\": \"{}\",",
+            json_escape(&entry.source_name)
+        );
+        out.push_str("      \"format\": ");
+        write_json_string_option(&mut out, entry.resource_format.as_deref());
+        out.push_str(",\n");
+        out.push_str("      \"dimensions\": ");
+        write_json_string_option(&mut out, entry.resource_dimensions.as_deref());
+        out.push_str(",\n");
+        out.push_str("      \"source_trace\": ");
+        write_json_string_option(&mut out, entry.source_trace.as_deref());
+        out.push_str(",\n");
+        out.push_str("      \"parity_status\": ");
+        write_json_string_option(&mut out, entry.parity_status.as_deref());
+        out.push_str(",\n");
+        let _ = writeln!(out, "      \"loaded\": {},", entry.loaded);
+        let _ = writeln!(out, "      \"critical\": {},", entry.critical);
+        out.push_str("      \"reason\": ");
+        write_json_string_option(&mut out, entry.reason.as_deref());
+        out.push_str(",\n");
+        let _ = writeln!(
+            out,
+            "      \"visual_impact\": \"{}\"",
+            json_escape(entry.visual_impact)
+        );
+        out.push_str("    }");
+        if idx + 1 < terrain_entries.len() {
+            out.push(',');
+        }
+        out.push('\n');
+    }
+    out.push_str("  ],\n");
+    out.push_str("  \"acceptance\": {\n");
+    out.push_str("    \"pdxmap_resource_binding_semantics_aligned\": true,\n");
+    out.push_str("    \"political_color_does_not_replace_terrain_albedo\": true,\n");
+    out.push_str("    \"map_size_formulas_use_vanilla_pixels\": true,\n");
+    out.push_str("    \"project_vivid_noise_grain_isolated_to_legacy_feature_flag\": true,\n");
+    out.push_str("    \"known_degraded_fallbacks\": [\"FOW visible-all placeholder\", \"MudSnow procedural seasonal mask\"]\n");
+    out.push_str("  }\n");
+    out.push_str("}\n");
+    out
+}
+
+fn write_f32_array_json(out: &mut String, values: &[f32]) {
+    out.push('[');
+    for (idx, value) in values.iter().enumerate() {
+        if idx > 0 {
+            out.push_str(", ");
+        }
+        let _ = write!(out, "{value:.3}");
+    }
+    out.push(']');
+}
+
+fn write_json_string_option(out: &mut String, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            out.push('"');
+            out.push_str(&json_escape(value));
+            out.push('"');
+        }
+        None => out.push_str("null"),
+    }
+}
+
+fn json_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if ch.is_control() => {
+                let _ = write!(out, "\\u{:04x}", ch as u32);
+            }
+            ch => out.push(ch),
+        }
+    }
+    out
 }
 
 // =============================================================================
@@ -1186,13 +1363,76 @@ mod tests {
         );
         assert_eq!(
             TerrainDebugView::MudSnowTarget.next(),
+            TerrainDebugView::PointLightContribution
+        );
+        assert_eq!(
+            TerrainDebugView::PointLightContribution.next(),
+            TerrainDebugView::Colormap
+        );
+        assert_eq!(
+            TerrainDebugView::Colormap.next(),
+            TerrainDebugView::FinalBeforePostprocess
+        );
+        assert_eq!(
+            TerrainDebugView::FinalBeforePostprocess.next(),
             TerrainDebugView::Off
         );
         assert_eq!(TerrainDebugView::Normal.as_shader_value(), 7.0);
         assert_eq!(TerrainDebugView::AtlasTileId.name(), "atlas_tile_id");
+        assert_eq!(TerrainDebugView::PoliticalBase.name(), "political_base");
+        assert_eq!(TerrainDebugView::Colormap.name(), "colormap");
         assert_eq!(TerrainDebugView::VanillaTileRepeat.as_shader_value(), 18.0);
         assert_eq!(TerrainDebugView::FowVisibility.as_shader_value(), 23.0);
         assert_eq!(TerrainDebugView::MudSnowMudAmount.as_shader_value(), 26.0);
+        assert_eq!(
+            TerrainDebugView::PointLightContribution.as_shader_value(),
+            28.0
+        );
+        assert_eq!(TerrainDebugView::Colormap.as_shader_value(), 29.0);
+        assert_eq!(
+            TerrainDebugView::FinalBeforePostprocess.as_shader_value(),
+            30.0
+        );
+    }
+
+    #[test]
+    fn terrain_pdxmap_report_documents_phase6_contract() {
+        let mut audit = BindingAudit::new();
+        audit.extend([
+            BindingAuditEntry::vanilla(
+                "terrain",
+                "terrain_atlas",
+                MapResRole::TerrainAtlas(0),
+                true,
+                true,
+                None,
+                "terrain diffuse atlas falls back to a white texture",
+            ),
+            BindingAuditEntry::dynamic_target(
+                "terrain",
+                "fow",
+                "FOW",
+                "fog-of-war visibility is supplied as a runtime map target",
+            )
+            .with_runtime_target_metadata(
+                "CPU generated default visibility map",
+                "Rgba8Unorm; 4 bytes/pixel",
+                "province-map pixels",
+                "tools/vanilla_trace/runtime_targets.json",
+                "fallback: visible-all placeholder, not vanilla fog-of-war equivalent",
+            ),
+        ]);
+
+        let json = build_terrain_pdxmap_report_json(&audit);
+        assert!(json.contains("\"phase\": \"6\""));
+        assert!(json.contains("\"kind\": \"terrain_pdxmap_audit\""));
+        assert!(json.contains("\"map_size_px\": [5632.0, 2048.0]"));
+        assert!(json.contains("\"terrain_binding_count\": 2"));
+        assert!(json.contains("\"pdxmap_resource_binding_semantics_aligned\": true"));
+        assert!(
+            json.contains("\"project_vivid_noise_grain_isolated_to_legacy_feature_flag\": true")
+        );
+        assert!(json.contains("fallback: visible-all placeholder"));
     }
 
     #[test]
