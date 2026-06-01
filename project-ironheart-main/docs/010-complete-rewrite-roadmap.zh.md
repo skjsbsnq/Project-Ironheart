@@ -2,7 +2,7 @@
 
 本文档定义 `project-ironheart/main-rewrite` 分支的总重构路线。目标不是把旧实现平移过来，而是在功能完整保留的前提下重建架构、渲染、V9 UI、模拟与经济系统。
 
-> 执行顺序以 [`006-authoritative-execution-order.zh.md`](006-authoritative-execution-order.zh.md) 为唯一权威。本文档只说明目标和系统设计，不允许作为开工顺序使用。
+> 完整项目级总控路线图以 [`013-project-ironheart-master-rewrite-roadmap.zh.md`](013-project-ironheart-master-rewrite-roadmap.zh.md) 为唯一权威。本文档只作为系统设计参考，不允许单独作为开工顺序使用。
 
 ## 1. 总目标
 
