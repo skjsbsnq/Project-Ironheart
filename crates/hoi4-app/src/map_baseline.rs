@@ -64,17 +64,28 @@ pub enum MapBaselineLayer {
     ObjectsOnly,
     OverlaysOnly,
     LabelsOnly,
+    ProvinceSecondaryDebug,
+    GradientBorderCh3Debug,
+    TerrainRiverMaskDebug,
+    FowVisibilityDebug,
+    TerrainFinalBeforePostprocessDebug,
     AssetFallbackDebug,
 }
 
 impl MapBaselineLayer {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 21] = [
         Self::FinalFull,
         Self::TerrainOnly,
         Self::WaterOnly,
         Self::RiverMask,
         Self::BordersOnly,
         Self::ObjectsOnly,
+        Self::OverlaysOnly,
+        Self::ProvinceSecondaryDebug,
+        Self::GradientBorderCh3Debug,
+        Self::TerrainRiverMaskDebug,
+        Self::FowVisibilityDebug,
+        Self::TerrainFinalBeforePostprocessDebug,
         Self::HdrRaw,
         Self::BloomOnly,
         Self::AvgLuminance,
@@ -104,8 +115,41 @@ impl MapBaselineLayer {
             Self::ObjectsOnly => "objects",
             Self::OverlaysOnly => "overlays",
             Self::LabelsOnly => "labels",
+            Self::ProvinceSecondaryDebug => "province_secondary",
+            Self::GradientBorderCh3Debug => "gradient_border_ch3",
+            Self::TerrainRiverMaskDebug => "terrain_river_mask",
+            Self::FowVisibilityDebug => "fow_visibility",
+            Self::TerrainFinalBeforePostprocessDebug => "terrain_final_before_postprocess",
             Self::AssetFallbackDebug => "fallback_debug",
         }
+    }
+
+    pub const fn terrain_debug_view_name(self) -> Option<&'static str> {
+        match self {
+            Self::ProvinceSecondaryDebug => Some("province_secondary"),
+            Self::GradientBorderCh3Debug => Some("gradient_border_ch3"),
+            Self::TerrainRiverMaskDebug => Some("river_mask"),
+            Self::FowVisibilityDebug => Some("fow_visibility"),
+            Self::TerrainFinalBeforePostprocessDebug => Some("final_before_postprocess"),
+            _ => None,
+        }
+    }
+
+    pub const fn diagnostic_source(self) -> Option<&'static str> {
+        match self {
+            Self::ProvinceSecondaryDebug => Some("ProvinceSecondaryColorMap texture"),
+            Self::GradientBorderCh3Debug => Some("GradientBorderChannel3 texture"),
+            Self::TerrainRiverMaskDebug => Some("terrain material river mask"),
+            Self::FowVisibilityDebug => Some("FOW visibility texture green channel"),
+            Self::TerrainFinalBeforePostprocessDebug => {
+                Some("terrain material final color before postprocess")
+            }
+            _ => None,
+        }
+    }
+
+    pub const fn is_phase2_probe(self) -> bool {
+        self.terrain_debug_view_name().is_some()
     }
 
     fn from_config_name(value: &str) -> Option<Self> {
@@ -126,6 +170,19 @@ impl MapBaselineLayer {
             "objects" | "objects_only" => Some(Self::ObjectsOnly),
             "overlays" | "overlays_only" => Some(Self::OverlaysOnly),
             "labels" | "labels_only" => Some(Self::LabelsOnly),
+            "province_secondary" | "province_secondary_debug" => Some(Self::ProvinceSecondaryDebug),
+            "gradient_border_ch3" | "gradient_border_ch3_debug" => {
+                Some(Self::GradientBorderCh3Debug)
+            }
+            "terrain_river_mask" | "terrain_river_mask_debug" | "river_mask_input" => {
+                Some(Self::TerrainRiverMaskDebug)
+            }
+            "fow_visibility" | "fow_visibility_debug" => Some(Self::FowVisibilityDebug),
+            "terrain_final_before_postprocess"
+            | "final_before_postprocess"
+            | "terrain_final_before_postprocess_debug" => {
+                Some(Self::TerrainFinalBeforePostprocessDebug)
+            }
             "fallback_debug" | "asset_fallback_debug" => Some(Self::AssetFallbackDebug),
             _ => None,
         }
@@ -164,7 +221,12 @@ impl MapLayerMask {
             | MapBaselineLayer::LutBefore
             | MapBaselineLayer::LutAfter
             | MapBaselineLayer::BloomOnly => Self::all(),
-            MapBaselineLayer::TerrainOnly => Self {
+            MapBaselineLayer::TerrainOnly
+            | MapBaselineLayer::ProvinceSecondaryDebug
+            | MapBaselineLayer::GradientBorderCh3Debug
+            | MapBaselineLayer::TerrainRiverMaskDebug
+            | MapBaselineLayer::FowVisibilityDebug
+            | MapBaselineLayer::TerrainFinalBeforePostprocessDebug => Self {
                 terrain: true,
                 ..Self::none()
             },
@@ -457,6 +519,12 @@ impl MapBaselineReport {
                 capture.diff_status.as_str(),
                 capture.diff_report_filename
             );
+            if let Some(debug_view) = capture.layer.terrain_debug_view_name() {
+                let _ = write!(out, " terrain_debug_view={debug_view}");
+            }
+            if let Some(source) = capture.layer.diagnostic_source() {
+                let _ = write!(out, " diagnostic_source={source}");
+            }
             if let Some(metrics) = capture.diff_metrics {
                 let _ = write!(out, " {}", metrics.summary());
             }
@@ -617,6 +685,17 @@ impl MapBaselineReport {
                 }
                 None => out.push_str("      \"frame_time_ms\": null,\n"),
             }
+            out.push_str("      \"terrain_debug_view\": ");
+            write_json_string_option(&mut out, capture.layer.terrain_debug_view_name());
+            out.push_str(",\n");
+            out.push_str("      \"diagnostic_source\": ");
+            write_json_string_option(&mut out, capture.layer.diagnostic_source());
+            out.push_str(",\n");
+            let _ = writeln!(
+                out,
+                "      \"phase2_probe\": {},",
+                capture.layer.is_phase2_probe()
+            );
             write_layer_mask_json(&mut out, &capture.layer_mask);
             out.push_str(",\n");
             write_pass_status_json(&mut out, &capture.layer_mask);
@@ -1290,7 +1369,7 @@ mod tests {
     fn fixed_scene_matrix_matches_phase0_scope() {
         let scenes = fixed_scenes();
         assert_eq!(scenes.len(), 6);
-        assert_eq!(MapBaselineLayer::ALL.len(), 15);
+        assert_eq!(MapBaselineLayer::ALL.len(), 21);
         assert_eq!(
             scenes[0].screenshot_name(MapBaselineLayer::FinalFull, MapBaselinePreset::High),
             "project/western_europe_close/final.high.png"
@@ -1307,6 +1386,70 @@ mod tests {
         assert!(scenes[0]
             .enabled_layers
             .contains(&MapBaselineLayer::LutAfter));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::OverlaysOnly));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::ProvinceSecondaryDebug));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::GradientBorderCh3Debug));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::TerrainRiverMaskDebug));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::FowVisibilityDebug));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::TerrainFinalBeforePostprocessDebug));
+    }
+
+    #[test]
+    fn phase2_probe_layers_document_inputs_and_use_terrain_only_mask() {
+        let probes = [
+            (
+                MapBaselineLayer::ProvinceSecondaryDebug,
+                "province_secondary",
+                "ProvinceSecondaryColorMap texture",
+            ),
+            (
+                MapBaselineLayer::GradientBorderCh3Debug,
+                "gradient_border_ch3",
+                "GradientBorderChannel3 texture",
+            ),
+            (
+                MapBaselineLayer::TerrainRiverMaskDebug,
+                "river_mask",
+                "terrain material river mask",
+            ),
+            (
+                MapBaselineLayer::FowVisibilityDebug,
+                "fow_visibility",
+                "FOW visibility texture green channel",
+            ),
+            (
+                MapBaselineLayer::TerrainFinalBeforePostprocessDebug,
+                "final_before_postprocess",
+                "terrain material final color before postprocess",
+            ),
+        ];
+
+        for (layer, debug_name, source) in probes {
+            assert!(layer.is_phase2_probe());
+            assert_eq!(layer.terrain_debug_view_name(), Some(debug_name));
+            assert_eq!(layer.diagnostic_source(), Some(source));
+
+            let mask = MapLayerMask::for_layer(layer);
+            assert!(mask.terrain);
+            assert!(!mask.water);
+            assert!(!mask.river);
+            assert!(!mask.borders);
+            assert!(!mask.objects);
+            assert!(!mask.overlays);
+            assert!(!mask.postprocess);
+        }
     }
 
     #[test]
@@ -1348,6 +1491,12 @@ mod tests {
         let objects = MapLayerMask::for_layer(MapBaselineLayer::ObjectsOnly);
         assert!(objects.objects);
         assert!(!objects.terrain);
+
+        let overlays = MapLayerMask::for_layer(MapBaselineLayer::OverlaysOnly);
+        assert!(overlays.overlays);
+        assert!(overlays.static_decals);
+        assert!(overlays.objects);
+        assert!(!overlays.terrain);
     }
 
     #[test]
@@ -1374,7 +1523,13 @@ mod tests {
         assert!(json.contains("\"pass_status\""));
         assert!(json.contains("\"binding_audit\""));
         assert!(json.contains("\"asset_quality\""));
+        assert!(json.contains("\"phase2_probe\""));
+        assert!(json.contains("\"terrain_debug_view\": \"province_secondary\""));
+        assert!(json.contains("\"diagnostic_source\": \"GradientBorderChannel3 texture\""));
         assert!(json.contains("project/western_europe_close/final.high.png"));
+        assert!(
+            json.contains("project/western_europe_close/terrain_final_before_postprocess.high.png")
+        );
     }
 
     #[test]

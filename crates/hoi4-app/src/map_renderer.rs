@@ -430,6 +430,11 @@ pub struct WorldObjectBudget {
     pub objects: f32,
 }
 
+const COUNTER_STRATEGIC_HIDE_ZOOM: f32 = 0.30;
+const COUNTER_STRATEGIC_FULL_ZOOM: f32 = 0.78;
+const COUNTER_SELECTED_FAR_OPACITY: f32 = 0.44;
+const COUNTER_SELECTED_FAR_SCALE: f32 = 0.72;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct WorldObjectPlan {
     pub country_names: WorldObjectDecision,
@@ -441,6 +446,7 @@ pub struct WorldObjectPlan {
     pub province_name_min_pixels: u32,
     pub poi_detail_level: u8,
     pub counter_layout_density: f32,
+    pub counter_selected_only: bool,
     pub budget: WorldObjectBudget,
 }
 
@@ -456,6 +462,7 @@ impl Default for WorldObjectPlan {
             province_name_min_pixels: u32::MAX,
             poi_detail_level: 0,
             counter_layout_density: 0.0,
+            counter_selected_only: false,
             budget: WorldObjectBudget {
                 labels: 0.0,
                 counters: 0.0,
@@ -662,11 +669,27 @@ impl WorldObjectSystem {
         }
 
         if mask.objects || mask.overlays {
-            let counter_visibility = smoothstep(0.52, 0.82, zoom);
-            let counter_base = budget.counters * mix(0.22, 1.0, counter_visibility);
-            let counter_scale = mix(0.58, 0.94, close);
+            let has_selection = context.selected_province_id != u32::MAX;
+            let counter_visibility = smoothstep(
+                COUNTER_STRATEGIC_HIDE_ZOOM,
+                COUNTER_STRATEGIC_FULL_ZOOM,
+                zoom,
+            );
+            let counter_base = if counter_visibility > 0.0 {
+                budget.counters * mix(0.16, 1.0, counter_visibility)
+            } else if has_selection {
+                budget.counters * COUNTER_SELECTED_FAR_OPACITY
+            } else {
+                0.0
+            };
+            let counter_scale = if counter_visibility > 0.0 {
+                mix(0.54, 0.94, close)
+            } else {
+                COUNTER_SELECTED_FAR_SCALE
+            };
             plan.counters = WorldObjectDecision::visible(counter_base, counter_scale, 90);
-            plan.counter_layout_density = mix(0.42, 0.90, close);
+            plan.counter_layout_density = mix(0.20, 0.82, counter_visibility);
+            plan.counter_selected_only = counter_visibility <= 0.0 && has_selection;
         }
 
         if mask.objects {
@@ -737,19 +760,22 @@ impl MapPassDrawSet {
         dedicated_river_loaded: bool,
         dedicated_border_loaded: bool,
         static_decals: StaticMapDecalPlan,
+        semantic_overlays: SemanticOverlayPlan,
     ) -> TerrainMaterialOwnership {
         let dedicated_water_active = self.water && dedicated_water_loaded;
         let dedicated_river_active = self.river && dedicated_river_loaded;
         let dedicated_border_active = self.borders && dedicated_border_loaded;
         let terrain_rivers_fallback =
             static_decals.terrain_rivers.visible && !dedicated_river_active;
-        let terrain_static_decals = terrain_rivers_fallback
-            || static_decals.shore_accents.visible
-            || static_decals.impassable_marks.visible;
+        let terrain_semantic_overlays = mask.overlays
+            && (semantic_overlays.occupation_stripes.visible
+                || semantic_overlays.selected_province_pulse.visible
+                || semantic_overlays.hover_highlight.visible
+                || semantic_overlays.map_mode_overlay.visible);
         TerrainMaterialOwnership {
             terrain_water_final_color: self.water && !dedicated_water_active,
             terrain_sdf_borders: self.borders && !dedicated_border_active,
-            terrain_overlays: mask.overlays || terrain_static_decals || mask.particles,
+            terrain_overlays: terrain_rivers_fallback || terrain_semantic_overlays,
         }
     }
 
@@ -1158,6 +1184,48 @@ mod tests {
     }
 
     #[test]
+    fn world_object_plan_counter_visibility_for_far_mid_close_zoom() {
+        let renderer = MapRenderer::new();
+        let mut registry = PassRegistry::new();
+        renderer.register_passes(&mut registry);
+
+        let mut far = test_context(MapLayerMask::all());
+        far.zoom_factor = 0.18;
+        let far_plan = renderer.build_frame_plan(far, &registry);
+        assert!(!far_plan.draw.hoi3_counters);
+        assert!(!far_plan.world_objects.counters.visible);
+        assert!(!far_plan.world_objects.counter_selected_only);
+
+        let mut selected_far = far;
+        selected_far.selected_province_id = 42;
+        let selected_far_plan = renderer.build_frame_plan(selected_far, &registry);
+        assert!(selected_far_plan.draw.hoi3_counters);
+        assert!(selected_far_plan.world_objects.counters.visible);
+        assert!(selected_far_plan.world_objects.counter_selected_only);
+        assert!(selected_far_plan.world_objects.counters.opacity < 0.50);
+
+        let mut mid = far;
+        mid.zoom_factor = 0.55;
+        let mid_plan = renderer.build_frame_plan(mid, &registry);
+        assert!(mid_plan.draw.hoi3_counters);
+        assert!(!mid_plan.world_objects.counter_selected_only);
+        assert!(mid_plan.world_objects.counter_layout_density < 0.70);
+
+        let mut close = far;
+        close.zoom_factor = 0.92;
+        let close_plan = renderer.build_frame_plan(close, &registry);
+        assert!(close_plan.draw.hoi3_counters);
+        assert!(!close_plan.world_objects.counter_selected_only);
+        assert!(
+            close_plan.world_objects.counters.opacity > mid_plan.world_objects.counters.opacity
+        );
+        assert!(
+            close_plan.world_objects.counter_layout_density
+                > mid_plan.world_objects.counter_layout_density
+        );
+    }
+
+    #[test]
     fn phase10_quality_preset_scales_density_controls() {
         let renderer = MapRenderer::new();
         let mut registry = PassRegistry::new();
@@ -1241,6 +1309,7 @@ mod tests {
             true,
             true,
             plan.static_decals,
+            plan.semantic_overlays,
         );
         assert!(!ownership.terrain_water_final_color);
         assert!(!ownership.terrain_sdf_borders);
@@ -1252,6 +1321,7 @@ mod tests {
             false,
             true,
             plan.static_decals,
+            plan.semantic_overlays,
         );
         assert!(river_fallback.terrain_overlays);
 
@@ -1261,6 +1331,7 @@ mod tests {
             false,
             false,
             plan.static_decals,
+            plan.semantic_overlays,
         );
         assert!(fallback.terrain_water_final_color);
         assert!(fallback.terrain_sdf_borders);
@@ -1274,9 +1345,14 @@ mod tests {
 
         let mask = MapLayerMask::for_layer(crate::map_baseline::MapBaselineLayer::TerrainOnly);
         let plan = renderer.build_frame_plan(test_context(mask), &registry);
-        let ownership =
-            plan.draw
-                .terrain_material_ownership(mask, true, true, true, plan.static_decals);
+        let ownership = plan.draw.terrain_material_ownership(
+            mask,
+            true,
+            true,
+            true,
+            plan.static_decals,
+            plan.semantic_overlays,
+        );
         assert!(!ownership.terrain_water_final_color);
         assert!(!ownership.terrain_sdf_borders);
         assert!(!ownership.terrain_overlays);

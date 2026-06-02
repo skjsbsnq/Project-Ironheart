@@ -927,13 +927,6 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
             }
         }
 
-        let secondary = province_secondary_at(frag.map_uv);
-        let secondary_weight = secondary.a * (1.0 - smoothstep(0.58, 0.92, params.zoom_factor));
-        color = mix(color, secondary.rgb, secondary_weight);
-
-        let semantic_dist = gradient_border_ch3_dist_px(frag.map_uv);
-        let semantic_edge = 1.0 - smoothstep(0.0, 3.5, semantic_dist);
-        color = mix(color, vec3<f32>(0.19, 0.17, 0.13), semantic_edge * 0.055);
     } else if (terrain_owns_water_color()) {
         let depth_ratio = clamp((SEA_LEVEL - real_h) / SEA_LEVEL, 0.0, 1.0);
         let shallow_color = vec3<f32>(0.30, 0.55, 0.62);
@@ -1141,7 +1134,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let material = build_terrain_material(in, real_h, is_water, pid);
 
     let debug_view = terrain_debug_view();
-    if (debug_view != TERRAIN_DEBUG_OFF) {
+    if (debug_view != TERRAIN_DEBUG_OFF && debug_view != TERRAIN_DEBUG_FINAL_BEFORE_POSTPROCESS) {
         return vec4<f32>(terrain_debug_color(debug_view, in, material, real_h, pid), 1.0);
     }
 
@@ -1217,6 +1210,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     let fow_visibility = fow_visibility_at(in.map_uv);
     color = mix(color * 0.56, color, fow_visibility);
+
+    if (debug_view == TERRAIN_DEBUG_FINAL_BEFORE_POSTPROCESS) {
+        return vec4<f32>(color, 1.0);
+    }
 
     return vec4<f32>(color, 1.0);
 }

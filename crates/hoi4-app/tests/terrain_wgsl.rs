@@ -47,7 +47,6 @@ fn terrain_wgsl_has_phase3_runtime_debug_and_ownership_gates() {
         "fn build_terrain_material",
         "fn apply_political_parity_tint",
         "var color = apply_political_parity_tint(terrain_albedo, political_color, weights.map_mode_weight)",
-        "secondary_weight = secondary.a * (1.0 - smoothstep",
         "fn terrain_debug_color",
         "fn terrain_owns_water_color",
         "fn terrain_owns_sdf_borders",
@@ -85,6 +84,8 @@ fn terrain_wgsl_has_phase3_runtime_debug_and_ownership_gates() {
         "light_data_tex",
         "light_index_tex",
         "fn calculate_map_tex_index",
+        "fn province_secondary_at",
+        "fn gradient_border_ch3_dist_px",
         "province_secondary_color_tex",
         "gradient_border_ch3_tex",
         "fow_tex",
@@ -92,4 +93,33 @@ fn terrain_wgsl_has_phase3_runtime_debug_and_ownership_gates() {
     ] {
         assert!(source.contains(token), "missing Phase 3 token: {token}");
     }
+}
+
+#[test]
+fn terrain_wgsl_final_path_keeps_semantic_debug_inputs_out_of_material() {
+    let source = include_str!("../src/passes/terrain.wgsl");
+    let material_start = source
+        .find("fn build_terrain_material")
+        .expect("build_terrain_material should exist");
+    let debug_start = source
+        .find("fn terrain_debug_color")
+        .expect("terrain_debug_color should exist");
+    let material_body = &source[material_start..debug_start];
+
+    assert!(
+        !material_body.contains("province_secondary_at("),
+        "province_secondary must stay out of the terrain final material path"
+    );
+    assert!(
+        !material_body.contains("gradient_border_ch3_dist_px("),
+        "gradient_border_ch3 must stay out of the terrain final material path"
+    );
+    assert!(
+        source.contains("if (view == TERRAIN_DEBUG_PROVINCE_SECONDARY)"),
+        "province_secondary should remain available as an explicit debug view"
+    );
+    assert!(
+        source.contains("if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH3)"),
+        "gradient_border_ch3 should remain available as an explicit debug view"
+    );
 }

@@ -903,6 +903,7 @@ pub fn generate_hoi3_counters_cr3(
         let mut owner = CountryId::NONE;
         let mut in_combat = false;
         let mut first_province: u16 = 0;
+        let mut selected_province: Option<u16> = None;
 
         for &di in divs {
             if di >= world.divisions.count {
@@ -919,6 +920,13 @@ pub fn generate_hoi3_counters_cr3(
                     if !loc.is_none() {
                         first_province = loc.0;
                     }
+                }
+                let loc = world.divisions.locations[di];
+                if !loc.is_none()
+                    && selected_province.is_none()
+                    && selected_province_ids.contains(&(loc.0 as u32))
+                {
+                    selected_province = Some(loc.0);
                 }
                 count += 1;
                 owner = world.divisions.owners[di];
@@ -956,6 +964,9 @@ pub fn generate_hoi3_counters_cr3(
         }
         if count == 0 {
             return;
+        }
+        if let Some(pid) = selected_province {
+            first_province = pid;
         }
 
         let cx = (sx_sum / count as f64) as f32;
@@ -1190,7 +1201,12 @@ fn merge_by_screen_grid(
         let n = idxs.len() as f32;
         let avg_cx = sum_x / n;
         let avg_cy = sum_y / n;
-        let mut rep = counters[idxs[0]];
+        let rep_idx = idxs
+            .iter()
+            .copied()
+            .find(|&i| (counters[i].flags & flag_bits::SELECTED) != 0)
+            .unwrap_or(idxs[0]);
+        let mut rep = counters[rep_idx];
         if !merge_archetype {
             // 选择 stack_count 加权投票最多的 archetype 作为代表卡。
             let mut best = 0usize;

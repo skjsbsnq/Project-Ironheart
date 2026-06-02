@@ -986,7 +986,7 @@ pub fn build_terrain_pdxmap_report_json(binding_audit: &BindingAudit) -> String 
     out.push_str(
         "    \"river/occupation/selection/hover overlays only through ownership gates\",\n",
     );
-    out.push_str("    \"ProvinceSecondaryColorMap and GradientBorderChannel3 semantic tint\",\n");
+    out.push_str("    \"ProvinceSecondaryColorMap and GradientBorderChannel3 are debug/audit inputs only\",\n");
     out.push_str("    \"city emissive + citylights + LightDataMap/LightIndexMap\",\n");
     out.push_str("    \"day_night, distance fog, FOW visibility\"\n");
     out.push_str("  ],\n");

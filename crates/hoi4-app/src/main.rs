@@ -29,9 +29,7 @@ use hoi4_render::railways::{
     build_railway_vertices, compute_province_centroids, parse_railways, RailVertex, RailwayParams,
 };
 use hoi4_render::sdf::{compute_coast_sdf, compute_country_sdf, compute_province_sdf};
-use hoi4_render::terrain::{
-    build_wrapped_instance_buckets, vertex_count_for_lod, ChunkGrid, ChunkInstance, LOD_GRID,
-};
+use hoi4_render::terrain::{build_wrapped_instance_buckets, ChunkGrid, ChunkInstance, LOD_GRID};
 use hoi4_render::trees::{generate_trees_with_stats, TreeInstance};
 use hoi4_render::trees_mesh::{
     build_tree_mesh, filter_instances_for_type, TreeMeshInstance, TreeMeshVertex,
@@ -56,6 +54,8 @@ mod content_bootstrap;
 mod debug_commands;
 mod flag_bank;
 mod map_baseline;
+mod map_draw;
+mod map_frame;
 mod map_image_diff;
 mod map_perf;
 mod map_renderer;
@@ -66,6 +66,8 @@ mod panel_pass;
 mod passes;
 mod province_name_atlas;
 mod render_collect;
+mod render_init;
+mod render_state;
 mod runtime;
 mod ui_binding;
 mod update_loop;
@@ -77,10 +79,7 @@ use map_perf::{
     estimate_frame_texture_memory_bytes, phase10_overlay_lines, GpuProfilerStatus,
     GpuTimestampProfiler, MapQualityPreset, Phase10OverlayInput,
 };
-use map_renderer::{
-    MapFrameContext, MapRenderSettings, MapRenderer, TerrainMaterialOwnership, WorldObjectPlan,
-    WorldObjectSystem,
-};
+use map_renderer::{MapRenderer, TerrainMaterialOwnership, WorldObjectPlan, WorldObjectSystem};
 use menu_pass::{CountryEntry, MenuButton};
 use menu_scene::MenuKind;
 use panel_pass::PanelPass;
@@ -89,6 +88,7 @@ use passes::{
     PostProcessDebugView, PostProcessLutSelection, PostProcessMode, SimpleBlitPass, TerrainPass,
     HDR_FORMAT,
 };
+use render_state::RenderState;
 use vanilla_resource_views::VanillaResourceViews;
 use vanilla_targets::{
     VanillaRuntimeTargetFrameParams, VanillaRuntimeTargetInputs, VanillaRuntimeTargets,
@@ -100,7 +100,7 @@ const MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY: u32 = 32;
 const WORLD_SCALE: f32 = 0.02;
 /// World Y for full-white heightmap pixel (255 -> this height).
 /// HOI4 vanilla heightmap goes 0..255; ~95 = sea level, mountains ~180-220.
-/// With WORLD_SCALE=0.02 the world is 112脳41 units, so we want a height_scale
+/// With WORLD_SCALE=0.02 the world is 112??1 units, so we want a height_scale
 /// that gives readable relief without making the strategic map look spiky.
 const HEIGHT_SCALE: f32 = 1.45;
 /// Latitude squash factor (0..1). 0=no correction.
@@ -108,7 +108,7 @@ const HEIGHT_SCALE: f32 = 1.45;
 /// own parabolic squash on top distorts shapes more than it helps, so default
 /// to off. Keep the plumbing for experimentation.
 const LAT_CORRECTION: f32 = 0.0;
-/// Number of chunks across the map (X 脳 Z).
+/// Number of chunks across the map (X ??Z).
 const CHUNKS_X: u32 = 32;
 const CHUNKS_Z: u32 = 12;
 
@@ -333,8 +333,11 @@ fn build_law_tiers(
                 pp_cost: l.pp_cost,
                 cooldown_days: l.cooldown_days,
                 effects: vec![
-                    format!("可征兵比例 {:.1}%", l.soldier_ratio * 100.0),
-                    format!("兵源转化 {:.1}%/日", l.conscription_conversion_rate * 100.0),
+                    format!("Recruitable ratio {:.1}%", l.soldier_ratio * 100.0),
+                    format!(
+                        "Recruit conversion {:.1}%/day",
+                        l.conscription_conversion_rate * 100.0
+                    ),
                 ],
             })
             .collect(),
@@ -348,16 +351,19 @@ fn build_law_tiers(
                 cooldown_days: l.cooldown_days,
                 effects: {
                     let mut effects = vec![
-                        format!("工人工资 x{:.2}", l.wage_multiplier_worker),
-                        format!("建造速度 {:+.0}%", l.construction_speed_modifier * 100.0),
-                        format!("消费品需求 x{:.2}", l.consumer_goods_factor),
+                        format!("Worker wages x{:.2}", l.wage_multiplier_worker),
+                        format!(
+                            "Construction speed {:+.0}%",
+                            l.construction_speed_modifier * 100.0
+                        ),
+                        format!("Consumer goods demand x{:.2}", l.consumer_goods_factor),
                     ];
                     if l.id == "corporatist_war_economy" {
-                        effects.push("军工政府订单：持续采购军工投入品".to_owned());
-                        effects.push("MEFO 自动融资：赤字由票据覆盖至风险上限".to_owned());
+                        effects.push("Military industry government orders".to_owned());
+                        effects.push("MEFO auto financing until risk cap".to_owned());
                     }
                     if let Some(trade_law) = &l.forces_trade_law {
-                        effects.push(format!("强制贸易法：{}", trade_law));
+                        effects.push(format!("Forced trade law: {}", trade_law));
                     }
                     effects
                 },
@@ -372,13 +378,13 @@ fn build_law_tiers(
                 pp_cost: l.pp_cost,
                 cooldown_days: l.cooldown_days,
                 effects: vec![
-                    format!("进口效率 {:.0}%", l.import_efficiency * 100.0),
-                    format!("出口效率 {:.0}%", l.export_efficiency * 100.0),
-                    format!("进口关税 {:.0}%", l.import_tariff_rate * 100.0),
+                    format!("Import efficiency {:.0}%", l.import_efficiency * 100.0),
+                    format!("Export efficiency {:.0}%", l.export_efficiency * 100.0),
+                    format!("Import tariff {:.0}%", l.import_tariff_rate * 100.0),
                     if l.foreign_exchange_control {
-                        "外汇管制：启用".to_owned()
+                        "Foreign exchange control: on".to_owned()
                     } else {
-                        "外汇管制：关闭".to_owned()
+                        "Foreign exchange control: off".to_owned()
                     },
                 ],
             })
@@ -392,9 +398,9 @@ fn build_law_tiers(
                 pp_cost: l.pp_cost,
                 cooldown_days: l.cooldown_days,
                 effects: vec![
-                    format!("所得税 {:.0}%", l.income_tax_rate * 100.0),
-                    format!("消费税 {:.0}%", l.consumption_tax_rate * 100.0),
-                    format!("企业税 {:.0}%", l.corporate_tax_rate * 100.0),
+                    format!("Income tax {:.0}%", l.income_tax_rate * 100.0),
+                    format!("Consumption tax {:.0}%", l.consumption_tax_rate * 100.0),
+                    format!("Corporate tax {:.0}%", l.corporate_tax_rate * 100.0),
                 ],
             })
             .collect(),
@@ -407,8 +413,8 @@ fn build_law_tiers(
                 pp_cost: l.pp_cost,
                 cooldown_days: l.cooldown_days,
                 effects: vec![
-                    format!("科研槽位 {}", l.research_slots),
-                    format!("福利支出 {:.0}%", l.welfare_rate * 100.0),
+                    format!("Research slots {}", l.research_slots),
+                    format!("Welfare rate {:.0}%", l.welfare_rate * 100.0),
                 ],
             })
             .collect(),
@@ -420,12 +426,11 @@ fn build_law_tiers(
                 name: localized_content_name(&l.id, &l.name),
                 pp_cost: l.pp_cost,
                 cooldown_days: l.cooldown_days,
-                effects: vec![format!("忠诚衰减 x{:.2}", l.loyalty_decay_multiplier)],
+                effects: vec![format!("Loyalty decay x{:.2}", l.loyalty_decay_multiplier)],
             })
             .collect(),
     }
 }
-
 /// Phase 4.2: Game phase state machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum GamePhase {
@@ -448,19 +453,17 @@ enum InGamePanel {
     Military,
     Naval,
     Air,
-    /// V6 娉曞緥闈㈡澘
+    /// V6 ?????????
     Laws,
-    /// V6 甯傚満瑙嗗浘闈㈡澘
+    /// V6 ??????????????
     Market,
     /// V7.I1 POP read-only panel.
     Pops,
-    /// V6 寤虹瓚鏂藉伐闈㈡澘
     ConstructionV6,
-    /// V6 璐㈡斂闈㈡澘
+    /// V6 ?????????
     Finance,
-    /// V6 璐告槗闈㈡澘
+    /// V6 ?????????
     Trade,
-    /// J.4b: 瑁呭搴撳瓨闈㈡澘
     Logistics,
     Situation,
     Settings,
@@ -489,8 +492,7 @@ fn in_game_panel_for_panel_kind(kind: hoi4_ui::PanelKind) -> InGamePanel {
     }
 }
 
-// 4.3 Step B (2026-05-18): 绉婚櫎 main 鍐呴儴???`PoliticsTab` 鏋氫妇銆倀ab 鐘舵€佹満灏嗗湪
-// 搂6.3 (`tabbedWindowType`) 涓綔???GuiRt-removed 閫氱敤鍩虹璁炬柦瀹炵幇锛屼笉鍐嶇敱 main 鎸佹湁???
+// 4.3 Step B (2026-05-18): ?????main ???????`PoliticsTab` ????????ab ?????????????// ??.3 (`tabbedWindowType`) ???????GuiRt-removed ????????????????????????????main ???????
 /// Topbar region definitions: (x_min, x_max, region_id)
 /// region_id: 0=PP, 1=Stability, 2=WarSupport, 3=Manpower, 4=Factories, 5=Experience, 6=Date
 const TOPBAR_REGIONS: [(f32, f32, usize); 7] = [
@@ -721,7 +723,6 @@ struct App {
     demo_visible: bool,
     b5_demo_visible: bool,
     demo_window: hoi4_ui::demo::DemoWindow,
-    /// V9 demo 页（F12 切换）— 见 ROADMAP_V9_UI_FRONTEND_REDESIGN.md。
     v9_demo: hoi4_ui::v9::demo::V9Demo,
     v9_notifications: hoi4_ui::v9::composites::NotificationStack,
     /// Phase 4.2: Game state (menu / country select / playing).
@@ -748,15 +749,15 @@ struct App {
     schedule: SystemSchedule,
     /// Phase 2.9: music player.
     music_player: MusicPlayer,
-    /// Phase 4.2: 褰撳墠鏄剧ず鐨勮彍鍗曠被鍨嬨€侾laying 闃舵鏃犺彍鍗??    
+    /// Phase 4.2: ????????????????????????laying ????????????    
     menu_kind: Option<MenuKind>,
-    /// Phase 4.2 (redesign): 褰撳墠 hover 鐨勮彍鍗曟寜???id???btn_new_game" 绛夛級??    
+    /// Phase 4.2 (redesign): ?????hover ????????????id???btn_new_game" ??????    
     menu_hovered_btn: Option<&'static str>,
-    /// Phase 4.2 (redesign): 褰撳墠 hover 鐨勫浗瀹跺垪琛ㄨ index??    
+    /// Phase 4.2 (redesign): ?????hover ?????????????? index??    
     menu_hovered_row: Option<usize>,
-    /// Phase 4.2 (redesign): 鍥藉閫夋嫨鑿滃崟鍙€夊浗瀹跺垪琛紙Phase 4.2 榛樿鍙湁 GER 鍙€夛級??    
+    /// Phase 4.2 (redesign): ??????????????????????????????Phase 4.2 ????????? GER ?????????    
     available_countries: Vec<CountryEntry>,
-    /// 涓婁竴甯у竷灞€缂撳瓨鐨勬寜???+ 琛岋紙鐢ㄤ簬 click 鍒ゅ畾锛??    
+    /// ???????????????????????+ ????????? click ????????    
     last_main_buttons: Vec<MenuButton>,
     last_country_layout: Option<menu_pass::CountrySelectLayout>,
     _cached_hoi3_counter_upload: Vec<Hoi3CounterInstance>,
@@ -785,15 +786,15 @@ struct App {
     last_auto_build_month: Option<(u16, u8)>,
     last_auto_build_explanations:
         Vec<hoi4_logic::economy::construction_planner::ConstructionCandidateScore>,
-    // V5 鏀跺彛锛?026-05-18锛夛細鍒犻櫎 gui_rt_removed / menu_runtime / menu_hovered_id /
-    // menu_pressed_id 绛夊瓧娈碘€斺€斿畠浠湇鍔′簬宸插垹闄ょ殑 vanilla GUI 瑙ｆ瀽鍣ㄨ矾绾?    // (`hoi4_assets::GuiRt-removed` / topbar.gui / countrypoliticsview.gui)銆?    // 鑿滃崟 hit-test 瀹屽叏璧?`last_main_buttons` / `last_country_layout`銆?    // topbar / 鏀挎不闈㈡澘娓叉煋鎺ㄨ繜鍒伴樁娈?B (egui)銆?
+    // V5 ???????026-05-18????????? gui_rt_removed / menu_runtime / menu_hovered_id /
+    // menu_pressed_id ????????????????????????????????? vanilla GUI ???????????    // (`hoi4_assets::GuiRt-removed` / topbar.gui / countrypoliticsview.gui)??    // ?????hit-test ???????`last_main_buttons` / `last_country_layout`??    // topbar / ?????????????????????????B (egui)??
     content: hoi4_runtime::ContentRuntimeState,
     focus_panel: hoi4_ui::focus_tree_panel::FocusTreePanel,
-    /// F.1: 事件触发时记下事件触发前的速度
+    /// F.1: ???????????????????????
     pre_event_speed: Option<GameSpeed>,
     /// Last event modal id that played the popup sound, to avoid replaying every frame.
     last_event_sound_id: Option<String>,
-    /// P1.1：待显示的投降/和平通知队列
+    /// P1.1????????????????????
     pending_surrender_notifications: Vec<hoi4_ui::surrender_notification::SurrenderNotification>,
     /// Last surrender/peace notification that played its popup sound.
     last_surrender_sound_key: Option<String>,
@@ -830,25 +831,24 @@ struct App {
     save_browser: hoi4_ui::save_browser::SaveBrowser,
     end_screen: hoi4_ui::end_screen::EndScreen,
     prev_focuses_completed: u32,
-    /// 11.1锛欶rontline painter state (draw frontline / arrow by mouse drag).
+    /// 11.1???rontline painter state (draw frontline / arrow by mouse drag).
     frontline_painter: FrontlinePainterState,
-    /// 11.1锛歸hether frontline overlay is visible (toggle).
+    /// 11.1???hether frontline overlay is visible (toggle).
     frontline_overlay_visible: bool,
-    /// 11.4锛歞irty hash for frontline arrow instances.
+    /// 11.4???irty hash for frontline arrow instances.
     prev_armies_hash: u64,
     frontline_overlay_hash: u64,
     trade_route_overlay_hash: u64,
-    /// 11.2锛歝urrently selected army (click frontline on map or select in bottom bar).
+    /// 11.2???urrently selected army (click frontline on map or select in bottom bar).
     selected_army_id: Option<hoi4_state::ArmyId>,
     template_editor_open: bool,
     selected_template_idx: Option<u16>,
     template_picker_target: Option<hoi4_ui::military::TemplatePickerTarget>,
     v6_db: hoi4_content::V6Database,
     historical_1936: hoi4_content::Historical1936Database,
-    /// P1.3：法律切换失败时的中文提示（UI 显示用）
+    /// P1.3?????????????????????UI ??????
     law_error_message: Option<String>,
     last_law_error_toast: Option<String>,
-    /// P1.6：面板数据缓存，UI 只消费逻辑层快照，避免 render 路径每帧重算。
     ui_panel_cache: UiPanelCache,
     map_phase0: Option<MapPhase0Run>,
 }
@@ -859,153 +859,6 @@ struct CounterVisibilityCache {
     signature: u64,
     visible: Option<HashSet<CountryId>>,
     spotted: Option<HashSet<u16>>,
-}
-
-struct RenderState {
-    surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
-    /// Vanilla pdxmap-equivalent terrain pipeline. Phase 11 removed the old
-    /// archived `shader.wgsl` render fallback; missing assets are now handled
-    /// inside TerrainPass via explicit 1x1 texture fallbacks.
-    terrain_pass: TerrainPass,
-    vanilla_targets: VanillaRuntimeTargets,
-    camera_buffer: wgpu::Buffer,
-    /// Per-frame render params (selection, zoom, time).
-    params_buffer: wgpu::Buffer,
-    /// Per-LOD instance buffers (one ChunkInstance per visible chunk in that LOD).
-    instance_buffers: [wgpu::Buffer; 3],
-    /// Capacity (in instances) of each instance buffer; grown as needed.
-    instance_capacity: [u32; 3],
-    /// Last uploaded terrain chunk buckets; avoids rewriting identical instance buffers while panning.
-    terrain_bucket_signature: [u64; 3],
-    terrain_bucket_counts: [u32; 3],
-    lut_texture: wgpu::Texture,
-    lut_width: u32,
-    lut_height: u32,
-    /// Occupation overlay LUT - held to keep the bind-group view alive.
-    /// Rebuilt when controller changes can affect map colour overlays.
-    #[allow(dead_code)]
-    occupation_lut_texture: wgpu::Texture,
-    depth_view: wgpu::TextureView,
-    depth_format: wgpu::TextureFormat,
-    chunk_grid: ChunkGrid,
-    /// Trees pipeline (5.6). One large vertex buffer + a single instanced draw.
-    trees_pipeline: wgpu::RenderPipeline,
-    trees_bind_group: wgpu::BindGroup,
-    trees_buffer: wgpu::Buffer,
-    trees_count: u32,
-    /// Railways pipeline (5.6). LineList draw.
-    railways_pipeline: wgpu::RenderPipeline,
-    railways_bind_group: wgpu::BindGroup,
-    railways_params_buffer: wgpu::Buffer,
-    railways_buffer: wgpu::Buffer,
-    railways_vertex_count: u32,
-    /// Phase I (CR-1.2): HOI3-style screen-space procedural counter pass.
-    hoi3_counter_pass: Hoi3CounterPass,
-    /// Province pixel centroids (heightmap-pixel coords). Cached on init so the
-    /// per-frame zoom-driven counter aggregation doesn't need to recompute them.
-    unit_counter_centroids: Vec<(f32, f32)>,
-    /// Province pixel bounds in heightmap/province-map coordinates. This is
-    /// static map data used by frontline arrow collection.
-    province_pixel_bounds: Vec<Option<render_collect::ProvincePixelBounds>>,
-    /// Frontlines pipeline (5.7). LineList.
-    frontlines_pipeline: wgpu::RenderPipeline,
-    frontlines_bind_group: wgpu::BindGroup,
-    frontlines_buffer: wgpu::Buffer,
-    frontlines_vertex_count: u32,
-    frontlines_params_buffer: wgpu::Buffer,
-    // V5 鏀跺彛???026-05-18锛夛細鍒犻櫎 `ui_pass: UI-pass-removed` 瀛楁銆倀opbar / 鏀挎不闈㈡澘
-    // / 9-slice sprite 娓叉煋绠＄嚎宸插仠鐢紝绛夊緟闃舵 B ???egui 閲嶅仛???    /// Phase 2.9: Buildings instanced buffer (reuses units pipeline).
-    buildings_buffer: wgpu::Buffer,
-    buildings_params_buffer: wgpu::Buffer,
-    buildings_bind_group: wgpu::BindGroup,
-    buildings_count: u32,
-    buildings_pipeline: wgpu::RenderPipeline,
-    /// Phase 3.12.5 ???`PdxMeshPass` for vanilla 3D building meshes (replaces
-    /// the procedural `buildings_pipeline` flat-coloured billboards above when
-    /// `pdxmesh_pass.any_loaded` is true).
-    pdxmesh_pass: passes::PdxMeshPass,
-    /// Phase 6 `WaterPass` for vanilla pdxwater shading (LEAN normals,
-    /// SampleWater, refraction, reflection, sun spec, coastal foam, polar ice,
-    /// runtime border/secondary/FOW targets, plus point-light blocker bindings).
-    /// Drawn after the terrain pass so it overdraws the inline water branch
-    /// in `terrain.wgsl` with full pdxwater output. When water vanilla
-    /// textures fail to load, falls back to terrain.wgsl's procedural water.
-    water_pass: passes::WaterPass,
-    /// Phase 3.12.7 ???`RiverPass` for vanilla river.shader rendering (flow
-    /// scrolling + diffuse/normal/masks textures + alpha blend). Drawn after
-    /// terrain, before water ???replaces inline navy-blue overlay.
-    river_pass: passes::RiverPass,
-    /// Phase 3.12.9 ???`BorderPass` for vanilla border.shader rendering
-    /// (6-type 脳 3-LOD = 18 pre-baked SDF textures + gradient_border
-    /// dual-channel fill). Drawn after water, replacing terrain.wgsl's
-    /// inline SDF border code. SDF fallback stays in terrain.wgsl when
-    /// border_pass.any_loaded is false.
-    border_pass: passes::BorderPass,
-    /// Phase 3.12.11 ???`SkyPass` for sky cubemap background.
-    sky_pass: passes::SkyPass,
-    /// Phase 3.12.10 ???`ParticlePass` for combat smoke / factory chimneys / scorched earth.
-    particle_pass: passes::ParticlePass,
-    /// Phase 16.1 ???`MapArrowPass` for military order arrows (move / invade / paradrop).
-    maparrow_pass: passes::MapArrowPass,
-    /// Phase 16.2 ???`TradeRoutePass` for flowing trade route dashed lines.
-    traderoute_pass: passes::TradeRoutePass,
-    /// Phase 16.3 ???`StraitPass` for strait / canal crossing lines.
-    strait_pass: passes::StraitPass,
-    /// Phase 14 ???`PoiIconPass` for vanilla POI icons (factories / ports / airbases / resources).
-    poi_icon_pass: Option<passes::PoiIconPass>,
-    poi_icon_instances: Vec<PoiIconInstance>,
-    poi_zoom_bucket: u8,
-    /// Phase 3.5: Text rendering pass.
-    text_pass: TextPass,
-    panel_pass: PanelPass,
-    flag_bank: FlagBank,
-    flag_pipeline: wgpu::RenderPipeline,
-    flag_bgl: wgpu::BindGroupLayout,
-    flag_uniform_buffer: wgpu::Buffer,
-    flag_vertex_buffer: wgpu::Buffer,
-    /// Phase 3.6.3: 3D mesh trees - one draw call per tree type.
-    trees_mesh_pipeline: wgpu::RenderPipeline,
-    trees_mesh_bind_groups: Vec<wgpu::BindGroup>, // one per tree type (with its texture)
-    trees_mesh_vertex_buffers: Vec<wgpu::Buffer>, // mesh geometry per type
-    trees_mesh_index_buffers: Vec<wgpu::Buffer>,  // mesh indices per type
-    trees_mesh_instance_buffers: Vec<wgpu::Buffer>, // per-tree positions per type
-    trees_mesh_index_counts: Vec<u32>,
-    trees_mesh_instance_counts: Vec<u32>,
-    /// Phase 3.12.8 鈥?vanilla tree.shader full integration (season coloring +
-    /// tint overlay + shadow receive + day/night). Replaces the old
-    /// `trees_mesh_*` path when `tree_full_pass.any_loaded` is true.
-    tree_full_pass: Option<passes::TreeFullPass>,
-    tree_lod_uploaded: bool,
-    tree_lod_last_cam_pos: [f32; 3],
-    /// Phase 3.5: Per-country world-space label anchors (centroid of owned provinces).
-    /// `Some(CountryLabel)` for countries with at least one owned province.
-    country_labels: Vec<Option<hoi4_render::mapname::CountryLabel>>,
-    /// Phase 3.12.10: vanilla-equivalent 3D country-name label pass
-    /// (GlobalFrameUniform + vDistortedPos + day/night 0.35 + stencil ref=4).
-    /// `None` when atlas baking failed at startup; falls back to 2D HUD path.
-    mapname_pass: Option<passes::MapnamePass>,
-    /// Cached country-name atlas; reused when rebuilding labels after
-    /// runtime ownership changes (civil war split, annexation).
-    mapname_atlas: Option<mapname_atlas::CountryNameAtlas>,
-    /// Phase 3.12.13: province-name label pass (zoom-gated, only land provinces).
-    province_name_pass: Option<passes::ProvinceNamePass>,
-    // 鈹€鈹€鈹€ Phase 3.12.1 鍏叡娓叉煋鍩虹璁炬柦 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-    hdr_target: HdrTarget,
-    global_uniform_buf: GlobalUniformBuffer,
-    simple_blit: SimpleBlitPass,
-    post_process: PostProcessChain,
-    shadow_pass: passes::ShadowPass,
-    map_renderer: MapRenderer,
-    pass_registry: PassRegistry,
-    debug_render_overlay: DebugOverlay,
-    gpu_profiler: Option<GpuTimestampProfiler>,
-    ui: hoi4_ui::UiState,
-    nine_slice_window: Option<hoi4_ui::nine_slice::NineSlice>,
-    icon_bank: hoi4_ui::icons::IconBank,
-    window: Arc<Window>,
 }
 
 impl App {
@@ -1091,7 +944,7 @@ impl App {
         let end_screen = hoi4_ui::end_screen::EndScreen::new();
 
         // Phase 4.2 (redesign): build country selection list.
-        // Phase 4.2 榛樿鍙湁 GER 鍙€夛紝鍏朵粬 majors 鐏版樉锛堟湭鏉ュ紑鏀撅級??
+        // Phase 4.2 ????????? GER ???????????? majors ????????????????????
         let available_countries = build_country_select_list(&world);
 
         // Phase 3.12.8: load map/seasons.txt for tree season computation.
@@ -1102,7 +955,7 @@ impl App {
         let map_refresh_owners = world.provinces.owners.clone();
         let map_refresh_controllers = world.provinces.controllers.clone();
 
-        // P0.1：在 world move 之前计算初始日期
+        // P0.1??? world move ????????????
         let initial_day = world.date.days_since_epoch();
 
         Self {
@@ -1187,8 +1040,8 @@ impl App {
             auto_build_enabled: false,
             last_auto_build_month: None,
             last_auto_build_explanations: Vec::new(),
-            // V5 鏀跺彛锛歡ui_rt_removed / menu_runtime / menu_hovered_id /
-            // menu_pressed_id / politics_tab / politics_scroll 瀛楁宸插垹闄ゃ€?
+            // V5 ????????ui_rt_removed / menu_runtime / menu_hovered_id /
+            // menu_pressed_id / politics_tab / politics_scroll ??????????????
             content: hoi4_runtime::ContentRuntimeState::new(
                 &scenario_content,
                 hoi4_state::CountryId(default_player as u16),
@@ -1393,7 +1246,7 @@ impl App {
             self.map_mode = scene_map_mode;
             self.refresh_lut();
         }
-        self.terrain_debug_view = passes::TerrainDebugView::Off;
+        self.terrain_debug_view = terrain_debug_view_for_baseline_layer(capture.layer);
         self.water_debug_view = passes::WaterDebugView::Off;
         self.border_debug_view = passes::BorderDebugView::Off;
         self.postprocess_debug_view = match capture.layer {
@@ -1955,18 +1808,18 @@ impl App {
             .iter()
             .map(|unlock| match unlock {
                 hoi4_content::v6_loader::TechUnlockDef::Good(id) => {
-                    format!("商品 {}", Self::v6_good_name(db, id))
+                    format!("??? {}", Self::v6_good_name(db, id))
                 }
                 hoi4_content::v6_loader::TechUnlockDef::PM(id) => {
-                    format!("生产方式 {}", Self::v6_pm_name(db, id))
+                    format!("?????? {}", Self::v6_pm_name(db, id))
                 }
                 hoi4_content::v6_loader::TechUnlockDef::Building(id) => {
-                    format!("建筑 {}", Self::v6_building_name(db, id))
+                    format!("??? {}", Self::v6_building_name(db, id))
                 }
                 hoi4_content::v6_loader::TechUnlockDef::Law(cat, law_id) => {
                     let label = Self::v6_required_law_label(db, Some(&(*cat, law_id.clone())))
                         .unwrap_or_else(|| law_id.clone());
-                    format!("法律 {}", label)
+                    format!("??? {}", label)
                 }
             })
             .collect()
@@ -2017,10 +1870,10 @@ impl App {
                 .unwrap_or_default();
             let building_name = Self::v6_building_name(db, &building.building_def_id);
             let label = if state_name.is_empty() {
-                format!("{}：缺 {}", building_name, blocked_inputs.join("/"))
+                format!("{}??? {}", building_name, blocked_inputs.join("/"))
             } else {
                 format!(
-                    "{} {}：缺 {}",
+                    "{} {}??? {}",
                     state_name,
                     building_name,
                     blocked_inputs.join("/")
@@ -2039,13 +1892,13 @@ impl App {
     fn v6_building_group(kind: hoi4_content::v6_loader::BuildingKindDef) -> &'static str {
         match kind {
             hoi4_content::v6_loader::BuildingKindDef::Resource
-            | hoi4_content::v6_loader::BuildingKindDef::Agriculture => "资源与农业",
-            hoi4_content::v6_loader::BuildingKindDef::Industrial => "城市工业",
-            hoi4_content::v6_loader::BuildingKindDef::ConsumerGoods => "民生工业",
-            hoi4_content::v6_loader::BuildingKindDef::Infrastructure => "基础设施",
-            hoi4_content::v6_loader::BuildingKindDef::Military => "军工",
-            hoi4_content::v6_loader::BuildingKindDef::MilitaryBase => "军事基地",
-            hoi4_content::v6_loader::BuildingKindDef::Service => "政府与服务",
+            | hoi4_content::v6_loader::BuildingKindDef::Agriculture => "Resource and agriculture",
+            hoi4_content::v6_loader::BuildingKindDef::Industrial => "Industrial",
+            hoi4_content::v6_loader::BuildingKindDef::ConsumerGoods => "Consumer goods",
+            hoi4_content::v6_loader::BuildingKindDef::Infrastructure => "Infrastructure",
+            hoi4_content::v6_loader::BuildingKindDef::Military => "Military",
+            hoi4_content::v6_loader::BuildingKindDef::MilitaryBase => "Military base",
+            hoi4_content::v6_loader::BuildingKindDef::Service => "Service",
         }
     }
 
@@ -2053,22 +1906,24 @@ impl App {
         source: hoi4_logic::economy::ConstructionFundingSource,
     ) -> &'static str {
         match source {
-            hoi4_logic::economy::ConstructionFundingSource::Government => "政府",
-            hoi4_logic::economy::ConstructionFundingSource::Mefo => "MEFO 融资",
-            hoi4_logic::economy::ConstructionFundingSource::PrivatePool => "私人投资池",
-            hoi4_logic::economy::ConstructionFundingSource::CartelPool => "法团投资池",
+            hoi4_logic::economy::ConstructionFundingSource::Government => "Government",
+            hoi4_logic::economy::ConstructionFundingSource::Mefo => "MEFO bills",
+            hoi4_logic::economy::ConstructionFundingSource::PrivatePool => "Private pool",
+            hoi4_logic::economy::ConstructionFundingSource::CartelPool => "Cartel pool",
             hoi4_logic::economy::ConstructionFundingSource::OverlordInvestment { .. } => {
-                "宗主国投资"
+                "Overlord investment"
             }
-            hoi4_logic::economy::ConstructionFundingSource::ForeignInvestment { .. } => "外资",
+            hoi4_logic::economy::ConstructionFundingSource::ForeignInvestment { .. } => {
+                "Foreign investment"
+            }
         }
     }
 
     fn building_owner_label(owner: hoi4_state::BuildingOwner) -> &'static str {
         match owner {
-            hoi4_state::BuildingOwner::State => "国有",
-            hoi4_state::BuildingOwner::Private => "私人",
-            hoi4_state::BuildingOwner::Cartel => "法团",
+            hoi4_state::BuildingOwner::State => "State",
+            hoi4_state::BuildingOwner::Private => "Private",
+            hoi4_state::BuildingOwner::Cartel => "Cartel",
         }
     }
 
@@ -2110,7 +1965,7 @@ impl App {
                 .map(|law| law.name.as_str()),
         };
         Some(format!(
-            "需要法律「{}」",
+            "Requires law: {}",
             law_name.unwrap_or(law_id.as_str())
         ))
     }
@@ -2122,16 +1977,13 @@ impl App {
         building_def: &hoi4_content::v6_loader::BuildingDef,
     ) -> Option<String> {
         if !building_def.buildable {
-            return Some("不可建造".to_owned());
+            return Some("Not buildable".to_owned());
         }
 
         if let Some(reason) = Self::v6_required_law_label(db, building_def.requires_law.as_ref()) {
-            let current = building_def.requires_law.as_ref().and_then(|(cat, _)| {
-                Some(
-                    &world.countries.law_store.law_sets[player].0
-                        [Self::v6_law_category_index(*cat)]
-                    .current,
-                )
+            let current = building_def.requires_law.as_ref().map(|(cat, _)| {
+                &world.countries.law_store.law_sets[player].0[Self::v6_law_category_index(*cat)]
+                    .current
             });
             if let Some(current) = current {
                 if let Some((_, required_law)) = &building_def.requires_law {
@@ -2148,29 +2000,27 @@ impl App {
             let unlocked = world.countries.completed_techs[player].contains(&tech.id)
                 || world.countries.unlocked_buildings[player].contains(&building_def.id);
             if !unlocked {
-                return Some(format!("科技锁定：需要「{}」", tech.name));
+                return Some(format!("Requires technology: {}", tech.name));
             }
         }
 
         None
     }
-
     fn v6_building_state_limit_reason(
         world: &World,
         building_def: &hoi4_content::v6_loader::BuildingDef,
     ) -> Option<String> {
         match building_def.state_limit_kind.as_deref() {
-            Some("coastal") => Some("州限制：仅可在沿海州建造".to_owned()),
-            Some("urban") => Some("州限制：仅可在城市州建造".to_owned()),
-            Some("resource") => Some("州限制：仅可在资源州建造".to_owned()),
-            Some(kind) => Some(format!("州限制：{}", kind)),
+            Some("coastal") => Some("State limit: coastal states only".to_owned()),
+            Some("urban") => Some("State limit: urban states only".to_owned()),
+            Some("resource") => Some("State limit: resource states only".to_owned()),
+            Some(kind) => Some(format!("State limit: {}", kind)),
             None => {
                 let _ = world;
                 None
             }
         }
     }
-
     fn exit_construction_mode(&mut self) {
         self.construction_mode = None;
         self.construction_highlight_province_ids.clear();
@@ -2315,7 +2165,7 @@ impl App {
                 .strip_prefix("STATE_")
                 .and_then(|s| s.parse::<u16>().ok())
             {
-                return format!("第{}州", id);
+                return format!("State {}", id);
             }
         }
         localized
@@ -2351,28 +2201,28 @@ impl App {
 
     fn province_type_name(def: Option<&hoi4_map::ProvinceDefinition>) -> String {
         match def.map(|d| d.province_type) {
-            Some(hoi4_map::ProvinceType::Land) => "陆地".to_owned(),
-            Some(hoi4_map::ProvinceType::Sea) => "海域".to_owned(),
-            Some(hoi4_map::ProvinceType::Lake) => "湖泊".to_owned(),
+            Some(hoi4_map::ProvinceType::Land) => "???".to_owned(),
+            Some(hoi4_map::ProvinceType::Sea) => "???".to_owned(),
+            Some(hoi4_map::ProvinceType::Lake) => "???".to_owned(),
             None => hoi4_ui::i18n::tr("unknown").to_owned(),
         }
     }
 
     fn terrain_display_name(terrain: &str) -> String {
         match terrain {
-            "plains" => "平原".to_owned(),
-            "forest" => "森林".to_owned(),
-            "hills" => "丘陵".to_owned(),
-            "mountain" => "山地".to_owned(),
-            "desert" => "沙漠".to_owned(),
-            "marsh" => "沼泽".to_owned(),
-            "jungle" => "丛林".to_owned(),
-            "urban" => "城市".to_owned(),
-            "ocean" => "海洋".to_owned(),
-            "lakes" => "湖泊".to_owned(),
-            "water_fjords" => "峡湾".to_owned(),
-            "water_shallow_sea" => "浅海".to_owned(),
-            "water_deep_ocean" => "深海".to_owned(),
+            "plains" => "???".to_owned(),
+            "forest" => "???".to_owned(),
+            "hills" => "???".to_owned(),
+            "mountain" => "???".to_owned(),
+            "desert" => "???".to_owned(),
+            "marsh" => "???".to_owned(),
+            "jungle" => "???".to_owned(),
+            "urban" => "???".to_owned(),
+            "ocean" => "???".to_owned(),
+            "lakes" => "???".to_owned(),
+            "water_fjords" => "???".to_owned(),
+            "water_shallow_sea" => "???".to_owned(),
+            "water_deep_ocean" => "???".to_owned(),
             "unknown" | "" => hoi4_ui::i18n::tr("unknown").to_owned(),
             other => other.to_owned(),
         }
@@ -2388,18 +2238,18 @@ impl App {
 
     fn equipment_display_name(equipment_id: &str) -> String {
         match equipment_id {
-            "infantry_equipment" => "步兵装备".to_owned(),
-            "artillery" => "火炮".to_owned(),
-            "anti_tank" => "反坦克炮".to_owned(),
-            "anti_air" => "防空炮".to_owned(),
-            "support_equipment" => "支援装备".to_owned(),
-            "motorized" => "摩托化装备".to_owned(),
-            "mechanized" => "机械化装备".to_owned(),
-            "armor" => "坦克".to_owned(),
-            "aircraft" => "飞机".to_owned(),
-            "naval_vessel" => "舰船".to_owned(),
-            "convoy" => "运输船".to_owned(),
-            "train" => "铁路车辆".to_owned(),
+            "infantry_equipment" => "??????".to_owned(),
+            "artillery" => "???".to_owned(),
+            "anti_tank" => "??????".to_owned(),
+            "anti_air" => "Anti-air".to_owned(),
+            "support_equipment" => "??????".to_owned(),
+            "motorized" => "Motorized".to_owned(),
+            "mechanized" => "Mechanized".to_owned(),
+            "armor" => "???".to_owned(),
+            "aircraft" => "???".to_owned(),
+            "naval_vessel" => "???".to_owned(),
+            "convoy" => "Convoy".to_owned(),
+            "train" => "??????".to_owned(),
             _ => equipment_id.to_owned(),
         }
     }
@@ -2618,10 +2468,10 @@ impl App {
                 }
                 *outputs.entry(eq.equipment_category.clone()).or_insert(0.0) += daily;
                 let source = if state_name.is_empty() {
-                    format!("{} Lv{} +{:.1}/日", building_name, building.level, daily)
+                    format!("{} Lv{} +{:.1}/day", building_name, building.level, daily)
                 } else {
                     format!(
-                        "{} {} Lv{} +{:.1}/日",
+                        "{} {} Lv{} +{:.1}/day",
                         state_name, building_name, building.level, daily
                     )
                 };
@@ -2752,7 +2602,7 @@ impl App {
                     .find(|tech| tech.id == *tech_id)
                     .map(|tech| tech.name.as_str())
                     .unwrap_or(tech_id.as_str());
-                return Some(format!("科技锁定：需要「{}」", tech_name));
+                return Some(format!("Requires technology: {}", tech_name));
             }
         }
         if let Some(reason) = Self::v6_required_law_label(db, pm.required_law.as_ref()) {
@@ -2786,9 +2636,9 @@ impl App {
                 format!("{} +{:.0}/d", Self::v6_good_name(db, good_id), amount)
             })
             .collect::<Vec<_>>()
-            .join("、");
+            .join(", ");
         if !output.is_empty() {
-            parts.push(format!("产出 {}", output));
+            parts.push(format!("??? {}", output));
         }
         let input = pm
             .input_good_ids
@@ -2800,15 +2650,15 @@ impl App {
                 format!("{} -{:.0}/d", Self::v6_good_name(db, good_id), amount)
             })
             .collect::<Vec<_>>()
-            .join("、");
+            .join(", ");
         if !input.is_empty() {
-            parts.push(format!("投入 {}", input));
+            parts.push(format!("??? {}", input));
         }
         let workers: u32 = pm.employment_demand.iter().sum::<u32>() * level as u32;
         if workers > 0 {
-            parts.push(format!("就业 {}", workers));
+            parts.push(format!("??? {}", workers));
         }
-        parts.join("；")
+        parts.join(", ")
     }
 
     fn v6_pm_groups_for_building(
@@ -2920,7 +2770,7 @@ impl App {
                 )
             })
             .collect::<Vec<_>>()
-            .join("、")
+            .join(", ")
     }
 
     fn v6_employment_gap_for_building(
@@ -2948,1825 +2798,8 @@ impl App {
         )
     }
 
-    fn init_render(&mut self, window: Arc<Window>) {
-        let size = window.inner_size();
-        // 4.1.bis.6: HiDPI handling. winit's `inner_size` returns physical pixels;
-        // GUI layout (and our 2D shaders) must run in logical pixels so absolute
-        // coordinates from `.gui` files (designed for 1920脳1080) resolve to the
-        // right on-screen size regardless of the OS DPI scale.
-        let dpi = window.scale_factor() as f32;
-        let logical_w = size.width as f32 / dpi;
-        let logical_h = size.height as f32 / dpi;
-        // logical_w / logical_h are consumed when we build UI-pass-removed / TextPass / PanelPass below.
-        println!(
-            "[init] window physical={}x{} logical={:.0}x{:.0} dpi={:.2}",
-            size.width, size.height, logical_w, logical_h, dpi
-        );
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let surface = instance.create_surface(window.clone()).unwrap();
-
-        let (adapter, device, queue) = pollster::block_on(async {
-            let adapter = instance
-                .request_adapter(&wgpu::RequestAdapterOptions {
-                    compatible_surface: Some(&surface),
-                    ..Default::default()
-                })
-                .await
-                .unwrap();
-            let supported = adapter.features();
-            let want = wgpu::Features::TEXTURE_COMPRESSION_BC
-                | wgpu::Features::TEXTURE_FORMAT_16BIT_NORM
-                | wgpu::Features::TIMESTAMP_QUERY
-                | wgpu::Features::TIMESTAMP_QUERY_INSIDE_PASSES
-                | wgpu::Features::TIMESTAMP_QUERY_INSIDE_ENCODERS;
-            let required = wgpu::Features::TEXTURE_COMPRESSION_BC;
-            let features = supported & want | required;
-            if !features.contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM) {
-                eprintln!(
-                    "[gpu] TEXTURE_FORMAT_16BIT_NORM not supported, heightmap will use R8Unorm fallback"
-                );
-            }
-            if supported.contains(wgpu::Features::TIMESTAMP_QUERY) {
-                eprintln!(
-                    "[gpu] TIMESTAMP_QUERY supported; Phase 10 timing overlay will use GPU timestamps when pass/encoder writes are available"
-                );
-            } else {
-                eprintln!(
-                    "[gpu] TIMESTAMP_QUERY not supported; Phase 10 overlay will show CPU/draw-call budgets only"
-                );
-            }
-            let required_limits = parity_required_limits(adapter.limits());
-            if required_limits.max_sampled_textures_per_shader_stage
-                < MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY
-            {
-                eprintln!(
-                    "[gpu] adapter only supports {} sampled textures per shader stage; WaterPass Phase 6 requires {} and may be disabled by validation",
-                    required_limits.max_sampled_textures_per_shader_stage,
-                    MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY
-                );
-            }
-            let (device, queue) = adapter
-                .request_device(
-                    &wgpu::DeviceDescriptor {
-                        required_features: features,
-                        required_limits,
-                        ..Default::default()
-                    },
-                    None,
-                )
-                .await
-                .unwrap();
-            (adapter, device, queue)
-        });
-        self.heightmap_r16_supported = device
-            .features()
-            .contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM);
-
-        let caps = surface.get_capabilities(&adapter);
-        let format = caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(caps.formats[0]);
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format,
-            width: size.width.max(1),
-            height: size.height.max(1),
-            present_mode: wgpu::PresentMode::AutoVsync,
-            alpha_mode: caps.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
-        surface.configure(&device, &config);
-
-        // Province index texture (R16Uint)
-        let province_tex = device.create_texture_with_data(
-            &queue,
-            &wgpu::TextureDescriptor {
-                label: Some("province_map"),
-                size: wgpu::Extent3d {
-                    width: self.world.map.province_map.width,
-                    height: self.world.map.province_map.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R16Uint,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            },
-            wgpu::util::TextureDataOrder::LayerMajor,
-            bytemuck::cast_slice(&self.world.map.province_map.pixels),
-        );
-        let province_view = province_tex.create_view(&Default::default());
-
-        // Heightmap texture. Phase 11.3: upgraded from R8Unorm to R16Unorm when
-        // the GPU supports TEXTURE_FORMAT_16BIT_NORM. The source BMP is 8-bit;
-        // each pixel is upcast to 16-bit (value << 8) to eliminate the 1/256
-        // stepping that causes visible terraces on flat terrain at height_scale=4.0.
-        let height_view = if self.heightmap_r16_supported {
-            let heightmap_r16: Vec<u16> = self
-                .world
-                .map
-                .heightmap
-                .pixels
-                .iter()
-                .map(|&b| (b as u16) << 8)
-                .collect();
-            let height_tex = device.create_texture_with_data(
-                &queue,
-                &wgpu::TextureDescriptor {
-                    label: Some("heightmap"),
-                    size: wgpu::Extent3d {
-                        width: self.world.map.heightmap.width,
-                        height: self.world.map.heightmap.height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::R16Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                },
-                wgpu::util::TextureDataOrder::LayerMajor,
-                bytemuck::cast_slice(&heightmap_r16),
-            );
-            height_tex.create_view(&Default::default())
-        } else {
-            let height_tex = device.create_texture_with_data(
-                &queue,
-                &wgpu::TextureDescriptor {
-                    label: Some("heightmap"),
-                    size: wgpu::Extent3d {
-                        width: self.world.map.heightmap.width,
-                        height: self.world.map.heightmap.height,
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format: wgpu::TextureFormat::R8Unorm,
-                    usage: wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                },
-                wgpu::util::TextureDataOrder::LayerMajor,
-                &self.world.map.heightmap.pixels,
-            );
-            height_tex.create_view(&Default::default())
-        };
-
-        // Terrain index texture (R8Uint) - per-pixel terrain.bmp index.
-        let terrain_idx_tex = device.create_texture_with_data(
-            &queue,
-            &wgpu::TextureDescriptor {
-                label: Some("terrain_idx"),
-                size: wgpu::Extent3d {
-                    width: self.world.map.terrain_bmp.width,
-                    height: self.world.map.terrain_bmp.height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Uint,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            },
-            wgpu::util::TextureDataOrder::LayerMajor,
-            &self.world.map.terrain_bmp.pixels,
-        );
-        let terrain_idx_view = terrain_idx_tex.create_view(&Default::default());
-
-        // 鈹€鈹€鈹€ 5.4 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-        // SDF distance fields for borders. Computed once at startup.
-        println!("Computing border SDFs (Chamfer 2-pass)...");
-        let t_sdf = Instant::now();
-        let country_sdf_data = compute_country_sdf(
-            &self.world.map.province_map,
-            &self.world.provinces.controllers,
-        );
-        let province_sdf_data = compute_province_sdf(&self.world.map.province_map);
-        // 3.12.18 (2026-05-18): keep coast SDF in **raw pixel units**, not
-        // normalized to its max. The shaders multiply `sample.r * 255` to
-        // recover pixel distance ???that convention only works if the u8
-        // value already *is* pixel distance (as country/province SDFs are).
-        // Normalizing inflated `coast_dist_px` by `255 / coast_max`, which
-        // turned `foam_band = 5 px` into a 30-50 px white ring at coasts
-        // and produced the chunky "white edge" seen in zoom-out screenshots.
-        let coast_sdf_data = compute_coast_sdf(&self.world.map.heightmap, 95);
-        println!("  SDFs done in {:.2}s", t_sdf.elapsed().as_secs_f32());
-        let map_w = self.world.map.province_map.width;
-        let map_h = self.world.map.province_map.height;
-
-        let coast_sdf_tex = device.create_texture_with_data(
-            &queue,
-            &wgpu::TextureDescriptor {
-                label: Some("coast_sdf"),
-                size: wgpu::Extent3d {
-                    width: map_w,
-                    height: map_h,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::R8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            },
-            wgpu::util::TextureDataOrder::LayerMajor,
-            &coast_sdf_data,
-        );
-        let coast_sdf_view = coast_sdf_tex.create_view(&Default::default());
-
-        // Phase 3.5: Load vanilla terrain atlas (map/terrain/atlas0.dds  ?2048x2048 BC3, 4脳4 tiles)
-        let vanilla_resources = VanillaResourceViews::load_for_audit(&self.path_cfg);
-        let mut binding_audit = vanilla_resource_views::BindingAudit::new();
-        let vanilla_targets = VanillaRuntimeTargets::new(
-            &device,
-            &queue,
-            VanillaRuntimeTargetInputs {
-                world: &self.world,
-                country_sdf: &country_sdf_data,
-                province_sdf: &province_sdf_data,
-                coast_sdf: &coast_sdf_data,
-                world_scale: WORLD_SCALE,
-                height_scale: HEIGHT_SCALE,
-            },
-        );
-        let (terrain_atlas_view, _terrain_atlas_sampler, terrain_atlas_audit) =
-            load_terrain_atlas_phase1(&device, &queue, &vanilla_resources);
-        binding_audit.extend([terrain_atlas_audit]);
-
-        // Phase 3.6.1: Load colormap (map/terrain/colormap.dds - continent natural color base)
-        let (colormap_view, _colormap_sampler, colormap_audit) =
-            load_colormap_phase1(&device, &queue, &vanilla_resources);
-        binding_audit.extend([colormap_audit]);
-
-        // Phase 7: Load rivers.bmp as RGBA level/flow texture. Terrain reads
-        // the R channel for fallback/debug; RiverPass reads R/G/B/A for
-        // visibility, stable animation direction, and palette-index debug.
-        let (rivers_view, _rivers_sampler, rivers_audit) =
-            load_rivers_texture_phase1(&device, &queue, &vanilla_resources);
-        binding_audit.extend([rivers_audit]);
-
-        // Occupation overlay LUT (same layout as colour LUT but holds stripe colour + alpha).
-        let occ_lut_data = build_occupation_lut(&self.world);
-        // Use the same 256-wide layout as the colour LUT.
-        let occ_lut_width: u32 = 256;
-        let occ_lut_height: u32 =
-            (occ_lut_data.len() as u32 / 4 + occ_lut_width - 1) / occ_lut_width;
-        let occupation_lut_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("occupation_lut"),
-            size: wgpu::Extent3d {
-                width: occ_lut_width,
-                height: occ_lut_height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let mut occ_padded = occ_lut_data;
-        occ_padded.resize((occ_lut_width * occ_lut_height * 4) as usize, 0);
-        upload_lut(
-            &queue,
-            &occupation_lut_texture,
-            &occ_padded,
-            occ_lut_width,
-            occ_lut_height,
-        );
-        let occupation_lut_view = occupation_lut_texture.create_view(&Default::default());
-
-        // RenderParams uniform buffer.
-        let initial_params = RenderParams::new();
-        let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("render_params"),
-            contents: bytemuck::bytes_of(&initial_params),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        // Color LUT - 2D texture, 256 wide
-        let player_cid = if self.player_country < self.world.countries.count {
-            Some(hoi4_state::CountryId(self.player_country as u16))
-        } else {
-            None
-        };
-        let lut_data = build_color_lut(&self.world, self.map_mode, player_cid);
-        let lut_width: u32 = 256;
-        let lut_height: u32 = (lut_data.len() as u32 / 4 + lut_width - 1) / lut_width;
-        let mut padded_lut = lut_data;
-        padded_lut.resize((lut_width * lut_height * 4) as usize, 0);
-
-        let lut_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("color_lut"),
-            size: wgpu::Extent3d {
-                width: lut_width,
-                height: lut_height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        upload_lut(&queue, &lut_texture, &padded_lut, lut_width, lut_height);
-        let lut_view = lut_texture.create_view(&Default::default());
-
-        // Camera uniform
-        // 4.1.bis.6 fix: aspect is unitless so logical vs physical math is the
-        // same ???but use a single source (logical) to avoid future mismatches.
-        self.camera.aspect = logical_w / logical_h.max(1.0);
-        let cam_uniform = CameraUniform::from_camera(&self.camera, HEIGHT_SCALE, LAT_CORRECTION);
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("camera"),
-            contents: bytemuck::bytes_of(&cam_uniform),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        // Per-LOD chunk uniforms (just hold the grid count).
-        let chunk_uniforms: [wgpu::Buffer; 3] = std::array::from_fn(|i| {
-            let u = ChunkUniform {
-                grid: LOD_GRID[i],
-                _pad: [0; 3],
-            };
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("chunk_uniform"),
-                contents: bytemuck::bytes_of(&u),
-                usage: wgpu::BufferUsages::UNIFORM,
-            })
-        });
-
-        // Instance buffer (initial capacity = total chunks).
-        let total_chunks = (CHUNKS_X * CHUNKS_Z) as u64;
-        let instance_buffers: [wgpu::Buffer; 3] = std::array::from_fn(|_| {
-            device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("chunk_instances"),
-                size: total_chunks * std::mem::size_of::<ChunkInstance>() as u64,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        });
-
-        // Phase 3.12.3 ???shadow caster pipeline銆傚???camera_buffer + heightmap +
-        // ???LOD chunk_uniform锛屽啓鍒颁竴寮犱笓???D32Float 2048脳2048 depth RT??
-        let shadow_pass = passes::ShadowPass::new(
-            &device,
-            format,
-            &camera_buffer,
-            &height_view,
-            &chunk_uniforms,
-        );
-
-        // Pipeline (with depth-stencil)
-        let depth_format = wgpu::TextureFormat::Depth32Float;
-        let depth_view =
-            make_depth_view(&device, size.width.max(1), size.height.max(1), depth_format);
-
-        // 鈹€鈹€鈹€ Phase 3.12.4 ???pdxmap-equivalent TerrainPass 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-        // 鎶婂垰鎵嶅垱寤虹殑 19 涓棫 binding 瑙嗗浘浣滀负杈撳叆鍐嶆缁勭粐???vanilla pdxmap ???        // 3-bind-group 甯冨眬锛涘悓鏃舵寜 `MapResRole` 鍔犺浇 atlas_normal{0} +
-        // world_normal.bmp + colormap_emissive + citylights_0 ???4 寮犳柊璐村浘???        // 褰撲换涓€鍔犺浇澶辫触鏃惰 pass 浼氳嚜鍔ㄧ敤 1脳1 fallback鈥斺€旀瀯閫犳案杩滄垚鍔??
-        let global_uniform_buf = GlobalUniformBuffer::new(&device);
-        let terrain_pass = {
-            let inputs = passes::TerrainPassInputs {
-                global_uniform_buffer: &global_uniform_buf.buffer,
-                depth_format,
-                lod_grid: LOD_GRID,
-                shadow_map_view: &shadow_pass.depth_view,
-                shadow_sampler: &shadow_pass.compare_sampler,
-                colormap_view: &colormap_view,
-                coast_sdf_view: &coast_sdf_view,
-                occupation_lut_view: &occupation_lut_view,
-                rivers_view: &rivers_view,
-                heightmap_view: &height_view,
-                province_view: &province_view,
-                terrain_idx_view: &terrain_idx_view,
-                terrain_atlas_view: &terrain_atlas_view,
-                country_color_lut_view: &lut_view,
-                vanilla_resources: &vanilla_resources,
-                runtime_targets: &vanilla_targets,
-            };
-            let terrain_pass = passes::TerrainPass::new(&device, &queue, &self.path_cfg, inputs);
-            for w in &terrain_pass.load_warnings {
-                println!("{}", w);
-            }
-            binding_audit.extend(terrain_pass.binding_audit.entries.clone());
-            terrain_pass
-        };
-
-        // Build chunk grid from heightmap.
-        let world_size = self.world_size();
-        let chunk_grid = ChunkGrid::build(
-            &self.world.map.heightmap,
-            world_size,
-            HEIGHT_SCALE,
-            CHUNKS_X,
-            CHUNKS_Z,
-        );
-
-        // 鈹€鈹€鈹€ 5.6 trees 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-        println!("Generating tree instances...");
-        let t_trees = Instant::now();
-        // Phase 3.10.2: use map/trees.bmp + default.map's `tree = {3,4,7,10}`
-        // when present; fall back to the legacy terrain.bmp routing only if
-        // trees.bmp failed to load.
-        let tree_data = if let Some(tree_bmp) = &self.world.map.tree_definition_bmp {
-            let (trees, stats) = generate_trees_with_stats(
-                tree_bmp,
-                &self.world.map.tree_indices,
-                &self.world.map.heightmap,
-                WORLD_SCALE,
-                HEIGHT_SCALE,
-                3, // forest stride on trees.bmp (1650 wide)
-                2, // jungle stride
-            );
-            println!(
-                "[trees] trees.bmp {}x{} active={} generated={} ratio={:.3} by_type={:?} generated_by_type={:?} stride_skip={} sea_skip={}",
-                stats.tree_bitmap_size[0],
-                stats.tree_bitmap_size[1],
-                stats.active_pixels_total,
-                stats.generated_instances_total,
-                stats.placement_ratio(),
-                stats.active_pixels_by_type,
-                stats.generated_instances_by_type,
-                stats.skipped_by_stride,
-                stats.skipped_below_sea
-            );
-            trees
-        } else {
-            eprintln!("[trees] trees.bmp unavailable ???placing 0 trees");
-            Vec::new()
-        };
-        println!(
-            "  {} trees generated in {:.2}s",
-            tree_data.len(),
-            t_trees.elapsed().as_secs_f32()
-        );
-        let trees_count = tree_data.len() as u32;
-        let trees_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("tree_instances"),
-            contents: bytemuck::cast_slice(&tree_data),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        // Trees use camera + render params (procedural billboard, no texture needed).
-        let trees_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("trees_bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-        let trees_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("trees_bg"),
-            layout: &trees_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: params_buffer.as_entire_binding(),
-                },
-            ],
-        });
-
-        let trees_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("trees_shader"),
-            source: wgpu::ShaderSource::Wgsl(hoi4_render::SHADER_TREES_WGSL.into()),
-        });
-        let trees_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("trees_pipeline_layout"),
-                bind_group_layouts: &[&trees_bgl],
-                push_constant_ranges: &[],
-            });
-        let trees_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("trees_pipeline"),
-            layout: Some(&trees_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &trees_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<TreeInstance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &[
-                        // pos: vec3<f32> @ offset 0
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x3,
-                            offset: 0,
-                            shader_location: 0,
-                        },
-                        // scale: f32 @ offset 12
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32,
-                            offset: 12,
-                            shader_location: 1,
-                        },
-                        // tint: 4xu8 -> vec4<f32> via Unorm8x4 @ offset 16
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Unorm8x4,
-                            offset: 16,
-                            shader_location: 2,
-                        },
-                        // Phase 3.10.2: tree_type + pad as Uint8x2 @ offset 20.
-                        // Shader reads `.x` for the species index.
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Uint8x2,
-                            offset: 20,
-                            shader_location: 3,
-                        },
-                        // Phase 3.10.2: slope (Snorm8x2) @ offset 22.
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Snorm8x2,
-                            offset: 22,
-                            shader_location: 4,
-                        },
-                    ],
-                }],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &trees_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: HDR_FORMAT,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: false, // alpha-blended - no depth write
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            multiview: None,
-            cache: None,
-        });
-
-        // 鈹€鈹€鈹€ 5.6 railways 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-        println!("Generating railway vertices...");
-        let rail_path = self
-            .path_cfg
-            .find("map/railways.txt")
-            .unwrap_or_else(|| self.path_cfg.game_path().join("map/railways.txt"));
-        let rail_text = std::fs::read_to_string(&rail_path).unwrap_or_default();
-        let routes = parse_railways(&rail_text);
-        let centroids = compute_province_centroids(&self.world.map.province_map);
-
-        // Phase 3.5: Pre-compute per-country world-space label centroids.
-        // O(num_provinces) one-shot; reused every frame for screen projection.
-        let country_count = self.world.countries.count;
-        let owners_for_labels: Vec<Option<usize>> = self
-            .world
-            .provinces
-            .owners
-            .iter()
-            .map(|c| {
-                if c.is_none() {
-                    None
-                } else {
-                    Some(c.0 as usize)
-                }
-            })
-            .collect();
-        let country_labels = hoi4_render::mapname::compute_country_labels(
-            &centroids,
-            &owners_for_labels,
-            country_count,
-            WORLD_SCALE,
-        );
-        let labelled = country_labels.iter().filter(|l| l.is_some()).count();
-        println!(
-            "[mapname] computed {} country labels ({}/{} countries with owned provinces)",
-            labelled, labelled, country_count
-        );
-
-        // Phase 3.10.3: per-country oriented bounding box (PCA over owned-
-        // province pixels). Drives the 3D label quad's orientation + size.
-        // O(map pixels), once at startup.
-        let t_obb = Instant::now();
-        let province_is_core: Vec<bool> = (0..self.world.provinces.count)
-            .map(|pid| {
-                let owner = self.world.provinces.owners[pid];
-                if owner.is_none() {
-                    return false;
-                }
-                let sid = self.world.provinces.state_of[pid];
-                if sid.is_none() {
-                    return false;
-                }
-                let si = sid.0 as usize;
-                si < self.world.states.cores.len() && self.world.states.cores[si].contains(&owner)
-            })
-            .collect();
-        let country_obbs = hoi4_render::mapname_3d::compute_country_obbs(
-            &self.world.map.province_map,
-            &owners_for_labels,
-            &province_is_core,
-            country_count,
-        );
-        let n_obb = country_obbs.iter().filter(|o| o.is_some()).count();
-        println!(
-            "[mapname_3d] OBB pass: {} countries with valid OBB in {:.2}s",
-            n_obb,
-            t_obb.elapsed().as_secs_f32()
-        );
-
-        // Phase 3.10.3: bake R8 atlas of country names with 1-pixel outline.
-        // Names default to country tags; localised full names will arrive
-        // with Phase 4.9. Falls back gracefully if no system font is
-        // available ???the legacy 2D HUD path still works.
-        let t_atlas = Instant::now();
-        let names: Vec<Option<String>> = self
-            .world
-            .countries
-            .tags
-            .iter()
-            .map(|tag| {
-                if tag.is_empty() {
-                    None
-                } else {
-                    Some(tag.clone())
-                }
-            })
-            .collect();
-        let mapname_atlas_opt = mapname_atlas::bake_country_name_atlas(&names, 36.0);
-        if let Some(atlas) = &mapname_atlas_opt {
-            println!(
-                "[mapname_3d] atlas: {}x{} R8, {} entries baked in {:.2}s",
-                atlas.width,
-                atlas.height,
-                atlas.count_baked(),
-                t_atlas.elapsed().as_secs_f32()
-            );
-        } else {
-            eprintln!("[mapname_3d] atlas bake failed (no system font?); 2D HUD fallback active");
-        }
-
-        let rail_verts = build_railway_vertices(
-            &routes,
-            &centroids,
-            &self.world.map.heightmap,
-            WORLD_SCALE,
-            HEIGHT_SCALE,
-            0.06, // lift above terrain
-        );
-        println!(
-            "  {} railway segments ({} routes)",
-            rail_verts.len() / 2,
-            routes.len()
-        );
-        let railways_vertex_count = rail_verts.len() as u32;
-        let railways_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("railway_verts"),
-            contents: if rail_verts.is_empty() {
-                &[0u8; 16]
-            } else {
-                bytemuck::cast_slice(&rail_verts)
-            },
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let railways_params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("railway_params"),
-            contents: bytemuck::bytes_of(&RailwayParams::default()),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let frontlines_params_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("frontline_params"),
-                contents: bytemuck::bytes_of(&FrontlineParams {
-                    opacity: 1.0,
-                    _pad: [0.0; 3],
-                }),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
-        // Railways/frontlines use the shared camera uniform plus per-frame opacity.
-        let rail_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("rail_bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-        let frontlines_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("frontline_bg"),
-            layout: &rail_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: frontlines_params_buffer.as_entire_binding(),
-                },
-            ],
-        });
-        let rail_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("rail_bg"),
-            layout: &rail_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: railways_params_buffer.as_entire_binding(),
-                },
-            ],
-        });
-        let rail_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("rail_shader"),
-            source: wgpu::ShaderSource::Wgsl(hoi4_render::SHADER_RAILWAYS_WGSL.into()),
-        });
-        let rail_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&rail_bgl],
-            push_constant_ranges: &[],
-        });
-        let railways_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("railways_pipeline"),
-            layout: Some(&rail_pl),
-            vertex: wgpu::VertexState {
-                module: &rail_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<RailVertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &[
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x3,
-                            offset: 0,
-                            shader_location: 0,
-                        },
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32,
-                            offset: 12,
-                            shader_location: 1,
-                        },
-                    ],
-                }],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &rail_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: HDR_FORMAT,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::LineList,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: Default::default(),
-                bias: wgpu::DepthBiasState {
-                    constant: 1,
-                    slope_scale: 0.5,
-                    clamp: 0.0,
-                },
-            }),
-            multisample: Default::default(),
-            multiview: None,
-            cache: None,
-        });
-
-        // 鈹€鈹€鈹€ 5.7 frontlines 鈹€鈹€鈹€鈹€鈹€
-        println!("Generating frontlines...");
-        let front_verts =
-            generate_frontline_vertices(&self.world, &centroids, WORLD_SCALE, HEIGHT_SCALE);
-        println!("  {} frontline border quads", front_verts.len() / 6);
-
-        // Phase 2.9: Buildings - data generated, now with own pipeline (Phase 3.5).
-        let building_instances =
-            generate_buildings(&self.world, &centroids, WORLD_SCALE, HEIGHT_SCALE);
-        let buildings_count = building_instances.len() as u32;
-        let buildings_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("buildings"),
-            contents: if building_instances.is_empty() {
-                &[0u8; 16]
-            } else {
-                bytemuck::cast_slice(&building_instances)
-            },
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        println!("  {} building icons", buildings_count);
-
-        let buildings_params_buffer =
-            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("building_params"),
-                contents: bytemuck::bytes_of(&BuildingParams::default()),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-        let buildings_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("buildings_bg"),
-            layout: &rail_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: camera_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: buildings_params_buffer.as_entire_binding(),
-                },
-            ],
-        });
-
-        // Buildings pipeline (16-byte per-instance: [f32;3] + f32)
-        let buildings_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("buildings_shader"),
-            source: wgpu::ShaderSource::Wgsl(hoi4_render::SHADER_BUILDINGS_WGSL.into()),
-        });
-        let buildings_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("buildings_pipeline"),
-            layout: Some(&rail_pl),
-            vertex: wgpu::VertexState {
-                module: &buildings_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 16, // [f32;3] + f32 = 16 bytes
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &[
-                        wgpu::VertexAttribute {
-                            offset: 0,
-                            shader_location: 0,
-                            format: wgpu::VertexFormat::Float32x3,
-                        },
-                        wgpu::VertexAttribute {
-                            offset: 12,
-                            shader_location: 1,
-                            format: wgpu::VertexFormat::Float32,
-                        },
-                    ],
-                }],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &buildings_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: HDR_FORMAT,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            multiview: None,
-            cache: None,
-        });
-
-        // 鈹€鈹€鈹€ Phase I (CR-1.2 / CR-5) 鈥?HOI3 椋庢牸灞忓箷绌洪棿鍏电墝 pass锛堥粯璁ゅ惎鐢級 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-        let hoi3_counter_pass = Hoi3CounterPass::new(
-            &device,
-            &queue,
-            HDR_FORMAT,
-            Hoi3CounterPass::DEFAULT_INITIAL_CAPACITY,
-        );
-        println!(
-            "[hoi3_counter_v3] capacity = {}, enabled = {} (toggle: F8)",
-            Hoi3CounterPass::DEFAULT_INITIAL_CAPACITY,
-            hoi3_counter_pass.enabled()
-        );
-
-        // 鈹€鈹€鈹€ Phase 14 ???POI icon pass (factories / ports / airbases / resources) 鈹€
-        let poi_icon_instances =
-            generate_poi_icons(&self.world, &centroids, WORLD_SCALE, HEIGHT_SCALE);
-        let poi_icon_pass = {
-            let poi_instances = &poi_icon_instances;
-            println!("  {} POI icon instances", poi_instances.len());
-            let mut pass = PoiIconPass::new(
-                &device,
-                &queue,
-                HDR_FORMAT,
-                &camera_buffer,
-                poi_instances.len().next_power_of_two().max(64) as u32,
-            );
-            for w in &pass.load_warnings {
-                println!("{}", w);
-            }
-            pass.upload(&device, &queue, poi_instances, 3);
-            println!(
-                "[poi_icon] enabled = {}, {} instances uploaded",
-                pass.enabled(),
-                pass.instance_count()
-            );
-            Some(pass)
-        };
-
-        // Frontlines pipeline - actual contact-border strip triangles with per-vertex colour.
-        let frontlines_vertex_count = front_verts.len() as u32;
-        let frontlines_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("frontline_verts"),
-            contents: if front_verts.is_empty() {
-                &[0u8; 16]
-            } else {
-                bytemuck::cast_slice(&front_verts)
-            },
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let front_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("front_shader"),
-            source: wgpu::ShaderSource::Wgsl(hoi4_render::SHADER_FRONTLINES_WGSL.into()),
-        });
-        let frontlines_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("frontlines_pipeline"),
-            layout: Some(&rail_pl),
-            vertex: wgpu::VertexState {
-                module: &front_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<FrontVertex>() as u64,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &[
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Float32x3,
-                            offset: 0,
-                            shader_location: 0,
-                        },
-                        wgpu::VertexAttribute {
-                            format: wgpu::VertexFormat::Unorm8x4,
-                            offset: 12,
-                            shader_location: 1,
-                        },
-                    ],
-                }],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &front_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: HDR_FORMAT,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: Default::default(),
-                bias: wgpu::DepthBiasState {
-                    constant: 4,
-                    slope_scale: 2.0,
-                    clamp: 0.0,
-                },
-            }),
-            multisample: Default::default(),
-            multiview: None,
-            cache: None,
-        });
-
-        // V5 鏀跺彛锛歎I-pass-removed 宸插垹闄わ紙vanilla GUI command 娓叉煋绠＄嚎锛???        // Phase 3.5: Text pass
-        let text_pass = TextPass::new(&device, format, logical_w, logical_h);
-
-        // Phase 4.2 (redesign): Panel pass (鍦嗚鐭╁舰 SDF) + Flag bank (TGA 鍔犺浇)
-        let panel_pass = PanelPass::new(&device, format, logical_w, logical_h);
-        let mut flag_bank = FlagBank::new(&device, &queue);
-
-        // Flag pipeline: 澶嶇敤 UI shader 姒傚康浣嗙嫭绔嬪疄渚嬶紝鍥犱负姣忎釜 flag 鐢ㄧ嫭绔嬬汗??
-        let flag_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("flag_shader"),
-            source: wgpu::ShaderSource::Wgsl(
-                r#"
-                struct U { screen_size: vec2<f32> };
-                @group(0) @binding(0) var<uniform> u: U;
-                @group(0) @binding(1) var t: texture_2d<f32>;
-                @group(0) @binding(2) var s: sampler;
-                struct VsIn { @location(0) pos: vec2<f32>, @location(1) uv: vec2<f32> };
-                struct VsOut { @builtin(position) clip_pos: vec4<f32>, @location(0) uv: vec2<f32> };
-                @vertex fn vs_main(in: VsIn) -> VsOut {
-                    var o: VsOut;
-                    let nx = (in.pos.x / u.screen_size.x) * 2.0 - 1.0;
-                    let ny = 1.0 - (in.pos.y / u.screen_size.y) * 2.0;
-                    o.clip_pos = vec4<f32>(nx, ny, 0.0, 1.0);
-                    o.uv = in.uv;
-                    return o;
-                }
-                @fragment fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-                    return textureSample(t, s, in.uv);
-                }
-            "#
-                .into(),
-            ),
-        });
-        let flag_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("flag_bgl"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-        });
-        let flag_pl = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
-            bind_group_layouts: &[&flag_bgl],
-            push_constant_ranges: &[],
-        });
-        let flag_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("flag_pipeline"),
-            layout: Some(&flag_pl),
-            vertex: wgpu::VertexState {
-                module: &flag_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 16,
-                    step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &[
-                        wgpu::VertexAttribute {
-                            offset: 0,
-                            shader_location: 0,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
-                        wgpu::VertexAttribute {
-                            offset: 8,
-                            shader_location: 1,
-                            format: wgpu::VertexFormat::Float32x2,
-                        },
-                    ],
-                }],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &flag_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            multiview: None,
-            cache: None,
-        });
-        // 4.1.bis.6 fix (2026-05-16): flag layout coords come from
-        // `last_country_layout` which is logical-space, so the shader needs
-        // logical screen size to NDC-divide correctly.
-        let flag_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("flag_uniforms"),
-            contents: bytemuck::bytes_of(&[logical_w, logical_h]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let flag_vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("flag_verts"),
-            size: 6 * 16,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        flag_bank.init_fallback(&device, &flag_bgl, &flag_uniform_buffer);
-
-        // Phase 3.6.3: 3D mesh trees
-        let (
-            trees_mesh_pipeline,
-            trees_mesh_bind_groups,
-            trees_mesh_vertex_buffers,
-            trees_mesh_index_buffers,
-            trees_mesh_instance_buffers,
-            trees_mesh_index_counts,
-            trees_mesh_instance_counts,
-        ) = setup_tree_mesh_pipeline(
-            &device,
-            &queue,
-            &self.path_cfg,
-            &tree_data,
-            &camera_buffer,
-            &params_buffer,
-            HDR_FORMAT,
-            depth_format,
-        );
-
-        // Phase 3.12.8 ???vanilla tree.shader full integration.
-        // Constructed AFTER shadow_pass + global_uniform_buf so it can consume
-        // the shared shadow depth view + comparison sampler. When all 3 tree
-        // mesh types load successfully it replaces the old trees_mesh path.
-        let (season_lerp, season_column) = {
-            let sr = self.seasons.season_for_date(1, 1); // 1936-01-01 start
-            (sr.season_lerp, sr.season_column)
-        };
-        let tree_full_pass = passes::TreeFullPass::new(
-            &device,
-            &queue,
-            &self.path_cfg,
-            &tree_data,
-            passes::TreeFullPassInputs {
-                global_uniform_buffer: &global_uniform_buf.buffer,
-                shadow_depth_view: &shadow_pass.depth_view,
-                shadow_compare_sampler: &shadow_pass.compare_sampler,
-                depth_format,
-                world_size: [self.camera.world_size.x, self.camera.world_size.y],
-                season_lerp,
-                season_column,
-                runtime_targets: &vanilla_targets,
-                vanilla_resources: &vanilla_resources,
-                tree_indices: &self.world.map.tree_indices,
-            },
-        );
-        binding_audit.extend(tree_full_pass.binding_audit.entries.clone());
-        println!(
-            "[trees_full] TreeFullPass ready (any_loaded={}, {} warnings)",
-            tree_full_pass.any_loaded,
-            tree_full_pass.load_warnings.len()
-        );
-        for w in &tree_full_pass.load_warnings {
-            eprintln!("  {}", w);
-        }
-        let tree_full_pass = if tree_full_pass.any_loaded {
-            Some(tree_full_pass)
-        } else {
-            None
-        };
-
-        // Phase 9: pdxmesh pass for vanilla 3D map objects.
-        // Constructed AFTER both `shadow_pass` (to share its depth view +
-        // compare sampler) and `global_uniform_buf` (Phase 3.12.1 鍏变韩
-        // GlobalFrameUniform). Resolves buildings.gfx pdxmesh records and
-        // falls back to known vanilla building mesh paths when an entry is
-        // missing.
-        let mut pdxmesh_pass = passes::PdxMeshPass::new(
-            &device,
-            &queue,
-            &self.path_cfg,
-            &global_uniform_buf.buffer,
-            depth_format,
-            &shadow_pass.depth_view,
-            &shadow_pass.compare_sampler,
-            &vanilla_targets,
-        );
-        // Push map object instance data through (split by object kind).
-        pdxmesh_pass.set_buildings(&device, &building_instances);
-        let cam_eye = self.camera.eye();
-        pdxmesh_pass.upload_lod_instances(&device, &queue, [cam_eye.x, cam_eye.y, cam_eye.z]);
-        println!(
-            "[pdxmesh] {} map object instances split across {} mesh types (any_loaded={})",
-            pdxmesh_pass.total_instances(),
-            pdxmesh_pass.mesh_type_count(),
-            pdxmesh_pass.any_loaded
-        );
-
-        // Phase 3.12.7 ???vanilla river pass.
-        // Reuses the same per-LOD instance buffers as the terrain pass; loads
-        // 7 vanilla river textures (3 diffuse + 3 normal + masks) via FsAssetDb
-        // with 1x1 fallback. Drawn after water and before borders; terrain's
-        // navy-blue river overlay is only a fallback when RiverPass is unavailable.
-        let river_pass = passes::RiverPass::new(
-            &device,
-            &queue,
-            &self.path_cfg,
-            passes::RiverPassInputs {
-                global_uniform_buffer: &global_uniform_buf.buffer,
-                depth_format,
-                lod_grid: LOD_GRID,
-                heightmap_view: &height_view,
-                rivers_view: &rivers_view,
-                world_size: [self.camera.world_size.x, self.camera.world_size.y],
-                height_scale: HEIGHT_SCALE,
-                vanilla_resources: &vanilla_resources,
-            },
-        );
-        println!(
-            "[river] RiverPass ready (any_loaded={}, {} warnings)",
-            river_pass.any_loaded,
-            river_pass.load_warnings.len()
-        );
-        for w in &river_pass.load_warnings {
-            eprintln!("  {}", w);
-        }
-        binding_audit.extend(river_pass.binding_audit.entries.clone());
-
-        // Phase 6 vanilla pdxwater pass.
-        // Reuses the same per-LOD instance buffers as the terrain pass; loads
-        // the 12 water material textures used by SampleWater/reflection/ice
-        // via FsAssetDb with 1x1 fallback per role. Drawn after terrain so it
-        // overdraws the inline water branch in terrain.wgsl.
-        let mut water_pass = passes::WaterPass::new(
-            &device,
-            &queue,
-            &self.path_cfg,
-            passes::WaterPassInputs {
-                global_uniform_buffer: &global_uniform_buf.buffer,
-                depth_format,
-                lod_grid: LOD_GRID,
-                heightmap_view: &height_view,
-                province_view: &province_view,
-                coast_sdf_view: &coast_sdf_view,
-                world_size: [self.camera.world_size.x, self.camera.world_size.y],
-                height_scale: HEIGHT_SCALE,
-                vanilla_resources: &vanilla_resources,
-                runtime_targets: &vanilla_targets,
-            },
-        );
-        println!(
-            "[water] WaterPass ready (any_loaded={}, loaded={}, fallback={}, critical_missing={}, {} warnings)",
-            water_pass.any_loaded,
-            water_pass.texture_load_stats.loaded,
-            water_pass.texture_load_stats.fallback,
-            water_pass.texture_load_stats.critical_missing,
-            water_pass.load_warnings.len()
-        );
-        for w in &water_pass.load_warnings {
-            eprintln!("  {}", w);
-        }
-        binding_audit.extend(water_pass.binding_audit.entries.clone());
-        println!("{}", binding_audit.summary_line());
-        for entry in binding_audit.critical_entries().take(16) {
-            eprintln!(
-                "[binding-audit] critical {}.{} source={} reason={}",
-                entry.pass,
-                entry.binding,
-                entry.source_name,
-                entry.reason.as_deref().unwrap_or("none")
-            );
-        }
-
-        // Phase 3.12.9 (redesign) ???vanilla border pass using strip meshes.
-        // CPU extracts border edges from province bitmap ???generates thin
-        // quad-strip meshes that hug actual boundaries.
-        let border_edges = hoi4_render::border_extract::extract_border_edges(&self.world);
-        let border_meshes = hoi4_render::border_extract::generate_border_meshes(
-            &border_edges,
-            &self.world.map.heightmap,
-            &hoi4_render::border_extract::StripParams {
-                world_scale: WORLD_SCALE,
-                height_scale: HEIGHT_SCALE,
-                half_width: 0.009,
-                y_bias: 0.018,
-                tile_factor: 0.20,
-                ..Default::default()
-            },
-        );
-        println!(
-            "[border] extracted {} edges ???{} mesh groups",
-            border_edges.len(),
-            border_meshes.len()
-        );
-
-        let border_pass = passes::BorderPass::new(
-            &device,
-            &queue,
-            passes::BorderPassInputs {
-                global_uniform_buffer: &global_uniform_buf.buffer,
-                depth_format,
-                meshes: &border_meshes,
-                path_cfg: &self.path_cfg,
-            },
-        );
-        println!(
-            "[border] BorderPass ready (any_loaded={}, {} warnings)",
-            border_pass.any_loaded,
-            border_pass.load_warnings.len()
-        );
-        for w in &border_pass.load_warnings {
-            eprintln!("  {}", w);
-        }
-
-        // Phase 3.12.11: Sky pass + EnvironmentMap cubemap.
-        let sky_pass = passes::SkyPass::new(
-            &device,
-            &queue,
-            &global_uniform_buf.buffer,
-            HDR_FORMAT,
-            depth_format,
-            &self.path_cfg,
-        );
-        if sky_pass.loaded {
-            water_pass.set_env_cubemap(&device, &sky_pass.cubemap_view);
-            pdxmesh_pass.set_env_cubemap_with_shadow(
-                &device,
-                &sky_pass.cubemap_view,
-                &shadow_pass.depth_view,
-                &shadow_pass.compare_sampler,
-                &vanilla_targets,
-            );
-        }
-        println!("[sky] SkyPass ready (cubemap_loaded={})", sky_pass.loaded);
-
-        // Phase 3.12.10: Particle pass (combat smoke / factory chimneys / scorched earth).
-        let particle_pass = passes::ParticlePass::new(
-            &device,
-            &queue,
-            &global_uniform_buf.buffer,
-            HDR_FORMAT,
-            depth_format,
-        );
-        println!(
-            "[particle] ParticlePass ready (max {})",
-            hoi4_render::particles::MAX_PARTICLES
-        );
-
-        // Phase 16: Arrows family (maparrow / traderoute / strait).
-        let maparrow_pass =
-            passes::MapArrowPass::new(&device, &queue, &global_uniform_buf.buffer, depth_format);
-        let mut traderoute_pass =
-            passes::TradeRoutePass::new(&device, &queue, &global_uniform_buf.buffer, depth_format);
-        let mut strait_pass =
-            passes::StraitPass::new(&device, &queue, &global_uniform_buf.buffer, depth_format);
-
-        let trade_verts = passes::traderoute::generate_trade_route_vertices(
-            &self.world,
-            &centroids,
-            WORLD_SCALE,
-            HEIGHT_SCALE,
-        );
-        traderoute_pass.set_routes(&device, &queue, &trade_verts);
-
-        // Build strait geometry from adjacency data.
-        strait_pass.build_straits(
-            &device,
-            &queue,
-            &self.world.map.special_adjacencies,
-            &centroids,
-            WORLD_SCALE,
-        );
-        println!(
-            "[arrows] trade_verts={}, strait_verts={}",
-            trade_verts.len(),
-            strait_pass.any_loaded as u32,
-        );
-        println!("[arrows] MapArrowPass / TradeRoutePass / StraitPass ready");
-
-        // Phase 3.12.10: vanilla-equivalent 3D country-name label pass.
-        let mapname_pass = mapname_atlas_opt.as_ref().map(|atlas| {
-            passes::MapnamePass::new(
-                &device,
-                &queue,
-                passes::MapnamePassInputs {
-                    global_uniform_buffer: &global_uniform_buf.buffer,
-                    depth_format,
-                    obbs: &country_obbs,
-                    atlas: Some(atlas),
-                    heightmap_view: &height_view,
-                    world_scale: WORLD_SCALE,
-                    label_y: HEIGHT_SCALE * 0.5,
-                    height_scale: HEIGHT_SCALE,
-                },
-            )
-        });
-        let mapname_count = mapname_pass
-            .as_ref()
-            .map(|p| p.instance_count())
-            .unwrap_or(0);
-        println!(
-            "[mapname] vanilla pass ready, {} label instances",
-            mapname_count
-        );
-
-        // Phase 3.12.13: province-name labels (zoom-gated).
-        let t_prov_labels = Instant::now();
-        let province_labels = hoi4_render::province_labels::compute_province_labels(
-            &self.world.map.province_map,
-            &self.world.map.definitions,
-            8000,
-        );
-        let n_prov_labels = province_labels.iter().filter(|l| l.is_some()).count();
-        println!(
-            "[province_name] {} land province labels computed in {:.2}s",
-            n_prov_labels,
-            t_prov_labels.elapsed().as_secs_f32()
-        );
-
-        let t_prov_atlas = Instant::now();
-        let prov_names: Vec<Option<String>> = {
-            let _defs = &self.world.map.definitions;
-            let state_names = &self.world.states.names;
-            let state_of = &self.world.provinces.state_of;
-            let mut out: Vec<Option<String>> = vec![None; province_labels.len()];
-            for id in 1..province_labels.len() {
-                if province_labels[id].is_none() {
-                    continue;
-                }
-                let sid = if id < state_of.len() {
-                    state_of[id]
-                } else {
-                    hoi4_state::ids::StateId::NONE
-                };
-                let name = if sid != hoi4_state::ids::StateId::NONE {
-                    let si = sid.0 as usize;
-                    if si < state_names.len() && !state_names[si].is_empty() {
-                        Some(state_names[si].clone())
-                    } else {
-                        Some(format!("PROV{}", id))
-                    }
-                } else {
-                    Some(format!("PROV{}", id))
-                };
-                out[id] = name;
-            }
-            out
-        };
-        let prov_atlas_opt = province_name_atlas::bake_province_name_atlas(&prov_names, 14.0);
-        if let Some(atlas) = &prov_atlas_opt {
-            println!(
-                "[province_name] atlas: {}x{} R8, {} entries baked in {:.2}s",
-                atlas.width,
-                atlas.height,
-                atlas.count_baked(),
-                t_prov_atlas.elapsed().as_secs_f32()
-            );
-        } else {
-            eprintln!("[province_name] atlas bake failed (no system font?)");
-        }
-
-        let prov_instances = if let Some(atlas) = &prov_atlas_opt {
-            province_name_atlas::build_province_label_instances(
-                &province_labels,
-                atlas,
-                WORLD_SCALE,
-                HEIGHT_SCALE * 0.45,
-                100,
-            )
-        } else {
-            Vec::new()
-        };
-        let prov_inst_count = prov_instances.len();
-        let province_name_pass = if prov_atlas_opt.is_some() {
-            Some(passes::ProvinceNamePass::new(
-                &device,
-                &queue,
-                passes::province_name::ProvinceNamePassInputs {
-                    global_uniform_buffer: &global_uniform_buf.buffer,
-                    depth_format,
-                    atlas: prov_atlas_opt.as_ref(),
-                    heightmap_view: &height_view,
-                    instances: &prov_instances,
-                    height_scale: HEIGHT_SCALE,
-                },
-            ))
-        } else {
-            None
-        };
-        println!(
-            "[province_name] pass ready, {} label instances",
-            prov_inst_count
-        );
-
-        // 鈹€鈹€鈹€ Phase 3.12.1 鍏叡娓叉煋鍩虹璁炬柦 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-        // 绂诲睆 HDR ???RT锛圧GBA16Float锛???D pass 鍐欏叆杩欓噷锛屼箣鍚庣敱 PostProcessChain
-        // ???SimpleBlitPass 妗ユ帴???swap chain??
-        let hdr_target = HdrTarget::new(&device, config.width, config.height);
-        let simple_blit = SimpleBlitPass::new(&device, format, &hdr_target.view);
-        let color_cube_source = ColorCubeSource::load_from_path_config(&self.path_cfg);
-        let post_process = PostProcessChain::new(
-            &device,
-            &queue,
-            &hdr_target.view,
-            hdr_target.width,
-            hdr_target.height,
-            format,
-            color_cube_source,
-        );
-        for warning in &post_process.color_cube_warnings {
-            eprintln!("[postprocess] {warning}");
-        }
-        let map_renderer = MapRenderer::new();
-        let mut pass_registry = PassRegistry::new();
-        map_renderer.register_passes(&mut pass_registry);
-        let debug_render_overlay = DebugOverlay::new();
-        let gpu_profiler = GpuTimestampProfiler::new(&device, &queue);
-        println!(
-            "[phase10] quality={} budget={:?} gpu_timestamp={}",
-            self.map_quality_preset.as_str(),
-            self.map_quality_preset.budget(),
-            gpu_profiler
-                .as_ref()
-                .map(|profiler| profiler.status())
-                .unwrap_or(GpuProfilerStatus::UNSUPPORTED)
-                .summary()
-        );
-        println!(
-            "[render] HDR offscreen RT ready ({}x{} {:?}); post-process mode = {:?}; {}; color_cube={}",
-            hdr_target.width,
-            hdr_target.height,
-            HDR_FORMAT,
-            post_process.mode,
-            post_process.calibration.summary(),
-            post_process.color_cube_source
-        );
-
-        // Egui UI overlay must target the swapchain format.
-        let ui = hoi4_ui::UiState::new(&device, format, 1, &window);
-        // Apply vanilla UI theme and tooltip timing.
-        let theme_assets = hoi4_ui::theme::apply_vanilla_theme(&ui.ctx);
-        hoi4_ui::loc::configure_tooltip_delay(&ui.ctx);
-        println!(
-            "[render] egui UI overlay ready (target_format={:?}, dpi={:.2})\n[ui] vanilla theme: latin={:?} cjk={:?}",
-            format,
-            window.scale_factor(),
-            theme_assets.latin_serif_path,
-            theme_assets.cjk_fallback_path,
-        );
-
-        // Load vanilla 9-slice window texture with a plain-color fallback.
-        let nine_slice_window = match hoi4_ui::nine_slice::NineSlice::load_vanilla(
-            &ui.ctx,
-            &self.path_cfg,
-            "gfx/interface/tiles/tiled_window.dds",
-            hoi4_ui::nine_slice::NineSliceEdges::uniform(32.0),
-            "vanilla_tiled_window",
-        ) {
-            Ok(ns) => {
-                println!(
-                    "[ui] 9-slice tiled_window loaded ({}x{}, edges=32 px)",
-                    ns.size.x as u32, ns.size.y as u32
-                );
-                Some(ns)
-            }
-            Err(e) => {
-                eprintln!("[ui] 9-slice tiled_window load failed: {e} (UI 璧扮函鑹?fallback)");
-                None
-            }
-        };
-
-        // Sprite icon bank lazily loads icons on first use.
-        let mut icon_bank = hoi4_ui::icons::IconBank::new(ui.ctx.clone(), self.path_cfg.clone());
-        icon_bank.add_search_dir("gfx/interface/ideas");
-        icon_bank.add_search_dir("gfx/interface/idea_categories");
-        icon_bank.add_search_dir("gfx/event_pictures");
-        icon_bank.add_search_dir("gfx/interface");
-        // Register DLC leader portrait directories before base-game directories.
-        {
-            let dlc_dir = self.path_cfg.game_path().join("dlc");
-            if dlc_dir.is_dir() {
-                if let Ok(dlcs) = std::fs::read_dir(&dlc_dir) {
-                    for dlc in dlcs.flatten() {
-                        let leaders = dlc.path().join("gfx").join("leaders");
-                        if leaders.is_dir() {
-                            if let Ok(tags) = std::fs::read_dir(&leaders) {
-                                for tag_dir in tags.flatten() {
-                                    if tag_dir.path().is_dir() {
-                                        let rel = format!(
-                                            "dlc/{}/gfx/leaders/{}",
-                                            dlc.file_name().to_string_lossy(),
-                                            tag_dir.file_name().to_string_lossy()
-                                        );
-                                        icon_bank.add_search_dir(rel);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        icon_bank.add_leader_dirs(self.world.countries.tags.iter().filter(|t| !t.is_empty()));
-        // Preload known GER focus icons used by the startup banner.
-        for name in &["GFX_focus_GER_anschluss", "GFX_focus_GER_afrikakorps"] {
-            if icon_bank.get_or_load(name).is_some() {
-                if let Some(sz) = icon_bank.size_of(name) {
-                    println!("[ui] icon preloaded: {name} ({}x{})", sz[0], sz[1]);
-                }
-            } else if let Some(reason) = icon_bank.missing_reason(name) {
-                eprintln!("[ui] icon preload failed: {name}: {reason}");
-            }
-        }
-
-        // Startup banner: verify country leader coverage for the seven majors.
-        {
-            let major_tags = ["GER", "SOV", "ENG", "FRA", "ITA", "JAP", "USA"];
-            let mut hit = 0u32;
-            let mut miss_list: Vec<&str> = Vec::new();
-            for tag in &major_tags {
-                let cid = self.world.country(tag);
-                let has_leader = cid.and_then(|c| self.world.country_leader(c)).is_some();
-                if has_leader {
-                    hit += 1;
-                } else {
-                    miss_list.push(tag);
-                }
-            }
-            println!(
-                "[J.1] country_leader coverage: {hit}/{} majors hit{}",
-                major_tags.len(),
-                if miss_list.is_empty() {
-                    String::new()
-                } else {
-                    format!(" 鈥?missing: {}", miss_list.join(", "))
-                }
-            );
-        }
-
-        let province_pixel_bounds =
-            render_collect::build_province_pixel_bounds(&self.world.map.province_map);
-
-        self.state = Some(RenderState {
-            surface,
-            device,
-            queue,
-            config,
-            terrain_pass,
-            vanilla_targets,
-            camera_buffer,
-            params_buffer,
-            instance_buffers,
-            instance_capacity: [total_chunks as u32; 3],
-            terrain_bucket_signature: [0; 3],
-            terrain_bucket_counts: [0; 3],
-            lut_texture,
-            lut_width,
-            lut_height,
-            occupation_lut_texture,
-            depth_view,
-            depth_format,
-            chunk_grid,
-            trees_pipeline,
-            trees_bind_group,
-            trees_buffer,
-            trees_count,
-            railways_pipeline,
-            railways_bind_group: rail_bg,
-            railways_params_buffer,
-            railways_buffer,
-            railways_vertex_count,
-            hoi3_counter_pass,
-            unit_counter_centroids: centroids.clone(),
-            province_pixel_bounds,
-            frontlines_pipeline,
-            frontlines_bind_group: frontlines_bg,
-            frontlines_buffer,
-            frontlines_vertex_count,
-            frontlines_params_buffer,
-            buildings_buffer,
-            buildings_params_buffer,
-            buildings_bind_group,
-            buildings_count,
-            buildings_pipeline,
-            pdxmesh_pass,
-            water_pass,
-            river_pass,
-            border_pass,
-            sky_pass,
-            particle_pass,
-            maparrow_pass,
-            traderoute_pass,
-            strait_pass,
-            poi_icon_pass,
-            poi_icon_instances,
-            poi_zoom_bucket: 3,
-            text_pass,
-            panel_pass,
-            flag_bank,
-            flag_pipeline,
-            flag_bgl,
-            flag_uniform_buffer,
-            flag_vertex_buffer,
-            trees_mesh_pipeline,
-            trees_mesh_bind_groups,
-            trees_mesh_vertex_buffers,
-            trees_mesh_index_buffers,
-            trees_mesh_instance_buffers,
-            trees_mesh_index_counts,
-            trees_mesh_instance_counts,
-            tree_full_pass,
-            tree_lod_uploaded: false,
-            tree_lod_last_cam_pos: [f32::NAN, f32::NAN, f32::NAN],
-            country_labels,
-            mapname_pass,
-            mapname_atlas: mapname_atlas_opt,
-            province_name_pass,
-            // Phase 3.12.1
-            hdr_target,
-            global_uniform_buf,
-            simple_blit,
-            post_process,
-            // Phase 3.12.3
-            shadow_pass,
-            map_renderer,
-            pass_registry,
-            debug_render_overlay,
-            gpu_profiler,
-            ui,
-            nine_slice_window,
-            icon_bank,
-            window,
-        });
-
-        // Apply fullscreen setting after render state initialization.
-        if self.settings.fullscreen {
-            if let Some(s) = self.state.as_ref() {
-                s.window.set_fullscreen(Some(Fullscreen::Borderless(None)));
-            }
-        }
-        if let Some(s) = self.state.as_mut() {
-            // Phase 3.5: Load font for text rendering
-            let bgl = TextPass::bind_group_layout(&s.device);
-            s.text_pass
-                .load_font(&s.device, &s.queue, &self.path_cfg, &bgl);
-        }
-    }
-
-    // V5 鏀跺彛锛?026-05-18锛夛細鍒犻櫎 rebuild_topbar_runtime 鈥斺€?vanilla topbar.gui /
-    // countrypoliticsview.gui 瑙ｆ瀽璺嚎宸插仠鐢紝topbar / 鏀挎不闈㈡澘娓叉煋鎺ㄨ繜鍒伴樁娈?B銆?
+    // V5 ???????026-05-18????????? rebuild_topbar_runtime ?????vanilla topbar.gui /
+    // countrypoliticsview.gui ??????????????????topbar / ?????????????????????????B??
     fn refresh_lut(&self) {
         let s = match &self.state {
             Some(s) => s,
@@ -5403,7 +3436,6 @@ impl App {
         }
         let display_name = hoi4_ui::i18n::tr(&tag).to_string();
 
-        // 鍏冮
         let (leader_name, leader_portrait_key) =
             Self::head_of_state_display(&self.world, &self.historical_1936, target);
 
@@ -5461,7 +3493,6 @@ impl App {
             .filter(|&i| self.world.divisions.owners[i] == target)
             .count() as u32;
 
-        // 鍏崇郴
         let opinion = self.world.diplomacy.opinions.get(player, target);
         let at_war = self.world.diplomacy.at_war_with(player, target);
         let player_faction = self.world.diplomacy.faction_of(player);
@@ -5518,10 +3549,10 @@ impl App {
         );
         if self.settings.instant_war
             && !declare_war_action.enabled
-            && declare_war_action.reason.as_deref() == Some("需要已正当化的战争目标")
+            && declare_war_action.reason.as_deref() == Some("?????????????????")
         {
             declare_war_action = hoi4_ui::diplomacy::DiplomaticActionView::enabled(
-                "直接宣战已开启：点击后会跳过正当化并立即宣战",
+                "?????????????????????????????????",
             );
         }
         let invite_to_faction_action = diplomacy_action_view(
@@ -5842,7 +3873,7 @@ impl App {
                                         .play_with_fallback(UiSound::Click, UiSound::Click);
                                 }
                             }
-                            // 涓嶉€€鍑哄缓閫犳ā寮忊€斺€旂帺瀹跺彲浠ヨ繛缁偣鍑诲涓渷浠藉缓閫犲悓绫诲缓绛戙€?                            // 鎸?ESC 鎴栧彸閿墠閫€鍑?construction_mode銆?                        } else {
+                            // ??????????????????????????????????????????????????????????????????                            // ??ESC ??????????????construction_mode??                        } else {
                             println!(
                                 "[construction] state {} is full ({}/{})",
                                 self.world.states.names[si], used, max
@@ -6124,7 +4155,7 @@ impl App {
                 .map(|def| def.terrain == "urban")
                 .unwrap_or(false)
             {
-                strategic_nodes.push("城市".to_owned());
+                strategic_nodes.push("???".to_owned());
             }
             let adjacent_enemy = self.world.map.neighbors(new_pid as u16).iter().any(|&adj| {
                 let adj_pi = adj as usize;
@@ -6133,7 +4164,7 @@ impl App {
                     && !self.world.provinces.controllers[adj_pi].is_none()
             });
             if adjacent_enemy {
-                strategic_nodes.push("前线接触".to_owned());
+                strategic_nodes.push("??????".to_owned());
             }
             // Divisions in this province (all countries visible)
             let div_names: Vec<String> = (0..self.world.divisions.count)
@@ -6210,7 +4241,7 @@ impl App {
                         let mut warnings = Vec::new();
                         if employment_gap.iter().any(|&gap| gap > 0) {
                             warnings.push(format!(
-                                "{}：{}",
+                                "{} {}",
                                 hoi4_ui::i18n::tr("labor_shortage"),
                                 employment_gap.iter().sum::<u32>()
                             ));
@@ -6303,8 +4334,7 @@ impl App {
         }
     }
 
-    // V5 鏀跺彛锛氬垹???`handle_ui_click` 鈥???vanilla GUI widget hit-test 璺嚎宸插仠鐢紝
-    // topbar 閫熷害鎸夐挳 / 鏀挎不闈㈡澘鍏ュ彛灏嗗湪闃舵 B 閫氳繃 egui 閲嶅仛???
+    // V5 ????????????`handle_ui_click` ????vanilla GUI widget hit-test ??????????????    // topbar ????????? / ??????????????????????? B ?????egui ???????
     /// Phase 4.3: Handle mouse click within an open in-game panel.
     fn handle_panel_click(&mut self, _mx: f32, _my: f32) -> bool {
         false
@@ -6442,46 +4472,46 @@ impl App {
         let value = |key: &str| vars.get(key).copied().unwrap_or(0.0);
         vec![
             hoi4_ui::decisions_panel::MechanicGauge {
-                label: "佛朗哥权威".to_owned(),
+                label: "Label".to_owned(),
                 value: value("spa_franco_authority"),
                 max: 15.0,
-                detail: "开局只是外援与非洲军团的协调者；桑胡尔霍、莫拉等竞争者退出后才会真正抬高。8 点进入强势候选，12 点会锁定 P9 佛朗哥胜利路线。".to_owned(),
+                detail: "Authority affects nationalist command decisions.".to_owned(),
             },
             hoi4_ui::decisions_panel::MechanicGauge {
-                label: "长枪党/蓝衫".to_owned(),
+                label: "Label".to_owned(),
                 value: value("spa_falange_power"),
                 max: 15.0,
-                detail: "1936 年 7 月仍是地方蓝衫、民兵和宣传网络，不是国民军最高统帅部；授权地方委员会、何塞·安东尼奥死亡和统一法令会让它制度化。".to_owned(),
+                detail: "Falange power tracks faction momentum.".to_owned(),
             },
             hoi4_ui::decisions_panel::MechanicGauge {
-                label: "军队忠诚".to_owned(),
+                label: "Label".to_owned(),
                 value: value("spa_army_loyalty"),
                 max: 15.0,
-                detail: "决定军政府、前线将领和复员后的军内服从度。".to_owned(),
+                detail: "Army loyalty affects command stability.".to_owned(),
             },
             hoi4_ui::decisions_panel::MechanicGauge {
-                label: "教会影响".to_owned(),
+                label: "Label".to_owned(),
                 value: value("spa_church_influence"),
                 max: 15.0,
-                detail: "推动国民天主教秩序，也牵制长枪党地方扩张。".to_owned(),
+                detail: "Church influence affects political support.".to_owned(),
             },
             hoi4_ui::decisions_panel::MechanicGauge {
-                label: "卡洛斯派怨恨".to_owned(),
+                label: "Label".to_owned(),
                 value: value("spa_carlist_anger"),
                 max: 15.0,
-                detail: "过高会制造传统派反弹和王政问题风险。".to_owned(),
+                detail: "Carlist anger raises internal tension.".to_owned(),
             },
             hoi4_ui::decisions_panel::MechanicGauge {
-                label: "外援依赖".to_owned(),
+                label: "Label".to_owned(),
                 value: value("spa_foreign_dependency"),
                 max: 15.0,
-                detail: "德国与意大利援助越多，战后索偿和外交束缚越重。".to_owned(),
+                detail: "Foreign dependency tracks outside support.".to_owned(),
             },
             hoi4_ui::decisions_panel::MechanicGauge {
-                label: "占领区抵抗".to_owned(),
+                label: "Label".to_owned(),
                 value: value("spa_occupation_resistance"),
                 max: 15.0,
-                detail: "清洗、恐怖广播和地方接管会抬高抵抗，军管治理可压低。".to_owned(),
+                detail: "Resistance affects occupied areas.".to_owned(),
             },
         ]
     }
@@ -6533,7 +4563,6 @@ impl App {
                     match btn.id {
                         "btn_new_game" => {
                             self.game_phase = GamePhase::CountrySelect;
-                            // 榛樿 GER 楂樹寒
                             self.country_select_idx = self
                                 .available_countries
                                 .iter()
@@ -6561,13 +4590,11 @@ impl App {
                             return;
                         }
                     }
-                    // BACK 鎸夐挳
                     if layout.back_button.contains(mx, my) {
                         self.game_phase = GamePhase::MainMenu;
                         self.reset_menu_state();
                         return;
                     }
-                    // START 鎸夐挳
                     if layout.start_button.contains(mx, my) {
                         if !layout.start_button.enabled {
                             println!("[menu] selected country not playable");
@@ -6598,6 +4625,24 @@ impl App {
 
     /// Generate and upload HOI3-style screen-space counters each frame.
     fn update_hoi3_counter_pass(&mut self, world_objects: WorldObjectPlan) {
+        if !world_objects.counters.visible {
+            if let Some(s) = self.state.as_mut() {
+                if s.hoi3_counter_pass.instance_count() > 0 {
+                    let sw = s.config.width as f32;
+                    let sh = s.config.height as f32;
+                    s.hoi3_counter_pass.upload(&s.device, &s.queue, &[], sw, sh);
+                    s.hoi3_counter_pass.update_opacity(&s.queue, 0.0, sw, sh);
+                }
+            }
+            self.cached_hoi3_counter_sig = 0;
+            self.cached_hoi3_counter_layout_sig = 0;
+            self.cached_hoi3_counter_layout_offsets.clear();
+            self.perf_counter_instances = 0;
+            self._cached_hoi3_counter_upload.clear();
+            self._cached_hoi3_hit_regions.clear();
+            return;
+        }
+
         let sig = self.hoi3_counter_signature(world_objects);
         if sig == self.cached_hoi3_counter_sig {
             self.perf_counter_cache_hits = self.perf_counter_cache_hits.saturating_add(1);
@@ -6623,6 +4668,10 @@ impl App {
             ),
             None => return,
         };
+        let mut counter_selected_province_ids = self.selected_province_ids.clone();
+        if self.selected_province_id != u32::MAX {
+            counter_selected_province_ids.insert(self.selected_province_id);
+        }
         let mut counters = generate_hoi3_counters_cr3(
             &self.world,
             &unit_counter_centroids,
@@ -6631,13 +4680,19 @@ impl App {
             &view_proj,
             sw,
             sh,
-            &self.selected_province_ids,
+            &counter_selected_province_ids,
             self.camera.distance,
             visible.as_ref(),
             spotted.as_ref(),
             player,
             Some(&visual_centroids_override),
         );
+        if world_objects.counter_selected_only {
+            counters.retain(|counter| {
+                (counter.flags & hoi4_render::counter_v3::flag_bits::SELECTED) != 0
+                    || counter_selected_province_ids.contains(&(counter.province_id() as u32))
+            });
+        }
         let counter_scale = world_objects.counters.scale;
         if (counter_scale - 1.0).abs() > 0.001 {
             for counter in &mut counters {
@@ -6840,6 +4895,8 @@ impl App {
         self.camera.target.x.to_bits().hash(&mut h);
         self.camera.target.y.to_bits().hash(&mut h);
         self.camera.target.z.to_bits().hash(&mut h);
+        self.selected_province_id.hash(&mut h);
+        world_objects.counter_selected_only.hash(&mut h);
         ((world_objects.counters.scale * 100.0) as i32).hash(&mut h);
         ((world_objects.counters.opacity * 100.0) as i32).hash(&mut h);
         ((world_objects.counter_layout_density * 100.0) as i32).hash(&mut h);
@@ -7373,26 +5430,31 @@ impl App {
         } else {
             None
         };
-        let pre_frame_world_objects = WorldObjectSystem::plan(MapFrameContext {
-            draw_3d_map: self.game_phase == GamePhase::Playing,
-            map_mode: self.map_mode,
-            date: self.world.date,
-            selected_province_id: self.selected_province_id,
-            hovered_province_id: self.hovered_province_id,
-            zoom_factor: {
-                let world_extent = self.camera.world_size.x.max(self.camera.world_size.y);
-                let max_dist = world_extent * 4.0;
-                let zoom_fade_dist = max_dist * 0.7;
-                (1.0 - self.camera.distance / zoom_fade_dist).clamp(0.0, 1.0)
-            },
-            time_seconds: self.start_time.elapsed().as_secs_f32(),
-            screen_size: self
-                .state
-                .as_ref()
-                .map(|s| [s.config.width as f32, s.config.height as f32])
-                .unwrap_or([1.0, 1.0]),
-            settings: MapRenderSettings::with_quality(map_layer_mask, self.map_quality_preset),
-        });
+        let pre_frame_world_objects = WorldObjectSystem::plan(
+            map_frame::MapFrameInput {
+                draw_3d_map: self.game_phase == GamePhase::Playing,
+                enable_3d_terrain: self.settings.enable_3d_terrain,
+                map_mode: self.map_mode,
+                date: self.world.date,
+                selected_province_id: self.selected_province_id,
+                hovered_province_id: self.hovered_province_id,
+                zoom_factor: {
+                    let world_extent = self.camera.world_size.x.max(self.camera.world_size.y);
+                    let max_dist = world_extent * 4.0;
+                    let zoom_fade_dist = max_dist * 0.7;
+                    (1.0 - self.camera.distance / zoom_fade_dist).clamp(0.0, 1.0)
+                },
+                time_seconds: self.start_time.elapsed().as_secs_f32(),
+                screen_size: self
+                    .state
+                    .as_ref()
+                    .map(|s| [s.config.width as f32, s.config.height as f32])
+                    .unwrap_or([1.0, 1.0]),
+                layer_mask: map_layer_mask,
+                quality_preset: self.map_quality_preset,
+            }
+            .context(),
+        );
         let counter_started = Instant::now();
         self.update_hoi3_counter_pass(pre_frame_world_objects);
         let counter_update_ms = counter_started.elapsed().as_secs_f32() * 1000.0;
@@ -7713,13 +5775,13 @@ impl App {
             };
             let integration_label = |status: hoi4_state::StateIntegrationStatus| -> &'static str {
                 match status {
-                    hoi4_state::StateIntegrationStatus::Metropole => "本土",
-                    hoi4_state::StateIntegrationStatus::Incorporated => "整合",
-                    hoi4_state::StateIntegrationStatus::Colony => "殖民地",
-                    hoi4_state::StateIntegrationStatus::Protectorate => "保护国",
-                    hoi4_state::StateIntegrationStatus::Mandate => "委任统治",
-                    hoi4_state::StateIntegrationStatus::Concession => "租界",
-                    hoi4_state::StateIntegrationStatus::Occupied => "占领区",
+                    hoi4_state::StateIntegrationStatus::Metropole => "???",
+                    hoi4_state::StateIntegrationStatus::Incorporated => "???",
+                    hoi4_state::StateIntegrationStatus::Colony => "Colony",
+                    hoi4_state::StateIntegrationStatus::Protectorate => "Protectorate",
+                    hoi4_state::StateIntegrationStatus::Mandate => "??????",
+                    hoi4_state::StateIntegrationStatus::Concession => "???",
+                    hoi4_state::StateIntegrationStatus::Occupied => "Occupied",
                 }
             };
 
@@ -7962,7 +6024,7 @@ impl App {
                     let state_name = state_names
                         .get(state_idx)
                         .map(|raw| localized_state_name(raw, state_idx, &loc_catalog))
-                        .unwrap_or_else(|| format!("第{}州", state_idx));
+                        .unwrap_or_else(|| format!("State {}", state_idx));
                     let integration_status = self.world.states.integration_status[state_idx];
                     let integration_kind = if integration_status.is_colonial_or_occupied() {
                         hoi4_ui::pop_panel::PopIntegrationKind::Colonial
@@ -8004,7 +6066,7 @@ impl App {
             let zero_pop_alert: Vec<String> = state_entries
                 .iter()
                 .filter(|s| s.population == 0)
-                .map(|s| format!("州#{}", s.state_id))
+                .map(|s| format!("??{}", s.state_id))
                 .collect();
             let zero_pop_count = zero_pop_alert.len();
             state_entries.sort_by(|a, b| b.population.cmp(&a.population));
@@ -8025,56 +6087,56 @@ impl App {
             let mut political_pressures = Vec::new();
             if total.avg_essential_needs() < 0.8 {
                 political_pressures.push(hoi4_ui::pop_panel::PopPoliticalPressureEntry {
-                    source: "基础需求不足".to_owned(),
+                    source: "Source".to_owned(),
                     pressure: ((0.8 - total.avg_essential_needs()) / 0.8).clamp(0.0, 1.0),
-                    description: "粮食、衣物等基础商品短缺正在推高激进化".to_owned(),
+                    description: "Details".to_owned(),
                 });
             }
             if unemployment_rate > 0.10 {
                 political_pressures.push(hoi4_ui::pop_panel::PopPoliticalPressureEntry {
-                    source: "失业".to_owned(),
+                    source: "Source".to_owned(),
                     pressure: ((unemployment_rate - 0.10) / 0.40).clamp(0.0, 1.0),
-                    description: "劳动力闲置削弱就业安全并增加社会不满".to_owned(),
+                    description: "Details".to_owned(),
                 });
             }
             if total.avg_tax() > 0.50 {
                 political_pressures.push(hoi4_ui::pop_panel::PopPoliticalPressureEntry {
-                    source: "高税负".to_owned(),
+                    source: "Source".to_owned(),
                     pressure: ((total.avg_tax() - 0.50) / 0.50).clamp(0.0, 1.0),
-                    description: "税负超过可接受水平，压低生活水平与满意度".to_owned(),
+                    description: "Details".to_owned(),
                 });
             }
             if total.avg_satisfaction() < 0.45 {
                 political_pressures.push(hoi4_ui::pop_panel::PopPoliticalPressureEntry {
-                    source: "低满意度".to_owned(),
+                    source: "Source".to_owned(),
                     pressure: ((0.45 - total.avg_satisfaction()) / 0.45).clamp(0.0, 1.0),
-                    description: "长期低满意度会转化为组织化政治压力".to_owned(),
+                    description: "Details".to_owned(),
                 });
             }
             let avg_income = total.avg_income();
             let avg_disposable = total.avg_disposable_income();
             if avg_income > 0.0 && avg_disposable / avg_income < 0.5 {
                 political_pressures.push(hoi4_ui::pop_panel::PopPoliticalPressureEntry {
-                    source: "低可支配收入".to_owned(),
+                    source: "Source".to_owned(),
                     pressure: ((0.5 - avg_disposable / avg_income) / 0.5).clamp(0.0, 1.0),
-                    description: "税后可支配收入占比过低，抑制消费与生活水平".to_owned(),
+                    description: "Details".to_owned(),
                 });
             }
             let needs = vec![
                 hoi4_ui::pop_panel::PopNeedEntry {
-                    tier_name: "基础需求".to_owned(),
+                    tier_name: "Need".to_owned(),
                     fulfillment: total.avg_essential_needs(),
-                    description: "粮食、衣物、燃料等维持生活的商品".to_owned(),
+                    description: "Details".to_owned(),
                 },
                 hoi4_ui::pop_panel::PopNeedEntry {
-                    tier_name: "普通需求".to_owned(),
+                    tier_name: "Need".to_owned(),
                     fulfillment: total.avg_normal_needs(),
-                    description: "肉类、家具、交通、烟酒等日常消费".to_owned(),
+                    description: "Details".to_owned(),
                 },
                 hoi4_ui::pop_panel::PopNeedEntry {
-                    tier_name: "奢侈需求".to_owned(),
+                    tier_name: "Need".to_owned(),
                     fulfillment: total.avg_luxury_needs(),
-                    description: "奢侈品、银行、汽车、无线电等高端消费".to_owned(),
+                    description: "Details".to_owned(),
                 },
             ];
             Some(hoi4_ui::pop_panel::PopPanelData {
@@ -8104,10 +6166,10 @@ impl App {
                 needs,
                 political_pressures,
                 alerts: if total.size == 0 {
-                    vec!["当前国家没有 POP 数据；请检查历史开局 POP 注入。".to_owned()]
+                    vec!["No POP data".to_owned()]
                 } else if zero_pop_count > 0 {
                     vec![format!(
-                        "{} 个州无人口数据（{}），可能缺少 state_population 配置",
+                        "{} requires attention: {}",
                         zero_pop_count,
                         zero_pop_alert.join(", ")
                     )]
@@ -8269,7 +6331,7 @@ impl App {
                             {
                                 government_orders.entry(g.id.clone()).or_default().push(
                                     hoi4_ui::market_panel::GoodFlowSource {
-                                        name: "军工政府采购".to_owned(),
+                                        name: "?????????".to_owned(),
                                         amount: procurement_mult,
                                     },
                                 );
@@ -8465,7 +6527,7 @@ impl App {
                             if domestic_production > 0.0 {
                                 supply_sources.push(hoi4_ui::market_panel::GoodSupplySourceEntry {
                                     kind: hoi4_ui::market_panel::GoodSupplySourceKind::Domestic,
-                                    label: "国内建筑".to_owned(),
+                                    label: "Label".to_owned(),
                                     amount: domestic_production,
                                 });
                             }
@@ -8488,7 +6550,7 @@ impl App {
                             if stockpile_draw > 0.0 {
                                 supply_sources.push(hoi4_ui::market_panel::GoodSupplySourceEntry {
                                     kind: hoi4_ui::market_panel::GoodSupplySourceKind::Stockpile,
-                                    label: "库存释放".to_owned(),
+                                    label: "Label".to_owned(),
                                     amount: stockpile_draw,
                                 });
                             }
@@ -8502,7 +6564,7 @@ impl App {
                                 let (kind, label) = if route.exporter.is_none() {
                                     (
                                         hoi4_ui::market_panel::GoodSupplySourceKind::WorldSpot,
-                                        "世界现货".to_owned(),
+                                        "??????".to_owned(),
                                     )
                                 } else {
                                     let tag = self
@@ -8511,7 +6573,7 @@ impl App {
                                         .tags
                                         .get(route.exporter.0 as usize)
                                         .cloned()
-                                        .unwrap_or_else(|| "未知伙伴".to_owned());
+                                        .unwrap_or_else(|| "??????".to_owned());
                                     if self
                                         .world
                                         .diplomacy
@@ -8519,7 +6581,7 @@ impl App {
                                     {
                                         (
                                             hoi4_ui::market_panel::GoodSupplySourceKind::Subject,
-                                            format!("{tag} 殖民/傀儡贡献"),
+                                            format!("{tag}"),
                                         )
                                     } else if self
                                         .world
@@ -8540,12 +6602,12 @@ impl App {
                                     {
                                         (
                                             hoi4_ui::market_panel::GoodSupplySourceKind::MarketBloc,
-                                            format!("{tag} 市场圈输入"),
+                                            format!("{tag}"),
                                         )
                                     } else {
                                         (
                                             hoi4_ui::market_panel::GoodSupplySourceKind::WorldSpot,
-                                            format!("{tag} 外部进口"),
+                                            format!("{tag}"),
                                         )
                                     }
                                 };
@@ -8711,9 +6773,9 @@ impl App {
                                 hoi4_ui::market_panel::MarketAlertSeverity::Warning
                             },
                             good_id: good.id.clone(),
-                            title: format!("{} 短缺", good.name),
+                            title: format!("{} ???", good.name),
                             description: format!(
-                                "缺口 {:.1}/日，库存覆盖 {:.1} 天。",
+                                "Market impact {:.1} {:.1}",
                                 good.unmet_demand.max((good.demand - good.supply).max(0.0)),
                                 good.stockpile_coverage_days
                             ),
@@ -8723,8 +6785,8 @@ impl App {
                         alerts.push(hoi4_ui::market_panel::MarketAlertEntry {
                             severity: hoi4_ui::market_panel::MarketAlertSeverity::Info,
                             good_id: String::new(),
-                            title: "市场平稳".to_owned(),
-                            description: "当前没有明显商品短缺。".to_owned(),
+                            title: "??????".to_owned(),
+                            description: "Details".to_owned(),
                         });
                     }
                     let cash_rm = self
@@ -8877,32 +6939,19 @@ impl App {
                                                 .unwrap_or(std::cmp::Ordering::Equal)
                                         });
                                         let relation = if member == bloc.leader {
-                                            "领导国".to_owned()
+                                            "Unknown".to_owned()
                                         } else if member == player_id {
-                                            "本国".to_owned()
+                                            "???".to_owned()
                                         } else if let Some(autonomy) =
                                             self.world.diplomacy.autonomy.get(&member)
                                         {
                                             if autonomy.master == bloc.leader {
-                                                match autonomy.level {
-                                        hoi4_state::AutonomyLevel::Dominion => "自治领".to_owned(),
-                                        hoi4_state::AutonomyLevel::Puppet => "傀儡".to_owned(),
-                                        hoi4_state::AutonomyLevel::IntegratedPuppet => {
-                                            "整合傀儡".to_owned()
-                                        }
-                                        hoi4_state::AutonomyLevel::Satellite => "卫星国".to_owned(),
-                                        hoi4_state::AutonomyLevel::FreedomAssociation => {
-                                            "自由协约".to_owned()
-                                        }
-                                        hoi4_state::AutonomyLevel::Integrated => {
-                                            "整合领地".to_owned()
-                                        }
-                                    }
+                                                autonomy_level_label(autonomy.level).to_owned()
                                             } else {
-                                                "成员".to_owned()
+                                                "???".to_owned()
                                             }
                                         } else {
-                                            "成员".to_owned()
+                                            "???".to_owned()
                                         };
                                         let market_access =
                                             if self.world.countries.trade.routes.iter().any(
@@ -8931,16 +6980,16 @@ impl App {
                                     name: bloc.name.clone(),
                                     kind: match bloc.kind {
                                         hoi4_state::MarketBlocKind::ImperialPreference => {
-                                            "帝国优惠".to_owned()
+                                            "??????".to_owned()
                                         }
                                         hoi4_state::MarketBlocKind::FactionMarket => {
-                                            "阵营市场".to_owned()
+                                            "??????".to_owned()
                                         }
                                         hoi4_state::MarketBlocKind::ColonialEmpire => {
-                                            "殖民帝国".to_owned()
+                                            "??????".to_owned()
                                         }
                                         hoi4_state::MarketBlocKind::BilateralSphere => {
-                                            "双边势力范围".to_owned()
+                                            "?????????".to_owned()
                                         }
                                     },
                                     leader_tag: tag_of(bloc.leader),
@@ -9007,12 +7056,12 @@ impl App {
                                 .map(|row| row.amount as f64 * 0.05)
                                 .sum();
                             let autonomy_level = match autonomy.level {
-                                hoi4_state::AutonomyLevel::Integrated => "整合领地",
-                                hoi4_state::AutonomyLevel::IntegratedPuppet => "整合傀儡",
-                                hoi4_state::AutonomyLevel::Puppet => "傀儡",
-                                hoi4_state::AutonomyLevel::Dominion => "自治领",
-                                hoi4_state::AutonomyLevel::Satellite => "卫星国",
-                                hoi4_state::AutonomyLevel::FreedomAssociation => "自由协约",
+                                hoi4_state::AutonomyLevel::Integrated => "??????",
+                                hoi4_state::AutonomyLevel::IntegratedPuppet => "Integrated puppet",
+                                hoi4_state::AutonomyLevel::Puppet => "Puppet",
+                                hoi4_state::AutonomyLevel::Dominion => "Dominion",
+                                hoi4_state::AutonomyLevel::Satellite => "Satellite",
+                                hoi4_state::AutonomyLevel::FreedomAssociation => "??????",
                             }
                             .to_owned();
                             let subject_states = self.world.country_state_ids(autonomy.subject);
@@ -9041,19 +7090,19 @@ impl App {
                                 );
                             let risk = if avg_resistance >= 50.0 {
                                 format!(
-                            "高抵抗 {:.0}%：资源抽取、税基和市场准入受损；当前市场准入 {:.0}%",
-                            avg_resistance,
-                            market_access * 100.0
-                        )
+                                    "?????{:.0}%??????????????????????????????????{:.0}%",
+                                    avg_resistance,
+                                    market_access * 100.0
+                                )
                             } else if autonomy.level.master_resource_share() >= 0.5 {
                                 format!(
-                            "高抽取会压低自治度进展并提高殖民风险；顺从 {:.0}%，市场准入 {:.0}%",
-                            avg_compliance,
-                            market_access * 100.0
-                        )
+                                    "????????????????????????????????{:.0}%????????{:.0}%",
+                                    avg_compliance,
+                                    market_access * 100.0
+                                )
                             } else {
                                 format!(
-                                    "以优先贸易为主；顺从 {:.0}%，市场准入 {:.0}%",
+                                    "??????????????? {:.0}%????????{:.0}%",
                                     avg_compliance,
                                     market_access * 100.0
                                 )
@@ -9080,35 +7129,26 @@ impl App {
                                 good.unmet_demand.max((good.demand - good.supply).max(0.0));
                             let (title, description) = if good.imports > 0.0 && good.is_blockaded {
                                 (
-                                    format!("解除 {} 进口封锁", good.name),
+                                    format!("??? {} ??????", good.name),
                                     format!(
-                                        "{} 仍有 {:.1}/日缺口，当前进口 {:.1}/日受封锁风险影响。",
+                                        "{} impact {:.1} {:.1}",
                                         good.name, shortage, good.imports
                                     ),
                                 )
                             } else if good.domestic_production <= 0.0 && good.imports <= 0.0 {
                                 (
-                                    format!("建立 {} 供应", good.name),
-                                    format!(
-                                "{} 没有国内产出或稳定进口，优先建设对应产业或寻找贸易伙伴。",
-                                good.name
-                            ),
+                                    format!("??? {} ???", good.name),
+                                    format!("{} requires attention", good.name),
                                 )
                             } else if good.pop_consumption_demand > good.building_input_demand {
                                 (
-                                    format!("补足 POP 所需 {}", good.name),
-                                    format!(
-                                        "POP 每日需要 {:.1}，短缺会压低满意度。",
-                                        good.pop_consumption_demand
-                                    ),
+                                    format!("??? POP ???? {}", good.name),
+                                    format!("POP demand {:.1}", good.pop_consumption_demand),
                                 )
                             } else {
                                 (
-                                    format!("扩张 {} 上游链", good.name),
-                                    format!(
-                                "建筑/军购需求较高，检查上游、生产方式或进口路线。缺口 {:.1}/日。",
-                                shortage
-                            ),
+                                    format!("Manage {}", good.name),
+                                    format!("Shortage {:.1}", shortage),
                                 )
                             };
                             hoi4_ui::market_panel::MarketActionEntry {
@@ -9121,9 +7161,8 @@ impl App {
                         .collect();
                     if actions.is_empty() && any_blockaded {
                         actions.push(hoi4_ui::market_panel::MarketActionEntry {
-                            title: "检查受封锁贸易路线".to_owned(),
-                            description: "当前存在被封锁路线，优先修复港口、护航或寻找陆路替代。"
-                                .to_owned(),
+                            title: "??????????????".to_owned(),
+                            description: "Blocked imports require attention".to_owned(),
                             related_good_id: None,
                             priority: 0,
                         });
@@ -9373,16 +7412,16 @@ impl App {
                         .map(|g| localized_content_name(&g.id, &g.name))
                         .unwrap_or_else(|| {
                             if good_id.is_empty() {
-                                "综合贸易".to_owned()
+                                "??????".to_owned()
                             } else {
                                 good_id.clone()
                             }
                         });
                     let kind_str = match r.kind {
-                        hoi4_state::TradeRouteKind::Sea => "海运".to_owned(),
-                        hoi4_state::TradeRouteKind::Land => "陆运".to_owned(),
-                        hoi4_state::TradeRouteKind::Transit => "转运".to_owned(),
-                        hoi4_state::TradeRouteKind::ImperialPreference => "帝国优惠".to_owned(),
+                        hoi4_state::TradeRouteKind::Sea => "???".to_owned(),
+                        hoi4_state::TradeRouteKind::Land => "???".to_owned(),
+                        hoi4_state::TradeRouteKind::Transit => "???".to_owned(),
+                        hoi4_state::TradeRouteKind::ImperialPreference => "??????".to_owned(),
                     };
                     let partner = if r.importer == hoi4_state::CountryId(player as u16) {
                         r.exporter
@@ -9693,13 +7732,13 @@ impl App {
                                 pms.iter()
                                     .map(|pm| {
                                         format!(
-                                            "{}：{}",
+                                            "{}: {}",
                                             hoi4_content::production_method_group_name(pm),
                                             pm.name
                                         )
                                     })
                                     .collect::<Vec<_>>()
-                                    .join("、"),
+                                    .join(", "),
                             )
                             .or_default() += b.level as u32;
 
@@ -9763,7 +7802,7 @@ impl App {
                                     .iter()
                                     .map(|(good_id, pct)| {
                                         format!(
-                                            "{}：{} {:.0}%",
+                                            "{}: {} {:.0}%",
                                             hoi4_ui::i18n::tr("input_shortage"),
                                             Self::v6_good_name(&self.v6_db, good_id),
                                             pct
@@ -9772,7 +7811,7 @@ impl App {
                                     .collect();
                                 if aggregate.labor_gap > 0 {
                                     warnings.push(format!(
-                                        "{}：{}",
+                                        "{}: {}",
                                         hoi4_ui::i18n::tr("labor_shortage"),
                                         aggregate.labor_gap
                                     ));
@@ -9782,7 +7821,7 @@ impl App {
                                     .iter()
                                     .map(|(pm, level)| format!("{} Lv {}", pm, level))
                                     .collect::<Vec<_>>()
-                                    .join("、");
+                                    .join(", ");
                                 hoi4_ui::construction_v6_panel::BuildingTypeV6Entry {
                                     building_def_id,
                                     building_name,
@@ -10257,22 +8296,7 @@ impl App {
                                     .map(|goal| hoi4_ui::diplomacy::PeaceWargoalEntry {
                                         claimant_tag: tag_of(goal.claimant),
                                         target_tag: tag_of(goal.target),
-                                        kind: match goal.kind {
-                                            hoi4_state::WargoalType::Annex => "Annex".to_owned(),
-                                            hoi4_state::WargoalType::TakeState => {
-                                                "Take State".to_owned()
-                                            }
-                                            hoi4_state::WargoalType::Liberate => {
-                                                "Liberate".to_owned()
-                                            }
-                                            hoi4_state::WargoalType::Puppet => "Puppet".to_owned(),
-                                            hoi4_state::WargoalType::ToppleGovernment => {
-                                                "Topple Government".to_owned()
-                                            }
-                                            hoi4_state::WargoalType::NavalAccess => {
-                                                "Naval Access".to_owned()
-                                            }
-                                        },
+                                        kind: wargoal_kind_label(goal.kind).to_owned(),
                                         target_state: goal.target_state.map(|state| state.0),
                                     })
                                     .collect();
@@ -10336,15 +8360,15 @@ impl App {
                     to_tag: tag_of(request.to),
                     kind: match &request.kind {
                         hoi4_state::DiplomaticRequestKind::InviteToFaction { .. } => {
-                            "邀请加入阵营".to_owned()
+                            "Invite to faction".to_owned()
                         }
                         hoi4_state::DiplomaticRequestKind::RequestMilitaryAccess => {
-                            "请求军事通行".to_owned()
+                            "?????????".to_owned()
                         }
                         hoi4_state::DiplomaticRequestKind::OfferNonAggressionPact => {
-                            "互不侵犯条约".to_owned()
+                            "?????????".to_owned()
                         }
-                        hoi4_state::DiplomaticRequestKind::OfferPeace => "和平提议".to_owned(),
+                        hoi4_state::DiplomaticRequestKind::OfferPeace => "??????".to_owned(),
                     },
                     status: match request.status {
                         hoi4_state::DiplomaticRequestStatus::Pending => "Pending".to_owned(),
@@ -10970,9 +8994,9 @@ impl App {
                                         .copied()
                                         .unwrap_or(0);
                                     let cost_desc = if interv.cost_pp > 0.0 {
-                                        format!("政治点数 {:.0}", interv.cost_pp)
+                                        format!("?????? {:.0}", interv.cost_pp)
                                     } else if interv.cost_manpower > 0 {
-                                        format!("人力 {}", interv.cost_manpower)
+                                        format!("??? {}", interv.cost_manpower)
                                     } else if !interv.cost_equipment.is_empty() {
                                         format!(
                                             "{} {:.0}",
@@ -11149,7 +9173,7 @@ impl App {
         let completed_focuses = self.world.countries.completed_focuses[player_idx].clone();
         let current_focus_ref = self.world.countries.current_focus[player_idx].as_deref();
         let current_focus_progress = self.world.countries.focus_progress[player_idx];
-        // P0.3：计算 available focus id 集合
+        // P0.3?????available focus id ???
         let available_focus_ids: std::collections::HashSet<String> = focus_tree
             .focuses
             .iter()
@@ -11197,7 +9221,7 @@ impl App {
         let mut surrender_notif_cmd: Option<
             hoi4_ui::surrender_notification::SurrenderNotificationCommand,
         > = None;
-        // V5 G.3 / G.4 / G.5锛氬啀澶?disjoint 鍊熺敤 self 鐨勫瓙瀛楁銆俿ettings / save_browser /
+        // V5 G.3 / G.4 / G.5???????disjoint ?????self ?????????????ttings / save_browser /
         let settings_panel_open_cmd = open_panel == Some(InGamePanel::Settings);
         let saves_open_cmd = open_panel == Some(InGamePanel::Saves);
         if settings_panel_open_cmd && !self.settings_panel.open {
@@ -11278,7 +9302,7 @@ impl App {
                     ui.label("This is a Latin paragraph rendered with Georgia (Garamond-alike).");
                     ui.label("CJK fallback font is enabled.");
                     ui.label(format!(
-                        "elapsed: {elapsed_secs:.2} s 路 phase: {game_phase:?} 路 player_country: {player_country}"
+                        "elapsed: {elapsed_secs:.2} s ??phase: {game_phase:?} ??player_country: {player_country}"
                     ));
                     ui.separator();
 
@@ -11354,7 +9378,7 @@ impl App {
                     law_close = true;
                 }
                 law_cmds = cmds;
-                // P1.3：法律切换失败时显示中文提示
+                // P1.3?????????????????????
             }
 
             if let Some(ref data) = pop_panel_data {
@@ -11526,7 +9550,6 @@ impl App {
                 },
             );
 
-            // P1.1：投降/和平通知弹窗（不暂停游戏）
             if !pending_surrender_notifications.is_empty() {
                 let remaining = pending_surrender_notifications.len().saturating_sub(1);
                 let current = pending_surrender_notifications.first().unwrap();
@@ -11788,10 +9811,10 @@ impl App {
                             }
                             Err(e) => {
                                 println!(
-                                    "[law] 切换法律失败: {:?} → {}: {}",
+                                    "[law] ?????????: {:?} ??{}: {}",
                                     category, target_law_id, e
                                 );
-                                self.law_error_message = Some(format!("法律切换失败: {}", e));
+                                self.law_error_message = Some(format!("?????????: {}", e));
                             }
                         }
                     }
@@ -12662,7 +10685,7 @@ impl App {
             let player = hoi4_state::CountryId(self.player_country as u16);
             match cmd {
                 FocusCommand::Start(id) => {
-                    // P0.3：start_focus 现在检查 available 条件
+                    // P0.3??tart_focus ???????available ???
                     if !hoi4_content::start_focus(
                         &mut self.world,
                         player,
@@ -12670,10 +10693,7 @@ impl App {
                         &id,
                         &self.content.global_flags,
                     ) {
-                        println!(
-                            "[focus] 无法开始国策 {}: available 条件不满足或前置未完成",
-                            id
-                        );
+                        println!("[focus] skipped {}: unavailable", id);
                     }
                 }
                 FocusCommand::Cancel => {
@@ -12708,14 +10728,14 @@ impl App {
                         .iter()
                         .chain(cascaded.effect_report.warnings.iter())
                     {
-                        println!("[effect] 警告: {w}");
+                        println!("[effect] ???: {w}");
                     }
                     for e in report
                         .errors
                         .iter()
                         .chain(cascaded.effect_report.errors.iter())
                     {
-                        println!("[effect] 错误: {e}");
+                        println!("[effect] ???: {e}");
                     }
                     for target in &cascaded.cascaded_triggers {
                         println!("[event] cascaded trigger: {target}");
@@ -12738,7 +10758,6 @@ impl App {
             }
         }
 
-        // P1.1：投降/和平通知确认处理（不暂停游戏）
         if let Some(hoi4_ui::surrender_notification::SurrenderNotificationCommand::Acknowledge) =
             surrender_notif_cmd
         {
@@ -12750,7 +10769,7 @@ impl App {
             }
         }
 
-        // 澶栧浗鍥藉淇℃伅闈㈡澘鍛戒护鍒嗗彂
+        // ???????????????????????????
         if !country_info_cmds.is_empty() {
             use hoi4_logic::diplomacy::{
                 debug_grant_justified_wargoal, execute_action, DiplomaticAction,
@@ -12980,7 +10999,7 @@ impl App {
                     self.last_country_layout = None;
                 }
                 EndCommand::Quit => {
-                    // 鏃犳硶鍦ㄨ繖閲岀洿鎺?exit event_loop锛岃缃?speed=Paused 骞舵爣璁般€?                    // 瀹為檯閫€鍑哄湪 window_event 涓鐞?CloseRequested銆?                    std::process::exit(0);
+                    // ????????????????exit event_loop???????speed=Paused ??????????                    // ???????????? window_event ???????CloseRequested??                    std::process::exit(0);
                 }
             }
         }
@@ -13026,7 +11045,7 @@ impl App {
             VanillaMapSpace::from_world_size([self.camera.world_size.x, self.camera.world_size.y]);
 
         // Phase 3.12.8 ???update TreeFullPass season params per frame.
-        // Drives tree color from `map/seasons.txt` 脳 `world.date` so trees
+        // Drives tree color from `map/seasons.txt` ??`world.date` so trees
         // visibly cycle spring-green ???summer-deep ???autumn-yellow ???winter
         // as the in-game date advances.
         // Phase 3.12.9 ???update border pass params per frame.
@@ -13119,7 +11138,7 @@ impl App {
         let output_view = capture_view.as_ref().unwrap_or(&surface_view);
         let mut enc = s.device.create_command_encoder(&Default::default());
 
-        // Phase 3.12.3: 璁＄畻 shadow_view_proj 骞跺啓???ShadowPass uniform???        // 鍚屾椂鎶婂悓涓€涓煩闃靛啓???GlobalFrameUniform.shadow_view_proj 渚涘悗???receiver 鐢??
+        // Phase 3.12.3: ?????shadow_view_proj ???????ShadowPass uniform???        // ????????????????????????GlobalFrameUniform.shadow_view_proj ???????receiver ???
         let world_size = self.camera.world_size;
         let shadow_vp = s.shadow_pass.update_shadow_view_proj(
             &s.queue,
@@ -13164,12 +11183,13 @@ impl App {
             s.global_uniform_buf.write(&s.queue, &gu);
         }
 
-        // Phase 3.12.3 ???directional shadow caster pass銆傚湪???3D pass 涔嬪墠璺戯紝
-        // 鍥犱负鍚庣画 pass ???PCF 鏃堕渶瑕佽繖???depth map 宸插氨浣嶃€備粎 Playing 闃舵娓??
+        // Phase 3.12.3 ???directional shadow caster pass???????3D pass ?????????
+        // ????????? pass ???PCF ????????????depth map ???????????? Playing ????????
         let draw_3d_map = self.game_phase == GamePhase::Playing;
         let map_frame_plan = s.map_renderer.build_frame_plan(
-            MapFrameContext {
-                draw_3d_map: draw_3d_map && self.settings.enable_3d_terrain,
+            map_frame::MapFrameInput {
+                draw_3d_map,
+                enable_3d_terrain: self.settings.enable_3d_terrain,
                 map_mode: self.map_mode,
                 date,
                 selected_province_id: self.selected_province_id,
@@ -13177,8 +11197,10 @@ impl App {
                 zoom_factor,
                 time_seconds: time,
                 screen_size: [s.config.width as f32, s.config.height as f32],
-                settings: MapRenderSettings::with_quality(map_layer_mask, self.map_quality_preset),
-            },
+                layer_mask: map_layer_mask,
+                quality_preset: self.map_quality_preset,
+            }
+            .context(),
             &s.pass_registry,
         );
         self.last_map_prepare_cpu_ms = prepare_started.elapsed().as_secs_f32() * 1000.0;
@@ -13192,6 +11214,7 @@ impl App {
             s.river_pass.any_loaded,
             s.border_pass.any_loaded,
             static_decals,
+            semantic_overlays,
         );
         let water_ownership = map_draw.water_material_ownership(s.water_pass.any_loaded);
         let runtime_player_country = if self.player_country < self.world.countries.count {
@@ -13496,560 +11519,27 @@ impl App {
             };
             s.terrain_pass.update_params(&s.queue, &pdx_params);
         }
-
-        if map_draw.shadow_caster {
-            let pass_started = Instant::now();
-            let token = s
-                .gpu_profiler
-                .as_mut()
-                .and_then(|profiler| profiler.begin_encoder_span(&mut enc, "shadow_caster"));
-            let counts = [
-                buckets[0].len() as u32,
-                buckets[1].len() as u32,
-                buckets[2].len() as u32,
-            ];
-            s.shadow_pass.render_caster(
-                &mut enc,
-                &s.instance_buffers,
-                counts,
-                vertex_count_for_lod,
-            );
-            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                profiler.end_encoder_span(&mut enc, token);
-            }
-            s.pass_registry.record_cpu_ms(
-                "shadow_caster",
-                pass_started.elapsed().as_secs_f32() * 1000.0,
-            );
-            s.pass_registry.record_draw_calls(
-                "shadow_caster",
-                counts.iter().filter(|&&count| count > 0).count() as u32,
-            );
-        }
-
-        // Phase 3.12.11: update sky pass inverse view-proj before render.
-        {
-            let inv_vp = self.camera.view_proj().inverse().to_cols_array_2d();
-            s.sky_pass.update_params(&s.queue, &inv_vp);
-        }
-
-        // Phase 3.12.10: update particle simulation.
-        if self.game_phase == GamePhase::Playing {
-            let dt = 1.0 / 60.0;
-            s.particle_pass.update(&s.device, &s.queue, dt);
-        }
-
-        // 4.1.bis.6 fix (2026-05-16): only draw the 3D world during Playing.
-        // In MainMenu / CountrySelect the menu panels render on top of the
-        // surface clear color; previously the world map drew underneath and
-        // bled through transparent panels as a tilted parallelogram.
-        {
-            let pass_token = s
-                .gpu_profiler
-                .as_mut()
-                .and_then(|profiler| profiler.begin_encoder_span(&mut enc, "3d_world"));
-            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("3d_to_hdr"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &s.hdr_target.view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.05,
-                            g: 0.07,
-                            b: 0.15,
-                            a: 1.0,
-                        }),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &s.depth_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                ..Default::default()
-            });
-            if draw_3d_map {
-                // Phase 3.12.11 ???sky cubemap background (must render first,
-                // before terrain, so the sky paints behind all 3D geometry).
-                // depth_write=false + depth_compare=LessEqual means the sky
-                // only appears where no 3D object has been drawn.
-                if map_draw.sky {
-                    let pass_started = Instant::now();
-                    let token = s
-                        .gpu_profiler
-                        .as_mut()
-                        .and_then(|profiler| profiler.begin_render_span(&mut pass, "3d_sky"));
-                    s.sky_pass.render(&mut pass);
-                    if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                        profiler.end_render_span(&mut pass, token);
-                    }
-                    s.pass_registry
-                        .record_cpu_ms("3d_sky", pass_started.elapsed().as_secs_f32() * 1000.0);
-                    s.pass_registry.record_draw_calls("3d_sky", 1);
-                }
-
-                // Phase 3.12.4 ???prefer the vanilla pdxmap-equivalent pass.
-                {
-                    {
-                        let counts = [
-                            buckets[0].len() as u32,
-                            buckets[1].len() as u32,
-                            buckets[2].len() as u32,
-                        ];
-                        let vert_counts = [
-                            vertex_count_for_lod(0),
-                            vertex_count_for_lod(1),
-                            vertex_count_for_lod(2),
-                        ];
-                        if map_draw.terrain {
-                            let pass_started = Instant::now();
-                            let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                                profiler.begin_render_span(&mut pass, "3d_terrain")
-                            });
-                            s.terrain_pass.render(
-                                &mut pass,
-                                &s.instance_buffers,
-                                &counts,
-                                &vert_counts,
-                            );
-                            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token)
-                            {
-                                profiler.end_render_span(&mut pass, token);
-                            }
-                            s.pass_registry.record_cpu_ms(
-                                "3d_terrain",
-                                pass_started.elapsed().as_secs_f32() * 1000.0,
-                            );
-                            s.pass_registry.record_draw_calls(
-                                "3d_terrain",
-                                counts.iter().filter(|&&count| count > 0).count() as u32,
-                            );
-                        }
-
-                        // Phase 6 vanilla pdxwater pass on top of terrain.
-                        // Reuses the same instance buffers + chunk grid; clamps Y to
-                        // SEA_LEVEL 脳 HEIGHT_SCALE in VS, discards land pixels via
-                        // heightmap sample in FS. depth_compare = LessEqual + no
-                        // depth write means it overwrites terrain water pixels at
-                        // identical Z without blocking trees/buildings.
-                        if map_draw.water {
-                            let pass_started = Instant::now();
-                            let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                                profiler.begin_render_span(&mut pass, "3d_water")
-                            });
-                            s.water_pass.render(
-                                &mut pass,
-                                &s.instance_buffers,
-                                &counts,
-                                &vert_counts,
-                            );
-                            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token)
-                            {
-                                profiler.end_render_span(&mut pass, token);
-                            }
-                            s.pass_registry.record_cpu_ms(
-                                "3d_water",
-                                pass_started.elapsed().as_secs_f32() * 1000.0,
-                            );
-                            s.pass_registry.record_draw_calls(
-                                "3d_water",
-                                counts.iter().filter(|&&count| count > 0).count() as u32,
-                            );
-                        }
-
-                        // Phase 7: RiverPass draws after water and before borders.
-                        // Terrain's blue river overlay is now only a fallback when
-                        // this dedicated pass is unavailable.
-                        if map_draw.river {
-                            let pass_started = Instant::now();
-                            let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                                profiler.begin_render_span(&mut pass, "3d_river")
-                            });
-                            s.river_pass.render(
-                                &mut pass,
-                                &s.instance_buffers,
-                                &counts,
-                                &vert_counts,
-                            );
-                            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token)
-                            {
-                                profiler.end_render_span(&mut pass, token);
-                            }
-                            s.pass_registry.record_cpu_ms(
-                                "3d_river",
-                                pass_started.elapsed().as_secs_f32() * 1000.0,
-                            );
-                            s.pass_registry.record_draw_calls(
-                                "3d_river",
-                                counts.iter().filter(|&&count| count > 0).count() as u32,
-                            );
-                        }
-
-                        // Phase 3.12.9 (redesign) ???vanilla border pass using strip meshes.
-                        // Renders thin quad-strips along actual province/country boundaries.
-                        if map_draw.borders {
-                            let pass_started = Instant::now();
-                            let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                                profiler.begin_render_span(&mut pass, "3d_border")
-                            });
-                            s.border_pass.render(&mut pass);
-                            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token)
-                            {
-                                profiler.end_render_span(&mut pass, token);
-                            }
-                            s.pass_registry.record_cpu_ms(
-                                "3d_border",
-                                pass_started.elapsed().as_secs_f32() * 1000.0,
-                            );
-                            s.pass_registry.record_draw_calls("3d_border", 6);
-                        }
-
-                        // Phase 16 ???arrows family (maparrow / traderoute / strait).
-                        // Drawn after borders, before map symbols. Alpha-blended overlays.
-                        if map_draw.trade_routes {
-                            let pass_started = Instant::now();
-                            let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                                profiler.begin_render_span(&mut pass, "3d_traderoute")
-                            });
-                            s.traderoute_pass.render(&mut pass);
-                            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token)
-                            {
-                                profiler.end_render_span(&mut pass, token);
-                            }
-                            s.pass_registry.record_cpu_ms(
-                                "3d_traderoute",
-                                pass_started.elapsed().as_secs_f32() * 1000.0,
-                            );
-                            s.pass_registry.record_draw_calls("3d_traderoute", 1);
-                        }
-                        if map_draw.straits {
-                            let pass_started = Instant::now();
-                            let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                                profiler.begin_render_span(&mut pass, "3d_strait")
-                            });
-                            s.strait_pass.render(&mut pass);
-                            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token)
-                            {
-                                profiler.end_render_span(&mut pass, token);
-                            }
-                            s.pass_registry.record_cpu_ms(
-                                "3d_strait",
-                                pass_started.elapsed().as_secs_f32() * 1000.0,
-                            );
-                            s.pass_registry.record_draw_calls("3d_strait", 1);
-                        }
-
-                        // Phase 6 static map decals. Railways are drawn before
-                        // counters/objects so they read as map ink, not symbols.
-                        if map_draw.railways && s.railways_vertex_count > 0 {
-                            let pass_started = Instant::now();
-                            let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                                profiler.begin_render_span(&mut pass, "3d_railways")
-                            });
-                            pass.set_pipeline(&s.railways_pipeline);
-                            pass.set_bind_group(0, &s.railways_bind_group, &[]);
-                            pass.set_vertex_buffer(0, s.railways_buffer.slice(..));
-                            pass.draw(0..s.railways_vertex_count, 0..1);
-                            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token)
-                            {
-                                profiler.end_render_span(&mut pass, token);
-                            }
-                            s.pass_registry.record_cpu_ms(
-                                "3d_railways",
-                                pass_started.elapsed().as_secs_f32() * 1000.0,
-                            );
-                            s.pass_registry.record_draw_calls("3d_railways", 1);
-                        }
-
-                        if map_draw.hoi3_counters {
-                            let pass_started = Instant::now();
-                            let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                                profiler.begin_render_span(&mut pass, "hoi3_counter_v3")
-                            });
-                            s.hoi3_counter_pass.render(&mut pass);
-                            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token)
-                            {
-                                profiler.end_render_span(&mut pass, token);
-                            }
-                            s.pass_registry.record_cpu_ms(
-                                "hoi3_counter_v3",
-                                pass_started.elapsed().as_secs_f32() * 1000.0,
-                            );
-                            s.pass_registry.record_draw_calls("hoi3_counter_v3", 1);
-                        }
-                    }
-                }
-
-                // 5.6 - trees pass.
-                // Phase 3.12.8: prefer the new TreeFullPass (season coloring + tint +
-                // shadow receive) when available; fall back to the old trees_mesh
-                // pipeline, and further to the billboard when meshes failed to load.
-                if map_draw.trees {
-                    let pass_started = Instant::now();
-                    let token = s
-                        .gpu_profiler
-                        .as_mut()
-                        .and_then(|profiler| profiler.begin_render_span(&mut pass, "3d_trees"));
-                    let mut draw_calls = 0u32;
-                    if let Some(tf) = s.tree_full_pass.as_mut() {
-                        tf.render(&mut pass);
-                        draw_calls = 1;
-                    } else {
-                        let any_mesh_loaded = s.trees_mesh_instance_counts.iter().any(|&c| c > 0);
-                        let all_mesh_loaded = !s.trees_mesh_instance_counts.is_empty()
-                            && s.trees_mesh_instance_counts.iter().all(|&c| c > 0);
-                        if s.trees_count > 0 && !all_mesh_loaded {
-                            pass.set_pipeline(&s.trees_pipeline);
-                            pass.set_bind_group(0, &s.trees_bind_group, &[]);
-                            pass.set_vertex_buffer(0, s.trees_buffer.slice(..));
-                            pass.draw(0..6, 0..s.trees_count);
-                            draw_calls = draw_calls.saturating_add(1);
-                        }
-
-                        // Phase 3.7.2 - 3D mesh trees (instanced).
-                        if any_mesh_loaded {
-                            pass.set_pipeline(&s.trees_mesh_pipeline);
-                            for ty in 0..s.trees_mesh_index_counts.len() {
-                                let inst_count = s.trees_mesh_instance_counts[ty];
-                                let idx_count = s.trees_mesh_index_counts[ty];
-                                if inst_count == 0 || idx_count == 0 {
-                                    continue;
-                                }
-                                pass.set_bind_group(0, &s.trees_mesh_bind_groups[ty], &[]);
-                                pass.set_vertex_buffer(
-                                    0,
-                                    s.trees_mesh_vertex_buffers[ty].slice(..),
-                                );
-                                pass.set_vertex_buffer(
-                                    1,
-                                    s.trees_mesh_instance_buffers[ty].slice(..),
-                                );
-                                pass.set_index_buffer(
-                                    s.trees_mesh_index_buffers[ty].slice(..),
-                                    wgpu::IndexFormat::Uint32,
-                                );
-                                pass.draw_indexed(0..idx_count, 0, 0..inst_count);
-                                draw_calls = draw_calls.saturating_add(1);
-                            }
-                        }
-                    }
-                    if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                        profiler.end_render_span(&mut pass, token);
-                    }
-                    s.pass_registry
-                        .record_cpu_ms("3d_trees", pass_started.elapsed().as_secs_f32() * 1000.0);
-                    s.pass_registry
-                        .record_draw_calls("3d_trees", draw_calls.max(1));
-                }
-
-                // Phase 3.12.5 ???vanilla 3D building mesh (PdxMesh pipeline).
-                if map_draw.buildings && s.pdxmesh_pass.any_loaded {
-                    let pass_started = Instant::now();
-                    let token = s
-                        .gpu_profiler
-                        .as_mut()
-                        .and_then(|profiler| profiler.begin_render_span(&mut pass, "3d_buildings"));
-                    s.pdxmesh_pass.render(&mut pass);
-                    if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                        profiler.end_render_span(&mut pass, token);
-                    }
-                    s.pass_registry.record_cpu_ms(
-                        "3d_buildings",
-                        pass_started.elapsed().as_secs_f32() * 1000.0,
-                    );
-                    s.pass_registry.record_draw_calls(
-                        "3d_buildings",
-                        s.pdxmesh_pass.loaded_draw_count().max(1),
-                    );
-                } else if map_draw.buildings && s.buildings_count > 0 {
-                    let pass_started = Instant::now();
-                    let token = s
-                        .gpu_profiler
-                        .as_mut()
-                        .and_then(|profiler| profiler.begin_render_span(&mut pass, "3d_buildings"));
-                    pass.set_pipeline(&s.buildings_pipeline);
-                    pass.set_bind_group(0, &s.buildings_bind_group, &[]);
-                    pass.set_vertex_buffer(0, s.buildings_buffer.slice(..));
-                    pass.draw(0..6, 0..s.buildings_count);
-                    if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                        profiler.end_render_span(&mut pass, token);
-                    }
-                    s.pass_registry.record_cpu_ms(
-                        "3d_buildings",
-                        pass_started.elapsed().as_secs_f32() * 1000.0,
-                    );
-                    s.pass_registry.record_draw_calls("3d_buildings", 1);
-                }
-
-                // Phase 14 ???POI icon pass.
-                if map_draw.poi_icons {
-                    if let Some(poi) = s.poi_icon_pass.as_ref() {
-                        let pass_started = Instant::now();
-                        let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                            profiler.begin_render_span(&mut pass, "3d_poi_icons")
-                        });
-                        poi.render(&mut pass);
-                        if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                            profiler.end_render_span(&mut pass, token);
-                        }
-                        s.pass_registry.record_cpu_ms(
-                            "3d_poi_icons",
-                            pass_started.elapsed().as_secs_f32() * 1000.0,
-                        );
-                        s.pass_registry.record_draw_calls("3d_poi_icons", 1);
-                    }
-                }
-
-                // Phase 3.12.10 ???vanilla-equivalent 3D country-name labels.
-                if map_draw.map_names {
-                    if let Some(mnp) = s.mapname_pass.as_ref() {
-                        let pass_started = Instant::now();
-                        let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                            profiler.begin_render_span(&mut pass, "3d_mapname")
-                        });
-                        mnp.render(&mut pass, world_objects.country_names.scale);
-                        if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                            profiler.end_render_span(&mut pass, token);
-                        }
-                        s.pass_registry.record_cpu_ms(
-                            "3d_mapname",
-                            pass_started.elapsed().as_secs_f32() * 1000.0,
-                        );
-                        s.pass_registry.record_draw_calls("3d_mapname", 1);
-                    }
-                }
-
-                // Phase 3.12.13 ???province-name labels (zoom-gated).
-                // Only visible at medium/close zoom (zoom_factor >= 0.4).
-                if map_draw.province_names && self.show_province_names {
-                    if let Some(pnp) = s.province_name_pass.as_ref() {
-                        let pass_started = Instant::now();
-                        let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                            profiler.begin_render_span(&mut pass, "3d_province_name")
-                        });
-                        pnp.render(&mut pass, zoom_factor);
-                        if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                            profiler.end_render_span(&mut pass, token);
-                        }
-                        s.pass_registry.record_cpu_ms(
-                            "3d_province_name",
-                            pass_started.elapsed().as_secs_f32() * 1000.0,
-                        );
-                        s.pass_registry.record_draw_calls("3d_province_name", 1);
-                    }
-                }
-
-                // Phase 16 ???arrows + frontlines (drawn after all opaque geometry, alpha-blended overlays).
-                if map_draw.map_arrows {
-                    let pass_started = Instant::now();
-                    let token = s
-                        .gpu_profiler
-                        .as_mut()
-                        .and_then(|profiler| profiler.begin_render_span(&mut pass, "3d_maparrow"));
-                    s.maparrow_pass.render(&mut pass);
-                    if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                        profiler.end_render_span(&mut pass, token);
-                    }
-                    s.pass_registry.record_cpu_ms(
-                        "3d_maparrow",
-                        pass_started.elapsed().as_secs_f32() * 1000.0,
-                    );
-                    s.pass_registry.record_draw_calls("3d_maparrow", 1);
-                }
-                if map_draw.frontlines && s.frontlines_vertex_count > 0 {
-                    let pass_started = Instant::now();
-                    let token = s.gpu_profiler.as_mut().and_then(|profiler| {
-                        profiler.begin_render_span(&mut pass, "3d_frontlines")
-                    });
-                    pass.set_pipeline(&s.frontlines_pipeline);
-                    pass.set_bind_group(0, &s.frontlines_bind_group, &[]);
-                    pass.set_vertex_buffer(0, s.frontlines_buffer.slice(..));
-                    pass.draw(0..s.frontlines_vertex_count, 0..1);
-                    if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                        profiler.end_render_span(&mut pass, token);
-                    }
-                    s.pass_registry.record_cpu_ms(
-                        "3d_frontlines",
-                        pass_started.elapsed().as_secs_f32() * 1000.0,
-                    );
-                    s.pass_registry.record_draw_calls("3d_frontlines", 1);
-                }
-
-                // Phase 3.12.10 ???particle pass (combat smoke / factory chimneys).
-                // Alpha-blended, no depth write, drawn after all opaque + labels.
-                if map_draw.particles {
-                    let pass_started = Instant::now();
-                    let token = s
-                        .gpu_profiler
-                        .as_mut()
-                        .and_then(|profiler| profiler.begin_render_span(&mut pass, "3d_particles"));
-                    s.particle_pass.render(&mut pass);
-                    if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                        profiler.end_render_span(&mut pass, token);
-                    }
-                    s.pass_registry.record_cpu_ms(
-                        "3d_particles",
-                        pass_started.elapsed().as_secs_f32() * 1000.0,
-                    );
-                    s.pass_registry.record_draw_calls("3d_particles", 1);
-                }
-            } // end if draw_3d_map
-            drop(pass);
-            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), pass_token) {
-                profiler.end_encoder_span(&mut enc, token);
-            }
-        }
-
-        // 鈹€鈹€鈹€ Phase 3.12.1 / 3.12.2: HDR ???swap chain 妗ユ帴 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
-        // Playing 闃舵璧板畬鏁村悗澶勭悊閾撅紱鑿滃崟 / 鍥藉閫夋嫨闃舵璧扮畝???blit锛堥伩???        // 鑷姩鏇濆厜鎶婄┖鍦烘櫙杩囧害鎻愪寒锛??
-        s.post_process.debug_view = self.postprocess_debug_view;
-        let use_full_chain = map_draw.postprocess
-            && s.post_process.mode == PostProcessMode::Full
-            && self.map_quality_preset.controls().postprocess_chain;
-        let postprocess_started = Instant::now();
-        if use_full_chain {
-            let token = s
-                .gpu_profiler
-                .as_mut()
-                .and_then(|profiler| profiler.begin_encoder_span(&mut enc, "postprocess"));
-            let lut_selection =
-                postprocess_lut_selection_for(&self.camera, &self.world, &vanilla_map_space);
-            s.post_process.prepare(&s.queue, lut_selection);
-            s.post_process.render(&mut enc, output_view);
-            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                profiler.end_encoder_span(&mut enc, token);
-            }
-            s.pass_registry.record_draw_calls("postprocess", 10);
-        } else {
-            let token = s
-                .gpu_profiler
-                .as_mut()
-                .and_then(|profiler| profiler.begin_encoder_span(&mut enc, "postprocess"));
-            s.simple_blit.render(&mut enc, output_view);
-            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-                profiler.end_encoder_span(&mut enc, token);
-            }
-            s.pass_registry.record_draw_calls("postprocess", 1);
-        }
-        s.pass_registry.record_cpu_ms(
-            "postprocess",
-            postprocess_started.elapsed().as_secs_f32() * 1000.0,
+        let postprocess_lut_selection =
+            postprocess_lut_selection_for(&self.camera, &self.world, &vanilla_map_space);
+        let map_draw_output = map_draw::render_map_frame(
+            s,
+            &mut enc,
+            map_draw::MapDrawInput {
+                frame_plan: &map_frame_plan,
+                buckets: &buckets,
+                draw_3d_map,
+                show_province_names: self.show_province_names,
+                zoom_factor,
+                postprocess_debug_view: self.postprocess_debug_view,
+                postprocess_chain_enabled: self.map_quality_preset.controls().postprocess_chain,
+                postprocess_lut_selection,
+                output_view,
+            },
         );
-        record_phase12_pass_resources(s, use_full_chain);
+        let use_full_chain = map_draw_output.use_full_chain;
 
-        s.shadow_pass.render_debug(&mut enc, output_view);
-
-        // F4 璋冭瘯瑕嗙洊锛氭妸 pass 鍒楄〃 / 妯″紡鍒锋柊???DebugOverlay锛孶I 鏂囨湰???text_pass 娑堣垂??
-        let chain_label = if use_full_chain {
-            "post_process_full"
-        } else {
-            "simple_blit"
-        };
+        // F4 ??????????????pass ?????/ ????????????DebugOverlay???I ???????text_pass ??????
+        let chain_label = map_draw_output.chain_label;
         let postprocess_summary = s.post_process.calibration.summary();
         s.debug_render_overlay.refresh(
             &s.pass_registry,
@@ -14200,7 +11690,7 @@ impl App {
                         self.menu_hovered_btn,
                         self.menu_hovered_row,
                     );
-                    // 璇︽儏鍗＄墖
+                    // ?????????
                     if let Some(entry) = self.available_countries.get(self.country_select_idx) {
                         let world_idx = self
                             .world
@@ -14255,7 +11745,7 @@ impl App {
         }
 
         // Playing phase - topbar HUD
-        // 鈹€鈹€鈹€ Phase 3.5 / 3.10.3: Country name labels 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+        // ????????? Phase 3.5 / 3.10.3: Country name labels ????????????????????????????????????????????????????????????
         // When the 3D atlas baked successfully (`mapname_pass.is_some()`) the
         // 3D pass above has already drawn country names; the 2D HUD path
         // below is only a fallback for systems where no system font could
@@ -14335,11 +11825,11 @@ impl App {
             air_xp,
         );
 
-        // 4.3 Step B (2026-05-18): 鍒犻櫎 `politics_pass::draw_politics_overlay`
-        // 鐨勭▼搴忓寲鏂囧瓧鍙犲姞璺緞銆傛斂娌婚潰鏉垮唴瀹癸紙political_title / ideology / focus
-        // 绛夛級???vanilla `countrypoliticsview.gui` 鍐呯殑 textbox widget 娓叉煋???        // 鏂囧瓧鍐呭閫氳繃 `crate::binding::WorldBinding::query_string(widget_name)`
-        // V5 鏀跺彛锛欶1 debug overlay 鍘熸湰璧?GuiRt-removed widget 鏍戯紝宸插仠鐢ㄣ€?
-        let _ = player; // 涓婂眰鏁版嵁鍒囩墖浠嶅彲鑳借鍚庣画 UI 姝ラ娑堣垂锛屼繚鐣?player 涓嶆姤閿欍€?
+        // 4.3 Step B (2026-05-18): ?????`politics_pass::draw_politics_overlay`
+        // ?????????????????????????????????????????olitical_title / ideology / focus
+        // ???????vanilla `countrypoliticsview.gui` ?????textbox widget ???????        // ??????????????`crate::binding::WorldBinding::query_string(widget_name)`
+        // V5 ????????1 debug overlay ???????GuiRt-removed widget ??????????????
+        let _ = player; // ????????????????????????????UI ????????????????player ??????????
 
         // Draw HOI3 counter stack labels when the counter pass is enabled.
         if self.game_phase == GamePhase::Playing
@@ -14364,7 +11854,7 @@ impl App {
                 let logical_w = sw * inv_dpi;
                 let above_offset = logical_h * 0.55;
                 let font_size = (logical_h * 0.42).clamp(8.0, 18.0);
-                let lx = cx * inv_dpi + logical_w * 0.32; // 椤堕儴鍙充笂瑙掑窘绔犱腑蹇冿紝涓?shader 鍦嗗舰 badge 鍚屼綅
+                let lx = cx * inv_dpi + logical_w * 0.32;
                 let ly = cy * inv_dpi - logical_h * 0.32;
                 let _ = above_offset;
                 s.text_pass
@@ -14411,7 +11901,7 @@ impl App {
             }
         }
 
-        // Phase 3.12.1: F4 娓叉煋璋冭瘯瑕嗙洊鏂囧瓧锛坧ass 鍒楄〃 / HDR 灏哄 / 褰撳墠妯″紡锛??
+        // Phase 3.12.1: F4 ?????????????????????ass ?????/ HDR ?????/ ????????????
         if s.debug_render_overlay.enabled {
             let mut y = 8.0;
             for line in s.debug_render_overlay.latest_lines() {
@@ -14471,7 +11961,7 @@ impl App {
                     {
                         continue;
                     }
-                    let label = format!("{} · {}师", army.name, army.members.len());
+                    let label = format!("{} - {} units", army.name, army.members.len());
                     let label_w = (label.chars().count() as f32 * 9.0 + 16.0).clamp(80.0, 200.0);
                     let label_h = 20.0;
                     let cy = screen_y - 14.0;
@@ -14667,62 +12157,6 @@ impl App {
     }
 }
 
-fn record_phase12_pass_resources(s: &mut RenderState, postprocess_full: bool) {
-    let runtime_target_bytes = s.vanilla_targets.memory_bytes();
-    let postprocess_bytes =
-        estimate_frame_texture_memory_bytes(s.config.width, s.config.height, postprocess_full);
-
-    s.pass_registry.record_texture_memory_bytes(
-        "shadow_caster",
-        passes::SHADOW_MAP_SIZE as u64 * passes::SHADOW_MAP_SIZE as u64 * 4,
-    );
-    s.pass_registry
-        .record_fallback_count("3d_sky", if s.sky_pass.loaded { 0 } else { 1 });
-    s.pass_registry.record_texture_memory_bytes(
-        "3d_terrain",
-        runtime_target_bytes + s.config.width as u64 * s.config.height as u64 * 12,
-    );
-    s.pass_registry.record_fallback_count(
-        "3d_terrain",
-        s.terrain_pass.binding_audit.fallback_count() as u32,
-    );
-    s.pass_registry
-        .record_texture_memory_bytes("3d_water", runtime_target_bytes);
-    s.pass_registry.record_fallback_count(
-        "3d_water",
-        s.water_pass.binding_audit.fallback_count() as u32,
-    );
-    s.pass_registry
-        .record_texture_memory_bytes("3d_river", runtime_target_bytes / 8);
-    s.pass_registry.record_fallback_count(
-        "3d_river",
-        s.river_pass.binding_audit.fallback_count() as u32,
-    );
-    s.pass_registry
-        .record_fallback_count("3d_border", if s.border_pass.any_loaded { 0 } else { 1 });
-    if let Some(tree_full) = s.tree_full_pass.as_ref() {
-        s.pass_registry
-            .record_fallback_count("3d_trees", tree_full.binding_audit.fallback_count() as u32);
-    } else {
-        s.pass_registry.record_fallback_count("3d_trees", 1);
-    }
-    s.pass_registry.record_fallback_count(
-        "3d_buildings",
-        if s.pdxmesh_pass.any_loaded { 0 } else { 1 },
-    );
-    s.pass_registry
-        .record_texture_memory_bytes("postprocess", postprocess_bytes);
-    s.pass_registry.record_fallback_count(
-        "postprocess",
-        if s.post_process.color_cube_fallback {
-            1
-        } else {
-            0
-        },
-    );
-    s.pass_registry.record_fallback_count("ui", 0);
-}
-
 fn enqueue_png_readback(
     device: &wgpu::Device,
     encoder: &mut wgpu::CommandEncoder,
@@ -14835,12 +12269,12 @@ fn estimate_construction_days_remaining(progress: f32, cost: f32) -> Option<u32>
 
 fn autonomy_level_label(level: hoi4_state::AutonomyLevel) -> &'static str {
     match level {
-        hoi4_state::AutonomyLevel::Integrated => "整合领土",
-        hoi4_state::AutonomyLevel::IntegratedPuppet => "深度傀儡",
-        hoi4_state::AutonomyLevel::Puppet => "傀儡国",
-        hoi4_state::AutonomyLevel::Dominion => "自治领",
-        hoi4_state::AutonomyLevel::Satellite => "卫星国",
-        hoi4_state::AutonomyLevel::FreedomAssociation => "自由协约",
+        hoi4_state::AutonomyLevel::Integrated => "??????",
+        hoi4_state::AutonomyLevel::IntegratedPuppet => "Integrated puppet",
+        hoi4_state::AutonomyLevel::Puppet => "Puppet",
+        hoi4_state::AutonomyLevel::Dominion => "Dominion",
+        hoi4_state::AutonomyLevel::Satellite => "Satellite",
+        hoi4_state::AutonomyLevel::FreedomAssociation => "??????",
     }
 }
 
@@ -15003,7 +12437,7 @@ fn diplomacy_autonomy_summary(
             .map(|tag| hoi4_ui::i18n::tr(tag).to_string())
             .unwrap_or_else(|| hoi4_ui::i18n::tr("unknown").to_owned());
         return Some(format!(
-            "{}：{}",
+            "{} of {}",
             autonomy_level_label(autonomy.level),
             master
         ));
@@ -15016,7 +12450,7 @@ fn diplomacy_autonomy_summary(
         .filter(|autonomy| autonomy.master == country)
         .count();
     if subject_count > 0 {
-        Some(format!("宗主国：{} 个附庸", subject_count))
+        Some(format!("Subjects: {}", subject_count))
     } else {
         None
     }
@@ -15071,9 +12505,9 @@ fn country_wargoal_details(
                         kind: wargoal_kind_label(goal.kind).to_owned(),
                         target_state: goal.target_state.map(|state| state.0),
                         status: if goal.justified {
-                            "已正当化".to_owned()
+                            "??????".to_owned()
                         } else {
-                            "正当化中".to_owned()
+                            "??????".to_owned()
                         },
                         progress,
                         days_remaining: if goal.justified {
@@ -15083,7 +12517,7 @@ fn country_wargoal_details(
                                 .max(0.0)
                                 .ceil() as u32
                         },
-                        source: "外交正当化".to_owned(),
+                        source: "Source".to_owned(),
                     }
                 })
                 .collect()
@@ -15099,28 +12533,28 @@ fn country_relation_factors(
     let mut factors = Vec::new();
     let opinion = world.diplomacy.opinions.get(player, target);
     factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-        label: "我国对目标关系".to_owned(),
+        label: "Label".to_owned(),
         value: format!("{opinion:+}"),
         positive: opinion >= 0,
     });
 
     let reverse = world.diplomacy.opinions.get(target, player);
     factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-        label: "目标对我国关系".to_owned(),
+        label: "Label".to_owned(),
         value: format!("{reverse:+}"),
         positive: reverse >= 0,
     });
 
     if world.diplomacy.at_war_with(player, target) {
         factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "战争状态".to_owned(),
-            value: "交战中".to_owned(),
+            label: "Label".to_owned(),
+            value: "Value".to_owned(),
             positive: false,
         });
     } else {
         factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "战争状态".to_owned(),
-            value: "和平".to_owned(),
+            label: "Label".to_owned(),
+            value: "Value".to_owned(),
             positive: true,
         });
     }
@@ -15130,32 +12564,32 @@ fn country_relation_factors(
         world.diplomacy.faction_of(target),
     ) {
         (Some(a), Some(b)) if a == b => factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "阵营关系".to_owned(),
-            value: "同阵营".to_owned(),
+            label: "Label".to_owned(),
+            value: "Value".to_owned(),
             positive: true,
         }),
         (Some(_), Some(_)) => factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "阵营关系".to_owned(),
-            value: "不同阵营".to_owned(),
+            label: "Label".to_owned(),
+            value: "Value".to_owned(),
             positive: false,
         }),
         _ => factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "阵营关系".to_owned(),
-            value: "无共同阵营".to_owned(),
+            label: "Label".to_owned(),
+            value: "Value".to_owned(),
             positive: false,
         }),
     }
 
     if world.diplomacy.is_subject_of(target, player) {
         factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "附庸关系".to_owned(),
-            value: "目标是我国附庸".to_owned(),
+            label: "Label".to_owned(),
+            value: "Value".to_owned(),
             positive: true,
         });
     } else if world.diplomacy.is_subject_of(player, target) {
         factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "附庸关系".to_owned(),
-            value: "我国是目标附庸".to_owned(),
+            label: "Label".to_owned(),
+            value: "Value".to_owned(),
             positive: false,
         });
     }
@@ -15165,12 +12599,12 @@ fn country_relation_factors(
 
 fn wargoal_kind_label(kind: hoi4_state::WargoalType) -> &'static str {
     match kind {
-        hoi4_state::WargoalType::Annex => "吞并",
-        hoi4_state::WargoalType::TakeState => "夺取州",
-        hoi4_state::WargoalType::Liberate => "解放",
-        hoi4_state::WargoalType::Puppet => "傀儡化",
-        hoi4_state::WargoalType::ToppleGovernment => "推翻政府",
-        hoi4_state::WargoalType::NavalAccess => "海军通行",
+        hoi4_state::WargoalType::Annex => "???",
+        hoi4_state::WargoalType::TakeState => "Take state",
+        hoi4_state::WargoalType::Liberate => "???",
+        hoi4_state::WargoalType::Puppet => "?????",
+        hoi4_state::WargoalType::ToppleGovernment => "??????",
+        hoi4_state::WargoalType::NavalAccess => "??????",
     }
 }
 
@@ -15196,30 +12630,28 @@ fn diplomacy_unavailable_reason_text(
 ) -> String {
     use hoi4_logic::diplomacy::UnavailableReason;
     match reason {
-        Some(UnavailableReason::BadActor) => "行动发起国无效".to_owned(),
-        Some(UnavailableReason::BadTarget) => "目标国家无效".to_owned(),
-        Some(UnavailableReason::SelfTarget) => "不能以本国作为目标".to_owned(),
-        Some(UnavailableReason::AlreadyAtWar) => "已经处于战争状态".to_owned(),
-        Some(UnavailableReason::MissingJustifiedWargoal) => "需要已正当化的战争目标".to_owned(),
-        Some(UnavailableReason::AlreadyInFaction) => "我国已经在阵营中".to_owned(),
-        Some(UnavailableReason::NotInFaction) => "我国不在任何阵营中".to_owned(),
-        Some(UnavailableReason::TargetAlreadyInFaction) => "目标已经加入阵营".to_owned(),
-        Some(UnavailableReason::NoFactionToInviteFrom) => "我国需要先创建或加入阵营".to_owned(),
+        Some(UnavailableReason::BadActor) => "Bad actor".to_owned(),
+        Some(UnavailableReason::BadTarget) => "?????????".to_owned(),
+        Some(UnavailableReason::SelfTarget) => "Cannot target self".to_owned(),
+        Some(UnavailableReason::AlreadyAtWar) => "Already at war".to_owned(),
+        Some(UnavailableReason::MissingJustifiedWargoal) => "?????????????????".to_owned(),
+        Some(UnavailableReason::AlreadyInFaction) => "????????????".to_owned(),
+        Some(UnavailableReason::NotInFaction) => "Not in faction".to_owned(),
+        Some(UnavailableReason::TargetAlreadyInFaction) => "????????????".to_owned(),
+        Some(UnavailableReason::NoFactionToInviteFrom) => "No faction to invite from".to_owned(),
         Some(UnavailableReason::OpinionTooLow { current, required }) => {
-            format!("目标对我国关系不足：当前 {current}，需要 {required}")
+            format!("?????????????????? {current}?????{required}")
         }
-        Some(UnavailableReason::DuplicateWargoal) => "已经存在相同战争目标".to_owned(),
-        Some(UnavailableReason::InsufficientPoliticalPower) => "政治点数不足".to_owned(),
-        Some(UnavailableReason::MissingTargetState) => "该战争目标需要指定州".to_owned(),
-        Some(UnavailableReason::ExtraneousTargetState) => "该战争目标不能指定州".to_owned(),
-        Some(UnavailableReason::BadFaction) => "阵营无效".to_owned(),
-        Some(UnavailableReason::WarNotFound) => "战争不存在".to_owned(),
-        Some(UnavailableReason::NotWarParticipant) => "我国不是该战争参战方".to_owned(),
-        Some(UnavailableReason::DuplicatePendingRequest) => "已有待处理外交请求".to_owned(),
-        Some(UnavailableReason::PeaceNotReady) => {
-            "和平会议条件不足：需要足够战争分数或敌方投降".to_owned()
-        }
-        None => "行动不可用".to_owned(),
+        Some(UnavailableReason::DuplicateWargoal) => "???????????????".to_owned(),
+        Some(UnavailableReason::InsufficientPoliticalPower) => "?????????".to_owned(),
+        Some(UnavailableReason::MissingTargetState) => "???????????????".to_owned(),
+        Some(UnavailableReason::ExtraneousTargetState) => "???????????????".to_owned(),
+        Some(UnavailableReason::BadFaction) => "??????".to_owned(),
+        Some(UnavailableReason::WarNotFound) => "War not found".to_owned(),
+        Some(UnavailableReason::NotWarParticipant) => "???????????????".to_owned(),
+        Some(UnavailableReason::DuplicatePendingRequest) => "Duplicate pending request".to_owned(),
+        Some(UnavailableReason::PeaceNotReady) => "?????????????????????????????????".to_owned(),
+        None => "Unavailable".to_owned(),
     }
 }
 
@@ -15231,21 +12663,21 @@ fn intervention_expected_impact(
 ) -> String {
     let mut parts = Vec::new();
     if progress_boost.abs() > f32::EPSILON {
-        parts.push(format!("目标阵营进度 +{:.0}", progress_boost));
+        parts.push(format!("????????? +{:.0}", progress_boost));
     }
     if army_xp > 0.0 {
-        parts.push(format!("陆军经验 +{:.0}", army_xp));
+        parts.push(format!("?????? +{:.0}", army_xp));
     }
     if air_xp > 0.0 {
-        parts.push(format!("空军经验 +{:.0}", air_xp));
+        parts.push(format!("?????? +{:.0}", air_xp));
     }
     if cooldown_days > 0 {
-        parts.push(format!("执行后冷却 {} 天", cooldown_days));
+        parts.push(format!("Cooldown {} days", cooldown_days));
     }
     if parts.is_empty() {
-        "效果已由局势脚本定义，执行后立即结算。".to_owned()
+        "Unknown".to_owned()
     } else {
-        parts.join("；")
+        parts.join(", ")
     }
 }
 
@@ -15329,7 +12761,7 @@ fn localized_state_name(
     loc_catalog: &hoi4_ui::loc::LocCatalog,
 ) -> String {
     if raw.is_empty() {
-        return format!("第{}州", state_idx);
+        return format!("State {}", state_idx + 1);
     }
     let localized = loc_catalog.tr(raw);
     if localized != raw {
@@ -15339,7 +12771,7 @@ fn localized_state_name(
         .strip_prefix("STATE_")
         .and_then(|s| s.parse::<u16>().ok())
     {
-        return format!("第{}州", id);
+        return format!("State {}", id);
     }
     raw.to_owned()
 }
@@ -15372,7 +12804,6 @@ fn decision_id_matches_player_tag(decision_id: &str, player_tag_lower: &str) -> 
 
 /// Build the country selection list.
 fn build_country_select_list(world: &World) -> Vec<CountryEntry> {
-    // Vanilla 1936 8 majors + 鍑犱釜甯歌灏忓浗
     let major_tags: &[&str] = &[
         "GER", "SPR", "ITA", "JAP", "ENG", "FRA", "USA", "SOV", "CHI",
     ];
@@ -15389,7 +12820,6 @@ fn build_country_select_list(world: &World) -> Vec<CountryEntry> {
                 .unwrap_or_default();
             (hoi4_ui::i18n::tr(tag).to_string(), ideo)
         } else {
-            // ???tag 鏈姞杞斤紝璺宠繃
             continue;
         };
 
@@ -15671,7 +13101,7 @@ fn setup_tree_mesh_pipeline(
                     }
                 }
                 println!(
-                    "[trees_mesh] {}  ?{} verts, {} idx, bounds [{:.2},{:.2},{:.2}]鈫抂{:.2},{:.2},{:.2}]",
+                    "[trees_mesh] {}  ?{} verts, {} idx, bounds [{:.2},{:.2},{:.2}]???{:.2},{:.2},{:.2}]",
                     mesh_path,
                     d.vertex_count,
                     d.index_count,
@@ -15748,7 +13178,7 @@ fn setup_tree_mesh_pipeline(
                     hoi4_assets::DdsFormat::Bc3 => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
                     _ => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
                 };
-                // Only include mip levels >= 4脳4 for BC formats.
+                // Only include mip levels >= 4?? for BC formats.
                 let valid_mips = dds
                     .mips
                     .iter()
@@ -15976,7 +13406,7 @@ fn build_template_subunit_picker_data(
                 template,
                 current,
                 choices,
-                format!("选择战斗营 R{} C{}", row + 1, col + 1),
+                format!("????????R{} C{}", row + 1, col + 1),
             )
         }
         hoi4_ui::military::TemplatePickerTarget::Support { template, slot } => {
@@ -16001,12 +13431,7 @@ fn build_template_subunit_picker_data(
                     "support_artillery".to_owned(),
                 ]);
             }
-            (
-                template,
-                current,
-                choices,
-                format!("选择支援连 {}", slot + 1),
-            )
+            (template, current, choices, format!("????????{}", slot + 1))
         }
     };
 
@@ -16157,21 +13582,21 @@ fn combat_advantages(
     let div_delta = own.active_divisions as i32 - enemy.active_divisions as i32;
 
     if attack_ratio >= 1.25 {
-        advantages.push(format!("火力优势 +{:.0}%", (attack_ratio - 1.0) * 100.0));
+        advantages.push(format!("?????? +{:.0}%", (attack_ratio - 1.0) * 100.0));
     } else if attack_ratio <= 0.80 {
-        advantages.push(format!("火力劣势 {:.0}%", (attack_ratio - 1.0) * 100.0));
+        advantages.push(format!("?????? {:.0}%", (attack_ratio - 1.0) * 100.0));
     }
     if org_delta.abs() >= 8.0 {
-        advantages.push(format!("组织度差 {:+.0}%", org_delta));
+        advantages.push(format!("?????? {:+.0}%", org_delta));
     }
     if strength_delta.abs() >= 8.0 {
-        advantages.push(format!("兵力完整度 {:+.0}%", strength_delta));
+        advantages.push(format!("????????{:+.0}%", strength_delta));
     }
     if div_delta != 0 {
-        advantages.push(format!("参战师数 {:+}", div_delta));
+        advantages.push(format!("?????? {:+}", div_delta));
     }
     if advantages.is_empty() {
-        advantages.push("态势接近，胜负主要取决于后续组织度消耗".to_owned());
+        advantages.push("Strategic advantage".to_owned());
     }
     advantages
 }
@@ -16250,7 +13675,7 @@ fn show_combat_bubble_overlay(
                     *selected = if selected_here { None } else { Some(bubble.id) };
                 }
                 response.on_hover_text(format!(
-                    "{} ({}) vs {} ({})：{}%",
+                    "{} ({}) vs {} ({}) {}%",
                     bubble.side_a.tag,
                     bubble.side_a.active_divisions,
                     bubble.side_b.tag,
@@ -16270,7 +13695,7 @@ fn show_combat_bubble_overlay(
         (bubble.screen_pos[0] + 26.0).clamp(8.0, ctx.screen_rect().right() - 360.0),
         (bubble.screen_pos[1] - 28.0).clamp(52.0, ctx.screen_rect().bottom() - 360.0),
     );
-    egui::Window::new("战斗详情")
+    egui::Window::new("??????")
         .id(egui::Id::new(("combat_detail", bubble.id)))
         .order(egui::Order::Background)
         .fixed_pos(panel_pos)
@@ -16291,7 +13716,7 @@ fn show_combat_bubble_overlay(
             ui.add_space(4.0);
             combat_side_detail(ui, &bubble.side_b);
             ui.separator();
-            ui.label(RichText::new("态势").strong());
+            ui.label(RichText::new("???").strong());
             for item in &bubble.advantages {
                 ui.label(item);
             }
@@ -16309,31 +13734,27 @@ fn show_combat_bubble_overlay(
 
 fn combat_side_detail(ui: &mut hoi4_ui::egui::Ui, side: &CombatSideSnapshot) {
     use hoi4_ui::egui::{Color32, RichText};
-    let posture = if side.is_attacking {
-        "进攻"
-    } else {
-        "防守"
-    };
+    let posture = if side.is_attacking { "???" } else { "???" };
     ui.group(|ui| {
         ui.horizontal(|ui| {
             ui.label(RichText::new(format!("{} {}", side.tag, posture)).strong());
             ui.with_layout(
                 hoi4_ui::egui::Layout::right_to_left(hoi4_ui::egui::Align::Center),
                 |ui| {
-                    ui.label(format!("省份 {}", side.province));
+                    ui.label(format!("??? {}", side.province));
                 },
             );
         });
         ui.horizontal(|ui| {
             ui.label(format!(
-                "参战 {} / 预备 {}",
+                "??? {} / ??? {}",
                 side.active_divisions, side.reserve_divisions
             ));
-            ui.label(format!("宽度 {:.0}", side.combat_width));
+            ui.label(format!("??? {:.0}", side.combat_width));
         });
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(format!("组织 {:.0}%", side.avg_org_pct)).color(
+                RichText::new(format!("??? {:.0}%", side.avg_org_pct)).color(
                     if side.avg_org_pct >= 50.0 {
                         Color32::from_rgb(0x73, 0xc5, 0x79)
                     } else {
@@ -16341,15 +13762,15 @@ fn combat_side_detail(ui: &mut hoi4_ui::egui::Ui, side: &CombatSideSnapshot) {
                     },
                 ),
             );
-            ui.label(format!("兵力 {:.0}%", side.avg_strength_pct));
+            ui.label(format!("??? {:.0}%", side.avg_strength_pct));
         });
         ui.horizontal(|ui| {
-            ui.label(format!("软攻 {:.0}", side.soft_attack));
-            ui.label(format!("硬攻 {:.0}", side.hard_attack));
+            ui.label(format!("??? {:.0}", side.soft_attack));
+            ui.label(format!("??? {:.0}", side.hard_attack));
         });
         ui.horizontal(|ui| {
-            ui.label(format!("防御 {:.0}", side.defense));
-            ui.label(format!("突破 {:.0}", side.breakthrough));
+            ui.label(format!("??? {:.0}", side.defense));
+            ui.label(format!("??? {:.0}", side.breakthrough));
         });
     });
 }
@@ -16393,7 +13814,7 @@ fn load_tree_atlas(
     }
 
     if images.len() < 3 {
-        eprintln!("[trees] using 1脳1 white fallback (shader will use procedural trees)");
+        eprintln!("[trees] using 1?? white fallback (shader will use procedural trees)");
         let tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("tree_atlas_fallback"),
             size: wgpu::Extent3d {
@@ -16435,14 +13856,14 @@ fn load_tree_atlas(
         return (tex.create_view(&Default::default()), sampler);
     }
 
-    // Use the largest texture size as the atlas cell size (256脳256).
-    // Create a 2D texture with 3 rows stacked vertically (256脳768).
+    // Use the largest texture size as the atlas cell size (256??56).
+    // Create a 2D texture with 3 rows stacked vertically (256??68).
     // All textures are BC3 (DXT5). We'll use the largest as target.
     let target_w: u32 = 256;
     let target_h: u32 = 256;
     let atlas_h = target_h * 3;
 
-    // For BC3: 16 bytes per 4脳4 block. 256脳256 = 64脳64 blocks = 4096 blocks 脳 16 = 65536 bytes per layer.
+    // For BC3: 16 bytes per 4?? block. 256??56 = 64??4 blocks = 4096 blocks ??16 = 65536 bytes per layer.
     let blocks_per_row = target_w / 4;
     let blocks_per_col = target_h / 4;
     let bpb: u32 = 16; // BC3 = 16 bytes per block
@@ -16460,7 +13881,7 @@ fn load_tree_atlas(
             let copy_len = mip0.len().min(layer_bytes);
             atlas_data[dst_offset..dst_offset + copy_len].copy_from_slice(&mip0[..copy_len]);
         } else {
-            // Smaller texture (e.g., 64脳64): tile it to fill 256脳256.
+            // Smaller texture (e.g., 64??4): tile it to fill 256??56.
             let src_bw = img.width / 4;
             let src_bh = img.height / 4;
             for by in 0..blocks_per_col {
@@ -16533,7 +13954,7 @@ fn load_tree_atlas(
     (view, sampler)
 }
 
-/// Phase 3.5: 鍔犺浇 vanilla `map/terrain/atlas0.dds` (2048x2048 BC3, 4脳4 tile grid).
+/// Phase 3.5: ?????vanilla `map/terrain/atlas0.dds` (2048x2048 BC3, 4?? tile grid).
 fn load_terrain_atlas_phase1(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -16764,7 +14185,7 @@ fn load_terrain_atlas(
     let dds = match loaded {
         Some(d) => d,
         None => {
-            eprintln!("[terrain] no atlas found, using 1脳1 white fallback");
+            eprintln!("[terrain] no atlas found, using 1?? white fallback");
             // Create 1x1 white texture as fallback
             let tex = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("terrain_atlas_fallback"),
@@ -16876,7 +14297,7 @@ fn load_terrain_atlas(
     }
 
     let view = texture.create_view(&Default::default());
-    // Phase 3.6.5: 8脳 anisotropic filtering ???terrain remains crisp at oblique
+    // Phase 3.6.5: 8??anisotropic filtering ???terrain remains crisp at oblique
     // viewing angles (camera looking down at the map at low pitch). Requires
     // anisotropy_clamp ???[1, 16]; wgpu validates 8 is supported on baseline tier.
     let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -16898,7 +14319,7 @@ fn load_terrain_atlas(
 }
 
 /// Phase 3.6.1: Load vanilla terrain colormap (continent natural color base layer).
-/// The colormap is a low-resolution (~5632脳2048 typically) DDS that provides a natural
+/// The colormap is a low-resolution (~5632??048 typically) DDS that provides a natural
 /// color base for the entire map, eliminating flat-color feel from large terrain areas.
 #[allow(dead_code)]
 fn load_colormap(
@@ -16933,7 +14354,7 @@ fn load_colormap(
     let dds = match loaded {
         Some(d) => d,
         None => {
-            eprintln!("[terrain] no colormap found, using 1脳1 neutral fallback");
+            eprintln!("[terrain] no colormap found, using 1?? neutral fallback");
             // Create 1x1 neutral gray texture as fallback (won't affect blending much)
             let tex = device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("colormap_fallback"),
@@ -17068,7 +14489,7 @@ fn load_colormap(
 /// R stores coarse level; G/B store stable local flow direction; A stores the
 /// original palette index for debug/future parity work.
 ///
-/// Uses `BmpDecoder` from hoi4-map; falls back to a 1脳1 zero texture if missing.
+/// Uses `BmpDecoder` from hoi4-map; falls back to a 1?? zero texture if missing.
 #[allow(dead_code)]
 fn load_rivers_texture(
     device: &wgpu::Device,
@@ -17266,6 +14687,29 @@ fn map_mode_from_capture_name(name: &str) -> MapMode {
     }
 }
 
+fn terrain_debug_view_for_baseline_layer(
+    layer: map_baseline::MapBaselineLayer,
+) -> passes::TerrainDebugView {
+    match layer {
+        map_baseline::MapBaselineLayer::ProvinceSecondaryDebug => {
+            passes::TerrainDebugView::ProvinceSecondary
+        }
+        map_baseline::MapBaselineLayer::GradientBorderCh3Debug => {
+            passes::TerrainDebugView::GradientBorderCh3
+        }
+        map_baseline::MapBaselineLayer::TerrainRiverMaskDebug => {
+            passes::TerrainDebugView::RiverMask
+        }
+        map_baseline::MapBaselineLayer::FowVisibilityDebug => {
+            passes::TerrainDebugView::FowVisibility
+        }
+        map_baseline::MapBaselineLayer::TerrainFinalBeforePostprocessDebug => {
+            passes::TerrainDebugView::FinalBeforePostprocess
+        }
+        _ => passes::TerrainDebugView::Off,
+    }
+}
+
 fn surrender_notification_sound_key(
     notification: &hoi4_ui::surrender_notification::SurrenderNotification,
 ) -> String {
@@ -17353,6 +14797,43 @@ fn main() {
 #[cfg(test)]
 mod v6_app_tests {
     use super::MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY;
+
+    #[test]
+    fn phase2_baseline_layers_select_expected_terrain_debug_views() {
+        let cases = [
+            (
+                super::map_baseline::MapBaselineLayer::ProvinceSecondaryDebug,
+                super::passes::TerrainDebugView::ProvinceSecondary,
+            ),
+            (
+                super::map_baseline::MapBaselineLayer::GradientBorderCh3Debug,
+                super::passes::TerrainDebugView::GradientBorderCh3,
+            ),
+            (
+                super::map_baseline::MapBaselineLayer::TerrainRiverMaskDebug,
+                super::passes::TerrainDebugView::RiverMask,
+            ),
+            (
+                super::map_baseline::MapBaselineLayer::FowVisibilityDebug,
+                super::passes::TerrainDebugView::FowVisibility,
+            ),
+            (
+                super::map_baseline::MapBaselineLayer::TerrainFinalBeforePostprocessDebug,
+                super::passes::TerrainDebugView::FinalBeforePostprocess,
+            ),
+            (
+                super::map_baseline::MapBaselineLayer::TerrainOnly,
+                super::passes::TerrainDebugView::Off,
+            ),
+        ];
+
+        for (layer, expected) in cases {
+            assert_eq!(
+                super::terrain_debug_view_for_baseline_layer(layer),
+                expected
+            );
+        }
+    }
 
     #[test]
     fn economy_law_tiers_include_corporatist_war_economy() {
