@@ -79,7 +79,7 @@ use map_perf::{
     estimate_frame_texture_memory_bytes, phase10_overlay_lines, GpuProfilerStatus,
     GpuTimestampProfiler, MapQualityPreset, Phase10OverlayInput,
 };
-use map_renderer::{MapRenderer, TerrainMaterialOwnership, WorldObjectPlan, WorldObjectSystem};
+use map_renderer::{MapPrepareFrameInput, MapRenderer, WorldObjectPlan, WorldObjectSystem};
 use menu_pass::{CountryEntry, MenuButton};
 use menu_scene::MenuKind;
 use panel_pass::PanelPass;
@@ -11204,19 +11204,21 @@ impl App {
             &s.pass_registry,
         );
         self.last_map_prepare_cpu_ms = prepare_started.elapsed().as_secs_f32() * 1000.0;
-        let map_draw = &map_frame_plan.draw;
         let static_decals = map_frame_plan.static_decals;
         let semantic_overlays = map_frame_plan.semantic_overlays;
         let world_objects = map_frame_plan.world_objects;
-        let terrain_ownership: TerrainMaterialOwnership = map_draw.terrain_material_ownership(
-            map_layer_mask,
-            s.water_pass.any_loaded,
-            s.river_pass.any_loaded,
-            s.border_pass.any_loaded,
-            static_decals,
-            semantic_overlays,
+        let prepared_map_frame = s.map_renderer.prepare_frame(
+            &map_frame_plan,
+            MapPrepareFrameInput {
+                layer_mask: map_layer_mask,
+                dedicated_water_loaded: s.water_pass.any_loaded,
+                dedicated_river_loaded: s.river_pass.any_loaded,
+                dedicated_border_loaded: s.border_pass.any_loaded,
+            },
         );
-        let water_ownership = map_draw.water_material_ownership(s.water_pass.any_loaded);
+        let terrain_ownership = prepared_map_frame.terrain_ownership;
+        let water_ownership = prepared_map_frame.water_ownership;
+        let map_fallback_report = prepared_map_frame.fallback_report;
         let runtime_player_country = if self.player_country < self.world.countries.count {
             Some(hoi4_state::CountryId(self.player_country as u16))
         } else {
@@ -11494,7 +11496,7 @@ impl App {
                 feature_flags: [
                     0.0,
                     if terrain_ownership.terrain_overlays
-                        && map_draw.river
+                        && map_frame_plan.draw.river
                         && !s.river_pass.any_loaded
                     {
                         1.0
@@ -11521,7 +11523,8 @@ impl App {
         }
         let postprocess_lut_selection =
             postprocess_lut_selection_for(&self.camera, &self.world, &vanilla_map_space);
-        let map_draw_output = map_draw::render_map_frame(
+        let map_renderer = s.map_renderer.clone();
+        let map_draw_output = map_renderer.render_frame(
             s,
             &mut enc,
             map_draw::MapDrawInput {
@@ -11546,7 +11549,7 @@ impl App {
             s.hdr_target.width,
             s.hdr_target.height,
             &format!(
-                "{} quality={} post_debug={} {} terrain_debug={} water_debug={} border_debug={} overlay_budget={:.2}/{:.2}/{:.2}",
+                "{} quality={} post_debug={} {} terrain_debug={} water_debug={} border_debug={} overlay_budget={:.2}/{:.2}/{:.2} map_fallbacks={} degraded={}",
                 chain_label,
                 self.map_quality_preset.as_str(),
                 s.post_process.debug_view.name(),
@@ -11556,7 +11559,9 @@ impl App {
                 self.border_debug_view.name(),
                 semantic_overlays.budget.passive,
                 semantic_overlays.budget.active,
-                semantic_overlays.budget.map_mode
+                semantic_overlays.budget.map_mode,
+                map_fallback_report.fallback_count(),
+                map_fallback_report.is_degraded()
             ),
         );
         let gpu_status = s

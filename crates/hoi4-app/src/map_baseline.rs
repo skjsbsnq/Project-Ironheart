@@ -836,7 +836,445 @@ pub fn write_map_audit_files(
     if let Some(report) = terrain_pdxmap_report {
         std::fs::write(output_dir.join("terrain_pdxmap.json"), report)?;
     }
+    std::fs::write(
+        output_dir.join("parity_gate.txt"),
+        p0_parity_gate_text(audit, binding_audit),
+    )?;
+    std::fs::write(
+        output_dir.join("parity_gate.json"),
+        p0_parity_gate_json(audit, binding_audit),
+    )?;
     Ok(json_path)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct P0MappingEntry {
+    b1i_id: &'static str,
+    reverse_fact: &'static str,
+    evidence: &'static str,
+    target_files: &'static str,
+    current_status: &'static str,
+    acceptance: &'static str,
+}
+
+const P0_MAPPING_ENTRIES: &[P0MappingEntry] = &[
+    P0MappingEntry {
+        b1i_id: "B1I-001",
+        reverse_fact: "vanilla frame order is terrain -> border -> river -> map layers -> water -> border -> bounded overlays -> postprocess -> UI",
+        evidence: "reverse_out/10_vanilla_render_spec_for_b1.md; reverse_out/exports/b1_implementation_inputs.tsv",
+        target_files: "crates/hoi4-app/src/map_renderer.rs; crates/hoi4-app/src/map_draw.rs; crates/hoi4-app/src/passes/mod.rs",
+        current_status: "partial",
+        acceptance: "map-audit reports b1 pass order and fallback ownership; P1 must align exact order IDs",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-002",
+        reverse_fact: "main map scene renders to R16G16B16A16_FLOAT HDR before restorescene",
+        evidence: "reverse_out/10_vanilla_render_spec_for_b1.md",
+        target_files: "crates/hoi4-app/src/passes/hdr_target.rs; crates/hoi4-app/src/map_draw.rs",
+        current_status: "partial",
+        acceptance: "map-audit reports HDR target format and any non-HDR fallback",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-003",
+        reverse_fact: "postfx uses half-res HDR bloom/luminance targets and writes final LDR swapchain after restorescene",
+        evidence: "reverse_out/10_vanilla_render_spec_for_b1.md; reverse_out/09_postprocess_lut_fog_daynight.md",
+        target_files: "crates/hoi4-app/src/passes/postprocess.rs",
+        current_status: "partial",
+        acceptance: "postprocess audit reports restore path, luminance chain, and swapchain gamma policy",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-009",
+        reverse_fact: "pdxmap terrain binds TerrainDiffuse through GradientBorderChannel2 at vanilla s0-s15 semantics",
+        evidence: "reverse_out/10_vanilla_render_spec_for_b1.md; reverse_out/exports/pdxmap_bindings.tsv",
+        target_files: "crates/hoi4-app/src/passes/terrain.rs; crates/hoi4-app/src/passes/terrain.wgsl",
+        current_status: "partial",
+        acceptance: "terrain_pdxmap audit lists vanilla s0-s15 semantics and current Rust/WGSL bindings",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-011",
+        reverse_fact: "terrain formula order is TerrainIDMap decode, atlas blend, HeightNormal, tint, snow/mud, borders, secondary, lights, FOW, fog, day/night",
+        evidence: "reverse_out/06_pdxmap_terrain_composition.md; reverse_out/exports/pdxmap_formula_notes.md",
+        target_files: "crates/hoi4-render/src/translations/pdxmap.wgsl; crates/hoi4-app/src/passes/terrain.wgsl",
+        current_status: "missing",
+        acceptance: "required_changes marks legacy color/vignette/river/coast heuristics as P3 blockers",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-013",
+        reverse_fact: "GradientBorderChannel1/2 are B8G8R8A8_UNORM_SRGB 2816x2050 two-page runtime targets",
+        evidence: "reverse_out/13_gradient_border_runtime_mapping.md; reverse_out/exports/gradient_border_channels.tsv",
+        target_files: "crates/hoi4-app/src/vanilla_targets/gradient_border.rs; crates/hoi4-app/src/vanilla_targets/mod.rs",
+        current_status: "fallback",
+        acceptance: "runtime target audit reports format/size/two-page requirement and flags SDF approximation",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-014",
+        reverse_fact: "GradientBorder active anchors/page mappings come from runtime packed logical layer banks, not fixed country/province/state SDFs",
+        evidence: "reverse_out/13_gradient_border_runtime_mapping.md; reverse_out/exports/gradient_border_map_mode_anchors.tsv",
+        target_files: "crates/hoi4-app/src/vanilla_targets/gradient_border.rs",
+        current_status: "fallback",
+        acceptance: "parity gate reports packed-bank producer as missing until P4",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-015",
+        reverse_fact: "ProvinceSecondaryColorMap is B8G8R8A8_UNORM_SRGB 2816x1024 with RGB secondary overlay and alpha occupation stripe gate",
+        evidence: "reverse_out/14_province_secondary_producer.md; reverse_out/exports/province_secondary_semantics.tsv",
+        target_files: "crates/hoi4-app/src/vanilla_targets/province_secondary.rs; crates/hoi4-app/src/passes/terrain.rs",
+        current_status: "partial",
+        acceptance: "audit reports RGBA semantics and whether alpha stripe gate is vanilla-backed",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-016",
+        reverse_fact: "SnowMudData, LightIndexMap, LightDataMap, CityLightsAndSnowNoise, and FOW feed terrain lighting/weather",
+        evidence: "reverse_out/07_dynamic_map_targets.md; reverse_out/exports/mud_snow_light_fow_targets.tsv",
+        target_files: "crates/hoi4-app/src/vanilla_targets/point_lights.rs; crates/hoi4-app/src/vanilla_targets/mod.rs",
+        current_status: "partial",
+        acceptance: "binding audit lists each dynamic target producer/consumer and fallback status",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-017",
+        reverse_fact: "water writes the HDR target with depth enabled, depth write off, func 4, blend state 1620, and traced raster state",
+        evidence: "reverse_out/08_water_river_pipeline.md; reverse_out/exports/pdxwater_constants.tsv",
+        target_files: "crates/hoi4-app/src/passes/water.rs; crates/hoi4-app/src/map_draw.rs",
+        current_status: "partial",
+        acceptance: "map-audit reports water depth/write/blend/raster state before P5 shader parity",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-018",
+        reverse_fact: "pdxwater binds HeightTexture, LEAN, ProvinceSecondary, Specular/FOW, refraction, ice, reflection cube, snow/mud, lights, gradients, shadow",
+        evidence: "reverse_out/08_water_river_pipeline.md; reverse_out/exports/pdxwater_bindings.tsv",
+        target_files: "crates/hoi4-app/src/passes/water.rs; crates/hoi4-render/src/translations/pdxwater.wgsl",
+        current_status: "partial",
+        acceptance: "water audit flags WaterRefraction, ReflectionCubeMap, and ShadowMap as explicit gaps",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-019",
+        reverse_fact: "water selector chooses water_low_gfx, water_no_refractions, or water from graphics/refraction booleans",
+        evidence: "reverse_out/12_cpu_selector_dynamic_closure.md; reverse_out/exports/pdxwater_constants.tsv",
+        target_files: "crates/hoi4-app/src/passes/water.rs",
+        current_status: "missing",
+        acceptance: "required_changes lists selector as P5 blocker and audit reports default selector",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-020",
+        reverse_fact: "river is an independent HDR contributor at order 83, after terrain and before water",
+        evidence: "reverse_out/08_water_river_pipeline.md; reverse_out/10_vanilla_render_spec_for_b1.md",
+        target_files: "crates/hoi4-app/src/passes/river.rs; crates/hoi4-app/src/map_draw.rs",
+        current_status: "partial",
+        acceptance: "map-audit reports dedicated river pass and terrain river overlay fallback status",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-021",
+        reverse_fact: "river bindings include diffuse/normal/masks, LEAN, lights, gradients, province secondary, reflection cube, and shadow",
+        evidence: "reverse_out/exports/river_bindings.tsv",
+        target_files: "crates/hoi4-app/src/passes/river.rs",
+        current_status: "missing",
+        acceptance: "binding audit flags missing river vanilla resources until P5",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-022",
+        reverse_fact: "restorescene combines MainScene, RestoreBloom, AverageLuminanceTexture, and ColorCube",
+        evidence: "reverse_out/09_postprocess_lut_fog_daynight.md; reverse_out/exports/postfx_pass_order.tsv",
+        target_files: "crates/hoi4-app/src/passes/postprocess.rs; crates/hoi4-render/src/translations/restorescene.wgsl",
+        current_status: "partial",
+        acceptance: "posteffect audit reports Uncharted2 restore path and non-ACES default",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-023",
+        reverse_fact: "ColorCube is a 1024x32 flattened 32x32x32 LUT selected from colorcorrection*.tga",
+        evidence: "reverse_out/09_postprocess_lut_fog_daynight.md; reverse_out/exports/colorcube_lut_selection.tsv",
+        target_files: "crates/hoi4-app/src/passes/postprocess.rs; crates/hoi4-assets/src/tga.rs; crates/hoi4-assets/src/gfx.rs",
+        current_status: "partial",
+        acceptance: "map-audit reports loaded LUT candidate count and identity fallback status",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-024",
+        reverse_fact: "posteffect LUT selection branches on water, camera distance, winter, and night thresholds from R17",
+        evidence: "reverse_out/17_final_unknown_closure.md; reverse_out/exports/colorcube_lut_selection.tsv",
+        target_files: "crates/hoi4-app/src/passes/postprocess.rs",
+        current_status: "partial",
+        acceptance: "posteffect audit exposes water/far/night/winter selection keys",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-025",
+        reverse_fact: "distance fog uses squared distance, view factor, and fog color 0.12,0.28,0.6",
+        evidence: "reverse_out/09_postprocess_lut_fog_daynight.md; reverse_out/exports/fog_daynight_constants.tsv",
+        target_files: "crates/hoi4-render/src/shader_lib.wgsl; crates/hoi4-render/src/global_uniform.rs",
+        current_status: "partial",
+        acceptance: "shader tests cover apply_distance_fog and map-audit lists fog constants",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-026",
+        reverse_fact: "day/night is applied in terrain/water/river shader-local paths using traced cbuffer fields",
+        evidence: "reverse_out/09_postprocess_lut_fog_daynight.md; reverse_out/exports/cbuffer_field_live_values.tsv",
+        target_files: "crates/hoi4-render/src/shader_lib.wgsl; crates/hoi4-render/src/global_uniform.rs",
+        current_status: "partial",
+        acceptance: "shader tests cover day_night and audit maps global uniform vanilla fields",
+    },
+    P0MappingEntry {
+        b1i_id: "B1I-032",
+        reverse_fact: "ShadowMap/projected FOW is a full-res B8G8R8A8_UNORM screen target followed by two-pass blur",
+        evidence: "reverse_out/16_shadow_fow_projected_producer.md; reverse_out/exports/shadow_fow_projected_producer.tsv",
+        target_files: "crates/hoi4-app/src/passes/terrain.rs; crates/hoi4-app/src/passes/water.rs; crates/hoi4-app/src/vanilla_targets/mod.rs",
+        current_status: "missing",
+        acceptance: "map-audit flags ordinary depth/fallback shadow as non-vanilla until P4",
+    },
+];
+
+#[derive(Debug, Clone, Copy)]
+struct P0GateSummary {
+    total: usize,
+    implemented: usize,
+    partial: usize,
+    fallback: usize,
+    missing: usize,
+    asset_fallback_count: usize,
+    critical_asset_fallback_count: usize,
+    binding_fallback_count: usize,
+    critical_binding_fallback_count: usize,
+    critical_fallback_count: usize,
+    critical_fallback_silent_pass: bool,
+}
+
+impl P0GateSummary {
+    fn from_audits(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> Self {
+        let implemented = P0_MAPPING_ENTRIES
+            .iter()
+            .filter(|entry| entry.current_status == "implemented")
+            .count();
+        let partial = P0_MAPPING_ENTRIES
+            .iter()
+            .filter(|entry| entry.current_status == "partial")
+            .count();
+        let fallback = P0_MAPPING_ENTRIES
+            .iter()
+            .filter(|entry| entry.current_status == "fallback")
+            .count();
+        let missing = P0_MAPPING_ENTRIES
+            .iter()
+            .filter(|entry| entry.current_status == "missing")
+            .count();
+        let critical_asset_fallback_count = audit.invalid_visual_review_paths.len();
+        let critical_binding_fallback_count = binding_audit.critical_count();
+        let critical_fallback_count =
+            critical_asset_fallback_count + critical_binding_fallback_count;
+
+        Self {
+            total: P0_MAPPING_ENTRIES.len(),
+            implemented,
+            partial,
+            fallback,
+            missing,
+            asset_fallback_count: audit.fallback,
+            critical_asset_fallback_count,
+            binding_fallback_count: binding_audit.fallback_count(),
+            critical_binding_fallback_count,
+            critical_fallback_count,
+            critical_fallback_silent_pass: false,
+        }
+    }
+
+    fn status(self) -> &'static str {
+        if self.critical_fallback_count == 0 {
+            "pass"
+        } else {
+            "blocked"
+        }
+    }
+}
+
+fn p0_parity_gate_text(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> String {
+    let summary = P0GateSummary::from_audits(audit, binding_audit);
+    let mut out = String::new();
+    out.push_str("p0_parity_gate:\n");
+    let _ = writeln!(out, "  status={}", summary.status());
+    let _ = writeln!(
+        out,
+        "  mapping_total={} implemented={} partial={} fallback={} missing={}",
+        summary.total, summary.implemented, summary.partial, summary.fallback, summary.missing
+    );
+    let _ = writeln!(
+        out,
+        "  fallback asset={} critical_asset={} binding={} critical_binding={} critical_total={}",
+        summary.asset_fallback_count,
+        summary.critical_asset_fallback_count,
+        summary.binding_fallback_count,
+        summary.critical_binding_fallback_count,
+        summary.critical_fallback_count
+    );
+    let _ = writeln!(
+        out,
+        "  critical_fallback_silent_pass={}",
+        summary.critical_fallback_silent_pass
+    );
+    out.push_str("  evidence_files=reverse_out/10_vanilla_render_spec_for_b1.md; reverse_out/exports/b1_implementation_inputs.tsv\n");
+    out.push_str("  required_docs=tools/vanilla_trace/project_mapping.md; tools/vanilla_trace/b1_required_changes.md; tools/vanilla_trace/parity_gate.md\n");
+    out.push_str("  acceptance=cargo test -p hoi4-render shader_lib_compiles; cargo test -p hoi4-app terrain; cargo run -p hoi4-app -- --map-audit\n");
+    if !audit.invalid_visual_review_paths.is_empty() {
+        out.push_str("  critical_asset_fallbacks:\n");
+        for path in audit.invalid_visual_review_paths.iter().take(32) {
+            let _ = writeln!(out, "    - {}", path);
+        }
+        if audit.invalid_visual_review_paths.len() > 32 {
+            let _ = writeln!(
+                out,
+                "    - ... {} more",
+                audit.invalid_visual_review_paths.len() - 32
+            );
+        }
+    }
+    let critical_entries: Vec<_> = binding_audit.critical_entries().collect();
+    if !critical_entries.is_empty() {
+        out.push_str("  critical_binding_fallbacks:\n");
+        for entry in critical_entries.iter().take(32) {
+            let _ = writeln!(
+                out,
+                "    - {}.{} source={} reason={}",
+                entry.pass,
+                entry.binding,
+                entry.source_kind.as_str(),
+                entry.reason.as_deref().unwrap_or("unspecified")
+            );
+        }
+        if critical_entries.len() > 32 {
+            let _ = writeln!(out, "    - ... {} more", critical_entries.len() - 32);
+        }
+    }
+    out.push_str("  b1i_mapping:\n");
+    for entry in P0_MAPPING_ENTRIES {
+        let _ = writeln!(
+            out,
+            "    - {} status={} fact={} target={} acceptance={}",
+            entry.b1i_id,
+            entry.current_status,
+            entry.reverse_fact,
+            entry.target_files,
+            entry.acceptance
+        );
+    }
+    out
+}
+
+fn p0_parity_gate_json(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> String {
+    let summary = P0GateSummary::from_audits(audit, binding_audit);
+    let critical_entries: Vec<_> = binding_audit.critical_entries().collect();
+    let mut out = String::new();
+    out.push_str("{\n");
+    out.push_str("  \"kind\": \"p0_parity_gate\",\n");
+    let _ = writeln!(out, "  \"status\": \"{}\",", summary.status());
+    let _ = writeln!(out, "  \"mapping_total\": {},", summary.total);
+    let _ = writeln!(out, "  \"implemented\": {},", summary.implemented);
+    let _ = writeln!(out, "  \"partial\": {},", summary.partial);
+    let _ = writeln!(out, "  \"fallback\": {},", summary.fallback);
+    let _ = writeln!(out, "  \"missing\": {},", summary.missing);
+    let _ = writeln!(
+        out,
+        "  \"asset_fallback_count\": {},",
+        summary.asset_fallback_count
+    );
+    let _ = writeln!(
+        out,
+        "  \"critical_asset_fallback_count\": {},",
+        summary.critical_asset_fallback_count
+    );
+    let _ = writeln!(
+        out,
+        "  \"binding_fallback_count\": {},",
+        summary.binding_fallback_count
+    );
+    let _ = writeln!(
+        out,
+        "  \"critical_binding_fallback_count\": {},",
+        summary.critical_binding_fallback_count
+    );
+    let _ = writeln!(
+        out,
+        "  \"critical_fallback_count\": {},",
+        summary.critical_fallback_count
+    );
+    let _ = writeln!(
+        out,
+        "  \"critical_fallback_silent_pass\": {},",
+        summary.critical_fallback_silent_pass
+    );
+    out.push_str("  \"evidence_files\": [\n");
+    out.push_str("    \"reverse_out/10_vanilla_render_spec_for_b1.md\",\n");
+    out.push_str("    \"reverse_out/exports/b1_implementation_inputs.tsv\"\n");
+    out.push_str("  ],\n");
+    out.push_str("  \"required_docs\": [\n");
+    out.push_str("    \"tools/vanilla_trace/project_mapping.md\",\n");
+    out.push_str("    \"tools/vanilla_trace/b1_required_changes.md\",\n");
+    out.push_str("    \"tools/vanilla_trace/parity_gate.md\"\n");
+    out.push_str("  ],\n");
+    out.push_str("  \"critical_asset_fallbacks\": [");
+    for (idx, path) in audit.invalid_visual_review_paths.iter().enumerate() {
+        if idx > 0 {
+            out.push_str(", ");
+        }
+        let _ = write!(out, "\"{}\"", json_escape(path));
+    }
+    out.push_str("],\n");
+    out.push_str("  \"critical_binding_fallbacks\": [\n");
+    for (idx, entry) in critical_entries.iter().enumerate() {
+        out.push_str("    {\n");
+        let _ = writeln!(out, "      \"pass\": \"{}\",", json_escape(entry.pass));
+        let _ = writeln!(
+            out,
+            "      \"binding\": \"{}\",",
+            json_escape(entry.binding)
+        );
+        let _ = writeln!(out, "      \"source\": \"{}\",", entry.source_kind.as_str());
+        let _ = writeln!(
+            out,
+            "      \"reason\": \"{}\"",
+            json_escape(entry.reason.as_deref().unwrap_or("unspecified"))
+        );
+        let suffix = if idx + 1 < critical_entries.len() {
+            "    },\n"
+        } else {
+            "    }\n"
+        };
+        out.push_str(suffix);
+    }
+    out.push_str("  ],\n");
+    out.push_str("  \"b1i_mapping\": [\n");
+    for (idx, entry) in P0_MAPPING_ENTRIES.iter().enumerate() {
+        out.push_str("    {\n");
+        let _ = writeln!(out, "      \"b1i_id\": \"{}\",", entry.b1i_id);
+        let _ = writeln!(
+            out,
+            "      \"reverse_fact\": \"{}\",",
+            json_escape(entry.reverse_fact)
+        );
+        let _ = writeln!(
+            out,
+            "      \"evidence\": \"{}\",",
+            json_escape(entry.evidence)
+        );
+        let _ = writeln!(
+            out,
+            "      \"target_files\": \"{}\",",
+            json_escape(entry.target_files)
+        );
+        let _ = writeln!(
+            out,
+            "      \"current_status\": \"{}\",",
+            entry.current_status
+        );
+        let _ = writeln!(
+            out,
+            "      \"acceptance\": \"{}\"",
+            json_escape(entry.acceptance)
+        );
+        let suffix = if idx + 1 < P0_MAPPING_ENTRIES.len() {
+            "    },\n"
+        } else {
+            "    }\n"
+        };
+        out.push_str(suffix);
+    }
+    out.push_str("  ]\n");
+    out.push_str("}\n");
+    out
 }
 
 pub fn write_phase0_report_files(
@@ -1050,6 +1488,8 @@ fn combined_map_audit_text(audit: &MapAssetAudit, binding_audit: &BindingAudit) 
     let mut out = audit.to_text_report();
     out.push_str("\nbinding_audit:\n");
     out.push_str(&binding_audit.to_text_report());
+    out.push('\n');
+    out.push_str(&p0_parity_gate_text(audit, binding_audit));
     out
 }
 
@@ -1076,6 +1516,8 @@ fn combined_map_audit_json(
         out.push_str(",\n  \"terrain_pdxmap\": ");
         indent_json_object(&mut out, report, 2);
     }
+    out.push_str(",\n  \"p0_parity_gate\": ");
+    indent_json_object(&mut out, &p0_parity_gate_json(audit, binding_audit), 2);
     out.push_str("\n}\n");
     out
 }
@@ -1364,6 +1806,7 @@ fn json_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vanilla_resource_views::{BindingAuditEntry, BindingBlockingLevel};
 
     #[test]
     fn fixed_scene_matrix_matches_phase0_scope() {
@@ -1530,6 +1973,51 @@ mod tests {
         assert!(
             json.contains("project/western_europe_close/terrain_final_before_postprocess.high.png")
         );
+    }
+
+    #[test]
+    fn p0_parity_gate_json_covers_required_b1i_mapping() {
+        let map_set = VanillaMapSet {
+            entries: Vec::new(),
+        };
+        let audit = MapAssetAudit::from_map_set(&map_set);
+        let binding_audit = BindingAudit::new();
+
+        let json = p0_parity_gate_json(&audit, &binding_audit);
+        assert!(json.contains("\"kind\": \"p0_parity_gate\""));
+        assert!(json.contains("\"status\": \"pass\""));
+        assert!(json.contains("\"critical_fallback_silent_pass\": false"));
+        for id in [
+            "B1I-001", "B1I-002", "B1I-003", "B1I-009", "B1I-011", "B1I-013", "B1I-014", "B1I-015",
+            "B1I-016", "B1I-017", "B1I-018", "B1I-019", "B1I-020", "B1I-021", "B1I-022", "B1I-023",
+            "B1I-024", "B1I-025", "B1I-026", "B1I-032",
+        ] {
+            assert!(json.contains(id), "missing {id} in P0 mapping");
+        }
+    }
+
+    #[test]
+    fn p0_parity_gate_blocks_critical_binding_fallbacks() {
+        let map_set = VanillaMapSet {
+            entries: Vec::new(),
+        };
+        let audit = MapAssetAudit::from_map_set(&map_set);
+        let mut binding_audit = BindingAudit::new();
+        binding_audit.extend([BindingAuditEntry::mock(
+            "water",
+            "ShadowMap",
+            "depth_shadow_fallback",
+            "ordinary depth shadow is not the projected FOW ShadowMap",
+            "water shadowing and FOW parity",
+            BindingBlockingLevel::Critical,
+        )]);
+
+        let json = p0_parity_gate_json(&audit, &binding_audit);
+        assert!(json.contains("\"status\": \"blocked\""));
+        assert!(json.contains("\"critical_binding_fallback_count\": 1"));
+        assert!(json.contains("\"critical_fallback_count\": 1"));
+        assert!(json.contains("\"critical_fallback_silent_pass\": false"));
+        assert!(json.contains("\"binding\": \"ShadowMap\""));
     }
 
     #[test]

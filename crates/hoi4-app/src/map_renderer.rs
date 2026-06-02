@@ -1,6 +1,8 @@
 use crate::map_baseline::MapLayerMask;
+use crate::map_draw::{self, MapDrawInput, MapDrawOutput};
 use crate::map_perf::MapQualityPreset;
 use crate::passes::PassRegistry;
+use crate::render_state::RenderState;
 
 use hoi4_render::map_mode::MapMode;
 use hoi4_state::GameDate;
@@ -175,15 +177,15 @@ impl MapRenderPass {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct MapRenderGraph {
-    passes: Vec<MapRenderPass>,
+    passes: &'static [MapRenderPass],
 }
 
 impl MapRenderGraph {
     pub fn phase1() -> Self {
         Self {
-            passes: MapRenderPass::PHASE1_ORDER.to_vec(),
+            passes: &MapRenderPass::PHASE1_ORDER,
         }
     }
 
@@ -233,6 +235,65 @@ pub struct WaterMaterialOwnership {
     pub ice: bool,
     pub reflection: bool,
     pub sea_selection_highlight: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BorderMaterialOwnership {
+    pub final_borders: bool,
+    pub country_borders: bool,
+    pub state_borders: bool,
+    pub province_borders: bool,
+    pub sea_borders: bool,
+    pub impassable_borders: bool,
+    pub selected_borders: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MapPassFallbackReport {
+    pub terrain_water_fallback: bool,
+    pub terrain_border_fallback: bool,
+    pub terrain_overlay_fallback: bool,
+    pub water_degraded: bool,
+    pub borders_degraded: bool,
+    pub water_invalid: bool,
+    pub borders_invalid: bool,
+}
+
+impl MapPassFallbackReport {
+    pub fn fallback_count(self) -> u32 {
+        [
+            self.terrain_water_fallback,
+            self.terrain_border_fallback,
+            self.terrain_overlay_fallback,
+            self.water_degraded,
+            self.borders_degraded,
+            self.water_invalid,
+            self.borders_invalid,
+        ]
+        .into_iter()
+        .filter(|enabled| *enabled)
+        .count() as u32
+    }
+
+    pub fn is_degraded(self) -> bool {
+        self.water_degraded || self.borders_degraded || self.water_invalid || self.borders_invalid
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MapPrepareFrameInput {
+    pub layer_mask: MapLayerMask,
+    pub dedicated_water_loaded: bool,
+    pub dedicated_river_loaded: bool,
+    pub dedicated_border_loaded: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MapPreparedFrame {
+    pub terrain_ownership: TerrainMaterialOwnership,
+    pub water_ownership: WaterMaterialOwnership,
+    pub border_ownership: BorderMaterialOwnership,
+    pub fallback_report: MapPassFallbackReport,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -792,6 +853,22 @@ impl MapPassDrawSet {
             sea_selection_highlight: owns_water_material,
         }
     }
+
+    pub fn border_material_ownership(
+        &self,
+        dedicated_border_loaded: bool,
+    ) -> BorderMaterialOwnership {
+        let owns_borders = self.borders && dedicated_border_loaded;
+        BorderMaterialOwnership {
+            final_borders: owns_borders,
+            country_borders: owns_borders,
+            state_borders: owns_borders,
+            province_borders: owns_borders,
+            sea_borders: owns_borders,
+            impassable_borders: owns_borders,
+            selected_borders: owns_borders,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -855,6 +932,55 @@ impl MapRenderer {
             semantic_overlays,
             world_objects,
         }
+    }
+
+    pub fn prepare_frame(
+        &self,
+        plan: &MapFramePlan,
+        input: MapPrepareFrameInput,
+    ) -> MapPreparedFrame {
+        let terrain_ownership = plan.draw.terrain_material_ownership(
+            input.layer_mask,
+            input.dedicated_water_loaded,
+            input.dedicated_river_loaded,
+            input.dedicated_border_loaded,
+            plan.static_decals,
+            plan.semantic_overlays,
+        );
+        let water_ownership = plan
+            .draw
+            .water_material_ownership(input.dedicated_water_loaded);
+        let border_ownership = plan
+            .draw
+            .border_material_ownership(input.dedicated_border_loaded);
+        let fallback_report = MapPassFallbackReport {
+            terrain_water_fallback: terrain_ownership.terrain_water_final_color,
+            terrain_border_fallback: terrain_ownership.terrain_sdf_borders,
+            terrain_overlay_fallback: terrain_ownership.terrain_overlays,
+            water_degraded: plan.draw.water && !water_ownership.final_color,
+            borders_degraded: plan.draw.borders && !border_ownership.final_borders,
+            water_invalid: input.layer_mask.water
+                && !plan.draw.water
+                && !terrain_ownership.terrain_water_final_color,
+            borders_invalid: input.layer_mask.borders
+                && !plan.draw.borders
+                && !terrain_ownership.terrain_sdf_borders,
+        };
+        MapPreparedFrame {
+            terrain_ownership,
+            water_ownership,
+            border_ownership,
+            fallback_report,
+        }
+    }
+
+    pub(crate) fn render_frame(
+        &self,
+        s: &mut RenderState,
+        enc: &mut wgpu::CommandEncoder,
+        input: MapDrawInput<'_>,
+    ) -> MapDrawOutput {
+        map_draw::render_map_frame(s, enc, input)
     }
 }
 
@@ -964,6 +1090,15 @@ mod tests {
             time_seconds: 1.0,
             screen_size: [1920.0, 1080.0],
             settings: MapRenderSettings::new(mask),
+        }
+    }
+
+    fn water_border_mask() -> MapLayerMask {
+        MapLayerMask {
+            terrain: true,
+            water: true,
+            borders: true,
+            ..MapLayerMask::none()
         }
     }
 
@@ -1379,5 +1514,81 @@ mod tests {
         assert!(!fallback.final_color);
         assert!(!fallback.coast_foam);
         assert!(!fallback.reflection);
+    }
+
+    #[test]
+    fn border_material_ownership_is_complete_when_loaded_and_drawn() {
+        let renderer = MapRenderer::new();
+        let mut registry = PassRegistry::new();
+        renderer.register_passes(&mut registry);
+
+        let plan = renderer.build_frame_plan(test_context(MapLayerMask::all()), &registry);
+        let ownership = plan.draw.border_material_ownership(true);
+        assert!(ownership.final_borders);
+        assert!(ownership.country_borders);
+        assert!(ownership.state_borders);
+        assert!(ownership.province_borders);
+        assert!(ownership.sea_borders);
+        assert!(ownership.impassable_borders);
+        assert!(ownership.selected_borders);
+
+        let fallback = plan.draw.border_material_ownership(false);
+        assert!(!fallback.final_borders);
+        assert!(!fallback.country_borders);
+        assert!(!fallback.selected_borders);
+    }
+
+    #[test]
+    fn prepare_frame_reports_water_and_border_fallbacks() {
+        let renderer = MapRenderer::new();
+        let mut registry = PassRegistry::new();
+        renderer.register_passes(&mut registry);
+
+        let mask = water_border_mask();
+        let plan = renderer.build_frame_plan(test_context(mask), &registry);
+        let prepared = renderer.prepare_frame(
+            &plan,
+            MapPrepareFrameInput {
+                layer_mask: mask,
+                dedicated_water_loaded: false,
+                dedicated_river_loaded: true,
+                dedicated_border_loaded: false,
+            },
+        );
+
+        assert!(prepared.terrain_ownership.terrain_water_final_color);
+        assert!(prepared.terrain_ownership.terrain_sdf_borders);
+        assert!(prepared.fallback_report.terrain_water_fallback);
+        assert!(prepared.fallback_report.terrain_border_fallback);
+        assert!(prepared.fallback_report.water_degraded);
+        assert!(prepared.fallback_report.borders_degraded);
+        assert!(prepared.fallback_report.is_degraded());
+        assert_eq!(prepared.fallback_report.fallback_count(), 4);
+    }
+
+    #[test]
+    fn prepare_frame_keeps_final_water_and_borders_in_dedicated_passes() {
+        let renderer = MapRenderer::new();
+        let mut registry = PassRegistry::new();
+        renderer.register_passes(&mut registry);
+
+        let mask = water_border_mask();
+        let plan = renderer.build_frame_plan(test_context(mask), &registry);
+        let prepared = renderer.prepare_frame(
+            &plan,
+            MapPrepareFrameInput {
+                layer_mask: mask,
+                dedicated_water_loaded: true,
+                dedicated_river_loaded: true,
+                dedicated_border_loaded: true,
+            },
+        );
+
+        assert!(!prepared.terrain_ownership.terrain_water_final_color);
+        assert!(!prepared.terrain_ownership.terrain_sdf_borders);
+        assert!(prepared.water_ownership.final_color);
+        assert!(prepared.border_ownership.final_borders);
+        assert_eq!(prepared.fallback_report.fallback_count(), 0);
+        assert!(!prepared.fallback_report.is_degraded());
     }
 }
