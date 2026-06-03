@@ -76,12 +76,7 @@ impl App {
             .contains(wgpu::Features::TEXTURE_FORMAT_16BIT_NORM);
 
         let caps = surface.get_capabilities(&adapter);
-        let format = caps
-            .formats
-            .iter()
-            .find(|f| f.is_srgb())
-            .copied()
-            .unwrap_or(caps.formats[0]);
+        let format = select_captured_restore_surface_format(&caps.formats);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
@@ -249,8 +244,13 @@ impl App {
                 coast_sdf: &coast_sdf_data,
                 world_scale: WORLD_SCALE,
                 height_scale: HEIGHT_SCALE,
+                default_map_mode_code: crate::vanilla_targets::province_secondary::map_mode_code(
+                    self.map_mode,
+                ),
             },
         );
+        binding_audit
+            .extend(vanilla_targets.binding_audit_entries_for_pass("projected_fow_shadow"));
         let (terrain_atlas_view, _terrain_atlas_sampler, terrain_atlas_audit) =
             load_terrain_atlas_phase1(&device, &queue, &vanilla_resources);
         binding_audit.extend([terrain_atlas_audit]);
@@ -283,7 +283,7 @@ impl App {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -328,7 +328,7 @@ impl App {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -381,7 +381,7 @@ impl App {
         );
 
         // Pipeline (with depth-stencil)
-        let depth_format = wgpu::TextureFormat::Depth32Float;
+        let depth_format = wgpu::TextureFormat::Depth24PlusStencil8;
         let depth_view =
             make_depth_view(&device, size.width.max(1), size.height.max(1), depth_format);
 
@@ -394,7 +394,7 @@ impl App {
                 global_uniform_buffer: &global_uniform_buf.buffer,
                 depth_format,
                 lod_grid: LOD_GRID,
-                shadow_map_view: &shadow_pass.depth_view,
+                shadow_map_view: &vanilla_targets.projected_shadow_fow.view,
                 shadow_sampler: &shadow_pass.compare_sampler,
                 colormap_view: &colormap_view,
                 coast_sdf_view: &coast_sdf_view,
@@ -953,6 +953,7 @@ impl App {
             &device,
             &queue,
             HDR_FORMAT,
+            depth_format,
             Hoi3CounterPass::DEFAULT_INITIAL_CAPACITY,
         );
         println!(
@@ -971,6 +972,7 @@ impl App {
                 &device,
                 &queue,
                 HDR_FORMAT,
+                depth_format,
                 &camera_buffer,
                 poi_instances.len().next_power_of_two().max(64) as u32,
             );
@@ -1286,6 +1288,7 @@ impl App {
                 world_size: [self.camera.world_size.x, self.camera.world_size.y],
                 height_scale: HEIGHT_SCALE,
                 vanilla_resources: &vanilla_resources,
+                runtime_targets: &vanilla_targets,
             },
         );
         println!(
@@ -1298,11 +1301,9 @@ impl App {
         }
         binding_audit.extend(river_pass.binding_audit.entries.clone());
 
-        // Phase 6 vanilla pdxwater pass.
-        // Reuses the same per-LOD instance buffers as the terrain pass; loads
-        // the 12 water material textures used by SampleWater/reflection/ice
-        // via FsAssetDb with 1x1 fallback per role. Drawn after terrain so it
-        // overdraws the inline water branch in terrain.wgsl.
+        // P5 vanilla pdxwater pass. Reuses the same per-LOD instance buffers as
+        // terrain, binds runtime ShadowMap/gradient/secondary targets, and no
+        // longer consumes coast_sdf as a default parity input.
         let mut water_pass = passes::WaterPass::new(
             &device,
             &queue,
@@ -1313,7 +1314,6 @@ impl App {
                 lod_grid: LOD_GRID,
                 heightmap_view: &height_view,
                 province_view: &province_view,
-                coast_sdf_view: &coast_sdf_view,
                 world_size: [self.camera.world_size.x, self.camera.world_size.y],
                 height_scale: HEIGHT_SCALE,
                 vanilla_resources: &vanilla_resources,
@@ -1817,4 +1817,17 @@ impl App {
                 .load_font(&s.device, &s.queue, &self.path_cfg, &bgl);
         }
     }
+}
+
+fn select_captured_restore_surface_format(formats: &[wgpu::TextureFormat]) -> wgpu::TextureFormat {
+    let preferred = [
+        wgpu::TextureFormat::Bgra8Unorm,
+        wgpu::TextureFormat::Rgba8Unorm,
+    ];
+    preferred
+        .into_iter()
+        .find(|format| formats.contains(format))
+        .or_else(|| formats.iter().copied().find(|format| !format.is_srgb()))
+        .or_else(|| formats.first().copied())
+        .expect("surface must expose at least one format")
 }

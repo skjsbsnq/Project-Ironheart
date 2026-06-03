@@ -1,0 +1,397 @@
+﻿{
+    "source_log":  "C:\\Users\\19180\\Documents\\999\\b1\\tools\\vanilla_trace_r11\\logs\\d3d11_trace.jsonl",
+    "generated_at":  "2026-06-02T19:01:42",
+    "representative_frame":  2,
+    "pass_count":  6,
+    "flow":  [
+                 {
+                     "order":  1,
+                     "frame":  2,
+                     "pass_kind":  "ui_or_sprite",
+                     "writes":  [
+                                    {
+                                        "view":  "1",
+                                        "texture_id":  0,
+                                        "format":  "R8G8B8A8_UNORM",
+                                        "width":  null,
+                                        "height":  null
+                                    }
+                                ],
+                     "depth":  "2",
+                     "reads":  [
+                                   {
+                                       "slot":  0,
+                                       "view":  "19",
+                                       "texture_id":  18,
+                                       "format":  "B8G8R8A8_UNORM",
+                                       "width":  128,
+                                       "height":  128
+                                   },
+                                   {
+                                       "slot":  1,
+                                       "view":  "16",
+                                       "texture_id":  15,
+                                       "format":  "B8G8R8A8_UNORM",
+                                       "width":  934,
+                                       "height":  40
+                                   }
+                               ],
+                     "vs_hash":  "fnv1a64:867fa9dbdb5833dd",
+                     "ps_hash":  "fnv1a64:4f218c545fb065e1",
+                     "ps_resource_names":  [
+                                               "SimpleTexture_Sampler",
+                                               "SimpleTexture_Texture"
+                                           ],
+                     "vs_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "65"
+                                         }
+                                     ],
+                     "ps_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "65"
+                                         }
+                                     ],
+                     "ps_samplers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "63"
+                                         },
+                                         {
+                                             "slot":  1,
+                                             "value":  "73"
+                                         }
+                                     ],
+                     "blend_state":  "74",
+                     "depth_stencil_state":  "13",
+                     "rasterizer_state":  "76"
+                 },
+                 {
+                     "order":  2,
+                     "frame":  2,
+                     "pass_kind":  "ui_or_sprite",
+                     "writes":  [
+                                    {
+                                        "view":  "1",
+                                        "texture_id":  0,
+                                        "format":  "R8G8B8A8_UNORM",
+                                        "width":  null,
+                                        "height":  null
+                                    }
+                                ],
+                     "depth":  "2",
+                     "reads":  [
+                                   {
+                                       "slot":  0,
+                                       "view":  "21",
+                                       "texture_id":  20,
+                                       "format":  "B8G8R8A8_UNORM",
+                                       "width":  1400,
+                                       "height":  92
+                                   },
+                                   {
+                                       "slot":  1,
+                                       "view":  "16",
+                                       "texture_id":  15,
+                                       "format":  "B8G8R8A8_UNORM",
+                                       "width":  934,
+                                       "height":  40
+                                   }
+                               ],
+                     "vs_hash":  "fnv1a64:ea1348c9be4158f0",
+                     "ps_hash":  "fnv1a64:9406116e064f4b4a",
+                     "ps_resource_names":  [
+                                               "MapTexture_Sampler",
+                                               "MapTexture_Texture",
+                                               "dx11_cb0"
+                                           ],
+                     "vs_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "92"
+                                         }
+                                     ],
+                     "ps_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "92"
+                                         }
+                                     ],
+                     "ps_samplers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "63"
+                                         },
+                                         {
+                                             "slot":  1,
+                                             "value":  "73"
+                                         }
+                                     ],
+                     "blend_state":  "74",
+                     "depth_stencil_state":  "13",
+                     "rasterizer_state":  "76"
+                 },
+                 {
+                     "order":  3,
+                     "frame":  2,
+                     "pass_kind":  "ui_or_sprite",
+                     "writes":  [
+                                    {
+                                        "view":  "1",
+                                        "texture_id":  0,
+                                        "format":  "R8G8B8A8_UNORM",
+                                        "width":  null,
+                                        "height":  null
+                                    }
+                                ],
+                     "depth":  "2",
+                     "reads":  [
+                                   {
+                                       "slot":  0,
+                                       "view":  "15",
+                                       "texture_id":  14,
+                                       "format":  "B8G8R8A8_UNORM",
+                                       "width":  934,
+                                       "height":  40
+                                   },
+                                   {
+                                       "slot":  1,
+                                       "view":  "16",
+                                       "texture_id":  15,
+                                       "format":  "B8G8R8A8_UNORM",
+                                       "width":  934,
+                                       "height":  40
+                                   }
+                               ],
+                     "vs_hash":  "fnv1a64:1543ec50d20d8e0e",
+                     "ps_hash":  "fnv1a64:4f218c545fb065e1",
+                     "ps_resource_names":  [
+                                               "SimpleTexture_Sampler",
+                                               "SimpleTexture_Texture"
+                                           ],
+                     "vs_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "74"
+                                         }
+                                     ],
+                     "ps_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "74"
+                                         }
+                                     ],
+                     "ps_samplers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "73"
+                                         },
+                                         {
+                                             "slot":  1,
+                                             "value":  "73"
+                                         }
+                                     ],
+                     "blend_state":  "74",
+                     "depth_stencil_state":  "13",
+                     "rasterizer_state":  "76"
+                 },
+                 {
+                     "order":  4,
+                     "frame":  2,
+                     "pass_kind":  "ui_or_sprite",
+                     "writes":  [
+                                    {
+                                        "view":  "1",
+                                        "texture_id":  0,
+                                        "format":  "R8G8B8A8_UNORM",
+                                        "width":  null,
+                                        "height":  null
+                                    }
+                                ],
+                     "depth":  "2",
+                     "reads":  [
+                                   {
+                                       "slot":  0,
+                                       "view":  "22",
+                                       "texture_id":  21,
+                                       "format":  "B8G8R8A8_UNORM",
+                                       "width":  1400,
+                                       "height":  148
+                                   },
+                                   {
+                                       "slot":  1,
+                                       "view":  "16",
+                                       "texture_id":  15,
+                                       "format":  "B8G8R8A8_UNORM",
+                                       "width":  934,
+                                       "height":  40
+                                   }
+                               ],
+                     "vs_hash":  "fnv1a64:c66ca9c3a30099cd",
+                     "ps_hash":  "fnv1a64:ea28577861790629",
+                     "ps_resource_names":  [
+                                               "TextureOne_Sampler",
+                                               "TextureTwo_Sampler",
+                                               "TextureOne_Texture",
+                                               "TextureTwo_Texture",
+                                               "dx11_cb0"
+                                           ],
+                     "vs_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "93"
+                                         }
+                                     ],
+                     "ps_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "93"
+                                         }
+                                     ],
+                     "ps_samplers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "63"
+                                         },
+                                         {
+                                             "slot":  1,
+                                             "value":  "73"
+                                         }
+                                     ],
+                     "blend_state":  "74",
+                     "depth_stencil_state":  "13",
+                     "rasterizer_state":  "76"
+                 },
+                 {
+                     "order":  5,
+                     "frame":  2,
+                     "pass_kind":  "ui_or_sprite",
+                     "writes":  [
+                                    {
+                                        "view":  "1",
+                                        "texture_id":  0,
+                                        "format":  "R8G8B8A8_UNORM",
+                                        "width":  null,
+                                        "height":  null
+                                    }
+                                ],
+                     "depth":  "2",
+                     "reads":  [
+                                   {
+                                       "slot":  0,
+                                       "view":  "22",
+                                       "texture_id":  21,
+                                       "format":  "B8G8R8A8_UNORM",
+                                       "width":  1400,
+                                       "height":  148
+                                   },
+                                   {
+                                       "slot":  1,
+                                       "view":  "16",
+                                       "texture_id":  15,
+                                       "format":  "B8G8R8A8_UNORM",
+                                       "width":  934,
+                                       "height":  40
+                                   }
+                               ],
+                     "vs_hash":  "fnv1a64:ea1348c9be4158f0",
+                     "ps_hash":  "fnv1a64:9406116e064f4b4a",
+                     "ps_resource_names":  [
+                                               "MapTexture_Sampler",
+                                               "MapTexture_Texture",
+                                               "dx11_cb0"
+                                           ],
+                     "vs_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "93"
+                                         }
+                                     ],
+                     "ps_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "93"
+                                         }
+                                     ],
+                     "ps_samplers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "63"
+                                         },
+                                         {
+                                             "slot":  1,
+                                             "value":  "73"
+                                         }
+                                     ],
+                     "blend_state":  "74",
+                     "depth_stencil_state":  "13",
+                     "rasterizer_state":  "76"
+                 },
+                 {
+                     "order":  6,
+                     "frame":  2,
+                     "pass_kind":  "ui_or_sprite",
+                     "writes":  [
+                                    {
+                                        "view":  "1",
+                                        "texture_id":  0,
+                                        "format":  "R8G8B8A8_UNORM",
+                                        "width":  null,
+                                        "height":  null
+                                    }
+                                ],
+                     "depth":  "2",
+                     "reads":  [
+                                   {
+                                       "slot":  0,
+                                       "view":  "6",
+                                       "texture_id":  5,
+                                       "format":  "BC3_UNORM",
+                                       "width":  2800,
+                                       "height":  2048
+                                   },
+                                   {
+                                       "slot":  1,
+                                       "view":  "16",
+                                       "texture_id":  15,
+                                       "format":  "B8G8R8A8_UNORM",
+                                       "width":  934,
+                                       "height":  40
+                                   }
+                               ],
+                     "vs_hash":  "fnv1a64:1543ec50d20d8e0e",
+                     "ps_hash":  "fnv1a64:4f218c545fb065e1",
+                     "ps_resource_names":  [
+                                               "SimpleTexture_Sampler",
+                                               "SimpleTexture_Texture"
+                                           ],
+                     "vs_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "94"
+                                         }
+                                     ],
+                     "ps_cbuffers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "93"
+                                         }
+                                     ],
+                     "ps_samplers":  [
+                                         {
+                                             "slot":  0,
+                                             "value":  "32"
+                                         },
+                                         {
+                                             "slot":  1,
+                                             "value":  "73"
+                                         }
+                                     ],
+                     "blend_state":  "33",
+                     "depth_stencil_state":  "75",
+                     "rasterizer_state":  "76"
+                 }
+             ]
+}

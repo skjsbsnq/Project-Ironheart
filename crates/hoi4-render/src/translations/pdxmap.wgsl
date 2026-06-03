@@ -53,7 +53,8 @@ struct PdxMapParams {
     season_lerp: f32,
     /// vSeasonColumn ∈ [0, 7]，季节列偏移（Tree_season 同款语义）
     season_column: f32,
-    /// terrain blend 系数（地形纹理 vs 政治色）
+    /// Legacy compatibility field. Vanilla terrain uses TerrainColorTint
+    /// through GetOverlay(..., 0.75), not a direct political-color mix.
     terrain_blend: f32,
 };
 @group(0) @binding(0) var<uniform> frame: GlobalFrameUniform;
@@ -184,9 +185,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let terrain_idx = textureLoad(terrain_idx_tex, vec2<i32>(uv * vec2<f32>(5632.0, 2048.0)), 0).r;
     let atlas_color = sample_atlas_tile(world_pos.xz, terrain_idx % 16u).rgb;
 
-    // 3. 政治色 / 季节
-    let political_color = sample_season_color(uv);
-    let mixed_terrain = mix(political_color, atlas_color, params.terrain_blend);
+    // 3. TerrainColorTint overlay. R5/P3 evidence: no direct political-color mix.
+    let terrain_color_tint = sample_season_color(uv);
+    let mixed_terrain = get_overlay(atlas_color, terrain_color_tint, 0.75);
 
     // 4. 大气透视雾（应用前先做光照）
     let map_px = map_uv_to_px(uv);

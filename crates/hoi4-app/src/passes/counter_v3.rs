@@ -77,6 +77,7 @@ impl Hoi3CounterPass {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         target_format: wgpu::TextureFormat,
+        depth_format: wgpu::TextureFormat,
         initial_capacity: u32,
     ) -> Self {
         let cap = initial_capacity.max(64);
@@ -252,7 +253,7 @@ impl Hoi3CounterPass {
             },
             // 屏幕空间兵牌位于最近平面，深度只读以避免被高地形遮挡。
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
+                format: depth_format,
                 depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::Always,
                 stencil: wgpu::StencilState::default(),

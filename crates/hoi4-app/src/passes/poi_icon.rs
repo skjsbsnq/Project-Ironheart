@@ -53,6 +53,7 @@ impl PoiIconPass {
         device: &wgpu::Device,
         _queue: &wgpu::Queue,
         target_format: wgpu::TextureFormat,
+        depth_format: wgpu::TextureFormat,
         camera_buffer: &wgpu::Buffer,
         initial_capacity: u32,
     ) -> Self {
@@ -229,7 +230,7 @@ impl PoiIconPass {
                 ..Default::default()
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
+                format: depth_format,
                 depth_write_enabled: false,
                 depth_compare: wgpu::CompareFunction::LessEqual,
                 stencil: wgpu::StencilState::default(),

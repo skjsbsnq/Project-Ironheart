@@ -221,19 +221,19 @@ impl Default for PdxMapParams {
             selected_province_id: u32::MAX,
             selected_state_id: u32::MAX,
             hovered_province_id: u32::MAX,
-            terrain_blend: 0.45,
+            terrain_blend: 0.0,
             screen_width: 1920.0,
             screen_height: 1080.0,
-            vignette_strength: 0.05,
+            vignette_strength: 0.0,
             zoom_factor: 0.5,
             border_country_px: 3.2,
             border_province_px: 0.75,
             season_lerp: 0.0,
-            map_mode_terrain_blend: 0.32,
+            map_mode_terrain_blend: 0.0,
             world_size_xy_height_lat: [112.0, 41.0, 4.0, 0.0],
             season_params: [0.0, 0.0, 0.0, 0.0],
-            terrain_controls: [0.0, 1.0, 0.0, 1.0],
-            overlay_controls: [1.0, 1.0, 0.0, 0.0],
+            terrain_controls: [0.0, 0.0, 0.0, 0.0],
+            overlay_controls: [0.0, 0.0, 0.0, 0.0],
             feature_flags: Self::VANILLA_PARITY_FEATURE_FLAGS,
             atlas_idx_array: std::array::from_fn(|row| {
                 std::array::from_fn(|col| ((row * 4 + col) & 15) as u32)
@@ -525,12 +525,12 @@ impl TerrainPass {
         let bgl_g1 = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("terrain_bgl_g1_shared"),
             entries: &[
-                // 0: shadow_map (depth)
+                // 0: projected ShadowMap/FOW packed BGRA target
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Depth,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },
@@ -966,32 +966,65 @@ pub fn build_terrain_pdxmap_report_json(binding_audit: &BindingAudit) -> String 
     out.push_str(",\n");
     out.push_str("    \"legacy_art_features\": {\n");
     out.push_str("      \"terrain_jitter_noise_coast_tint_vignette\": false,\n");
-    out.push_str("      \"river_overlay_fallback\": \"enabled only when the dedicated river pass is unavailable\",\n");
-    out.push_str("      \"water_final_color_fallback\": \"enabled only when the dedicated water pass is unavailable\",\n");
-    out.push_str("      \"sdf_border_fallback\": \"enabled only when the dedicated border pass is unavailable\"\n");
+    out.push_str("      \"political_terrain_direct_mix\": false,\n");
+    out.push_str("      \"map_mode_terrain_blend\": false,\n");
+    out.push_str("      \"river_overlay_fallback_default_path\": false,\n");
+    out.push_str("      \"water_final_color_fallback_default_path\": false,\n");
+    out.push_str("      \"sdf_border_fallback_default_path\": false\n");
     out.push_str("    },\n");
-    out.push_str("    \"political_tint\": {\n");
-    out.push_str("      \"mode\": \"terrain-led overlay tint\",\n");
-    out.push_str("      \"max_tint\": 0.76,\n");
-    out.push_str("      \"close_view_rule\": \"political color remains visible at close gameplay zoom while atlas/colormap/normal detail is preserved\"\n");
-    out.push_str("    }\n");
-    out.push_str("  },\n");
-    out.push_str("  \"composition_order\": [\n");
-    out.push_str("    \"province id -> country/map-mode political color\",\n");
-    out.push_str("    \"terrain.bmp id -> atlas tile lookup\",\n");
-    out.push_str("    \"terrain atlas + ColorMap/ColorMapSecond overlay\",\n");
-    out.push_str("    \"political tint budget over terrain albedo\",\n");
-    out.push_str("    \"world_normal + atlas_normal surface normal\",\n");
-    out.push_str("    \"MudSnow target -> mud diffuse/normal and snow diffuse/normal\",\n");
+    out.push_str("    \"terrain_color_tint\": {\n");
     out.push_str(
-        "    \"river/occupation/selection/hover overlays only through ownership gates\",\n",
+        "      \"mode\": \"GetOverlay(TerrainDiffuse.rgb, TerrainColorTint.rgb, 0.75)\",\n",
     );
-    out.push_str("    \"ProvinceSecondaryColorMap and GradientBorderChannel3 are debug/audit inputs only\",\n");
-    out.push_str("    \"city emissive + citylights + LightDataMap/LightIndexMap\",\n");
-    out.push_str("    \"day_night, distance fog, FOW visibility\"\n");
+    out.push_str("      \"direct_political_mix\": false,\n");
+    out.push_str("      \"camera_distance_tint_min_max\": false\n");
+    out.push_str("    },\n");
+    out.push_str("    \"final_before_postprocess_debug_export\": \"terrain_debug_view=final_before_postprocess\"\n");
+    out.push_str("  },\n");
+    out.push_str("  \"pdxmap_order81_slots\": [\n");
+    out.push_str("    \"s0 TerrainDiffuse -> terrain_atlas\",\n");
+    out.push_str("    \"s1 HeightNormal -> world_normal/height-normal basis\",\n");
+    out.push_str("    \"s2 TerrainColorTint -> colormap_emissive.rgb + city emissive alpha\",\n");
+    out.push_str("    \"s3 SnowTexture -> snow_normal_diffuse\",\n");
+    out.push_str("    \"s4 TerrainNormal -> terrain_atlas_normal\",\n");
+    out.push_str(
+        "    \"s5 TerrainIDMap -> terrain_idx 5632x2048 sampled with -0.5/MAP_SIZE offset\",\n",
+    );
+    out.push_str(
+        "    \"s6 ProvinceSecondaryColorMap -> secondary RGB + occupation stripe alpha\",\n",
+    );
+    out.push_str("    \"s7 SnowMudData -> mud_snow target 1408x512\",\n");
+    out.push_str("    \"s8 CityLightsAndSnowNoise -> citylights rgb/noise alpha\",\n");
+    out.push_str("    \"s9 MudNormalSpec -> mud_normal_spec\",\n");
+    out.push_str("    \"s10 LightIndexMap -> runtime target 64x64\",\n");
+    out.push_str("    \"s11 LightDataMap -> runtime target 128x1 RGBA32F\",\n");
+    out.push_str(
+        "    \"s12 ShadowMap -> projected shadow/FOW input, not ordinary depth fallback\",\n",
+    );
+    out.push_str("    \"s13 MudDiffuseGloss -> mud_diffuse_gloss\",\n");
+    out.push_str("    \"s14 GradientBorderChannel1 -> runtime gradient border ch1\",\n");
+    out.push_str("    \"s15 GradientBorderChannel2 -> runtime gradient border ch2\"\n");
+    out.push_str("  ],\n");
+    out.push_str("  \"composition_order\": [\n");
+    out.push_str("    \"TerrainIDMap decode\",\n");
+    out.push_str(
+        "    \"4x4 terrain atlas diffuse/normal with four-neighbor terrain-id bilerp\",\n",
+    );
+    out.push_str("    \"HeightNormal unpack/rotate with atlas normal\",\n");
+    out.push_str("    \"GetOverlay(diffuse.rgb, TerrainColorTint.rgb, 0.75)\",\n");
+    out.push_str("    \"snow\",\n");
+    out.push_str("    \"mud\",\n");
+    out.push_str("    \"GradientBorderChannel1/2 before lighting\",\n");
+    out.push_str("    \"ProvinceSecondaryColorMap occupation stripe before lighting\",\n");
+    out.push_str("    \"sun/shadow/point lights\",\n");
+    out.push_str("    \"city lights\",\n");
+    out.push_str("    \"FOW\",\n");
+    out.push_str("    \"distance fog\",\n");
+    out.push_str("    \"day/night\",\n");
+    out.push_str("    \"HDR output\"\n");
     out.push_str("  ],\n");
     out.push_str("  \"responsibility_boundary\": {\n");
-    out.push_str("    \"terrain\": \"land base material, political tint, terrain atlas, colormap, snow/mud, FOW, day/night, distance fog\",\n");
+    out.push_str("    \"terrain\": \"land base material, TerrainColorTint overlay, terrain atlas, colormap, snow/mud, ProvinceSecondaryColorMap, FOW, distance fog, day/night\",\n");
     out.push_str(
         "    \"water\": \"dedicated water pass owns visible water color when available\",\n",
     );
@@ -1059,7 +1092,9 @@ pub fn build_terrain_pdxmap_report_json(binding_audit: &BindingAudit) -> String 
     out.push_str("    \"political_color_does_not_replace_terrain_albedo\": true,\n");
     out.push_str("    \"map_size_formulas_use_vanilla_pixels\": true,\n");
     out.push_str("    \"project_vivid_noise_grain_isolated_to_legacy_feature_flag\": true,\n");
-    out.push_str("    \"known_degraded_fallbacks\": [\"FOW visible-all placeholder\", \"MudSnow procedural seasonal mask\"]\n");
+    out.push_str("    \"legacy_river_overlay_coast_tint_vignette_default_path\": false,\n");
+    out.push_str("    \"terrain_final_before_postprocess_exportable\": true,\n");
+    out.push_str("    \"known_degraded_fallbacks\": [\"FOW visible-all placeholder\", \"SnowMudData zero fallback\"]\n");
     out.push_str("  }\n");
     out.push_str("}\n");
     out

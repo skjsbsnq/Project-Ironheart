@@ -1,9 +1,9 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
-use hoi4_map::Heightmap;
-
 use super::VanillaRuntimeTargetFrameParams;
+
+pub const VANILLA_INTEL_MAP_WIDTH: u32 = 938;
+pub const VANILLA_INTEL_MAP_HEIGHT: u32 = 341;
+pub const VANILLA_PROJECTED_SHADOW_WIDTH: u32 = 2560;
+pub const VANILLA_PROJECTED_SHADOW_HEIGHT: u32 = 1600;
 
 pub fn generate_default_fow(width: u32, height: u32) -> Vec<u8> {
     let mut data = vec![0u8; width as usize * height as usize * 4];
@@ -16,61 +16,33 @@ pub fn generate_default_fow(width: u32, height: u32) -> Vec<u8> {
     data
 }
 
-pub fn generate_mud_snow(
-    heightmap: &Heightmap,
-    season_snow_offset: f32,
-    season_blend: f32,
-) -> Vec<u8> {
-    let width = heightmap.width as usize;
-    let height = heightmap.height as usize;
-    let mut data = vec![0u8; width * height * 4];
-    let winter = (0.55 + season_snow_offset * 1.8 + season_blend * 0.15).clamp(0.0, 1.0);
-    for y in 0..height {
-        let v = if height > 1 {
-            y as f32 / (height - 1) as f32
-        } else {
-            0.5
-        };
-        let latitude = (v - 0.5).abs() * 2.0;
-        let polar = smoothstep(0.72, 0.96, latitude);
-        for x in 0..width {
-            let i = y * width + x;
-            let h = heightmap.pixels.get(i).copied().unwrap_or(0) as f32 / 255.0;
-            let altitude = smoothstep(0.62 + season_snow_offset, 0.88 + season_snow_offset, h);
-            let snow_now = (polar * winter + altitude * 0.85).clamp(0.0, 1.0);
-            let snow_winter = snow_now.max(winter * smoothstep(0.46, 0.76, h));
-            let lowland = 1.0 - smoothstep(0.42, 0.74, h);
-            let no_snow = 1.0 - snow_now.max(snow_winter * 0.55);
-            let mud_now = (0.35 + season_blend * 0.25) * lowland * no_snow;
-            let mud_winter = (1.0 - winter) * 0.35 * lowland * no_snow;
-            let o = i * 4;
-            data[o] = to_u8(mud_now);
-            data[o + 1] = to_u8(snow_winter);
-            data[o + 2] = to_u8(snow_now);
-            data[o + 3] = to_u8(mud_winter);
-        }
+pub fn generate_default_intel_map() -> Vec<u8> {
+    vec![255; (VANILLA_INTEL_MAP_WIDTH * VANILLA_INTEL_MAP_HEIGHT) as usize]
+}
+
+pub fn generate_neutral_projected_shadow_fow() -> Vec<u8> {
+    let mut data =
+        vec![0u8; (VANILLA_PROJECTED_SHADOW_WIDTH * VANILLA_PROJECTED_SHADOW_HEIGHT * 4) as usize];
+    for px in data.chunks_exact_mut(4) {
+        px[0] = 255; // B: neutral shadow scale in BGRA storage
+        px[1] = 255; // G: visible FOW factor
+        px[2] = 255; // R: explored FOW factor
+        px[3] = 255;
     }
     data
 }
 
-pub fn mud_snow_signature(params: &VanillaRuntimeTargetFrameParams) -> u64 {
-    let mut h = DefaultHasher::new();
-    quantize(params.season_snow_offset).hash(&mut h);
-    quantize(params.season_blend).hash(&mut h);
-    h.finish()
+pub fn snow_mud_dimensions(map_width: u32, map_height: u32) -> (u32, u32) {
+    ((map_width / 4).max(1), (map_height / 4).max(1))
 }
 
-fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
-    let t = ((x - edge0) / (edge1 - edge0).max(0.0001)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
+pub fn generate_neutral_snow_mud(map_width: u32, map_height: u32) -> Vec<u8> {
+    let (width, height) = snow_mud_dimensions(map_width, map_height);
+    vec![0u8; (width * height * 4) as usize]
 }
 
-fn to_u8(value: f32) -> u8 {
-    (value.clamp(0.0, 1.0) * 255.0).round() as u8
-}
-
-fn quantize(value: f32) -> i16 {
-    (value.clamp(-1.0, 1.0) * 4096.0).round() as i16
+pub fn mud_snow_signature(_params: &VanillaRuntimeTargetFrameParams) -> u64 {
+    0
 }
 
 #[cfg(test)]
@@ -84,14 +56,35 @@ mod tests {
     }
 
     #[test]
-    fn mud_snow_dimensions_match_heightmap() {
-        let hm = Heightmap {
-            width: 2,
-            height: 2,
-            pixels: vec![0, 96, 180, 255],
-        };
-        let data = generate_mud_snow(&hm, 0.0, 0.5);
-        assert_eq!(data.len(), 2 * 2 * 4);
-        assert!(data.iter().any(|&v| v > 0));
+    fn intel_map_matches_vanilla_map_size_div_six() {
+        let intel = generate_default_intel_map();
+        assert_eq!(
+            intel.len(),
+            (VANILLA_INTEL_MAP_WIDTH * VANILLA_INTEL_MAP_HEIGHT) as usize
+        );
+        assert!(intel.iter().all(|&v| v == 255));
+    }
+
+    #[test]
+    fn projected_shadow_fow_is_full_res_neutral_bgra() {
+        let shadow = generate_neutral_projected_shadow_fow();
+        assert_eq!(
+            shadow.len(),
+            (VANILLA_PROJECTED_SHADOW_WIDTH * VANILLA_PROJECTED_SHADOW_HEIGHT * 4) as usize
+        );
+        assert_eq!(&shadow[0..4], &[255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn snow_mud_dimensions_are_quarter_map_size() {
+        assert_eq!(snow_mud_dimensions(5632, 2048), (1408, 512));
+        assert_eq!(snow_mud_dimensions(2, 2), (1, 1));
+    }
+
+    #[test]
+    fn neutral_snow_mud_is_zero_quarter_size() {
+        let data = generate_neutral_snow_mud(5632, 2048);
+        assert_eq!(data.len(), 1408 * 512 * 4);
+        assert!(data.iter().all(|&v| v == 0));
     }
 }

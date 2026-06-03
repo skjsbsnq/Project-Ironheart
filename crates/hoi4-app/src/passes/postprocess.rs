@@ -47,7 +47,10 @@ use hoi4_paths::PathConfig;
 
 const POST_PROCESS_LUT_KEY_COUNT: usize = 10;
 const STANDARD_TONEMAP_MIDDLE_GREY: f32 = 0.55;
-const WATER_LUT_FRAME_THRESHOLD: f32 = 0.90;
+const WATER_LUT_FRAME_THRESHOLD: f32 = 0.55;
+const CAMERA_FAR_LUT_THRESHOLD: f32 = 0.72;
+const CAMERA_MID_LUT_THRESHOLD: f32 = 0.36;
+const WINTER_LUT_THRESHOLD: f32 = 0.55;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostProcessDebugView {
@@ -138,7 +141,7 @@ impl PostProcessCalibration {
             middle_grey: STANDARD_TONEMAP_MIDDLE_GREY,
             exposure_min: 0.125,
             exposure_max: 8.0,
-            exposure_bias: 1.08,
+            exposure_bias: 1.0,
             uncharted_white_point: 11.2,
             final_bloom_strength: 0.22,
             lut_strength: 1.0,
@@ -256,8 +259,8 @@ impl PostProcessLutKey {
             }
             Self::FarDistanceDay => "day, land, camera_distance_t > 0.72",
             Self::FarDistanceNight => "night blend target for land, camera_distance_t > 0.72",
-            Self::WaterDay => "day, water-dominant frame",
-            Self::WaterNight => "night blend target for water-dominant frame",
+            Self::WaterDay => "day, water_factor > 0.55",
+            Self::WaterNight => "night blend target for water_factor > 0.55",
             Self::WinterDay => "day, land, close camera, winter_factor > 0.55",
             Self::WinterNight => "night blend target for land, close camera, winter_factor > 0.55",
         }
@@ -287,9 +290,9 @@ pub struct ColorCubeImage {
 
 impl ColorCubeImage {
     pub fn from_tga(source_path: impl Into<String>, image: TgaImage) -> Result<Self, String> {
-        if image.height < 2 || image.width != image.height * image.height {
+        if image.width != 1024 || image.height != 32 {
             return Err(format!(
-                "unsupported ColorCube dimensions {}x{}",
+                "unsupported ColorCube dimensions {}x{}; expected 1024x32 flattened 32x32x32",
                 image.width, image.height
             ));
         }
@@ -510,6 +513,12 @@ pub fn build_posteffect_values_report_json_from_db(db: &impl AssetDb) -> String 
             .filter(|cube| cube.source_path != "identity_color_cube")
             .count()
     );
+    out.push_str("  \"color_cube_layout\": {\n");
+    out.push_str("    \"dimensions\": \"1024x32\",\n");
+    out.push_str("    \"cube_size\": 32,\n");
+    out.push_str("    \"flattened_volume\": \"32x32x32\",\n");
+    out.push_str("    \"legacy_16_cube\": false\n");
+    out.push_str("  },\n");
     let _ = writeln!(
         out,
         "  \"identity_fallback\": {},",
@@ -522,12 +531,20 @@ pub fn build_posteffect_values_report_json_from_db(db: &impl AssetDb) -> String 
     );
     out.push_str("    \"lut\": \"restorescene samples vanilla ColorCube TGA layers selected from gfx/posteffect_volumes.txt\",\n");
     out.push_str(
-        "    \"swapchain_srgb\": \"Bgra8UnormSrgb targets use hardware sRGB encoding\",\n",
+        "    \"captured_dx11_swapchain\": \"R8G8B8A8_UNORM with shader-side gamma pow(1/2.2)\",\n",
     );
-    out.push_str(
-        "    \"manual_gamma\": \"only enabled when the final target format is not sRGB\"\n",
-    );
+    out.push_str("    \"wgpu_surface_policy\": \"prefer Bgra8Unorm/Rgba8Unorm so restorescene follows captured shader-side gamma; sRGB is fallback-only\"\n");
     out.push_str("  },\n");
+    out.push_str("  \"restore_order\": [\n");
+    out.push_str("    \"MainScene\",\n");
+    out.push_str("    \"+ RestoreBloom\",\n");
+    out.push_str("    \"* MiddleGrey / AverageLuminance\",\n");
+    out.push_str("    \"Uncharted2 tonemap W=11.2\",\n");
+    out.push_str("    \"manual pow(1/2.2) only on non-sRGB target path\",\n");
+    out.push_str("    \"ColorCube\",\n");
+    out.push_str("    \"HSV\",\n");
+    out.push_str("    \"ColorBalance\"\n");
+    out.push_str("  ],\n");
     out.push_str("  \"restore_scene_bindings\": [\n");
     out.push_str("    { \"vanilla\": \"MainScene\", \"vanilla_slot\": \"t0/s0\", \"project\": \"hdr_tex/hdr_sampler\", \"project_binding\": \"@group(0) @binding(0/1)\" },\n");
     out.push_str("    { \"vanilla\": \"RestoreBloom\", \"vanilla_slot\": \"t1/s1\", \"project\": \"bloom_tex/bloom_sampler\", \"project_binding\": \"@group(0) @binding(2/3)\" },\n");
@@ -537,17 +554,41 @@ pub fn build_posteffect_values_report_json_from_db(db: &impl AssetDb) -> String 
     out.push_str("  \"selection_thresholds\": {\n");
     let _ = writeln!(
         out,
-        "    \"water\": \"water_factor >= {:.2} selects blue_water day/night\",",
+        "    \"water\": \"water_factor > {:.2} selects blue_water day/night\",",
         WATER_LUT_FRAME_THRESHOLD
     );
-    out.push_str(
-        "    \"far_distance\": \"camera_distance_t > 0.72 selects max_distance day/night\",\n",
+    let _ = writeln!(
+        out,
+        "    \"far_distance\": \"camera_distance_t > {:.2} selects max_distance day/night\",",
+        CAMERA_FAR_LUT_THRESHOLD
     );
-    out.push_str(
-        "    \"mid_distance\": \"camera_distance_t > 0.36 selects mid_distance day/night\",\n",
+    let _ = writeln!(
+        out,
+        "    \"mid_distance\": \"camera_distance_t > {:.2} selects mid_distance day/night\",",
+        CAMERA_MID_LUT_THRESHOLD
     );
-    out.push_str("    \"winter\": \"winter_factor > 0.55 selects winter_values_day/night for close land\",\n");
+    let _ = writeln!(
+        out,
+        "    \"winter\": \"winter_factor > {:.2} selects winter_values_day/night for close land\",",
+        WINTER_LUT_THRESHOLD
+    );
     out.push_str("    \"night\": \"night_factor blends day layer to night layer\"\n");
+    out.push_str("  },\n");
+    out.push_str("  \"phase_b_runtime_policy\": {\n");
+    out.push_str("    \"selection_priority\": [\"water\", \"far_distance\", \"mid_distance\", \"winter\", \"default\"],\n");
+    out.push_str("    \"water_factor_source\": \"project screen-sample of province type; explicit non-parity classifier until posteffect_volume water bounds are reconstructed\",\n");
+    out.push_str("    \"camera_distance_source\": \"project camera normalized distance using R17/colorcube_lut_selection thresholds\",\n");
+    out.push_str("    \"winter_factor_source\": \"disabled/0.0 in default runtime path until gfx/posteffect_volumes.txt posteffect_volume winter classification or trace-backed formula is implemented\",\n");
+    out.push_str("    \"winter_lut_values_preserved\": true,\n");
+    out.push_str("    \"manual_lut_strength_adjustment\": false,\n");
+    out.push_str("    \"manual_middle_grey_adjustment\": false,\n");
+    out.push_str("    \"gamma_policy\": {\n");
+    out.push_str(
+        "      \"captured_dx11\": \"R8G8B8A8_UNORM plus restorescene shader pow(1/2.2)\",\n",
+    );
+    out.push_str("      \"wgpu_default_target\": \"Bgra8Unorm/Rgba8Unorm when supported; manual pow enabled\",\n");
+    out.push_str("      \"wgpu_srgb_fallback_target\": \"manual pow disabled only if the platform exposes no non-sRGB surface format\"\n");
+    out.push_str("    }\n");
     out.push_str("  },\n");
     out.push_str("  \"default_calibration\": {\n");
     let _ = writeln!(
@@ -567,6 +608,23 @@ pub fn build_posteffect_values_report_json_from_db(db: &impl AssetDb) -> String 
         "    \"color_balance\": [{:.3}, {:.3}, {:.3}],",
         calibration.color_balance[0], calibration.color_balance[1], calibration.color_balance[2]
     );
+    let _ = writeln!(
+        out,
+        "    \"exposure_bias\": {:.3},",
+        calibration.exposure_bias
+    );
+    let _ = writeln!(
+        out,
+        "    \"uncharted_white_point\": {:.1},",
+        calibration.uncharted_white_point
+    );
+    let _ = writeln!(
+        out,
+        "    \"restore_bloom_strength\": {:.3},",
+        calibration.final_bloom_strength
+    );
+    out.push_str("    \"aces\": false,\n");
+    out.push_str("    \"vignette\": false,\n");
     out.push_str("    \"manual_vivid_adjustment\": false\n");
     out.push_str("  },\n");
     out.push_str("  \"runtime_lut_bindings\": [\n");
@@ -777,28 +835,28 @@ pub struct PostProcessLutSelection {
 
 impl PostProcessLutSelection {
     pub fn key(self, night: bool) -> PostProcessLutKey {
-        if self.water_factor >= WATER_LUT_FRAME_THRESHOLD {
+        if self.water_factor > WATER_LUT_FRAME_THRESHOLD {
             return if night {
                 PostProcessLutKey::WaterNight
             } else {
                 PostProcessLutKey::WaterDay
             };
         }
-        if self.camera_distance_t > 0.72 {
+        if self.camera_distance_t > CAMERA_FAR_LUT_THRESHOLD {
             return if night {
                 PostProcessLutKey::FarDistanceNight
             } else {
                 PostProcessLutKey::FarDistanceDay
             };
         }
-        if self.camera_distance_t > 0.36 {
+        if self.camera_distance_t > CAMERA_MID_LUT_THRESHOLD {
             return if night {
                 PostProcessLutKey::MidDistanceNight
             } else {
                 PostProcessLutKey::MidDistanceDay
             };
         }
-        if self.winter_factor > 0.55 {
+        if self.winter_factor > WINTER_LUT_THRESHOLD {
             return if night {
                 PostProcessLutKey::WinterNight
             } else {
@@ -816,6 +874,19 @@ impl PostProcessLutSelection {
         let day = self.key(false).tonemap_middle_grey();
         let night = self.key(true).tonemap_middle_grey();
         day + (night - day) * self.night_factor.clamp(0.0, 1.0)
+    }
+
+    pub fn audit_summary(self) -> String {
+        format!(
+            "lut_day={} lut_night={} night={:.2} middle_grey={:.2} factors(camera={:.2},water={:.2},winter={:.2})",
+            self.key(false).as_str(),
+            self.key(true).as_str(),
+            self.night_factor.clamp(0.0, 1.0),
+            self.tonemap_middle_grey(),
+            self.camera_distance_t,
+            self.water_factor,
+            self.winter_factor,
+        )
     }
 }
 
@@ -1109,7 +1180,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let raw_log_lum = textureSample(lum_tex, lum_sampler, vec2<f32>(0.5, 0.5)).r;
     let avg_log_lum = clamp(raw_log_lum, -8.0, 8.0);
     let avg_lum = max(exp(avg_log_lum), 1e-3);
-    let exposure = clamp((rp.middle_grey / avg_lum) * rp.exposure_bias, rp.exposure_min, rp.exposure_max);
+    // The vanilla luminance chain adapts through LastLuminance. Until that
+    // temporal target is mirrored, using the current frame's 1x1 average here
+    // makes exposure pulse when the camera pans across different land/sea
+    // ratios. Keep the final map path stable and leave avg_lum for debug.
+    let exposure = rp.exposure_bias;
     let tonemap_input = scene_with_bloom * exposure;
     let tonemapped = uncharted2_tonemap(tonemap_input, rp.uncharted_white_point);
 
@@ -1231,7 +1306,7 @@ fn make_target(
 }
 
 fn identity_color_cube_image() -> ColorCubeImage {
-    const LUT_SIZE: u32 = 16;
+    const LUT_SIZE: u32 = 32;
     let width = LUT_SIZE * LUT_SIZE;
     let height = LUT_SIZE;
     let mut data = Vec::with_capacity((width * height * 4) as usize);
@@ -1257,7 +1332,7 @@ fn make_color_cube_array(
     queue: &wgpu::Queue,
     source: &ColorCubeSource,
 ) -> (wgpu::Texture, wgpu::TextureView) {
-    let lut_size = source.cubes.first().map(|cube| cube.size).unwrap_or(16);
+    let lut_size = source.cubes.first().map(|cube| cube.size).unwrap_or(32);
     let width = lut_size * lut_size;
     let height = lut_size;
     let layers = source.cubes.len().max(1) as u32;
@@ -1561,7 +1636,7 @@ impl PostProcessChain {
             .cubes
             .first()
             .map(|cube| cube.size as f32)
-            .unwrap_or(16.0);
+            .unwrap_or(32.0);
         let color_cube_bindings = color_cube_source.bindings;
         let color_cube_source_summary = color_cube_source.source_summary();
         let color_cube_fallback = color_cube_source.is_identity_fallback();
@@ -1984,6 +2059,27 @@ impl PostProcessChain {
         ]
     }
 
+    pub fn gamma_policy(&self) -> &'static str {
+        if self.srgb_target_flag >= 0.5 {
+            "hardware_srgb_encode_manual_gamma_disabled"
+        } else {
+            "shader_side_pow_1_over_2_2_to_unorm"
+        }
+    }
+
+    pub fn runtime_lut_summary(&self, selection: PostProcessLutSelection) -> String {
+        let day_key = selection.key(false);
+        let night_key = selection.key(true);
+        format!(
+            "{} layers(day={},night={}) gamma_policy={} colorcube_fallback={}",
+            selection.audit_summary(),
+            self.color_cube_bindings[day_key as usize],
+            self.color_cube_bindings[night_key as usize],
+            self.gamma_policy(),
+            self.color_cube_fallback,
+        )
+    }
+
     /// 在已开 encoder 中提交完整链。
     ///
     /// `final_target` = swap-chain 当前帧 view。
@@ -2106,8 +2202,9 @@ mod tests {
         assert!((calibration.middle_grey - 0.55).abs() < f32::EPSILON);
         assert!(calibration.exposure_min <= 0.125);
         assert!(calibration.exposure_max >= 8.0);
-        assert!((calibration.exposure_bias - 1.08).abs() < f32::EPSILON);
+        assert!((calibration.exposure_bias - 1.0).abs() < f32::EPSILON);
         assert!((calibration.uncharted_white_point - 11.2).abs() < f32::EPSILON);
+        assert!((calibration.final_bloom_strength - 0.22).abs() < f32::EPSILON);
         assert!((calibration.bloom_bright_threshold - 0.90).abs() < f32::EPSILON);
         assert!((calibration.bloom_prefilter_strength - 0.90).abs() < f32::EPSILON);
         assert_eq!(calibration.lut_strength, 1.0);
@@ -2118,6 +2215,14 @@ mod tests {
         assert!(calibration.summary().contains("aces=off"));
         assert!(calibration.summary().contains("lut=1.00"));
         assert!(calibration.summary().contains("restore=uncharted"));
+    }
+
+    #[test]
+    fn restore_shader_uses_stable_exposure_until_last_luminance_is_mirrored() {
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("let exposure = rp.exposure_bias;"));
+        assert!(
+            !RESTORESCENE_PHASE10_WGSL.contains("let exposure = clamp((rp.middle_grey / avg_lum)")
+        );
     }
 
     #[test]
@@ -2163,6 +2268,25 @@ mod tests {
     }
 
     #[test]
+    fn color_cube_tga_rejects_legacy_16_cube_layout() {
+        let image = TgaImage {
+            width: 256,
+            height: 16,
+            pixels: vec![0; 256 * 16 * 4],
+        };
+        let err = ColorCubeImage::from_tga("gfx/world/legacy_lut.tga", image).unwrap_err();
+        assert!(err.contains("expected 1024x32"));
+    }
+
+    #[test]
+    fn postprocess_identity_fallback_uses_32_cube_layout() {
+        let source = ColorCubeSource::identity();
+        assert!(source.is_identity_fallback());
+        assert_eq!(source.cubes[0].size, 32);
+        assert_eq!(source.cubes[0].pixels.len(), 1024 * 32 * 4);
+    }
+
+    #[test]
     fn lut_selection_uses_distance_water_and_night_variants() {
         assert_eq!(
             PostProcessLutSelection {
@@ -2188,7 +2312,7 @@ mod tests {
             PostProcessLutSelection {
                 camera_distance_t: 0.1,
                 night_factor: 0.0,
-                water_factor: 0.95,
+                water_factor: 0.56,
                 winter_factor: 0.0,
             }
             .key(false),
@@ -2198,7 +2322,7 @@ mod tests {
             PostProcessLutSelection {
                 camera_distance_t: 0.1,
                 night_factor: 0.0,
-                water_factor: 0.60,
+                water_factor: 0.55,
                 winter_factor: 0.0,
             }
             .key(false),
@@ -2219,7 +2343,7 @@ mod tests {
             (PostProcessLutSelection {
                 camera_distance_t: 0.1,
                 night_factor: 1.0,
-                water_factor: 0.95,
+                water_factor: 0.56,
                 winter_factor: 0.0,
             }
             .tonemap_middle_grey()
@@ -2227,5 +2351,20 @@ mod tests {
                 .abs()
                 < f32::EPSILON
         );
+    }
+
+    #[test]
+    fn lut_selection_audit_summary_exposes_phase_b_fields() {
+        let summary = PostProcessLutSelection {
+            camera_distance_t: 0.1,
+            night_factor: 0.25,
+            water_factor: 0.0,
+            winter_factor: 0.0,
+        }
+        .audit_summary();
+        assert!(summary.contains("lut_day=default_day"));
+        assert!(summary.contains("lut_night=default_night"));
+        assert!(summary.contains("middle_grey=0.55"));
+        assert!(summary.contains("winter=0.00"));
     }
 }

@@ -11064,7 +11064,7 @@ impl App {
                 debug_view: self.border_debug_view.as_shader_value(),
                 screen_width: s.config.width as f32,
                 screen_height: s.config.height as f32,
-                _pad: 0,
+                camera_distance_world: self.camera.distance,
                 world_size: vanilla_map_space.world_size,
                 map_size_px: vanilla_map_space.map_size_px,
             };
@@ -11166,12 +11166,8 @@ impl App {
                 [d.x, d.y, d.z]
             };
             gu.global_time = time;
-            gu.fow_opacity_time_snow_max_speed = [
-                params.season_snow_offset.max(0.0),
-                time,
-                season_result.season_blend,
-                5.0,
-            ];
+            gu.fow_opacity_time_snow_max_speed =
+                [params.season_snow_offset.max(0.0), time, 0.0, 5.0];
             gu.day_night_hour_sun_dir = {
                 let sd = RenderParams::compute_sun_dir(12, self.world.date.month);
                 let hour = (self.world.date.hour as f32) / 24.0;
@@ -11297,6 +11293,7 @@ impl App {
                 selected_province_id: self.selected_province_id,
                 debug_view: self.water_debug_view.as_shader_value(),
                 final_water_owner: if water_ownership.final_color { 1 } else { 0 },
+                effect_variant: s.water_pass.selected_effect.as_shader_value(),
                 ..passes::WaterParams::default()
             },
         );
@@ -11544,16 +11541,20 @@ impl App {
         // F4 ??????????????pass ?????/ ????????????DebugOverlay???I ???????text_pass ??????
         let chain_label = map_draw_output.chain_label;
         let postprocess_summary = s.post_process.calibration.summary();
+        let postprocess_lut_summary = s
+            .post_process
+            .runtime_lut_summary(postprocess_lut_selection);
         s.debug_render_overlay.refresh(
             &s.pass_registry,
             s.hdr_target.width,
             s.hdr_target.height,
             &format!(
-                "{} quality={} post_debug={} {} terrain_debug={} water_debug={} border_debug={} overlay_budget={:.2}/{:.2}/{:.2} map_fallbacks={} degraded={}",
+                "{} quality={} post_debug={} {} {} terrain_debug={} water_debug={} border_debug={} overlay_budget={:.2}/{:.2}/{:.2} map_fallbacks={} degraded={}",
                 chain_label,
                 self.map_quality_preset.as_str(),
                 s.post_process.debug_view.name(),
                 postprocess_summary,
+                postprocess_lut_summary,
                 self.terrain_debug_view.name(),
                 self.water_debug_view.name(),
                 self.border_debug_view.name(),
@@ -12334,9 +12335,11 @@ fn postprocess_lut_selection_for(
         calc_day_night_factor_cpu(globe, [sun_dir[0], sun_dir[1], sun_dir[2]])
     };
     let water_factor = camera_target_water_factor_for(camera, world);
-    let month_phase = RenderParams::compute_month_phase(world.date.month, world.date.day);
-    let season_snow_offset = RenderParams::compute_season_snow_offset(month_phase);
-    let winter_factor = (-season_snow_offset / 0.10).clamp(0.0, 1.0);
+    // Phase B gate: gfx/posteffect_volumes.txt defines winter LUT values, but
+    // the default runtime path does not yet have a trace-backed classifier for
+    // selecting them. Do not let project date-derived snow formulas select the
+    // bright winter restore path by default.
+    let winter_factor = 0.0;
     PostProcessLutSelection {
         camera_distance_t,
         night_factor,

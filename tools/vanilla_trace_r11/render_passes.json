@@ -1,0 +1,611 @@
+﻿{
+    "source_log":  "C:\\Users\\19180\\Documents\\999\\b1\\tools\\vanilla_trace_r11\\logs\\d3d11_trace.jsonl",
+    "generated_at":  "2026-06-02T19:01:41",
+    "event_count":  116630,
+    "present_count":  260,
+    "draw_pass_count":  5,
+    "passes":  [
+                   {
+                       "key":  "1|2|fnv1a64:867fa9dbdb5833dd|fnv1a64:4f218c545fb065e1",
+                       "start_seq":  242,
+                       "end_seq":  242,
+                       "start_line":  247,
+                       "end_line":  260,
+                       "draw_count":  1,
+                       "indexed_draw_count":  0,
+                       "instanced_draw_count":  0,
+                       "rtvs":  [
+                                    "1"
+                                ],
+                       "dsv":  "2",
+                       "vs_hash":  "fnv1a64:867fa9dbdb5833dd",
+                       "ps_hash":  "fnv1a64:4f218c545fb065e1",
+                       "ps_srvs":  [
+                                       {
+                                           "slot":  0,
+                                           "view":  "3"
+                                       }
+                                   ],
+                       "vs_cbuffers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "10"
+                                           }
+                                       ],
+                       "ps_cbuffers":  [
+
+                                       ],
+                       "ps_samplers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "32"
+                                           }
+                                       ],
+                       "blend_state":  "",
+                       "depth_stencil_state":  "11",
+                       "rasterizer_state":  "16",
+                       "stencil_ref":  0,
+                       "blend_sample_mask":  4294967295,
+                       "first_draw_event":  "ID3D11DeviceContext::Draw"
+                   },
+                   {
+                       "key":  "1|2|fnv1a64:ea1348c9be4158f0|fnv1a64:9406116e064f4b4a",
+                       "start_seq":  256,
+                       "end_seq":  274,
+                       "start_line":  261,
+                       "end_line":  290,
+                       "draw_count":  3,
+                       "indexed_draw_count":  0,
+                       "instanced_draw_count":  0,
+                       "rtvs":  [
+                                    "1"
+                                ],
+                       "dsv":  "2",
+                       "vs_hash":  "fnv1a64:ea1348c9be4158f0",
+                       "ps_hash":  "fnv1a64:9406116e064f4b4a",
+                       "ps_srvs":  [
+                                       {
+                                           "slot":  0,
+                                           "view":  "19"
+                                       }
+                                   ],
+                       "vs_cbuffers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "64"
+                                           }
+                                       ],
+                       "ps_cbuffers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "64"
+                                           }
+                                       ],
+                       "ps_samplers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "63"
+                                           }
+                                       ],
+                       "blend_state":  "74",
+                       "depth_stencil_state":  "13",
+                       "rasterizer_state":  "76",
+                       "stencil_ref":  0,
+                       "blend_sample_mask":  4294967295,
+                       "first_draw_event":  "ID3D11DeviceContext::Draw"
+                   },
+                   {
+                       "key":  "1|2|fnv1a64:c66ca9c3a30099cd|fnv1a64:ea28577861790629",
+                       "start_seq":  286,
+                       "end_seq":  286,
+                       "start_line":  291,
+                       "end_line":  303,
+                       "draw_count":  1,
+                       "indexed_draw_count":  0,
+                       "instanced_draw_count":  0,
+                       "rtvs":  [
+                                    "1"
+                                ],
+                       "dsv":  "2",
+                       "vs_hash":  "fnv1a64:c66ca9c3a30099cd",
+                       "ps_hash":  "fnv1a64:ea28577861790629",
+                       "ps_srvs":  [
+                                       {
+                                           "slot":  0,
+                                           "view":  "15"
+                                       },
+                                       {
+                                           "slot":  1,
+                                           "view":  "16"
+                                       }
+                                   ],
+                       "vs_cbuffers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "73"
+                                           }
+                                       ],
+                       "ps_cbuffers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "73"
+                                           }
+                                       ],
+                       "ps_samplers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "73"
+                                           },
+                                           {
+                                               "slot":  1,
+                                               "value":  "73"
+                                           }
+                                       ],
+                       "blend_state":  "74",
+                       "depth_stencil_state":  "13",
+                       "rasterizer_state":  "76",
+                       "stencil_ref":  0,
+                       "blend_sample_mask":  4294967295,
+                       "first_draw_event":  "ID3D11DeviceContext::Draw"
+                   },
+                   {
+                       "key":  "1|2|fnv1a64:ea1348c9be4158f0|fnv1a64:9406116e064f4b4a",
+                       "start_seq":  299,
+                       "end_seq":  299,
+                       "start_line":  304,
+                       "end_line":  314,
+                       "draw_count":  1,
+                       "indexed_draw_count":  0,
+                       "instanced_draw_count":  0,
+                       "rtvs":  [
+                                    "1"
+                                ],
+                       "dsv":  "2",
+                       "vs_hash":  "fnv1a64:ea1348c9be4158f0",
+                       "ps_hash":  "fnv1a64:9406116e064f4b4a",
+                       "ps_srvs":  [
+                                       {
+                                           "slot":  0,
+                                           "view":  "22"
+                                       },
+                                       {
+                                           "slot":  1,
+                                           "view":  "16"
+                                       }
+                                   ],
+                       "vs_cbuffers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "90"
+                                           }
+                                       ],
+                       "ps_cbuffers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "90"
+                                           }
+                                       ],
+                       "ps_samplers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "63"
+                                           },
+                                           {
+                                               "slot":  1,
+                                               "value":  "73"
+                                           }
+                                       ],
+                       "blend_state":  "74",
+                       "depth_stencil_state":  "13",
+                       "rasterizer_state":  "76",
+                       "stencil_ref":  0,
+                       "blend_sample_mask":  4294967295,
+                       "first_draw_event":  "ID3D11DeviceContext::Draw"
+                   },
+                   {
+                       "key":  "1|2|fnv1a64:1543ec50d20d8e0e|fnv1a64:4f218c545fb065e1",
+                       "start_seq":  310,
+                       "end_seq":  356,
+                       "start_line":  315,
+                       "end_line":  363,
+                       "draw_count":  24,
+                       "indexed_draw_count":  0,
+                       "instanced_draw_count":  0,
+                       "rtvs":  [
+                                    "1"
+                                ],
+                       "dsv":  "2",
+                       "vs_hash":  "fnv1a64:1543ec50d20d8e0e",
+                       "ps_hash":  "fnv1a64:4f218c545fb065e1",
+                       "ps_srvs":  [
+                                       {
+                                           "slot":  0,
+                                           "view":  "6"
+                                       },
+                                       {
+                                           "slot":  1,
+                                           "view":  "16"
+                                       }
+                                   ],
+                       "vs_cbuffers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "19"
+                                           }
+                                       ],
+                       "ps_cbuffers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "90"
+                                           }
+                                       ],
+                       "ps_samplers":  [
+                                           {
+                                               "slot":  0,
+                                               "value":  "32"
+                                           },
+                                           {
+                                               "slot":  1,
+                                               "value":  "73"
+                                           }
+                                       ],
+                       "blend_state":  "33",
+                       "depth_stencil_state":  "13",
+                       "rasterizer_state":  "76",
+                       "stencil_ref":  0,
+                       "blend_sample_mask":  4294967295,
+                       "first_draw_event":  "ID3D11DeviceContext::Draw"
+                   }
+               ],
+    "state_pass_count":  1560,
+    "representative_frame":  2,
+    "representative_frame_score":  6,
+    "representative_pass_order":  [
+                                      {
+                                          "order":  1,
+                                          "frame":  2,
+                                          "start_line":  372,
+                                          "end_line":  383,
+                                          "pass_kind":  "ui_or_sprite",
+                                          "rtvs":  [
+                                                       "1"
+                                                   ],
+                                          "dsv":  "2",
+                                          "vs_hash":  "fnv1a64:867fa9dbdb5833dd",
+                                          "ps_hash":  "fnv1a64:4f218c545fb065e1",
+                                          "ps_srvs":  [
+                                                          {
+                                                              "slot":  0,
+                                                              "view":  "19"
+                                                          },
+                                                          {
+                                                              "slot":  1,
+                                                              "view":  "16"
+                                                          }
+                                                      ],
+                                          "vs_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "65"
+                                                              }
+                                                          ],
+                                          "ps_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "65"
+                                                              }
+                                                          ],
+                                          "ps_samplers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "63"
+                                                              },
+                                                              {
+                                                                  "slot":  1,
+                                                                  "value":  "73"
+                                                              }
+                                                          ],
+                                          "blend_state":  "74",
+                                          "depth_stencil_state":  "13",
+                                          "rasterizer_state":  "76",
+                                          "stencil_ref":  0,
+                                          "blend_sample_mask":  4294967295,
+                                          "pixel_shader_resources":  [
+                                                                         "SimpleTexture_Sampler",
+                                                                         "SimpleTexture_Texture"
+                                                                     ]
+                                      },
+                                      {
+                                          "order":  2,
+                                          "frame":  2,
+                                          "start_line":  385,
+                                          "end_line":  397,
+                                          "pass_kind":  "ui_or_sprite",
+                                          "rtvs":  [
+                                                       "1"
+                                                   ],
+                                          "dsv":  "2",
+                                          "vs_hash":  "fnv1a64:ea1348c9be4158f0",
+                                          "ps_hash":  "fnv1a64:9406116e064f4b4a",
+                                          "ps_srvs":  [
+                                                          {
+                                                              "slot":  0,
+                                                              "view":  "21"
+                                                          },
+                                                          {
+                                                              "slot":  1,
+                                                              "view":  "16"
+                                                          }
+                                                      ],
+                                          "vs_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "92"
+                                                              }
+                                                          ],
+                                          "ps_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "92"
+                                                              }
+                                                          ],
+                                          "ps_samplers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "63"
+                                                              },
+                                                              {
+                                                                  "slot":  1,
+                                                                  "value":  "73"
+                                                              }
+                                                          ],
+                                          "blend_state":  "74",
+                                          "depth_stencil_state":  "13",
+                                          "rasterizer_state":  "76",
+                                          "stencil_ref":  0,
+                                          "blend_sample_mask":  4294967295,
+                                          "pixel_shader_resources":  [
+                                                                         "MapTexture_Sampler",
+                                                                         "MapTexture_Texture",
+                                                                         "dx11_cb0"
+                                                                     ]
+                                      },
+                                      {
+                                          "order":  3,
+                                          "frame":  2,
+                                          "start_line":  399,
+                                          "end_line":  419,
+                                          "pass_kind":  "ui_or_sprite",
+                                          "rtvs":  [
+                                                       "1"
+                                                   ],
+                                          "dsv":  "2",
+                                          "vs_hash":  "fnv1a64:1543ec50d20d8e0e",
+                                          "ps_hash":  "fnv1a64:4f218c545fb065e1",
+                                          "ps_srvs":  [
+                                                          {
+                                                              "slot":  0,
+                                                              "view":  "15"
+                                                          },
+                                                          {
+                                                              "slot":  1,
+                                                              "view":  "16"
+                                                          }
+                                                      ],
+                                          "vs_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "74"
+                                                              }
+                                                          ],
+                                          "ps_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "74"
+                                                              }
+                                                          ],
+                                          "ps_samplers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "73"
+                                                              },
+                                                              {
+                                                                  "slot":  1,
+                                                                  "value":  "73"
+                                                              }
+                                                          ],
+                                          "blend_state":  "74",
+                                          "depth_stencil_state":  "13",
+                                          "rasterizer_state":  "76",
+                                          "stencil_ref":  0,
+                                          "blend_sample_mask":  4294967295,
+                                          "pixel_shader_resources":  [
+                                                                         "SimpleTexture_Sampler",
+                                                                         "SimpleTexture_Texture"
+                                                                     ]
+                                      },
+                                      {
+                                          "order":  4,
+                                          "frame":  2,
+                                          "start_line":  421,
+                                          "end_line":  429,
+                                          "pass_kind":  "ui_or_sprite",
+                                          "rtvs":  [
+                                                       "1"
+                                                   ],
+                                          "dsv":  "2",
+                                          "vs_hash":  "fnv1a64:c66ca9c3a30099cd",
+                                          "ps_hash":  "fnv1a64:ea28577861790629",
+                                          "ps_srvs":  [
+                                                          {
+                                                              "slot":  0,
+                                                              "view":  "22"
+                                                          },
+                                                          {
+                                                              "slot":  1,
+                                                              "view":  "16"
+                                                          }
+                                                      ],
+                                          "vs_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "93"
+                                                              }
+                                                          ],
+                                          "ps_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "93"
+                                                              }
+                                                          ],
+                                          "ps_samplers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "63"
+                                                              },
+                                                              {
+                                                                  "slot":  1,
+                                                                  "value":  "73"
+                                                              }
+                                                          ],
+                                          "blend_state":  "74",
+                                          "depth_stencil_state":  "13",
+                                          "rasterizer_state":  "76",
+                                          "stencil_ref":  0,
+                                          "blend_sample_mask":  4294967295,
+                                          "pixel_shader_resources":  [
+                                                                         "TextureOne_Sampler",
+                                                                         "TextureTwo_Sampler",
+                                                                         "TextureOne_Texture",
+                                                                         "TextureTwo_Texture",
+                                                                         "dx11_cb0"
+                                                                     ]
+                                      },
+                                      {
+                                          "order":  5,
+                                          "frame":  2,
+                                          "start_line":  431,
+                                          "end_line":  431,
+                                          "pass_kind":  "ui_or_sprite",
+                                          "rtvs":  [
+                                                       "1"
+                                                   ],
+                                          "dsv":  "2",
+                                          "vs_hash":  "fnv1a64:ea1348c9be4158f0",
+                                          "ps_hash":  "fnv1a64:9406116e064f4b4a",
+                                          "ps_srvs":  [
+                                                          {
+                                                              "slot":  0,
+                                                              "view":  "22"
+                                                          },
+                                                          {
+                                                              "slot":  1,
+                                                              "view":  "16"
+                                                          }
+                                                      ],
+                                          "vs_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "93"
+                                                              }
+                                                          ],
+                                          "ps_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "93"
+                                                              }
+                                                          ],
+                                          "ps_samplers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "63"
+                                                              },
+                                                              {
+                                                                  "slot":  1,
+                                                                  "value":  "73"
+                                                              }
+                                                          ],
+                                          "blend_state":  "74",
+                                          "depth_stencil_state":  "13",
+                                          "rasterizer_state":  "76",
+                                          "stencil_ref":  0,
+                                          "blend_sample_mask":  4294967295,
+                                          "pixel_shader_resources":  [
+                                                                         "MapTexture_Sampler",
+                                                                         "MapTexture_Texture",
+                                                                         "dx11_cb0"
+                                                                     ]
+                                      },
+                                      {
+                                          "order":  6,
+                                          "frame":  2,
+                                          "start_line":  433,
+                                          "end_line":  468,
+                                          "pass_kind":  "ui_or_sprite",
+                                          "rtvs":  [
+                                                       "1"
+                                                   ],
+                                          "dsv":  "2",
+                                          "vs_hash":  "fnv1a64:1543ec50d20d8e0e",
+                                          "ps_hash":  "fnv1a64:4f218c545fb065e1",
+                                          "ps_srvs":  [
+                                                          {
+                                                              "slot":  0,
+                                                              "view":  "6"
+                                                          },
+                                                          {
+                                                              "slot":  1,
+                                                              "view":  "16"
+                                                          }
+                                                      ],
+                                          "vs_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "94"
+                                                              }
+                                                          ],
+                                          "ps_cbuffers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "93"
+                                                              }
+                                                          ],
+                                          "ps_samplers":  [
+                                                              {
+                                                                  "slot":  0,
+                                                                  "value":  "32"
+                                                              },
+                                                              {
+                                                                  "slot":  1,
+                                                                  "value":  "73"
+                                                              }
+                                                          ],
+                                          "blend_state":  "33",
+                                          "depth_stencil_state":  "75",
+                                          "rasterizer_state":  "76",
+                                          "stencil_ref":  0,
+                                          "blend_sample_mask":  4294967295,
+                                          "pixel_shader_resources":  [
+                                                                         "SimpleTexture_Sampler",
+                                                                         "SimpleTexture_Texture"
+                                                                     ]
+                                      }
+                                  ],
+    "state_pass_kind_counts":  {
+                                   "ui_or_sprite":  1560
+                               },
+    "top_state_pass_signatures":  {
+                                      "ui_or_sprite|1|2|fnv1a64:ea1348c9be4158f0|fnv1a64:9406116e064f4b4a":  520,
+                                      "ui_or_sprite|1|2|fnv1a64:1543ec50d20d8e0e|fnv1a64:4f218c545fb065e1":  519,
+                                      "ui_or_sprite|1|2|fnv1a64:867fa9dbdb5833dd|fnv1a64:4f218c545fb065e1":  261,
+                                      "ui_or_sprite|1|2|fnv1a64:c66ca9c3a30099cd|fnv1a64:ea28577861790629":  260
+                                  },
+    "draw_counts_by_pixel_shader":  {
+                                        "fnv1a64:4f218c545fb065e1":  25,
+                                        "fnv1a64:9406116e064f4b4a":  4,
+                                        "fnv1a64:ea28577861790629":  1
+                                    },
+    "draw_counts_by_target_view":  {
+                                       "1":  30
+                                   }
+}

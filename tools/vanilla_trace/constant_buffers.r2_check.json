@@ -1,0 +1,15 @@
+﻿{
+    "source_log":  ".\\tools\\vanilla_trace\\logs\\d3d11_trace.jsonl",
+    "generated_at":  "2026-06-02T13:52:12",
+    "buffer_count":  0,
+    "constant_buffer_count":  0,
+    "bind_counts":  {
+
+                    },
+    "stage_slot_bind_counts":  {
+
+                               },
+    "buffers":  [
+
+                ]
+}

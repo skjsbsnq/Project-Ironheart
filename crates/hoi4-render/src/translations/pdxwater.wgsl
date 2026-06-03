@@ -42,7 +42,7 @@ struct WaterParams {
 @group(2) @binding(10) var ice_noise_1: texture_2d<f32>;
 @group(2) @binding(11) var reflection_land_unit: texture_2d<f32>;
 @group(2) @binding(12) var underwater_terrain: texture_2d<f32>;
-@group(2) @binding(13) var coast_sdf: texture_2d<f32>;
+@group(2) @binding(13) var shadow_map: texture_2d<f32>;
 @group(2) @binding(14) var gradient_border_ch1: texture_2d<f32>;
 @group(2) @binding(15) var gradient_border_ch2: texture_2d<f32>;
 @group(2) @binding(16) var gradient_border_ch3: texture_2d<f32>;
@@ -223,16 +223,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let sun_spec = pow(n_dot_h, 192.0) * spec_mask * max(frame.sun_specular_intensity, 0.4);
     color = color + vec3<f32>(1.0, 0.97, 0.85) * sun_spec * 0.20;
 
-    let coast_d_px = textureSample(coast_sdf, water_sampler, map_uv).r * 255.0;
+    let projected_shadow = textureSample(shadow_map, water_sampler, map_uv);
     let country_d_px = textureSample(gradient_border_ch1, water_sampler, map_uv).r * 255.0;
     let province_d_px = textureSample(gradient_border_ch2, water_sampler, map_uv).r * 255.0;
     let semantic_d_px = textureSample(gradient_border_ch3, water_sampler, map_uv).r * 255.0;
     let border_hint = 1.0 - smoothstep(0.0, 3.0, min(min(country_d_px, province_d_px), semantic_d_px));
     color = mix(color, vec3<f32>(0.09, 0.16, 0.21), border_hint * 0.045);
-
-    let foam = clamp(1.0 - smoothstep(0.0, wparams.foam_threshold, coast_d_px), 0.0, 1.0);
-    let close_suppress = smoothstep(3.5, 12.0, camera_dist);
-    color = mix(color, vec3<f32>(0.78, 0.88, 0.92), foam * 0.10 * close_suppress);
+    color = mix(color, color * projected_shadow.r, 1.0 - projected_shadow.r);
 
     color = color + calculate_point_lights_water(in.map_px, in.world_pos, normal) * 0.12;
     color = apply_water_mud_snow(map_uv, color, depth_ratio);
@@ -241,7 +238,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
     color = day_night(color, globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
     color = apply_distance_fog(color, in.world_pos, frame.cam_pos);
-    let fow_visibility = textureSample(fow_tex, water_sampler, map_uv).g;
+    let fow_visibility = min(textureSample(fow_tex, water_sampler, map_uv).g, max(projected_shadow.b, projected_shadow.g));
     color = mix(color * 0.52, color, fow_visibility);
 
     return vec4<f32>(color, 1.0);

@@ -1,0 +1,335 @@
+{
+  "phase": "5",
+  "kind": "posteffect_values_audit",
+  "source_inputs": [
+    "gfx/posteffect_volumes.txt",
+    "tools/vanilla_trace/shader_bindings.json",
+    "tools/vanilla_trace/render_passes.json",
+    "tools/vanilla_trace/runtime_targets.json"
+  ],
+  "index_loaded": true,
+  "posteffect_values_count": 22,
+  "posteffect_height_volume_count": 3,
+  "posteffect_volume_count": 27,
+  "color_cube_lut_count": 17,
+  "color_cube_loaded_count": 17,
+  "identity_fallback": false,
+  "responsibility_boundary": {
+    "hdr_scene": "render passes write linear HDR into Rgba16Float",
+    "tonemap": "restorescene applies Uncharted2 tonemap after exposure and bloom",
+    "lut": "restorescene samples vanilla ColorCube TGA layers selected from gfx/posteffect_volumes.txt",
+    "swapchain_srgb": "Bgra8UnormSrgb targets use hardware sRGB encoding",
+    "manual_gamma": "only enabled when the final target format is not sRGB"
+  },
+  "restore_scene_bindings": [
+    { "vanilla": "MainScene", "vanilla_slot": "t0/s0", "project": "hdr_tex/hdr_sampler", "project_binding": "@group(0) @binding(0/1)" },
+    { "vanilla": "RestoreBloom", "vanilla_slot": "t1/s1", "project": "bloom_tex/bloom_sampler", "project_binding": "@group(0) @binding(2/3)" },
+    { "vanilla": "AverageLuminanceTexture", "vanilla_slot": "t3/s3", "project": "lum_tex/lum_sampler", "project_binding": "@group(0) @binding(4/5)" },
+    { "vanilla": "ColorCube", "vanilla_slot": "t2/s2", "project": "color_cube_tex/color_cube_sampler", "project_binding": "@group(0) @binding(6/7)" }
+  ],
+  "selection_thresholds": {
+    "water": "water_factor > 0.55 selects blue_water day/night",
+    "far_distance": "camera_distance_t > 0.72 selects max_distance day/night",
+    "mid_distance": "camera_distance_t > 0.36 selects mid_distance day/night",
+    "winter": "winter_factor > 0.55 selects winter_values_day/night for close land",
+    "night": "night_factor blends day layer to night layer"
+  },
+  "default_calibration": {
+    "lut_strength": 1.000,
+    "saturation": 1.000,
+    "hsv_saturation": 1.000,
+    "hsv_value": 1.000,
+    "color_balance": [0.000, 0.000, 0.000],
+    "manual_vivid_adjustment": false
+  },
+  "runtime_lut_bindings": [
+    {
+      "key": "default_day",
+      "posteffect_values": "default",
+      "selection_rule": "day, land, close camera, winter_factor <= 0.55",
+      "lut_path": "gfx/world/colorcorrection_standard.tga",
+      "array_layer": 12,
+      "loaded": true,
+      "dimensions": "1024x32",
+      "effective_values": {
+        "name": "default",
+        "inherit": "standard",
+        "lut": "gfx/world/colorcorrection_standard.tga",
+        "tonemap_middlegrey": 0.550000,
+        "bloom_width": 1.500000,
+        "bloom_scale": 0.900000,
+        "bright_threshold": 0.900000,
+        "hdr_min_adjustment": null,
+        "hdr_max_adjustment": null
+      }
+    },
+    {
+      "key": "default_night",
+      "posteffect_values": "default_night",
+      "selection_rule": "night blend target for land, close camera, winter_factor <= 0.55",
+      "lut_path": "gfx/world/colorcorrection_farrange_night.tga",
+      "array_layer": 3,
+      "loaded": true,
+      "dimensions": "1024x32",
+      "effective_values": {
+        "name": "default_night",
+        "inherit": "standard",
+        "lut": "gfx/world/colorcorrection_farrange_night.tga",
+        "tonemap_middlegrey": 0.550000,
+        "bloom_width": 1.500000,
+        "bloom_scale": 0.900000,
+        "bright_threshold": 0.900000,
+        "hdr_min_adjustment": null,
+        "hdr_max_adjustment": null
+      }
+    },
+    {
+      "key": "mid_distance_day",
+      "posteffect_values": "mid_distance",
+      "selection_rule": "day, land, 0.36 < camera_distance_t <= 0.72",
+      "lut_path": "gfx/world/colorcorrection_midrange.tga",
+      "array_layer": 9,
+      "loaded": true,
+      "dimensions": "1024x32",
+      "effective_values": {
+        "name": "mid_distance",
+        "inherit": "standard",
+        "lut": "gfx/world/colorcorrection_midrange.tga",
+        "tonemap_middlegrey": 0.550000,
+        "bloom_width": 1.500000,
+        "bloom_scale": 0.900000,
+        "bright_threshold": 0.900000,
+        "hdr_min_adjustment": null,
+        "hdr_max_adjustment": null
+      }
+    },
+    {
+      "key": "mid_distance_night",
+      "posteffect_values": "mid_distance_night",
+      "selection_rule": "night blend target for land, 0.36 < camera_distance_t <= 0.72",
+      "lut_path": "gfx/world/colorcorrection_farrange_night.tga",
+      "array_layer": 3,
+      "loaded": true,
+      "dimensions": "1024x32",
+      "effective_values": {
+        "name": "mid_distance_night",
+        "inherit": "standard",
+        "lut": "gfx/world/colorcorrection_farrange_night.tga",
+        "tonemap_middlegrey": 0.550000,
+        "bloom_width": 1.500000,
+        "bloom_scale": 0.900000,
+        "bright_threshold": 0.900000,
+        "hdr_min_adjustment": null,
+        "hdr_max_adjustment": null
+      }
+    },
+    {
+      "key": "max_distance_day",
+      "posteffect_values": "max_distance",
+      "selection_rule": "day, land, camera_distance_t > 0.72",
+      "lut_path": "gfx/world/colorcorrection_farrange.tga",
+      "array_layer": 2,
+      "loaded": true,
+      "dimensions": "1024x32",
+      "effective_values": {
+        "name": "max_distance",
+        "inherit": "standard",
+        "lut": "gfx/world/colorcorrection_farrange.tga",
+        "tonemap_middlegrey": 0.550000,
+        "bloom_width": 1.500000,
+        "bloom_scale": 0.900000,
+        "bright_threshold": 0.900000,
+        "hdr_min_adjustment": null,
+        "hdr_max_adjustment": null
+      }
+    },
+    {
+      "key": "max_distance_night",
+      "posteffect_values": "max_distance_night",
+      "selection_rule": "night blend target for land, camera_distance_t > 0.72",
+      "lut_path": "gfx/world/colorcorrection_farrange_night.tga",
+      "array_layer": 3,
+      "loaded": true,
+      "dimensions": "1024x32",
+      "effective_values": {
+        "name": "max_distance_night",
+        "inherit": "standard",
+        "lut": "gfx/world/colorcorrection_farrange_night.tga",
+        "tonemap_middlegrey": 0.650000,
+        "bloom_width": 1.500000,
+        "bloom_scale": 0.900000,
+        "bright_threshold": 0.900000,
+        "hdr_min_adjustment": 1.000000,
+        "hdr_max_adjustment": 0.800000
+      }
+    },
+    {
+      "key": "blue_water_day",
+      "posteffect_values": "blue_water",
+      "selection_rule": "day, water_factor > 0.55",
+      "lut_path": "gfx/world/colorcorrection_water.tga",
+      "array_layer": 13,
+      "loaded": true,
+      "dimensions": "1024x32",
+      "effective_values": {
+        "name": "blue_water",
+        "inherit": "standard",
+        "lut": "gfx/world/colorcorrection_water.tga",
+        "tonemap_middlegrey": 0.500000,
+        "bloom_width": 1.500000,
+        "bloom_scale": 0.900000,
+        "bright_threshold": 0.900000,
+        "hdr_min_adjustment": null,
+        "hdr_max_adjustment": null
+      }
+    },
+    {
+      "key": "blue_water_night",
+      "posteffect_values": "blue_water_night",
+      "selection_rule": "night blend target for water_factor > 0.55",
+      "lut_path": "gfx/world/colorcorrection_water_night.tga",
+      "array_layer": 14,
+      "loaded": true,
+      "dimensions": "1024x32",
+      "effective_values": {
+        "name": "blue_water_night",
+        "inherit": "standard",
+        "lut": "gfx/world/colorcorrection_water_night.tga",
+        "tonemap_middlegrey": 0.400000,
+        "bloom_width": 1.500000,
+        "bloom_scale": 0.900000,
+        "bright_threshold": 0.900000,
+        "hdr_min_adjustment": null,
+        "hdr_max_adjustment": null
+      }
+    },
+    {
+      "key": "winter_day",
+      "posteffect_values": "winter_values_day",
+      "selection_rule": "day, land, close camera, winter_factor > 0.55",
+      "lut_path": "gfx/world/colorcorrection_winter.tga",
+      "array_layer": 15,
+      "loaded": true,
+      "dimensions": "1024x32",
+      "effective_values": {
+        "name": "winter_values_day",
+        "inherit": "standard",
+        "lut": "gfx/world/colorcorrection_winter.tga",
+        "tonemap_middlegrey": 0.800000,
+        "bloom_width": 1.500000,
+        "bloom_scale": 0.900000,
+        "bright_threshold": 0.900000,
+        "hdr_min_adjustment": null,
+        "hdr_max_adjustment": null
+      }
+    },
+    {
+      "key": "winter_night",
+      "posteffect_values": "winter_values_night",
+      "selection_rule": "night blend target for land, close camera, winter_factor > 0.55",
+      "lut_path": "gfx/world/colorcorrection_winter.tga",
+      "array_layer": 15,
+      "loaded": true,
+      "dimensions": "1024x32",
+      "effective_values": {
+        "name": "winter_values_night",
+        "inherit": "standard",
+        "lut": "gfx/world/colorcorrection_winter.tga",
+        "tonemap_middlegrey": 0.800000,
+        "bloom_width": 1.500000,
+        "bloom_scale": 0.900000,
+        "bright_threshold": 0.900000,
+        "hdr_min_adjustment": null,
+        "hdr_max_adjustment": null
+      }
+    }
+  ],
+  "color_cube_luts": [
+    {
+      "path": "gfx/world/colorcorrection.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_asia.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_farrange.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_farrange_night.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_green.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_green_night.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_green_night3.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_japan.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_medi.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_midrange.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_southafrica.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_southafrica_night.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_standard.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_water.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_water_night.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_winter.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    },
+    {
+      "path": "gfx/world/colorcorrection_winter_asia.tga",
+      "loaded": true,
+      "dimensions": "1024x32"
+    }
+  ],
+  "warnings": []
+}

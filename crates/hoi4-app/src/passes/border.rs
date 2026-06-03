@@ -84,7 +84,7 @@ pub struct BorderParams {
     pub debug_view: u32,
     pub screen_width: f32,
     pub screen_height: f32,
-    pub _pad: u32,
+    pub camera_distance_world: f32,
     pub world_size: [f32; 2],
     pub map_size_px: [f32; 2],
 }
@@ -99,7 +99,7 @@ impl Default for BorderParams {
             debug_view: BorderDebugView::Off.as_shader_value(),
             screen_width: 1920.0,
             screen_height: 1080.0,
-            _pad: 0,
+            camera_distance_world: 96.0,
             world_size: [112.0, 41.0],
             map_size_px: [MAP_SIZE_X, MAP_SIZE_Y],
         }
@@ -676,7 +676,7 @@ struct BorderParams {
     debug_view: u32,
     screen_width: f32,
     screen_height: f32,
-    _pad: u32,
+    camera_distance_world: f32,
     world_size: vec2<f32>,
     map_size_px: vec2<f32>,
 };
@@ -710,7 +710,11 @@ struct VsOut {
     @location(7) map_px: vec2<f32>,
 };
 
-const BORDER_TILE: f32 = 1.0;
+const BORDER_TILE: f32 = 0.4;
+const VANILLA_PROVINCE_BORDER_FADE_NEAR: f32 = 200.0;
+const VANILLA_PROVINCE_BORDER_FADE_FAR: f32 = 300.0;
+const VANILLA_STATE_BORDER_FADE_NEAR: f32 = 400.0;
+const VANILLA_STATE_BORDER_FADE_FAR: f32 = 500.0;
 const KIND_COUNTRY: u32 = 0u;
 const KIND_STATE: u32 = 1u;
 const KIND_PROVINCE: u32 = 2u;
@@ -825,14 +829,24 @@ fn false_color(kind: u32) -> vec3<f32> {
     return vec3<f32>(1.0, 0.30, 0.86);
 }
 
-fn hierarchy_alpha(kind: u32, zoom: f32, distance_norm: f32, is_selected: bool) -> f32 {
+fn hierarchy_alpha(kind: u32, zoom: f32, distance_norm: f32, camera_distance_world: f32, is_selected: bool) -> f32 {
     var alpha = 0.0;
     if (kind == KIND_COUNTRY) {
         alpha = mix(1.05, 0.76, distance_norm);
     } else if (kind == KIND_STATE) {
-        alpha = 0.66 * smoothstep(0.18, 0.42, zoom) * mix(1.0, 0.46, distance_norm);
+        let state_fade = 1.0 - smoothstep(
+            VANILLA_STATE_BORDER_FADE_NEAR,
+            VANILLA_STATE_BORDER_FADE_FAR,
+            camera_distance_world
+        );
+        alpha = 0.62 * state_fade * mix(1.0, 0.64, distance_norm);
     } else if (kind == KIND_PROVINCE) {
-        alpha = 0.36 * smoothstep(0.52, 0.80, zoom);
+        let province_fade = 1.0 - smoothstep(
+            VANILLA_PROVINCE_BORDER_FADE_NEAR,
+            VANILLA_PROVINCE_BORDER_FADE_FAR,
+            camera_distance_world
+        );
+        alpha = 0.30 * province_fade;
     } else if (kind == KIND_SEA) {
         alpha = 0.34 * smoothstep(0.28, 0.58, zoom);
     } else if (kind == KIND_SEA_REGION) {
@@ -926,7 +940,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let zoom = clamp(1.0 - d, 0.0, 1.0);
     let edge_fade = smoothstep(0.03, 0.42, in.uv.x) * (1.0 - smoothstep(0.58, 0.97, in.uv.x));
     let width_mask = screen_width_mask(in, kind, zoom, is_selected);
-    let layer_alpha = hierarchy_alpha(kind, zoom, d, is_selected);
+    var layer_alpha = hierarchy_alpha(kind, zoom, d, bparams.camera_distance_world, is_selected);
+    if (debug_active) {
+        layer_alpha = max(layer_alpha, 0.82);
+    }
     let style_color = hierarchy_color(kind);
 
     var texture_mix = 0.55;
@@ -971,6 +988,28 @@ mod tests {
         let p = BorderParams::default();
         assert_eq!(p.enabled_mask, 0x3F);
         assert_eq!(p.map_size_px, [MAP_SIZE_X, MAP_SIZE_Y]);
+    }
+
+    #[test]
+    fn border_strip_shader_uses_vanilla_tile_constant() {
+        assert!(BORDER_STRIP_WGSL.contains("const BORDER_TILE: f32 = 0.4;"));
+        assert!(BORDER_STRIP_WGSL.contains("vec2<f32>(in.uv.y * BORDER_TILE, in.uv.x)"));
+    }
+
+    #[test]
+    fn internal_border_alpha_uses_vanilla_distance_fades() {
+        for needle in [
+            "const VANILLA_PROVINCE_BORDER_FADE_NEAR: f32 = 200.0;",
+            "const VANILLA_PROVINCE_BORDER_FADE_FAR: f32 = 300.0;",
+            "const VANILLA_STATE_BORDER_FADE_NEAR: f32 = 400.0;",
+            "const VANILLA_STATE_BORDER_FADE_FAR: f32 = 500.0;",
+            "camera_distance_world",
+        ] {
+            assert!(
+                BORDER_STRIP_WGSL.contains(needle),
+                "border shader missing {needle}"
+            );
+        }
     }
 
     #[test]

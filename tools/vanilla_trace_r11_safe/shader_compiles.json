@@ -1,0 +1,6 @@
+﻿[
+{"event":"D3D11CreateDevice","hr":"0x00000000"},
+{"event":"D3D11CreateDevice","hr":"0x00000000"},
+{"event":"D3DCompile","hr":"0x00000000","filename":"","entrypoint":"main","target":"vs_4_0","source_hash":"fnv1a64:ebd996f21e6ddfe3","source_size":709,"shader_hash":"fnv1a64:b1f8decdc53bcc59","shader_size":876,"sflags":0,"eflags":0,"defines":[]},
+{"event":"D3DCompile","hr":"0x00000000","filename":"","entrypoint":"main","target":"ps_4_0","source_hash":"fnv1a64:a195f9ce9a4a9666","source_size":401,"shader_hash":"fnv1a64:29b744f0d0b1fd29","shader_size":660,"sflags":0,"eflags":0,"defines":[]}
+]

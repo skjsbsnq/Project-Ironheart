@@ -457,6 +457,7 @@ mod tests {
             coast_sdf: &[],
             world_scale: 0.02,
             height_scale: 1.45,
+            default_map_mode_code: 0,
         };
         let data = generate(inputs);
         assert_eq!(data.light_data_width, MAX_POINT_LIGHTS as u32 * 2);

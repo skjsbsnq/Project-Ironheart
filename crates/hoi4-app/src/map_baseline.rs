@@ -815,7 +815,10 @@ pub fn write_map_audit_files(
     std::fs::create_dir_all(output_dir)?;
     let text_path = output_dir.join("latest.txt");
     let json_path = output_dir.join("latest.json");
-    std::fs::write(&text_path, combined_map_audit_text(audit, binding_audit))?;
+    std::fs::write(
+        &text_path,
+        combined_map_audit_text(audit, binding_audit, posteffect_values_report),
+    )?;
     std::fs::write(
         &json_path,
         combined_map_audit_json(
@@ -935,8 +938,8 @@ const P0_MAPPING_ENTRIES: &[P0MappingEntry] = &[
         reverse_fact: "water writes the HDR target with depth enabled, depth write off, func 4, blend state 1620, and traced raster state",
         evidence: "reverse_out/08_water_river_pipeline.md; reverse_out/exports/pdxwater_constants.tsv",
         target_files: "crates/hoi4-app/src/passes/water.rs; crates/hoi4-app/src/map_draw.rs",
-        current_status: "partial",
-        acceptance: "map-audit reports water depth/write/blend/raster state before P5 shader parity",
+        current_status: "implemented",
+        acceptance: "map-audit reports water effect selector plus depth/write/blend state for the P5 HDR contributor path",
     },
     P0MappingEntry {
         b1i_id: "B1I-018",
@@ -944,31 +947,31 @@ const P0_MAPPING_ENTRIES: &[P0MappingEntry] = &[
         evidence: "reverse_out/08_water_river_pipeline.md; reverse_out/exports/pdxwater_bindings.tsv",
         target_files: "crates/hoi4-app/src/passes/water.rs; crates/hoi4-render/src/translations/pdxwater.wgsl",
         current_status: "partial",
-        acceptance: "water audit flags WaterRefraction, ReflectionCubeMap, and ShadowMap as explicit gaps",
+        acceptance: "water audit binds ShadowMap and flags WaterRefraction/ReflectionCubeMap as explicit degraded fallbacks",
     },
     P0MappingEntry {
         b1i_id: "B1I-019",
         reverse_fact: "water selector chooses water_low_gfx, water_no_refractions, or water from graphics/refraction booleans",
         evidence: "reverse_out/12_cpu_selector_dynamic_closure.md; reverse_out/exports/pdxwater_constants.tsv",
         target_files: "crates/hoi4-app/src/passes/water.rs",
-        current_status: "missing",
-        acceptance: "required_changes lists selector as P5 blocker and audit reports default selector",
+        current_status: "implemented",
+        acceptance: "map-audit reports the default water_no_refractions selector and selector unit tests cover all variants",
     },
     P0MappingEntry {
         b1i_id: "B1I-020",
         reverse_fact: "river is an independent HDR contributor at order 83, after terrain and before water",
         evidence: "reverse_out/08_water_river_pipeline.md; reverse_out/10_vanilla_render_spec_for_b1.md",
         target_files: "crates/hoi4-app/src/passes/river.rs; crates/hoi4-app/src/map_draw.rs",
-        current_status: "partial",
-        acceptance: "map-audit reports dedicated river pass and terrain river overlay fallback status",
+        current_status: "implemented",
+        acceptance: "map-audit reports dedicated order-83 river pass, depth disabled state, and terrain river overlay fallback status",
     },
     P0MappingEntry {
         b1i_id: "B1I-021",
         reverse_fact: "river bindings include diffuse/normal/masks, LEAN, lights, gradients, province secondary, reflection cube, and shadow",
         evidence: "reverse_out/exports/river_bindings.tsv",
         target_files: "crates/hoi4-app/src/passes/river.rs",
-        current_status: "missing",
-        acceptance: "binding audit flags missing river vanilla resources until P5",
+        current_status: "partial",
+        acceptance: "binding audit lists river material/runtime target bindings and flags reflection fallback explicitly",
     },
     P0MappingEntry {
         b1i_id: "B1I-022",
@@ -1015,8 +1018,8 @@ const P0_MAPPING_ENTRIES: &[P0MappingEntry] = &[
         reverse_fact: "ShadowMap/projected FOW is a full-res B8G8R8A8_UNORM screen target followed by two-pass blur",
         evidence: "reverse_out/16_shadow_fow_projected_producer.md; reverse_out/exports/shadow_fow_projected_producer.tsv",
         target_files: "crates/hoi4-app/src/passes/terrain.rs; crates/hoi4-app/src/passes/water.rs; crates/hoi4-app/src/vanilla_targets/mod.rs",
-        current_status: "missing",
-        acceptance: "map-audit flags ordinary depth/fallback shadow as non-vanilla until P4",
+        current_status: "fallback",
+        acceptance: "map-audit reports the full-res ShadowMap target and labels the neutral projected FOW producer as explicit fallback",
     },
 ];
 
@@ -1031,6 +1034,7 @@ struct P0GateSummary {
     critical_asset_fallback_count: usize,
     binding_fallback_count: usize,
     critical_binding_fallback_count: usize,
+    producer_non_equivalent_count: usize,
     critical_fallback_count: usize,
     critical_fallback_silent_pass: bool,
 }
@@ -1055,6 +1059,7 @@ impl P0GateSummary {
             .count();
         let critical_asset_fallback_count = audit.invalid_visual_review_paths.len();
         let critical_binding_fallback_count = binding_audit.critical_count();
+        let producer_non_equivalent_count = binding_audit.producer_non_equivalent_count();
         let critical_fallback_count =
             critical_asset_fallback_count + critical_binding_fallback_count;
 
@@ -1068,13 +1073,14 @@ impl P0GateSummary {
             critical_asset_fallback_count,
             binding_fallback_count: binding_audit.fallback_count(),
             critical_binding_fallback_count,
+            producer_non_equivalent_count,
             critical_fallback_count,
             critical_fallback_silent_pass: false,
         }
     }
 
     fn status(self) -> &'static str {
-        if self.critical_fallback_count == 0 {
+        if self.critical_fallback_count == 0 && self.producer_non_equivalent_count == 0 {
             "pass"
         } else {
             "blocked"
@@ -1103,6 +1109,11 @@ fn p0_parity_gate_text(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> S
     );
     let _ = writeln!(
         out,
+        "  producer_non_equivalent={}",
+        summary.producer_non_equivalent_count
+    );
+    let _ = writeln!(
+        out,
         "  critical_fallback_silent_pass={}",
         summary.critical_fallback_silent_pass
     );
@@ -1123,6 +1134,11 @@ fn p0_parity_gate_text(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> S
         }
     }
     let critical_entries: Vec<_> = binding_audit.critical_entries().collect();
+    let producer_non_equivalent_entries: Vec<_> = binding_audit
+        .entries
+        .iter()
+        .filter(|entry| entry.binding_present && !entry.producer_equivalent)
+        .collect();
     if !critical_entries.is_empty() {
         out.push_str("  critical_binding_fallbacks:\n");
         for entry in critical_entries.iter().take(32) {
@@ -1137,6 +1153,28 @@ fn p0_parity_gate_text(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> S
         }
         if critical_entries.len() > 32 {
             let _ = writeln!(out, "    - ... {} more", critical_entries.len() - 32);
+        }
+    }
+    if !producer_non_equivalent_entries.is_empty() {
+        out.push_str("  producer_non_equivalent_entries:\n");
+        for entry in producer_non_equivalent_entries.iter().take(32) {
+            let _ = writeln!(
+                out,
+                "    - {}.{} target={} provenance={} producer_status={} parity_status={}",
+                entry.pass,
+                entry.binding,
+                entry.source_name,
+                entry.provenance.as_str(),
+                entry.producer_status.as_deref().unwrap_or("unspecified"),
+                entry.parity_status.as_deref().unwrap_or("unspecified")
+            );
+        }
+        if producer_non_equivalent_entries.len() > 32 {
+            let _ = writeln!(
+                out,
+                "    - ... {} more",
+                producer_non_equivalent_entries.len() - 32
+            );
         }
     }
     out.push_str("  b1i_mapping:\n");
@@ -1157,6 +1195,11 @@ fn p0_parity_gate_text(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> S
 fn p0_parity_gate_json(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> String {
     let summary = P0GateSummary::from_audits(audit, binding_audit);
     let critical_entries: Vec<_> = binding_audit.critical_entries().collect();
+    let producer_non_equivalent_entries: Vec<_> = binding_audit
+        .entries
+        .iter()
+        .filter(|entry| entry.binding_present && !entry.producer_equivalent)
+        .collect();
     let mut out = String::new();
     out.push_str("{\n");
     out.push_str("  \"kind\": \"p0_parity_gate\",\n");
@@ -1185,6 +1228,11 @@ fn p0_parity_gate_json(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> S
         out,
         "  \"critical_binding_fallback_count\": {},",
         summary.critical_binding_fallback_count
+    );
+    let _ = writeln!(
+        out,
+        "  \"producer_non_equivalent_count\": {},",
+        summary.producer_non_equivalent_count
     );
     let _ = writeln!(
         out,
@@ -1229,6 +1277,43 @@ fn p0_parity_gate_json(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> S
             json_escape(entry.reason.as_deref().unwrap_or("unspecified"))
         );
         let suffix = if idx + 1 < critical_entries.len() {
+            "    },\n"
+        } else {
+            "    }\n"
+        };
+        out.push_str(suffix);
+    }
+    out.push_str("  ],\n");
+    out.push_str("  \"producer_non_equivalent_entries\": [\n");
+    for (idx, entry) in producer_non_equivalent_entries.iter().enumerate() {
+        out.push_str("    {\n");
+        let _ = writeln!(out, "      \"pass\": \"{}\",", json_escape(entry.pass));
+        let _ = writeln!(
+            out,
+            "      \"binding\": \"{}\",",
+            json_escape(entry.binding)
+        );
+        let _ = writeln!(
+            out,
+            "      \"target\": \"{}\",",
+            json_escape(&entry.source_name)
+        );
+        let _ = writeln!(
+            out,
+            "      \"provenance\": \"{}\",",
+            entry.provenance.as_str()
+        );
+        let _ = writeln!(
+            out,
+            "      \"producer_status\": \"{}\",",
+            json_escape(entry.producer_status.as_deref().unwrap_or("unspecified"))
+        );
+        let _ = writeln!(
+            out,
+            "      \"parity_status\": \"{}\"",
+            json_escape(entry.parity_status.as_deref().unwrap_or("unspecified"))
+        );
+        let suffix = if idx + 1 < producer_non_equivalent_entries.len() {
             "    },\n"
         } else {
             "    }\n"
@@ -1484,10 +1569,23 @@ fn write_phase0_capture_diff_report(
     std::fs::write(output_path, out)
 }
 
-fn combined_map_audit_text(audit: &MapAssetAudit, binding_audit: &BindingAudit) -> String {
+fn combined_map_audit_text(
+    audit: &MapAssetAudit,
+    binding_audit: &BindingAudit,
+    posteffect_values_report: Option<&str>,
+) -> String {
     let mut out = audit.to_text_report();
     out.push_str("\nbinding_audit:\n");
     out.push_str(&binding_audit.to_text_report());
+    if let Some(report) = posteffect_values_report {
+        out.push_str("\nposteffect_values:\n");
+        out.push_str(report);
+        if !report.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    out.push('\n');
+    out.push_str(&p1_frame_graph_audit_text());
     out.push('\n');
     out.push_str(&p0_parity_gate_text(audit, binding_audit));
     out
@@ -1516,9 +1614,152 @@ fn combined_map_audit_json(
         out.push_str(",\n  \"terrain_pdxmap\": ");
         indent_json_object(&mut out, report, 2);
     }
+    out.push_str(",\n  \"p1_frame_graph\": ");
+    indent_json_object(&mut out, &p1_frame_graph_audit_json(), 2);
     out.push_str(",\n  \"p0_parity_gate\": ");
     indent_json_object(&mut out, &p0_parity_gate_json(audit, binding_audit), 2);
     out.push_str("\n}\n");
+    out
+}
+
+#[derive(Debug, Clone, Copy)]
+struct P1FrameGraphEntry {
+    b1_pass: &'static str,
+    vanilla_order: &'static str,
+    target: &'static str,
+    role: &'static str,
+    status: &'static str,
+}
+
+const P1_FRAME_GRAPH_ENTRIES: &[P1FrameGraphEntry] = &[
+    P1FrameGraphEntry {
+        b1_pass: "3d_terrain",
+        vanilla_order: "81",
+        target: "main_hdr_scene",
+        role: "pdxmap terrain",
+        status: "implemented_submit_point",
+    },
+    P1FrameGraphEntry {
+        b1_pass: "3d_border_first",
+        vanilla_order: "82",
+        target: "main_hdr_scene",
+        role: "border first",
+        status: "explicit_submit_point_fallback_geometry_pending",
+    },
+    P1FrameGraphEntry {
+        b1_pass: "3d_river",
+        vanilla_order: "83",
+        target: "main_hdr_scene_no_depth_pass",
+        role: "river independent HDR contributor",
+        status: "implemented_submit_point_depth_disabled",
+    },
+    P1FrameGraphEntry {
+        b1_pass: "3d_map_layers",
+        vanilla_order: "84-85",
+        target: "main_hdr_scene",
+        role: "additional terrain/map layers",
+        status: "explicit_submit_point_pending_traced_layer_bindings",
+    },
+    P1FrameGraphEntry {
+        b1_pass: "3d_water",
+        vanilla_order: "86",
+        target: "main_hdr_scene",
+        role: "pdxwater",
+        status: "implemented_submit_point_state_partial",
+    },
+    P1FrameGraphEntry {
+        b1_pass: "3d_border_second",
+        vanilla_order: "87",
+        target: "main_hdr_scene",
+        role: "border second",
+        status: "implemented_submit_point_strip_fallback",
+    },
+    P1FrameGraphEntry {
+        b1_pass: "bounded_overlay_object_family",
+        vanilla_order: "88-133",
+        target: "main_hdr_scene",
+        role: "overlays, map layers, objects, reflection/environment families",
+        status: "bounded_family_only_order_133_not_second_full_water",
+    },
+    P1FrameGraphEntry {
+        b1_pass: "postprocess",
+        vanilla_order: "134-139",
+        target: "swapchain",
+        role: "restore scene after HDR map chain",
+        status: "implemented_submit_point",
+    },
+    P1FrameGraphEntry {
+        b1_pass: "ui",
+        vanilla_order: "140+",
+        target: "swapchain",
+        role: "self-authored UI/sprite overlay after restore",
+        status: "outside_hdr_postprocess",
+    },
+];
+
+fn p1_frame_graph_audit_text() -> String {
+    let mut out = String::new();
+    out.push_str("p1_frame_graph:\n");
+    out.push_str("  evidence=B1I-001; B1I-002; B1I-003; B1I-027; reverse_out/10_vanilla_render_spec_for_b1.md\n");
+    out.push_str("  main_hdr_scene_format=Rgba16Float vanilla=R16G16B16A16_FLOAT unique_core_map_color_target=true\n");
+    out.push_str(
+        "  depth_format=Depth24PlusStencil8 vanilla=D24_UNORM_S8_UINT stencil_available=true\n",
+    );
+    out.push_str(
+        "  postprocess_restores_to_swapchain=true ui_enters_hdr=false ui_after_restore=true\n",
+    );
+    out.push_str(
+        "  order_133_policy=environment_reflection_family_only not_second_full_water=true\n",
+    );
+    out.push_str("  pass_order:\n");
+    for entry in P1_FRAME_GRAPH_ENTRIES {
+        let _ = writeln!(
+            out,
+            "    - b1_pass={} vanilla_order={} target={} role={} status={}",
+            entry.b1_pass, entry.vanilla_order, entry.target, entry.role, entry.status
+        );
+    }
+    out
+}
+
+fn p1_frame_graph_audit_json() -> String {
+    let mut out = String::new();
+    out.push_str("{\n");
+    out.push_str("  \"kind\": \"p1_frame_graph\",\n");
+    out.push_str("  \"evidence\": [\"B1I-001\", \"B1I-002\", \"B1I-003\", \"B1I-027\", \"reverse_out/10_vanilla_render_spec_for_b1.md\"],\n");
+    out.push_str("  \"main_hdr_scene\": {\n");
+    out.push_str("    \"format\": \"Rgba16Float\",\n");
+    out.push_str("    \"vanilla_format\": \"R16G16B16A16_FLOAT\",\n");
+    out.push_str("    \"unique_core_map_color_target\": true\n");
+    out.push_str("  },\n");
+    out.push_str("  \"depth\": {\n");
+    out.push_str("    \"format\": \"Depth24PlusStencil8\",\n");
+    out.push_str("    \"vanilla_format\": \"D24_UNORM_S8_UINT\",\n");
+    out.push_str("    \"stencil_available\": true\n");
+    out.push_str("  },\n");
+    out.push_str("  \"postprocess_restores_to_swapchain\": true,\n");
+    out.push_str("  \"ui_enters_hdr\": false,\n");
+    out.push_str("  \"ui_after_restore\": true,\n");
+    out.push_str(
+        "  \"order_133_policy\": \"environment_reflection_family_only_not_second_full_water\",\n",
+    );
+    out.push_str("  \"pass_order\": [\n");
+    for (idx, entry) in P1_FRAME_GRAPH_ENTRIES.iter().enumerate() {
+        out.push_str("    {\n");
+        let _ = writeln!(out, "      \"b1_pass\": \"{}\",", entry.b1_pass);
+        let _ = writeln!(out, "      \"vanilla_order\": \"{}\",", entry.vanilla_order);
+        let _ = writeln!(out, "      \"target\": \"{}\",", entry.target);
+        let _ = writeln!(out, "      \"role\": \"{}\",", json_escape(entry.role));
+        let _ = writeln!(out, "      \"status\": \"{}\"", entry.status);
+        let suffix = if idx + 1 < P1_FRAME_GRAPH_ENTRIES.len() {
+            "    },\n"
+        } else {
+            "    }\n"
+        };
+        out.push_str(suffix);
+    }
+    out.push_str("  ]\n");
+    out.push_str("}\n");
     out
 }
 
@@ -1806,7 +2047,9 @@ fn json_escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vanilla_resource_views::{BindingAuditEntry, BindingBlockingLevel};
+    use crate::vanilla_resource_views::{
+        BindingAuditEntry, BindingBlockingLevel, BindingProvenance,
+    };
 
     #[test]
     fn fixed_scene_matrix_matches_phase0_scope() {
@@ -1943,6 +2186,27 @@ mod tests {
     }
 
     #[test]
+    fn p1_frame_graph_audit_reports_vanilla_order_and_targets() {
+        let text = p1_frame_graph_audit_text();
+        assert!(text.contains("main_hdr_scene_format=Rgba16Float"));
+        assert!(text.contains("depth_format=Depth24PlusStencil8"));
+        assert!(text.contains("ui_enters_hdr=false"));
+        assert!(text.contains("b1_pass=3d_terrain vanilla_order=81"));
+        assert!(text.contains("b1_pass=3d_border_first vanilla_order=82"));
+        assert!(text.contains("b1_pass=3d_river vanilla_order=83"));
+        assert!(text.contains("b1_pass=3d_map_layers vanilla_order=84-85"));
+        assert!(text.contains("b1_pass=3d_water vanilla_order=86"));
+        assert!(text.contains("b1_pass=3d_border_second vanilla_order=87"));
+        assert!(text.contains("order_133_policy=environment_reflection_family_only"));
+
+        let json = p1_frame_graph_audit_json();
+        assert!(json.contains("\"kind\": \"p1_frame_graph\""));
+        assert!(json.contains("\"unique_core_map_color_target\": true"));
+        assert!(json.contains("\"postprocess_restores_to_swapchain\": true"));
+        assert!(json.contains("\"ui_after_restore\": true"));
+    }
+
+    #[test]
     fn report_json_has_capture_matrix() {
         let map_set = VanillaMapSet {
             entries: Vec::new(),
@@ -2018,6 +2282,42 @@ mod tests {
         assert!(json.contains("\"critical_fallback_count\": 1"));
         assert!(json.contains("\"critical_fallback_silent_pass\": false"));
         assert!(json.contains("\"binding\": \"ShadowMap\""));
+    }
+
+    #[test]
+    fn p0_parity_gate_blocks_non_equivalent_runtime_producers() {
+        let map_set = VanillaMapSet {
+            entries: Vec::new(),
+        };
+        let audit = MapAssetAudit::from_map_set(&map_set);
+        let mut binding_audit = BindingAudit::new();
+        binding_audit.extend([BindingAuditEntry::dynamic_target(
+            "terrain",
+            "mud_snow",
+            "MudSnow",
+            "terrain snow/mud parity",
+        )
+        .with_runtime_target_metadata(
+            "zero fallback SnowMudData",
+            "Bgra8Unorm; 4 bytes/pixel",
+            "quarter-size SnowMudData 1408x512",
+            "reverse_out/exports/mud_snow_light_fow_targets.tsv",
+            "fallback/non-parity",
+        )
+        .with_producer_status(
+            BindingProvenance::NeutralFallback,
+            "SnowMudData=missing_game_state_zero_fallback_non_parity",
+            false,
+            BindingBlockingLevel::Degraded,
+        )]);
+
+        let json = p0_parity_gate_json(&audit, &binding_audit);
+        assert!(json.contains("\"status\": \"blocked\""));
+        assert!(json.contains("\"critical_fallback_count\": 0"));
+        assert!(json.contains("\"producer_non_equivalent_count\": 1"));
+        assert!(json.contains(
+            "\"producer_status\": \"SnowMudData=missing_game_state_zero_fallback_non_parity\""
+        ));
     }
 
     #[test]

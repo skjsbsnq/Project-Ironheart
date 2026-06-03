@@ -1,0 +1,312 @@
+[map-asset-audit] 71/71 loaded, 0 missing, 0 fallback, quality=Valid
+visual_review_usable=true
+
+category_stats:
+  bmp: 7/7 loaded, 0 missing, 0 fallback
+  borders: 18/18 loaded, 0 missing, 0 fallback
+  citylights: 3/3 loaded, 0 missing, 0 fallback
+  colormap: 1/1 loaded, 0 missing, 0 fallback
+  ice: 4/4 loaded, 0 missing, 0 fallback
+  misc: 2/2 loaded, 0 missing, 0 fallback
+  mud: 6/6 loaded, 0 missing, 0 fallback
+  rivers: 7/7 loaded, 0 missing, 0 fallback
+  snow: 1/1 loaded, 0 missing, 0 fallback
+  terrain_atlas: 3/3 loaded, 0 missing, 0 fallback
+  terrain_atlas_normal: 3/3 loaded, 0 missing, 0 fallback
+  trees: 2/2 loaded, 0 missing, 0 fallback
+  water: 14/14 loaded, 0 missing, 0 fallback
+
+mip_status:
+  - map/terrain/atlas0.dds: Complete 2048x2048 Bc3 source_mips=10 upload_mips=10
+  - map/terrain/atlas1.dds: Complete 1024x1024 Bc3 source_mips=1 upload_mips=1
+  - map/terrain/atlas2.dds: Complete 512x512 Bc3 source_mips=1 upload_mips=1
+  - map/terrain/atlas_normal0.dds: Complete 2048x2048 Bc3 source_mips=10 upload_mips=10
+  - map/terrain/atlas_normal1.dds: Complete 1024x1024 Bc3 source_mips=1 upload_mips=1
+  - map/terrain/atlas_normal2.dds: Complete 512x512 Bc3 source_mips=1 upload_mips=1
+  - map/terrain/mud_diffuse_rgb_gloss_a_0.dds: Complete 1024x1024 Bc3 source_mips=11 upload_mips=11
+  - map/terrain/mud_diffuse_rgb_gloss_a_1.dds: Complete 512x512 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/mud_diffuse_rgb_gloss_a_2.dds: Complete 256x256 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/mud_normal_rgb_spec_a_0.dds: Complete 1024x1024 Bc3 source_mips=11 upload_mips=11
+  - map/terrain/mud_normal_rgb_spec_a_1.dds: Complete 512x512 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/mud_normal_rgb_spec_a_2.dds: Complete 256x256 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/snow_normal_rgb_diffuse_a.dds: Complete 512x512 Bc3 source_mips=10 upload_mips=10
+  - map/terrain/ice_diffuse.dds: Complete 512x512 Bc3 source_mips=10 upload_mips=10
+  - map/terrain/ice_noise_0.dds: Complete 512x512 Bc1 source_mips=10 upload_mips=10
+  - map/terrain/ice_noise_1.dds: Complete 256x256 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/ice_noise_2.dds: Complete 128x128 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/colormap_rgb_cityemissivemask_a.dds: Complete 2816x1024 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/citylights_rgb_snowmask_a_0.dds: Complete 512x512 Bc3 source_mips=10 upload_mips=10
+  - map/terrain/citylights_rgb_snowmask_a_1.dds: Complete 256x256 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/citylights_rgb_snowmask_a_2.dds: Complete 128x128 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/colormap_water_0.dds: Complete 2816x1024 Bc3 source_mips=1 upload_mips=1
+  - map/terrain/colormap_water_1.dds: Complete 1408x512 Bc3 source_mips=1 upload_mips=1
+  - map/terrain/colormap_water_2.dds: Complete 704x256 Bc3 source_mips=1 upload_mips=1
+  - map/terrain/RiverSurface_diffuse_0.dds: Complete 512x64 Bc3 source_mips=10 upload_mips=10
+  - map/terrain/RiverSurface_diffuse_1.dds: Complete 256x32 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/RiverSurface_diffuse_2.dds: Complete 128x16 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/RiverSurface_normal_0.dds: Complete 1024x128 Bc3 source_mips=11 upload_mips=11
+  - map/terrain/RiverSurface_normal_1.dds: Complete 512x64 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/RiverSurface_normal_2.dds: Complete 256x32 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/RiverSurface_masks.dds: Complete 128x16 Bc3 source_mips=8 upload_mips=8
+  - map/terrain/fow_rgb_waterspec_a.dds: Complete 2816x1024 Bc3 source_mips=12 upload_mips=12
+  - map/terrain/fow_noise_0.dds: Complete 1024x1024 Bc3 source_mips=11 upload_mips=11
+  - map/terrain/fow_noise_1.dds: Complete 512x512 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/fow_noise_2.dds: Complete 256x256 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/reflection.dds: Complete 256x256 Bgra8 source_mips=9 upload_mips=9
+  - map/terrain/reflection_land_unit.dds: Complete 256x256 Bc1 source_mips=9 upload_mips=9
+  - map/terrain/border_country_0.dds: Complete 256x128 Bgra8 source_mips=9 upload_mips=9
+  - map/terrain/border_country_1.dds: Complete 128x64 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/border_country_2.dds: Complete 64x32 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/border_province_0.dds: Complete 64x32 Bc3 source_mips=7 upload_mips=7
+  - map/terrain/border_province_1.dds: Complete 32x16 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/border_province_2.dds: Complete 16x8 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/border_state_0.dds: Complete 128x64 Bc3 source_mips=8 upload_mips=8
+  - map/terrain/border_state_1.dds: Complete 64x32 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/border_state_2.dds: Complete 32x16 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/border_sea_0.dds: Complete 64x32 Bgra8 source_mips=7 upload_mips=7
+  - map/terrain/border_sea_1.dds: Complete 32x16 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/border_sea_2.dds: Complete 16x8 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/border_sea_region_0.dds: Complete 64x32 Bc3 source_mips=7 upload_mips=7
+  - map/terrain/border_sea_region_1.dds: Complete 32x16 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/border_sea_region_2.dds: Complete 16x8 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/border_impassable_0.dds: Complete 128x64 Bgra8 source_mips=8 upload_mips=8
+  - map/terrain/border_impassable_1.dds: Complete 64x32 Bgra8 source_mips=7 upload_mips=7
+  - map/terrain/border_impassable_2.dds: Complete 32x16 Bgra8 source_mips=6 upload_mips=6
+  - map/terrain/strait.dds: Complete 64x64 Bc3 source_mips=7 upload_mips=7
+  - map/terrain/naval_dominance_fx.dds: Complete 2x1 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/lean1.dds: Complete 512x512 Bgra8 source_mips=10 upload_mips=10
+  - map/terrain/lean2.dds: Complete 512x512 Bgra8 source_mips=10 upload_mips=10
+  - map/terrain/underwater_terrain_0.dds: Complete 512x512 Bc1 source_mips=10 upload_mips=10
+  - map/terrain/underwater_terrain_1.dds: Complete 256x256 Bgra8 source_mips=1 upload_mips=1
+  - map/terrain/underwater_terrain_2.dds: Complete 128x128 Bgra8 source_mips=1 upload_mips=1
+
+binding_audit:
+[binding-audit] bindings=68 fallback=0 mock=0 critical=0
+  - terrain.terrain_atlas source=vanilla_resource name=map/terrain/atlas0.dds loaded=true critical=true blocking=none impact=terrain diffuse atlas falls back to a white texture
+  - terrain.terrain_atlas_normal source=vanilla_resource name=map/terrain/atlas_normal0.dds loaded=true critical=true blocking=none impact=terrain lighting and material normals flatten
+  - terrain.world_normal source=vanilla_resource name=map/world_normal.bmp loaded=true critical=true blocking=none impact=large-scale terrain lighting normal falls back to flat
+  - terrain.colormap source=vanilla_resource name=map/terrain/colormap_rgb_cityemissivemask_a.dds loaded=true critical=true blocking=none impact=terrain natural color base falls back to neutral gray
+  - terrain.citylights source=vanilla_resource name=map/terrain/citylights_rgb_snowmask_a_0.dds loaded=true critical=true blocking=none impact=night city light contribution disappears
+  - terrain.snow_normal_diffuse source=vanilla_resource name=map/terrain/snow_normal_rgb_diffuse_a.dds loaded=true critical=true blocking=none impact=snow overlay loses vanilla normal/diffuse texture
+  - terrain.mud_diffuse_gloss source=vanilla_resource name=map/terrain/mud_diffuse_rgb_gloss_a_0.dds loaded=true critical=true blocking=none impact=mud overlay falls back to a flat brown tint
+  - terrain.mud_normal_spec source=vanilla_resource name=map/terrain/mud_normal_rgb_spec_a_0.dds loaded=true critical=true blocking=none impact=mud overlay normals/specular flatten
+  - terrain.rivers_bmp source=vanilla_resource name=map/rivers.bmp loaded=true critical=false blocking=none impact=river mask is unavailable
+  - terrain.light_data source=dynamic_target name=LightDataMap loaded=true critical=false blocking=none impact=night lighting and local highlights use generated point light data
+    format=Rgba32Float; 16 bytes/pixel
+    dimensions=384x1 texels: MAX_POINT_LIGHTS(192) * 2 RGBA32F texels per light
+    source_detail=CPU generated point-light records from victory points, ports, airbases, buildings, and combat state
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name LightDataMap
+    parity_status=trace-backed binding and project-generated light data; not copied from vanilla runtime memory
+  - terrain.light_index source=dynamic_target name=LightIndexMap loaded=true critical=false blocking=none impact=point light lookup uses a generated tile index
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=tile grid: ceil(province_map / 16px), width aligned to 64 texels; RGBA packs up to 4 light ids with 255 sentinel
+    source_detail=CPU generated point-light tile index sharing LightDataMap light ids
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name LightIndexMap
+    parity_status=trace-backed binding and project-derived 16px tile rule; not copied from vanilla runtime memory
+  - terrain.province_secondary_color source=dynamic_target name=ProvinceSecondaryColorMap loaded=true critical=false blocking=none impact=occupation, selection, hover, and map-mode secondary tint use a runtime map target
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from occupation, battle-plan, naval dominance, selection, hover, and map-mode overlay state
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name ProvinceSecondaryColorMap
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - terrain.gradient_border_ch1 source=dynamic_target name=GradientBorderChannel1 loaded=true critical=false blocking=none impact=country border gradient is generated from runtime ownership state
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from the country ownership SDF; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel1
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - terrain.gradient_border_ch2 source=dynamic_target name=GradientBorderChannel2 loaded=true critical=false blocking=none impact=province border gradient is generated from runtime province topology
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from the province topology SDF; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel2
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - terrain.gradient_border_ch3 source=dynamic_target name=GradientBorderChannel3 loaded=true critical=false blocking=none impact=state, coast, and impassable border gradient is generated at runtime
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from state, coast, and impassable boundaries; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel3 in water
+    parity_status=trace-backed water binding and project-generated pixels; terrain use is project extension
+  - terrain.fow source=dynamic_target name=FOW loaded=true critical=false blocking=none impact=fog-of-war visibility is supplied as a runtime map target
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated default visibility map with all provinces explored and visible
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json FOW/FOWNoise/FOWHeight family and project FOW binding
+    parity_status=fallback: visible-all placeholder, not vanilla fog-of-war equivalent
+  - terrain.mud_snow source=dynamic_target name=MudSnow loaded=true critical=false blocking=none impact=mud and snow masks are supplied as a runtime map target
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=heightmap/province-map pixels: world.map.heightmap.width x height; vanilla map dimensions match province map
+    source_detail=CPU generated procedural mud/snow channels from heightmap elevation and season frame parameters
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json SnowMudData/SnowMudTexture resource names
+    parity_status=fallback: procedural seasonal mask, not vanilla mud/snow runtime equivalent
+  - water.water_normal_lean1 source=vanilla_resource name=map/terrain/lean1.dds loaded=true critical=true blocking=none impact=water normal motion and specular detail flatten
+  - water.water_normal_lean2 source=vanilla_resource name=map/terrain/lean2.dds loaded=true critical=true blocking=none impact=water normal motion and specular detail flatten
+  - water.reflection_tex source=vanilla_resource name=map/terrain/reflection.dds loaded=true critical=false blocking=none impact=water reflection uses flat fallback
+  - water.fow_water_spec source=vanilla_resource name=map/terrain/fow_rgb_waterspec_a.dds loaded=true critical=false blocking=none impact=water specular/FOW mask is approximated
+  - water.colormap_water source=vanilla_resource name=map/terrain/colormap_water_0.dds loaded=true critical=true blocking=none impact=water base color falls back to flat color
+  - water.colormap_water_1 source=vanilla_resource name=map/terrain/colormap_water_1.dds loaded=true critical=false blocking=none impact=water medium-distance color LOD falls back to colormap_water_0
+  - water.colormap_water_2 source=vanilla_resource name=map/terrain/colormap_water_2.dds loaded=true critical=false blocking=none impact=water far-distance color LOD falls back to colormap_water_0
+  - water.ice_diffuse source=vanilla_resource name=map/terrain/ice_diffuse.dds loaded=true critical=false blocking=none impact=ice coverage is approximated
+  - water.ice_noise source=vanilla_resource name=map/terrain/ice_noise_0.dds loaded=true critical=false blocking=none impact=ice noise is approximated
+  - water.ice_noise_1 source=vanilla_resource name=map/terrain/ice_noise_1.dds loaded=true critical=false blocking=none impact=secondary ice noise is approximated
+  - water.reflection_land_unit source=vanilla_resource name=map/terrain/reflection_land_unit.dds loaded=true critical=false blocking=none impact=land/unit reflection contribution uses a flat fallback
+  - water.underwater_terrain source=vanilla_resource name=map/terrain/underwater_terrain_0.dds loaded=true critical=false blocking=none impact=water refraction falls back to a flat underwater color
+  - water.gradient_border_ch1 source=dynamic_target name=GradientBorderChannel1 loaded=true critical=false blocking=none impact=country border gradient is shared with terrain
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from the country ownership SDF; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel1
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - water.gradient_border_ch2 source=dynamic_target name=GradientBorderChannel2 loaded=true critical=false blocking=none impact=province border gradient is shared with terrain
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from the province topology SDF; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel2
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - water.gradient_border_ch3 source=dynamic_target name=GradientBorderChannel3 loaded=true critical=false blocking=none impact=semantic border gradient is shared with terrain
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from state, coast, and impassable boundaries; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel3 in water
+    parity_status=trace-backed water binding and project-generated pixels; terrain use is project extension
+  - water.province_secondary_color source=dynamic_target name=ProvinceSecondaryColorMap loaded=true critical=false blocking=none impact=water material receives selection and map-mode secondary tint
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from occupation, battle-plan, naval dominance, selection, hover, and map-mode overlay state
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name ProvinceSecondaryColorMap
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - water.fow source=dynamic_target name=FOW loaded=true critical=false blocking=none impact=water material receives runtime fog-of-war visibility
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated default visibility map with all provinces explored and visible
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json FOW/FOWNoise/FOWHeight family and project FOW binding
+    parity_status=fallback: visible-all placeholder, not vanilla fog-of-war equivalent
+  - water.mud_snow source=dynamic_target name=MudSnow loaded=true critical=false blocking=none impact=water has the shared snow/mud target available for SnowMudTexture parity work
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=heightmap/province-map pixels: world.map.heightmap.width x height; vanilla map dimensions match province map
+    source_detail=CPU generated procedural mud/snow channels from heightmap elevation and season frame parameters
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json SnowMudData/SnowMudTexture resource names
+    parity_status=fallback: procedural seasonal mask, not vanilla mud/snow runtime equivalent
+  - water.light_data source=dynamic_target name=LightDataMap loaded=true critical=false blocking=none impact=water receives generated local night highlights
+    format=Rgba32Float; 16 bytes/pixel
+    dimensions=384x1 texels: MAX_POINT_LIGHTS(192) * 2 RGBA32F texels per light
+    source_detail=CPU generated point-light records from victory points, ports, airbases, buildings, and combat state
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name LightDataMap
+    parity_status=trace-backed binding and project-generated light data; not copied from vanilla runtime memory
+  - water.light_index source=dynamic_target name=LightIndexMap loaded=true critical=false blocking=none impact=water point light lookup uses the shared tile index
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=tile grid: ceil(province_map / 16px), width aligned to 64 texels; RGBA packs up to 4 light ids with 255 sentinel
+    source_detail=CPU generated point-light tile index sharing LightDataMap light ids
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name LightIndexMap
+    parity_status=trace-backed binding and project-derived 16px tile rule; not copied from vanilla runtime memory
+  - tree.tree_mask source=vanilla_resource name=map/trees.bmp loaded=true critical=true blocking=none impact=distant tree clipping and forest density mask disappear
+  - tree.tree_season source=vanilla_resource name=map/terrain/Tree_season.bmp loaded=true critical=true blocking=none impact=seasonal foliage colors fall back to summer-neutral
+  - tree.tree_tint source=vanilla_resource name=map/terrain/Tree_tint.bmp loaded=true critical=true blocking=none impact=per-region foliage tint falls back to neutral gray
+  - tree.tree_colormap source=vanilla_resource name=map/terrain/colormap_rgb_cityemissivemask_a.dds loaded=true critical=true blocking=none impact=tree color no longer follows terrain ColorMap/ColorMapSecond
+  - tree.gradient_border_ch1 source=dynamic_target name=GradientBorderChannel1 loaded=true critical=false blocking=none impact=tree material shares country border gradient with terrain
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from the country ownership SDF; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel1
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - tree.gradient_border_ch2 source=dynamic_target name=GradientBorderChannel2 loaded=true critical=false blocking=none impact=tree material shares province border gradient with terrain
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from the province topology SDF; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel2
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - tree.gradient_border_ch3 source=dynamic_target name=GradientBorderChannel3 loaded=true critical=false blocking=none impact=tree material shares semantic border gradient with terrain
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from state, coast, and impassable boundaries; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel3 in water
+    parity_status=trace-backed water binding and project-generated pixels; terrain use is project extension
+  - tree.province_secondary_color source=dynamic_target name=ProvinceSecondaryColorMap loaded=true critical=false blocking=none impact=tree material receives selection and map-mode secondary tint
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from occupation, battle-plan, naval dominance, selection, hover, and map-mode overlay state
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name ProvinceSecondaryColorMap
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - tree.fow source=dynamic_target name=FOW loaded=true critical=false blocking=none impact=tree material receives runtime fog-of-war visibility
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated default visibility map with all provinces explored and visible
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json FOW/FOWNoise/FOWHeight family and project FOW binding
+    parity_status=fallback: visible-all placeholder, not vanilla fog-of-war equivalent
+  - tree.mud_snow source=dynamic_target name=MudSnow loaded=true critical=false blocking=none impact=tree material receives runtime snow masks
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=heightmap/province-map pixels: world.map.heightmap.width x height; vanilla map dimensions match province map
+    source_detail=CPU generated procedural mud/snow channels from heightmap elevation and season frame parameters
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json SnowMudData/SnowMudTexture resource names
+    parity_status=fallback: procedural seasonal mask, not vanilla mud/snow runtime equivalent
+  - tree.light_data source=dynamic_target name=LightDataMap loaded=true critical=false blocking=none impact=tree material receives generated local night highlights
+    format=Rgba32Float; 16 bytes/pixel
+    dimensions=384x1 texels: MAX_POINT_LIGHTS(192) * 2 RGBA32F texels per light
+    source_detail=CPU generated point-light records from victory points, ports, airbases, buildings, and combat state
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name LightDataMap
+    parity_status=trace-backed binding and project-generated light data; not copied from vanilla runtime memory
+  - tree.light_index source=dynamic_target name=LightIndexMap loaded=true critical=false blocking=none impact=tree point light lookup uses the shared tile index
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=tile grid: ceil(province_map / 16px), width aligned to 64 texels; RGBA packs up to 4 light ids with 255 sentinel
+    source_detail=CPU generated point-light tile index sharing LightDataMap light ids
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name LightIndexMap
+    parity_status=trace-backed binding and project-derived 16px tile rule; not copied from vanilla runtime memory
+  - pdxmesh.gradient_border_ch1 source=dynamic_target name=GradientBorderChannel1 loaded=true critical=false blocking=none impact=mesh material shares country border gradient with terrain
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from the country ownership SDF; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel1
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - pdxmesh.gradient_border_ch2 source=dynamic_target name=GradientBorderChannel2 loaded=true critical=false blocking=none impact=mesh material shares province border gradient with terrain
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from the province topology SDF; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel2
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - pdxmesh.gradient_border_ch3 source=dynamic_target name=GradientBorderChannel3 loaded=true critical=false blocking=none impact=mesh material shares semantic border gradient with terrain
+    format=R8Unorm; 1 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from state, coast, and impassable boundaries; shared by terrain, water, tree, and object passes
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel3 in water
+    parity_status=trace-backed water binding and project-generated pixels; terrain use is project extension
+  - pdxmesh.province_secondary_color source=dynamic_target name=ProvinceSecondaryColorMap loaded=true critical=false blocking=none impact=mesh material receives battle-plan, selection, and map-mode secondary tint
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated from occupation, battle-plan, naval dominance, selection, hover, and map-mode overlay state
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name ProvinceSecondaryColorMap
+    parity_status=trace-backed binding and project-generated pixels; not copied from vanilla runtime memory
+  - pdxmesh.fow source=dynamic_target name=FOW loaded=true critical=false blocking=none impact=mesh material receives runtime fog-of-war visibility
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=province-map pixels: world.map.province_map.width x height
+    source_detail=CPU generated default visibility map with all provinces explored and visible
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json FOW/FOWNoise/FOWHeight family and project FOW binding
+    parity_status=fallback: visible-all placeholder, not vanilla fog-of-war equivalent
+  - pdxmesh.mud_snow source=dynamic_target name=MudSnow loaded=true critical=false blocking=none impact=mesh material receives shared snow masks
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=heightmap/province-map pixels: world.map.heightmap.width x height; vanilla map dimensions match province map
+    source_detail=CPU generated procedural mud/snow channels from heightmap elevation and season frame parameters
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json SnowMudData/SnowMudTexture resource names
+    parity_status=fallback: procedural seasonal mask, not vanilla mud/snow runtime equivalent
+  - pdxmesh.light_data source=dynamic_target name=LightDataMap loaded=true critical=false blocking=none impact=mesh material receives generated local night highlights
+    format=Rgba32Float; 16 bytes/pixel
+    dimensions=384x1 texels: MAX_POINT_LIGHTS(192) * 2 RGBA32F texels per light
+    source_detail=CPU generated point-light records from victory points, ports, airbases, buildings, and combat state
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name LightDataMap
+    parity_status=trace-backed binding and project-generated light data; not copied from vanilla runtime memory
+  - pdxmesh.light_index source=dynamic_target name=LightIndexMap loaded=true critical=false blocking=none impact=mesh point light lookup uses the shared tile index
+    format=Rgba8Unorm; 4 bytes/pixel
+    dimensions=tile grid: ceil(province_map / 16px), width aligned to 64 texels; RGBA packs up to 4 light ids with 255 sentinel
+    source_detail=CPU generated point-light tile index sharing LightDataMap light ids
+    source_trace=tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name LightIndexMap
+    parity_status=trace-backed binding and project-derived 16px tile rule; not copied from vanilla runtime memory
+  - river.river_diffuse_0 source=vanilla_resource name=map/terrain/RiverSurface_diffuse_0.dds loaded=true critical=true blocking=none impact=river diffuse color falls back to flat blue
+  - river.river_diffuse_1 source=vanilla_resource name=map/terrain/RiverSurface_diffuse_1.dds loaded=true critical=false blocking=none impact=alternate river diffuse LOD falls back to flat blue
+  - river.river_diffuse_2 source=vanilla_resource name=map/terrain/RiverSurface_diffuse_2.dds loaded=true critical=false blocking=none impact=alternate river diffuse LOD falls back to flat blue
+  - river.river_normal_0 source=vanilla_resource name=map/terrain/RiverSurface_normal_0.dds loaded=true critical=true blocking=none impact=river normals and highlights flatten
+  - river.river_normal_1 source=vanilla_resource name=map/terrain/RiverSurface_normal_1.dds loaded=true critical=false blocking=none impact=alternate river normal LOD flattens
+  - river.river_normal_2 source=vanilla_resource name=map/terrain/RiverSurface_normal_2.dds loaded=true critical=false blocking=none impact=alternate river normal LOD flattens
+  - river.river_masks source=vanilla_resource name=map/terrain/RiverSurface_masks.dds loaded=true critical=true blocking=none impact=river width and alpha masks are approximated
+  - postprocess.hdr_scene source=dynamic_target name=HdrTarget loaded=true critical=false blocking=none impact=RestoreScene samples the full HDR scene before LDR conversion
+  - postprocess.bloom source=dynamic_target name=BloomChain loaded=true critical=false blocking=none impact=RestoreScene composites the generated vanilla bloom chain
+  - postprocess.average_luminance source=dynamic_target name=AverageLuminance loaded=true critical=false blocking=none impact=RestoreScene exposure uses generated average log luminance
+  - postprocess.color_cube source=vanilla_resource name=gfx/world/colorcorrection_standard.tga loaded=true critical=false blocking=none impact=RestoreScene samples vanilla posteffect ColorCube LUTs

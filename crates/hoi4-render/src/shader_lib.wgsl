@@ -297,6 +297,25 @@ fn calculate_distance_fog_factor(
     return clamp(v_min, 0.0, 1.0) * fog_dir_factor;
 }
 
+fn calculate_wrapped_distance_fog_factor(
+    world_pos: vec3<f32>,
+    cam_pos: vec3<f32>,
+    world_w: f32,
+) -> f32 {
+    var diff = world_pos - cam_pos;
+    if (world_w > 0.0001) {
+        diff.x = diff.x - world_w * round(diff.x / world_w);
+    }
+    let fog_dir_factor = 1.0 - abs(normalize(diff).y);
+    let sq = dot(diff, diff);
+
+    let v_begin = FOG_BEGIN * FOG_BEGIN;
+    let v_end = FOG_END * FOG_END;
+
+    let v_min = min((sq - v_begin) / (v_end - v_begin), FOG_MAX);
+    return clamp(v_min, 0.0, 1.0) * fog_dir_factor;
+}
+
 /// `standardfuncsgfx.fxh:221` — `ApplyDistanceFog(color, factor)`
 fn apply_distance_fog_factor(color: vec3<f32>, factor: f32) -> vec3<f32> {
     return mix(color, FOG_COLOR, factor);
@@ -305,6 +324,18 @@ fn apply_distance_fog_factor(color: vec3<f32>, factor: f32) -> vec3<f32> {
 /// `standardfuncsgfx.fxh:226` — `ApplyDistanceFog(color, world_pos)`
 fn apply_distance_fog(color: vec3<f32>, world_pos: vec3<f32>, cam_pos: vec3<f32>) -> vec3<f32> {
     return apply_distance_fog_factor(color, calculate_distance_fog_factor(world_pos, cam_pos));
+}
+
+fn apply_wrapped_distance_fog(
+    color: vec3<f32>,
+    world_pos: vec3<f32>,
+    cam_pos: vec3<f32>,
+    world_w: f32,
+) -> vec3<f32> {
+    return apply_distance_fog_factor(
+        color,
+        calculate_wrapped_distance_fog_factor(world_pos, cam_pos, world_w)
+    );
 }
 
 // -----------------------------------------------------------------------------

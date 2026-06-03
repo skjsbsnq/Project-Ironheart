@@ -63,13 +63,25 @@ pub(crate) fn render_map_frame(
         );
     }
 
+    if map_draw.projected_fow_shadow {
+        let pass_started = Instant::now();
+        // Phase E reserves vanilla orders 77-80 as an explicit fallback
+        // producer. The target lifecycle is real; tree/projected,
+        // terrainunlit/projected, and two-pass blur shaders remain degraded.
+        s.pass_registry.record_cpu_ms(
+            "projected_fow_shadow",
+            pass_started.elapsed().as_secs_f32() * 1000.0,
+        );
+        s.pass_registry.record_draw_calls("projected_fow_shadow", 0);
+    }
+
     {
         let pass_token = s
             .gpu_profiler
             .as_mut()
             .and_then(|profiler| profiler.begin_encoder_span(enc, "3d_world"));
         let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("3d_to_hdr"),
+            label: Some("3d_to_hdr_pre_river"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &s.hdr_target.view,
                 resolve_target: None,
@@ -94,7 +106,48 @@ pub(crate) fn render_map_frame(
             ..Default::default()
         });
         if input.draw_3d_map {
-            render_3d_world_passes(
+            render_3d_pre_river_passes(s, &mut pass, map_draw, &counts, &vert_counts);
+        }
+        drop(pass);
+
+        if input.draw_3d_map {
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("3d_river_to_hdr"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &s.hdr_target.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            render_river_pass(s, &mut pass, map_draw, &counts, &vert_counts);
+            drop(pass);
+
+            let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("3d_to_hdr_post_river"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &s.hdr_target.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &s.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+            render_3d_post_river_passes(
                 s,
                 &mut pass,
                 map_draw,
@@ -104,8 +157,8 @@ pub(crate) fn render_map_frame(
                 input.show_province_names,
                 input.zoom_factor,
             );
+            drop(pass);
         }
-        drop(pass);
         if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), pass_token) {
             profiler.end_encoder_span(enc, token);
         }
@@ -156,15 +209,12 @@ pub(crate) fn render_map_frame(
     }
 }
 
-fn render_3d_world_passes<'pass>(
+fn render_3d_pre_river_passes<'pass>(
     s: &'pass mut RenderState,
     pass: &mut wgpu::RenderPass<'pass>,
     map_draw: &crate::map_renderer::MapPassDrawSet,
-    world_objects: crate::map_renderer::WorldObjectPlan,
     counts: &[u32; 3],
     vert_counts: &[u32; 3],
-    show_province_names: bool,
-    zoom_factor: f32,
 ) {
     if map_draw.sky {
         let pass_started = Instant::now();
@@ -200,6 +250,82 @@ fn render_3d_world_passes<'pass>(
         );
     }
 
+    if map_draw.border_first {
+        let pass_started = Instant::now();
+        let token = s
+            .gpu_profiler
+            .as_mut()
+            .and_then(|profiler| profiler.begin_render_span(pass, "3d_border_first"));
+        // P1 exposes vanilla order 82 as a distinct submit point. The current
+        // strip BorderPass remains a non-vanilla fallback and is drawn at the
+        // second border point until P4/P5 split the traced border families.
+        if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
+            profiler.end_render_span(pass, token);
+        }
+        s.pass_registry.record_cpu_ms(
+            "3d_border_first",
+            pass_started.elapsed().as_secs_f32() * 1000.0,
+        );
+        s.pass_registry.record_draw_calls("3d_border_first", 0);
+    }
+}
+
+fn render_river_pass<'pass>(
+    s: &'pass mut RenderState,
+    pass: &mut wgpu::RenderPass<'pass>,
+    map_draw: &crate::map_renderer::MapPassDrawSet,
+    counts: &[u32; 3],
+    vert_counts: &[u32; 3],
+) {
+    if map_draw.river {
+        let pass_started = Instant::now();
+        let token = s
+            .gpu_profiler
+            .as_mut()
+            .and_then(|profiler| profiler.begin_render_span(pass, "3d_river"));
+        s.river_pass
+            .render(pass, &s.instance_buffers, counts, vert_counts);
+        if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
+            profiler.end_render_span(pass, token);
+        }
+        s.pass_registry
+            .record_cpu_ms("3d_river", pass_started.elapsed().as_secs_f32() * 1000.0);
+        s.pass_registry.record_draw_calls(
+            "3d_river",
+            counts.iter().filter(|&&count| count > 0).count() as u32,
+        );
+    }
+}
+
+fn render_3d_post_river_passes<'pass>(
+    s: &'pass mut RenderState,
+    pass: &mut wgpu::RenderPass<'pass>,
+    map_draw: &crate::map_renderer::MapPassDrawSet,
+    world_objects: crate::map_renderer::WorldObjectPlan,
+    counts: &[u32; 3],
+    vert_counts: &[u32; 3],
+    show_province_names: bool,
+    zoom_factor: f32,
+) {
+    if map_draw.map_layers {
+        let pass_started = Instant::now();
+        let token = s
+            .gpu_profiler
+            .as_mut()
+            .and_then(|profiler| profiler.begin_render_span(pass, "3d_map_layers"));
+        // Vanilla orders 84-85 are additional terrain/map-layer submissions.
+        // P1 keeps the lifecycle slot explicit; P3/P4 will attach traced
+        // producers/consumers instead of folding these into terrain fallback.
+        if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
+            profiler.end_render_span(pass, token);
+        }
+        s.pass_registry.record_cpu_ms(
+            "3d_map_layers",
+            pass_started.elapsed().as_secs_f32() * 1000.0,
+        );
+        s.pass_registry.record_draw_calls("3d_map_layers", 0);
+    }
+
     if map_draw.water {
         let pass_started = Instant::now();
         let token = s
@@ -219,38 +345,21 @@ fn render_3d_world_passes<'pass>(
         );
     }
 
-    if map_draw.river {
+    if map_draw.border_second {
         let pass_started = Instant::now();
         let token = s
             .gpu_profiler
             .as_mut()
-            .and_then(|profiler| profiler.begin_render_span(pass, "3d_river"));
-        s.river_pass
-            .render(pass, &s.instance_buffers, counts, vert_counts);
-        if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
-            profiler.end_render_span(pass, token);
-        }
-        s.pass_registry
-            .record_cpu_ms("3d_river", pass_started.elapsed().as_secs_f32() * 1000.0);
-        s.pass_registry.record_draw_calls(
-            "3d_river",
-            counts.iter().filter(|&&count| count > 0).count() as u32,
-        );
-    }
-
-    if map_draw.borders {
-        let pass_started = Instant::now();
-        let token = s
-            .gpu_profiler
-            .as_mut()
-            .and_then(|profiler| profiler.begin_render_span(pass, "3d_border"));
+            .and_then(|profiler| profiler.begin_render_span(pass, "3d_border_second"));
         s.border_pass.render(pass);
         if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
             profiler.end_render_span(pass, token);
         }
-        s.pass_registry
-            .record_cpu_ms("3d_border", pass_started.elapsed().as_secs_f32() * 1000.0);
-        s.pass_registry.record_draw_calls("3d_border", 6);
+        s.pass_registry.record_cpu_ms(
+            "3d_border_second",
+            pass_started.elapsed().as_secs_f32() * 1000.0,
+        );
+        s.pass_registry.record_draw_calls("3d_border_second", 6);
     }
 
     if map_draw.trade_routes {
@@ -521,6 +630,15 @@ fn record_map_pass_resources(s: &mut RenderState, postprocess_full: bool) {
         "shadow_caster",
         passes::SHADOW_MAP_SIZE as u64 * passes::SHADOW_MAP_SIZE as u64 * 4,
     );
+    s.pass_registry.record_texture_memory_bytes(
+        "projected_fow_shadow",
+        s.vanilla_targets.projected_shadow_fow.memory_bytes()
+            + s.vanilla_targets
+                .projected_shadow_fow_blur_temp
+                .memory_bytes(),
+    );
+    s.pass_registry
+        .record_fallback_count("projected_fow_shadow", 1);
     s.pass_registry
         .record_fallback_count("3d_sky", if s.sky_pass.loaded { 0 } else { 1 });
     s.pass_registry.record_texture_memory_bytes(
@@ -543,8 +661,12 @@ fn record_map_pass_resources(s: &mut RenderState, postprocess_full: bool) {
         "3d_river",
         s.river_pass.binding_audit.fallback_count() as u32,
     );
-    s.pass_registry
-        .record_fallback_count("3d_border", if s.border_pass.any_loaded { 0 } else { 1 });
+    s.pass_registry.record_fallback_count("3d_map_layers", 1);
+    s.pass_registry.record_fallback_count("3d_border_first", 1);
+    s.pass_registry.record_fallback_count(
+        "3d_border_second",
+        if s.border_pass.any_loaded { 0 } else { 1 },
+    );
     if let Some(tree_full) = s.tree_full_pass.as_ref() {
         s.pass_registry
             .record_fallback_count("3d_trees", tree_full.binding_audit.fallback_count() as u32);

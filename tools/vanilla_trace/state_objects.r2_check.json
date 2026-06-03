@@ -1,0 +1,14 @@
+﻿{
+    "source_log":  ".\\tools\\vanilla_trace\\logs\\d3d11_trace.jsonl",
+    "generated_at":  "2026-06-02T13:52:12",
+    "state_object_count":  0,
+    "sampler_bind_counts":  {
+
+                            },
+    "state_bind_counts":  {
+
+                          },
+    "state_objects":  [
+
+                      ]
+}

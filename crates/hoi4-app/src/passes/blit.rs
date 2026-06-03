@@ -19,10 +19,19 @@
 //! 让设置面板"快速模式"开关能在两者之间切换（PostProcessChain 关闭时退回简化 blit）。
 
 use crate::passes::HDR_FORMAT;
+use wgpu::util::DeviceExt;
 
 const BLIT_WGSL: &str = r#"
 @group(0) @binding(0) var src_tex: texture_2d<f32>;
 @group(0) @binding(1) var src_sampler: sampler;
+
+struct BlitParams {
+    srgb_target: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
+};
+@group(0) @binding(2) var<uniform> bp: BlitParams;
 
 struct VsOut {
     @builtin(position) clip_pos: vec4<f32>,
@@ -40,16 +49,27 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
-    let c = textureSample(src_tex, src_sampler, in.uv);
+    var c = textureSample(src_tex, src_sampler, in.uv);
+    if (bp.srgb_target < 0.5) {
+        c = vec4<f32>(pow(max(c.rgb, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.2)), c.a);
+    }
     return c;
 }
 "#;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct BlitParams {
+    srgb_target: f32,
+    _pad0: [f32; 3],
+}
 
 /// 简化 HDR → swap-chain blit。
 pub struct SimpleBlitPass {
     pub pipeline: wgpu::RenderPipeline,
     pub bind_group_layout: wgpu::BindGroupLayout,
     pub sampler: wgpu::Sampler,
+    params_buffer: wgpu::Buffer,
     /// 当前 bind group（采样的具体 HDR view）。每次 HDR RT 重建时调
     /// [`Self::rebuild_bind_group`] 重绑。
     pub bind_group: wgpu::BindGroup,
@@ -83,6 +103,16 @@ impl SimpleBlitPass {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
                     count: None,
                 },
             ],
@@ -127,7 +157,22 @@ impl SimpleBlitPass {
             cache: None,
         });
 
-        let bind_group = make_bind_group(device, &bind_group_layout, hdr_view, &sampler);
+        let params = BlitParams {
+            srgb_target: if swap_format.is_srgb() { 1.0 } else { 0.0 },
+            _pad0: [0.0; 3],
+        };
+        let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("simple_blit_params"),
+            contents: bytemuck::bytes_of(&params),
+            usage: wgpu::BufferUsages::UNIFORM,
+        });
+        let bind_group = make_bind_group(
+            device,
+            &bind_group_layout,
+            hdr_view,
+            &sampler,
+            &params_buffer,
+        );
 
         // 让上层"使用了 HDR_FORMAT"的事实可被静态检查用到。
         let _ = HDR_FORMAT;
@@ -136,13 +181,20 @@ impl SimpleBlitPass {
             pipeline,
             bind_group_layout,
             sampler,
+            params_buffer,
             bind_group,
         }
     }
 
     /// HDR RT 重建后调用，把 bind group 重新指向新 view。
     pub fn rebuild_bind_group(&mut self, device: &wgpu::Device, hdr_view: &wgpu::TextureView) {
-        self.bind_group = make_bind_group(device, &self.bind_group_layout, hdr_view, &self.sampler);
+        self.bind_group = make_bind_group(
+            device,
+            &self.bind_group_layout,
+            hdr_view,
+            &self.sampler,
+            &self.params_buffer,
+        );
     }
 
     /// 在 encoder 内提交一次 blit pass。
@@ -177,6 +229,7 @@ fn make_bind_group(
     layout: &wgpu::BindGroupLayout,
     hdr_view: &wgpu::TextureView,
     sampler: &wgpu::Sampler,
+    params_buffer: &wgpu::Buffer,
 ) -> wgpu::BindGroup {
     device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("simple_blit_bg"),
@@ -189,6 +242,10 @@ fn make_bind_group(
             wgpu::BindGroupEntry {
                 binding: 1,
                 resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: params_buffer.as_entire_binding(),
             },
         ],
     })

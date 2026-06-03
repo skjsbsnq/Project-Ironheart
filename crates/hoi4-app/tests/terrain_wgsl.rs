@@ -45,8 +45,10 @@ fn terrain_wgsl_has_phase3_runtime_debug_and_ownership_gates() {
         "terrain_controls: vec4<f32>",
         "feature_flags: vec4<f32>",
         "fn build_terrain_material",
-        "fn apply_political_parity_tint",
-        "var color = apply_political_parity_tint(terrain_albedo, political_color, weights.map_mode_weight)",
+        "fn apply_province_secondary_color",
+        "var color = terrain_albedo",
+        "get_overlay(atlas_terr, cmap, COLORMAP_OVERLAY_STRENGTH_TERRAIN)",
+        "calculate_occupation_mask",
         "fn terrain_debug_color",
         "fn terrain_owns_water_color",
         "fn terrain_owns_sdf_borders",
@@ -85,6 +87,7 @@ fn terrain_wgsl_has_phase3_runtime_debug_and_ownership_gates() {
         "light_index_tex",
         "fn calculate_map_tex_index",
         "fn province_secondary_at",
+        "fn gradient_border_page_uv",
         "fn gradient_border_ch3_dist_px",
         "province_secondary_color_tex",
         "gradient_border_ch3_tex",
@@ -107,12 +110,23 @@ fn terrain_wgsl_final_path_keeps_semantic_debug_inputs_out_of_material() {
     let material_body = &source[material_start..debug_start];
 
     assert!(
-        !material_body.contains("province_secondary_at("),
-        "province_secondary must stay out of the terrain final material path"
+        material_body.contains("apply_province_secondary_color(color, frag.map_uv)"),
+        "ProvinceSecondaryColorMap must feed the terrain final material path after snow/mud"
     );
     assert!(
         !material_body.contains("gradient_border_ch3_dist_px("),
         "gradient_border_ch3 must stay out of the terrain final material path"
+    );
+    assert!(
+        !material_body.contains("occupation_color_at("),
+        "legacy occupation LUT must stay out of the default terrain material path"
+    );
+    assert!(
+        source.contains("const GB_TEXTURE_HEIGHT_TERRAIN: f32 = 1024.0")
+            && source.contains("let half_pix = 0.5 / GB_TEXTURE_HEIGHT_TERRAIN")
+            && source.contains("gradient_border_page_uv(uv, 0.0)")
+            && source.contains("gradient_border_page_uv(uv, 1.0)"),
+        "GradientBorderChannel1/2 must be sampled through the vanilla two-page UV layout"
     );
     assert!(
         source.contains("if (view == TERRAIN_DEBUG_PROVINCE_SECONDARY)"),

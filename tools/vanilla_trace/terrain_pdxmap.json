@@ -1,0 +1,294 @@
+{
+  "phase": "6",
+  "kind": "terrain_pdxmap_audit",
+  "source_inputs": [
+    "tools/vanilla_trace/shader_bindings.json",
+    "tools/vanilla_trace/runtime_targets.json",
+    "tools/vanilla_trace/render_passes.json"
+  ],
+  "vanilla_shader_refs": [
+    "gfx/FX/pdxmap.shader",
+    "gfx/FX/standardfuncsgfx.fxh",
+    "gfx/FX/fow.fxh",
+    "gfx/FX/tiled_pointlights.fxh"
+  ],
+  "map_space": {
+    "map_size_px": [5632.0, 2048.0],
+    "primary_shader_coord": "map_px",
+    "world_coord_role": "chunk world_xz is converted to vanilla map_uv/map_px before sampling pdxmap resources",
+    "formulas": [
+      "world_xz_to_map_uv(world_xz, world_size)",
+      "map_uv_to_px(map_uv)",
+      "vanilla_terrain_tile_repeat(map_px)",
+      "vanilla_citylight_uv(map_px)",
+      "calc_globe_normal(map_px, day_night_hour)"
+    ]
+  },
+  "default_parity_controls": {
+    "feature_flags": [0.000, 0.000, 0.000, 0.000],
+    "legacy_art_features": {
+      "terrain_jitter_noise_coast_tint_vignette": false,
+      "river_overlay_fallback": "enabled only when the dedicated river pass is unavailable",
+      "water_final_color_fallback": "enabled only when the dedicated water pass is unavailable",
+      "sdf_border_fallback": "enabled only when the dedicated border pass is unavailable"
+    },
+    "political_tint": {
+      "mode": "terrain-led overlay tint",
+      "max_tint": 0.76,
+      "close_view_rule": "political color remains visible at close gameplay zoom while atlas/colormap/normal detail is preserved"
+    }
+  },
+  "composition_order": [
+    "province id -> country/map-mode political color",
+    "terrain.bmp id -> atlas tile lookup",
+    "terrain atlas + ColorMap/ColorMapSecond overlay",
+    "political tint budget over terrain albedo",
+    "world_normal + atlas_normal surface normal",
+    "MudSnow target -> mud diffuse/normal and snow diffuse/normal",
+    "river/occupation/selection/hover overlays only through ownership gates",
+    "ProvinceSecondaryColorMap and GradientBorderChannel3 semantic tint",
+    "city emissive + citylights + LightDataMap/LightIndexMap",
+    "day_night, distance fog, FOW visibility"
+  ],
+  "responsibility_boundary": {
+    "terrain": "land base material, political tint, terrain atlas, colormap, snow/mud, FOW, day/night, distance fog",
+    "water": "dedicated water pass owns visible water color when available",
+    "border": "dedicated border pass owns province/country boundary color when available",
+    "postprocess": "global LUT, tonemap, bloom, and final sRGB conversion remain outside pdxmap"
+  },
+  "resource_binding_summary": {
+    "terrain_binding_count": 17,
+    "fallback_count": 0,
+    "critical_count": 8
+  },
+  "bindings": [
+    {
+      "binding": "terrain_atlas",
+      "source_kind": "vanilla_resource",
+      "source_name": "map/terrain/atlas0.dds",
+      "format": null,
+      "dimensions": null,
+      "source_trace": null,
+      "parity_status": null,
+      "loaded": true,
+      "critical": true,
+      "reason": null,
+      "visual_impact": "terrain diffuse atlas falls back to a white texture"
+    },
+    {
+      "binding": "terrain_atlas_normal",
+      "source_kind": "vanilla_resource",
+      "source_name": "map/terrain/atlas_normal0.dds",
+      "format": null,
+      "dimensions": null,
+      "source_trace": null,
+      "parity_status": null,
+      "loaded": true,
+      "critical": true,
+      "reason": null,
+      "visual_impact": "terrain lighting and material normals flatten"
+    },
+    {
+      "binding": "world_normal",
+      "source_kind": "vanilla_resource",
+      "source_name": "map/world_normal.bmp",
+      "format": null,
+      "dimensions": null,
+      "source_trace": null,
+      "parity_status": null,
+      "loaded": true,
+      "critical": true,
+      "reason": null,
+      "visual_impact": "large-scale terrain lighting normal falls back to flat"
+    },
+    {
+      "binding": "colormap",
+      "source_kind": "vanilla_resource",
+      "source_name": "map/terrain/colormap_rgb_cityemissivemask_a.dds",
+      "format": null,
+      "dimensions": null,
+      "source_trace": null,
+      "parity_status": null,
+      "loaded": true,
+      "critical": true,
+      "reason": null,
+      "visual_impact": "terrain natural color base falls back to neutral gray"
+    },
+    {
+      "binding": "citylights",
+      "source_kind": "vanilla_resource",
+      "source_name": "map/terrain/citylights_rgb_snowmask_a_0.dds",
+      "format": null,
+      "dimensions": null,
+      "source_trace": null,
+      "parity_status": null,
+      "loaded": true,
+      "critical": true,
+      "reason": null,
+      "visual_impact": "night city light contribution disappears"
+    },
+    {
+      "binding": "snow_normal_diffuse",
+      "source_kind": "vanilla_resource",
+      "source_name": "map/terrain/snow_normal_rgb_diffuse_a.dds",
+      "format": null,
+      "dimensions": null,
+      "source_trace": null,
+      "parity_status": null,
+      "loaded": true,
+      "critical": true,
+      "reason": null,
+      "visual_impact": "snow overlay loses vanilla normal/diffuse texture"
+    },
+    {
+      "binding": "mud_diffuse_gloss",
+      "source_kind": "vanilla_resource",
+      "source_name": "map/terrain/mud_diffuse_rgb_gloss_a_0.dds",
+      "format": null,
+      "dimensions": null,
+      "source_trace": null,
+      "parity_status": null,
+      "loaded": true,
+      "critical": true,
+      "reason": null,
+      "visual_impact": "mud overlay falls back to a flat brown tint"
+    },
+    {
+      "binding": "mud_normal_spec",
+      "source_kind": "vanilla_resource",
+      "source_name": "map/terrain/mud_normal_rgb_spec_a_0.dds",
+      "format": null,
+      "dimensions": null,
+      "source_trace": null,
+      "parity_status": null,
+      "loaded": true,
+      "critical": true,
+      "reason": null,
+      "visual_impact": "mud overlay normals/specular flatten"
+    },
+    {
+      "binding": "rivers_bmp",
+      "source_kind": "vanilla_resource",
+      "source_name": "map/rivers.bmp",
+      "format": null,
+      "dimensions": null,
+      "source_trace": null,
+      "parity_status": null,
+      "loaded": true,
+      "critical": false,
+      "reason": null,
+      "visual_impact": "river mask is unavailable"
+    },
+    {
+      "binding": "light_data",
+      "source_kind": "dynamic_target",
+      "source_name": "LightDataMap",
+      "format": "Rgba32Float; 16 bytes/pixel",
+      "dimensions": "384x1 texels: MAX_POINT_LIGHTS(192) * 2 RGBA32F texels per light",
+      "source_trace": "tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name LightDataMap",
+      "parity_status": "trace-backed binding and project-generated light data; not copied from vanilla runtime memory",
+      "loaded": true,
+      "critical": false,
+      "reason": null,
+      "visual_impact": "night lighting and local highlights use generated point light data"
+    },
+    {
+      "binding": "light_index",
+      "source_kind": "dynamic_target",
+      "source_name": "LightIndexMap",
+      "format": "Rgba8Unorm; 4 bytes/pixel",
+      "dimensions": "tile grid: ceil(province_map / 16px), width aligned to 64 texels; RGBA packs up to 4 light ids with 255 sentinel",
+      "source_trace": "tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name LightIndexMap",
+      "parity_status": "trace-backed binding and project-derived 16px tile rule; not copied from vanilla runtime memory",
+      "loaded": true,
+      "critical": false,
+      "reason": null,
+      "visual_impact": "point light lookup uses a generated tile index"
+    },
+    {
+      "binding": "province_secondary_color",
+      "source_kind": "dynamic_target",
+      "source_name": "ProvinceSecondaryColorMap",
+      "format": "Rgba8Unorm; 4 bytes/pixel",
+      "dimensions": "province-map pixels: world.map.province_map.width x height",
+      "source_trace": "tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name ProvinceSecondaryColorMap",
+      "parity_status": "trace-backed binding and project-generated pixels; not copied from vanilla runtime memory",
+      "loaded": true,
+      "critical": false,
+      "reason": null,
+      "visual_impact": "occupation, selection, hover, and map-mode secondary tint use a runtime map target"
+    },
+    {
+      "binding": "gradient_border_ch1",
+      "source_kind": "dynamic_target",
+      "source_name": "GradientBorderChannel1",
+      "format": "R8Unorm; 1 bytes/pixel",
+      "dimensions": "province-map pixels: world.map.province_map.width x height",
+      "source_trace": "tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel1",
+      "parity_status": "trace-backed binding and project-generated pixels; not copied from vanilla runtime memory",
+      "loaded": true,
+      "critical": false,
+      "reason": null,
+      "visual_impact": "country border gradient is generated from runtime ownership state"
+    },
+    {
+      "binding": "gradient_border_ch2",
+      "source_kind": "dynamic_target",
+      "source_name": "GradientBorderChannel2",
+      "format": "R8Unorm; 1 bytes/pixel",
+      "dimensions": "province-map pixels: world.map.province_map.width x height",
+      "source_trace": "tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel2",
+      "parity_status": "trace-backed binding and project-generated pixels; not copied from vanilla runtime memory",
+      "loaded": true,
+      "critical": false,
+      "reason": null,
+      "visual_impact": "province border gradient is generated from runtime province topology"
+    },
+    {
+      "binding": "gradient_border_ch3",
+      "source_kind": "dynamic_target",
+      "source_name": "GradientBorderChannel3",
+      "format": "R8Unorm; 1 bytes/pixel",
+      "dimensions": "province-map pixels: world.map.province_map.width x height",
+      "source_trace": "tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json resource name GradientBorderChannel3 in water",
+      "parity_status": "trace-backed water binding and project-generated pixels; terrain use is project extension",
+      "loaded": true,
+      "critical": false,
+      "reason": null,
+      "visual_impact": "state, coast, and impassable border gradient is generated at runtime"
+    },
+    {
+      "binding": "fow",
+      "source_kind": "dynamic_target",
+      "source_name": "FOW",
+      "format": "Rgba8Unorm; 4 bytes/pixel",
+      "dimensions": "province-map pixels: world.map.province_map.width x height",
+      "source_trace": "tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json FOW/FOWNoise/FOWHeight family and project FOW binding",
+      "parity_status": "fallback: visible-all placeholder, not vanilla fog-of-war equivalent",
+      "loaded": true,
+      "critical": false,
+      "reason": null,
+      "visual_impact": "fog-of-war visibility is supplied as a runtime map target"
+    },
+    {
+      "binding": "mud_snow",
+      "source_kind": "dynamic_target",
+      "source_name": "MudSnow",
+      "format": "Rgba8Unorm; 4 bytes/pixel",
+      "dimensions": "heightmap/province-map pixels: world.map.heightmap.width x height; vanilla map dimensions match province map",
+      "source_trace": "tools/vanilla_trace/runtime_targets.json render target/SRV census plus shader_bindings.json and render_passes.json SnowMudData/SnowMudTexture resource names",
+      "parity_status": "fallback: procedural seasonal mask, not vanilla mud/snow runtime equivalent",
+      "loaded": true,
+      "critical": false,
+      "reason": null,
+      "visual_impact": "mud and snow masks are supplied as a runtime map target"
+    }
+  ],
+  "acceptance": {
+    "pdxmap_resource_binding_semantics_aligned": true,
+    "political_color_does_not_replace_terrain_albedo": true,
+    "map_size_formulas_use_vanilla_pixels": true,
+    "project_vivid_noise_grain_isolated_to_legacy_feature_flag": true,
+    "known_degraded_fallbacks": ["FOW visible-all placeholder", "MudSnow procedural seasonal mask"]
+  }
+}

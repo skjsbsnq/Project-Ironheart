@@ -53,3 +53,11 @@ fn river_wgsl_contains_phase7_material_and_flow_terms() {
         assert!(source.contains(token), "missing Phase 7 token: {token}");
     }
 }
+
+#[test]
+fn river_projected_shadow_uses_screen_coordinate() {
+    let source = include_str!("../src/passes/river.rs");
+    assert!(source.contains("projected_shadow_uv = in.clip_pos.xy / max(frame.screen_size"));
+    assert!(source.contains("textureSample(shadow_map, river_sampler, clamp(projected_shadow_uv"));
+    assert!(!source.contains("textureSample(shadow_map, river_sampler, in.map_uv)"));
+}

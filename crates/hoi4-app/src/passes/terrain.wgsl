@@ -87,7 +87,7 @@ struct ChunkUniform {
 @group(0) @binding(2) var<uniform> chunk: ChunkUniform;
 
 // ── Group 1 — shared cross-LOD ──
-@group(1) @binding(0) var shadow_map_tex: texture_depth_2d;
+@group(1) @binding(0) var shadow_map_tex: texture_2d<f32>;
 @group(1) @binding(1) var shadow_sampler: sampler_comparison;
 @group(1) @binding(2) var season_map_tex: texture_2d<f32>;
 @group(1) @binding(3) var color_map_tex: texture_2d<f32>;
@@ -129,13 +129,17 @@ const TERRAIN_ID_JITTER_PIXELS: f32 = 0.55;
 const COLORMAP_OVERLAY_STRENGTH_TERRAIN: f32 = 0.75;
 const COLORMAP_MUD_OVERLAY_STRENGTH_TERRAIN: f32 = 0.5;
 const CITY_LIGHTS_INTENSITY_TERRAIN: f32 = 5.5;
+const CITY_LIGHTS_BLOOM_FACTOR_TERRAIN: f32 = 0.3;
 const MUD_TILING_TERRAIN: f32 = 0.09;
 const SNOW_TILING_TERRAIN: f32 = 0.05;
 const SNOW_NORMAL_START_TERRAIN: f32 = 0.7;
-const POLITICAL_TERRAIN_MODULATION: f32 = 0.68;
-const POLITICAL_TERRAIN_DIRECT_MIX: f32 = 0.28;
-const POLITICAL_TERRAIN_TINT_MIN: f32 = 0.48;
-const POLITICAL_TERRAIN_TINT_MAX: f32 = 0.76;
+const GB_THRESHOLD_TERRAIN: f32 = 0.05;
+const GB_THRESHOLD2_TERRAIN: f32 = 0.25;
+const GB_STRENGTH_CH1_TERRAIN: f32 = 1.0;
+const GB_STRENGTH_CH2_TERRAIN: f32 = 1.0;
+const GB_FIRST_LAYER_PRIORITY_TERRAIN: f32 = 0.4;
+const GB_TEXTURE_HEIGHT_TERRAIN: f32 = 1024.0;
+const BORDER_FOW_REMOVAL_FACTOR_TERRAIN: f32 = 0.8;
 const POLITICAL_NIGHT_DESAT_BLEND: f32 = 0.35;
 const ID_NONE: u32 = 4294967295u;
 
@@ -180,6 +184,11 @@ struct TerrainMaterialWeights {
     map_mode_weight: f32,
 };
 
+struct GradientBorderResult {
+    color: vec3<f32>,
+    bloom_alpha: f32,
+};
+
 struct TerrainMaterial {
     hdr_color: vec3<f32>,
     political_base: vec3<f32>,
@@ -193,6 +202,8 @@ struct TerrainMaterial {
     city_emit_mask: f32,
     city_lights_rgb: vec3<f32>,
     night_factor: f32,
+    border_bloom_alpha: f32,
+    city_light_bloom_alpha: f32,
     city_light_contribution: vec3<f32>,
     point_light_contribution: vec3<f32>,
 };
@@ -507,25 +518,28 @@ fn sample_season_color(uv: vec2<f32>) -> vec3<f32> {
     return mix(a, b, params.season_lerp);
 }
 
-/// CSM 阴影接收 (硬件 PCF)。0 = 全阴影，1 = 全亮。
-fn shadow_pcf(shadow_proj: vec4<f32>) -> f32 {
-    if (shadow_proj.w <= 0.0) {
-        return 1.0;
-    }
-    let coords = shadow_proj.xy / shadow_proj.w * vec2<f32>(0.5, -0.5) + 0.5;
-    if (coords.x < 0.0 || coords.x > 1.0 || coords.y < 0.0 || coords.y > 1.0) {
-        return 1.0;
-    }
-    let depth = shadow_proj.z / shadow_proj.w - 0.001;
-    let s = textureSampleCompare(shadow_map_tex, shadow_sampler, coords, depth);
-    return mix(1.0 - frame.shadow_fade_factor, 1.0, s);
+/// Order 81 samples the packed projected ShadowMap/FOW screen target, not the
+/// ordinary depth shadow texture. The current producer is neutral but keeps the
+/// binding and sampling semantics aligned with the vanilla dynamic target.
+fn shadow_pcf(screen_uv: vec2<f32>) -> f32 {
+    let packed = textureSample(shadow_map_tex, generic_sampler, clamp(screen_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    let projected_shadow = packed.r;
+    return mix(1.0 - frame.shadow_fade_factor, 1.0, projected_shadow);
+}
+
+fn gradient_border_page_uv(uv: vec2<f32>, page: f32) -> vec2<f32> {
+    let half_pix = 0.5 / GB_TEXTURE_HEIGHT_TERRAIN;
+    return vec2<f32>(
+        uv.x,
+        uv.y * (0.5 - half_pix) + page * 0.5
+    );
 }
 
 fn country_dist_px(uv: vec2<f32>) -> f32 {
-    return textureSample(gradient_border_ch1_tex, generic_sampler, uv).r * 255.0;
+    return textureSample(gradient_border_ch1_tex, generic_sampler, gradient_border_page_uv(uv, 0.0)).r * 255.0;
 }
 fn province_dist_px(uv: vec2<f32>) -> f32 {
-    return textureSample(gradient_border_ch2_tex, generic_sampler, uv).r * 255.0;
+    return textureSample(gradient_border_ch1_tex, generic_sampler, gradient_border_page_uv(uv, 1.0)).r * 255.0;
 }
 fn gradient_border_ch3_dist_px(uv: vec2<f32>) -> f32 {
     return textureSample(gradient_border_ch3_tex, generic_sampler, uv).r * 255.0;
@@ -669,32 +683,41 @@ fn map_mode_overlay_opacity() -> f32 {
 }
 
 fn terrain_material_weights() -> TerrainMaterialWeights {
-    let base_blend = params.map_mode_terrain_blend;
-
     var weights: TerrainMaterialWeights;
-    weights.terrain_albedo_weight = 0.72;
-    weights.political_tint_weight = 1.0 - weights.terrain_albedo_weight;
+    weights.terrain_albedo_weight = 1.0;
+    weights.political_tint_weight = 0.0;
     weights.season_weight = 0.06;
     weights.detail_weight = close_detail_factor();
     weights.snow_weight = 1.0;
-    weights.map_mode_weight = clamp(base_blend, 0.0, 1.00);
+    weights.map_mode_weight = 0.0;
     return weights;
 }
 
-fn political_terrain_tint_weight(map_mode_weight: f32) -> f32 {
-    let far_readability = 1.0 - smoothstep(0.34, 0.76, params.zoom_factor);
-    let zoom_weight = mix(POLITICAL_TERRAIN_TINT_MIN, POLITICAL_TERRAIN_TINT_MAX, far_readability);
-    return clamp(map_mode_weight * zoom_weight, 0.0, POLITICAL_TERRAIN_TINT_MAX);
+fn apply_province_secondary_color(base_color: vec3<f32>, uv: vec2<f32>) -> vec3<f32> {
+    let secondary = province_secondary_at(uv);
+    let stripe = calculate_occupation_mask(uv, frame.global_time, frame.cam_pos.y);
+    return mix(base_color, secondary.rgb, clamp(secondary.a * stripe, 0.0, 1.0));
 }
 
-fn apply_political_parity_tint(
-    terrain_color: vec3<f32>,
-    political_color: vec3<f32>,
-    map_mode_weight: f32,
-) -> vec3<f32> {
-    let overlay = get_overlay(terrain_color, political_color, POLITICAL_TERRAIN_MODULATION);
-    let political_terrain = mix(overlay, political_color, POLITICAL_TERRAIN_DIRECT_MIX);
-    return mix(terrain_color, political_terrain, political_terrain_tint_weight(map_mode_weight));
+fn gradient_border_alpha_from_distance(dist_px: f32) -> f32 {
+    let dist_norm = clamp(dist_px / 255.0, 0.0, 1.0);
+    return 1.0 - smoothstep(
+        GB_THRESHOLD_TERRAIN,
+        GB_THRESHOLD_TERRAIN + GB_THRESHOLD2_TERRAIN,
+        dist_norm
+    );
+}
+
+fn apply_gradient_border_channels(base_color: vec3<f32>, uv: vec2<f32>) -> GradientBorderResult {
+    let ch1 = gradient_border_alpha_from_distance(country_dist_px(uv)) * GB_STRENGTH_CH1_TERRAIN;
+    let ch2_raw = gradient_border_alpha_from_distance(province_dist_px(uv)) * GB_STRENGTH_CH2_TERRAIN;
+    let ch2 = ch2_raw * (1.0 - ch1 * GB_FIRST_LAYER_PRIORITY_TERRAIN);
+    let alpha = clamp(max(ch1, ch2), 0.0, 1.0);
+
+    var result: GradientBorderResult;
+    result.color = mix(base_color, get_overlay(base_color, vec3<f32>(0.85), 0.35), alpha);
+    result.bloom_alpha = 1.0 - alpha;
+    return result;
 }
 
 fn snow_mask_at(uv: vec2<f32>, real_h: f32) -> f32 {
@@ -720,65 +743,16 @@ fn terrain_corners_all_same(ids: vec4<u32>) -> bool {
     return ids.x == ids.y && ids.x == ids.z && ids.x == ids.w;
 }
 
-fn season_snow_score(column: f32) -> f32 {
-    let c = u32(clamp(floor(column + 0.5), 0.0, 7.0));
-    if (c == 0u || c == 4u) {
-        return 1.0;
-    }
-    if (c == 1u || c == 5u) {
-        return 0.35;
-    }
-    if (c == 3u || c == 7u) {
-        return 0.20;
-    }
-    return 0.0;
+fn snow_mud_fade() -> f32 {
+    return clamp(frame.fow_opacity_time_snow_max_speed.z, 0.0, 1.0);
 }
 
-fn season_mud_score(column: f32) -> f32 {
-    let c = u32(clamp(floor(column + 0.5), 0.0, 7.0));
-    if (c == 1u || c == 5u || c == 3u || c == 7u) {
-        return 1.0;
-    }
-    if (c == 0u || c == 4u) {
-        return 0.25;
-    }
-    return 0.0;
-}
-
-fn seasonal_snow_amount() -> f32 {
-    let a = season_snow_score(params.season_params.x);
-    let b = season_snow_score(params.season_params.z);
-    return mix(a, b, clamp(params.season_params.w, 0.0, 1.0));
-}
-
-fn seasonal_mud_amount() -> f32 {
-    let a = season_mud_score(params.season_params.x);
-    let b = season_mud_score(params.season_params.z);
-    return mix(a, b, clamp(params.season_params.w, 0.0, 1.0));
-}
-
-fn get_mud_snow_color(terrain_id: u32, uv: vec2<f32>, real_h: f32, normal_y: f32) -> vec4<f32> {
-    let winter = seasonal_snow_amount();
-    let mud_season = seasonal_mud_amount();
-    let latitude = abs(uv.y - 0.5) * 2.0;
-    let polar_snow = smoothstep(0.72, 0.94, latitude) * winter;
-    let altitude_snow = smoothstep(0.62 + params.season_params.y, 0.86 + params.season_params.y, real_h);
-    let ridge_snow = smoothstep(SNOW_NORMAL_START_TERRAIN, 1.0, 1.0 - normal_y) * 0.35;
-    let perm = select(0.0, 1.0, terrain_perm_snow(terrain_id));
-    let snow_now = clamp(max(perm, max(polar_snow, altitude_snow + ridge_snow)), 0.0, 1.0);
-    let snow_winter = clamp(max(snow_now, winter * smoothstep(0.44, 0.72, real_h)), 0.0, 1.0);
-
-    let lowland = 1.0 - smoothstep(0.40, 0.76, real_h);
-    let no_snow = 1.0 - max(snow_now, snow_winter * 0.55);
-    let mud_now = clamp(mud_season * lowland * no_snow, 0.0, 1.0);
-    let mud_winter = clamp((1.0 - winter) * 0.35 * lowland * no_snow, 0.0, 1.0);
-    let procedural = vec4<f32>(mud_now, snow_winter, snow_now, mud_winter);
-    let mud_snow_sample = mud_snow_target_at(uv);
-    return mix(procedural, mud_snow_sample, 0.65);
+fn get_mud_snow_color(uv: vec2<f32>) -> vec4<f32> {
+    return mud_snow_target_at(uv);
 }
 
 fn get_mud_amount(mud_snow_color: vec4<f32>) -> f32 {
-    return mix(mud_snow_color.r, mud_snow_color.a, clamp(params.season_lerp, 0.0, 1.0));
+    return mix(mud_snow_color.r, mud_snow_color.a, snow_mud_fade());
 }
 
 fn get_mud_color(map_px: vec2<f32>, base_color: vec3<f32>, amount: f32) -> vec3<f32> {
@@ -818,7 +792,7 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
     let atlas_terr = terrain_atlas_color(frag.map_uv, frag.map_px);
     let cmap = sample_season_color(frag.map_uv);
     var terrain_albedo = get_overlay(atlas_terr, cmap, COLORMAP_OVERLAY_STRENGTH_TERRAIN);
-    var color = apply_political_parity_tint(terrain_albedo, political_color, weights.map_mode_weight);
+    var color = terrain_albedo;
     if (terrain_legacy_art_enabled()) {
         let atlas_terr2 = terrain_atlas_color(
             frag.map_uv,
@@ -853,13 +827,18 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
     var mud = 0.0;
     var river_mask = 0.0;
     var surface_normal = combined_normal;
+    var border_bloom_alpha = 1.0;
 
     if (!terrain_is_water) {
-        let mud_snow = get_mud_snow_color(terrain_id, frag.map_uv, real_h, combined_normal.y);
-        snow = get_snow(mud_snow, seasonal_snow_amount());
+        let mud_snow = get_mud_snow_color(frag.map_uv);
+        snow = get_snow(mud_snow, snow_mud_fade());
         mud = get_mud_amount(mud_snow);
         color = get_mud_color(frag.map_px, color, mud);
         color = apply_snow(frag.map_px, color, snow);
+        let gradient_border = apply_gradient_border_channels(color, frag.map_uv);
+        color = gradient_border.color;
+        border_bloom_alpha = gradient_border.bloom_alpha;
+        color = apply_province_secondary_color(color, frag.map_uv);
 
         let mud_n = rotate_vec_by_vec(surface_normal, mud_normal(frag.map_px));
         surface_normal = normalize(mix(surface_normal, mud_n, mud * 0.30));
@@ -894,14 +873,6 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
                 let river_alpha = river_mask * 0.34;
                 let river_blue = mix(vec3<f32>(0.11, 0.28, 0.42), vec3<f32>(0.20, 0.46, 0.62), river_lvl);
                 color = mix(color, river_blue, river_alpha);
-            }
-
-            let occ = occupation_color_at(pid);
-            if (occ.a > 0.0) {
-                let stripe_phase = (frag.world_pos.x + frag.world_pos.z) * 1.6;
-                let stripe = step(0.55, fract(stripe_phase));
-                let band_strength = mix(0.06, 0.24, stripe);
-                color = mix(color, occ.rgb, occ.a * occupation_overlay_opacity() * band_strength);
             }
 
             let active_selected_opacity = selected_overlay_opacity();
@@ -982,6 +953,8 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
     material.city_emit_mask = city_emit;
     material.city_lights_rgb = city_rgb;
     material.night_factor = night;
+    material.border_bloom_alpha = border_bloom_alpha;
+    material.city_light_bloom_alpha = clamp(city_emit * night * CITY_LIGHTS_BLOOM_FACTOR_TERRAIN, 0.0, 1.0);
     material.city_light_contribution = city_contrib;
     material.point_light_contribution = point_contrib;
     return material;
@@ -1093,7 +1066,7 @@ fn terrain_debug_color(view: u32, frag: VsOut, material: TerrainMaterial, real_h
     }
     if (view == TERRAIN_DEBUG_MUD_SNOW_SNOW_AMOUNT) {
         let ms = mud_snow_target_at(frag.map_uv);
-        return vec3<f32>(get_snow(ms, seasonal_snow_amount()));
+        return vec3<f32>(get_snow(ms, snow_mud_fade()));
     }
     if (view == TERRAIN_DEBUG_MUD_SNOW_MUD_AMOUNT) {
         let ms = mud_snow_target_at(frag.map_uv);
@@ -1169,7 +1142,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let sun_dir = normalize(vec3<f32>(0.408248, 0.816497, -0.408248));
     let nrm = normalize(material.normal);
     let lambert = max(dot(nrm, sun_dir), 0.0);
-    let shadow = shadow_pcf(in.shadow_pos);
+    let projected_shadow_uv = vec2<f32>(
+        in.clip_position.x / max(params.screen_width, 1.0),
+        in.clip_position.y / max(params.screen_height, 1.0),
+    );
+    let shadow = shadow_pcf(projected_shadow_uv);
     let ambient = 0.55;
     let shade = ambient + (1.0 - ambient) * lambert * shadow;
 
@@ -1187,16 +1164,35 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
         color = color + material.city_light_contribution;
         color = color + material.point_light_contribution;
+
+        let fow_visibility = fow_visibility_at(in.map_uv);
+        let border_fow_protect = BORDER_FOW_REMOVAL_FACTOR_TERRAIN * (1.0 - material.border_bloom_alpha);
+        let fow_mix = mix(fow_visibility, 1.0, border_fow_protect);
+        color = mix(color * 0.56, color, fow_mix);
+
+        color = apply_wrapped_distance_fog(
+            color,
+            in.world_pos,
+            frame.cam_pos,
+            params.world_size_xy_height_lat.x
+        );
         color = day_night_with_blend(
             color,
             globe_n,
             frame.day_night_hour_sun_dir.yzw,
             1.0,
-            POLITICAL_NIGHT_DESAT_BLEND
+            mix(POLITICAL_NIGHT_DESAT_BLEND, 1.0, material.border_bloom_alpha)
         );
     }
 
-    color = apply_distance_fog(color, in.world_pos, frame.cam_pos);
+    if (is_water) {
+        color = apply_wrapped_distance_fog(
+            color,
+            in.world_pos,
+            frame.cam_pos,
+            params.world_size_xy_height_lat.x
+        );
+    }
 
     if (terrain_vignette_enabled()) {
         let screen_uv = vec2<f32>(
@@ -1208,12 +1204,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         color = color * (1.0 - params.vignette_strength * vig_t);
     }
 
-    let fow_visibility = fow_visibility_at(in.map_uv);
-    color = mix(color * 0.56, color, fow_visibility);
-
     if (debug_view == TERRAIN_DEBUG_FINAL_BEFORE_POSTPROCESS) {
-        return vec4<f32>(color, 1.0);
+        return vec4<f32>(color, material.city_light_bloom_alpha);
     }
 
-    return vec4<f32>(color, 1.0);
+    return vec4<f32>(color, material.city_light_bloom_alpha);
 }

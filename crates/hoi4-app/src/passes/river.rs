@@ -27,6 +27,19 @@
 //! - alpha blend 叠加到海面上（不是像素替换）；
 //! - 渲染在 WaterPass 之后，避免 water opaque 覆盖 river 像素。
 
+//! Vanilla `river.shader` pass.
+//!
+//! P1 frame graph facts:
+//! - Draws after terrain/border-first and before map layers/water.
+//! - Contributes to the main HDR scene color target.
+//! - Runs in its own render pass with no depth-stencil attachment because the
+//!   traced vanilla river state has depth disabled.
+//! - Reuses terrain chunk instances; the fragment shader samples `rivers.bmp`
+//!   and the vanilla RiverSurface diffuse/normal/mask textures.
+//!
+//! The old terrain navy-blue river overlay remains only as fallback when this
+//! dedicated pass is unavailable.
+
 #![allow(dead_code)]
 
 use hoi4_assets::MapResRole;
@@ -35,8 +48,10 @@ use wgpu::util::DeviceExt;
 
 use crate::passes::HDR_FORMAT;
 use crate::vanilla_resource_views::{
-    upload_dds_or_fallback, BindingAudit, DdsUploadRequest, VanillaResourceViews,
+    upload_dds_or_fallback, BindingAudit, BindingAuditEntry, BindingBlockingLevel,
+    DdsUploadRequest, VanillaResourceViews,
 };
+use crate::vanilla_targets::{self, VanillaRuntimeTargets};
 
 // ─── River uniform ─────────────────────────────────────────────────────────
 
@@ -105,6 +120,7 @@ pub struct RiverPassInputs<'a> {
     pub world_size: [f32; 2],
     pub height_scale: f32,
     pub vanilla_resources: &'a VanillaResourceViews,
+    pub runtime_targets: &'a VanillaRuntimeTargets,
 }
 
 impl RiverPass {
@@ -268,6 +284,100 @@ impl RiverPass {
         let masks_view = masks.view;
         owned_textures.push(masks.texture);
 
+        let water_color = upload_dds_or_fallback(
+            device,
+            queue,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::ColormapWater(0),
+                "water_color",
+                [42, 82, 122, 255],
+                true,
+                true,
+                "river base water color falls back to flat blue-green",
+            ),
+            &mut warnings,
+        );
+        binding_audit.extend([water_color.audit.clone()]);
+        let water_color_view = water_color.view;
+        owned_textures.push(water_color.texture);
+
+        let lean1 = upload_dds_or_fallback(
+            device,
+            queue,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::Lean1,
+                "lean1",
+                [128, 128, 255, 255],
+                false,
+                true,
+                "river LEAN normal input falls back to flat normal data",
+            ),
+            &mut warnings,
+        );
+        binding_audit.extend([lean1.audit.clone()]);
+        let lean1_view = lean1.view;
+        owned_textures.push(lean1.texture);
+
+        let lean2 = upload_dds_or_fallback(
+            device,
+            queue,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::Lean2,
+                "lean2",
+                [128, 128, 255, 255],
+                false,
+                true,
+                "river second LEAN normal input falls back to flat normal data",
+            ),
+            &mut warnings,
+        );
+        binding_audit.extend([lean2.audit.clone()]);
+        let lean2_view = lean2.view;
+        owned_textures.push(lean2.texture);
+
+        let citylights = upload_dds_or_fallback(
+            device,
+            queue,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::CityLights(0),
+                "citylights_snow_noise",
+                [0, 0, 0, 255],
+                true,
+                false,
+                "river citylights/snow-noise input is approximated",
+            ),
+            &mut warnings,
+        );
+        binding_audit.extend([citylights.audit.clone()]);
+        let citylights_view = citylights.view;
+        owned_textures.push(citylights.texture);
+
+        let reflection = upload_dds_or_fallback(
+            device,
+            queue,
+            inputs.vanilla_resources,
+            river_upload_request(
+                MapResRole::Reflection,
+                "reflection",
+                [60, 90, 130, 255],
+                true,
+                false,
+                "river reflection contribution falls back to flat reflection data",
+            ),
+            &mut warnings,
+        );
+        binding_audit.extend([reflection.audit.clone()]);
+        let reflection_view = reflection.view;
+        owned_textures.push(reflection.texture);
+        binding_audit.extend(vanilla_targets::runtime_target_audit_entries_for_pass(
+            "river",
+        ));
+        binding_audit.extend(river_p5_state_audit_entries());
+
         // ── samplers ──────────────────────────────────────────────────
         let river_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("river_sampler"),
@@ -402,6 +512,19 @@ impl RiverPass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
+                fragment_tex_entry(8),
+                fragment_tex_entry(9),
+                fragment_tex_entry(10),
+                fragment_tex_entry(11),
+                fragment_tex_entry(12),
+                fragment_tex_entry(13),
+                fragment_tex_entry_nonfilter(14),
+                fragment_tex_entry(15),
+                fragment_tex_entry(16),
+                fragment_tex_entry(17),
+                fragment_tex_entry(18),
+                fragment_tex_entry(19),
+                fragment_tex_entry(20),
             ],
         });
         let bind_group_g2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -439,6 +562,74 @@ impl RiverPass {
                 wgpu::BindGroupEntry {
                     binding: 7,
                     resource: wgpu::BindingResource::Sampler(&river_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 8,
+                    resource: wgpu::BindingResource::TextureView(&water_color_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 9,
+                    resource: wgpu::BindingResource::TextureView(&lean1_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 10,
+                    resource: wgpu::BindingResource::TextureView(&lean2_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 11,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.province_secondary_color.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 12,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.mud_snow.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 13,
+                    resource: wgpu::BindingResource::TextureView(&citylights_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 14,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.light_data.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 15,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.light_index.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 16,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch1.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 17,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch2.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 18,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.gradient_border.ch3.view,
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 19,
+                    resource: wgpu::BindingResource::TextureView(&reflection_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 20,
+                    resource: wgpu::BindingResource::TextureView(
+                        &inputs.runtime_targets.projected_shadow_fow.view,
+                    ),
                 },
             ],
         });
@@ -501,17 +692,7 @@ impl RiverPass {
                 cull_mode: None,
                 ..Default::default()
             },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: inputs.depth_format,
-                depth_write_enabled: false,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: Default::default(),
-                bias: wgpu::DepthBiasState {
-                    constant: 8,
-                    slope_scale: 2.0,
-                    clamp: 0.0,
-                },
-            }),
+            depth_stencil: None,
             multisample: Default::default(),
             multiview: None,
             cache: None,
@@ -617,6 +798,19 @@ struct RiverParams {
 @group(2) @binding(5) var river_normal_2: texture_2d<f32>;
 @group(2) @binding(6) var river_masks: texture_2d<f32>;
 @group(2) @binding(7) var river_sampler: sampler;
+@group(2) @binding(8) var water_color: texture_2d<f32>;
+@group(2) @binding(9) var lean1_tex: texture_2d<f32>;
+@group(2) @binding(10) var lean2_tex: texture_2d<f32>;
+@group(2) @binding(11) var province_secondary_color: texture_2d<f32>;
+@group(2) @binding(12) var mud_snow_tex: texture_2d<f32>;
+@group(2) @binding(13) var citylights_snow_noise: texture_2d<f32>;
+@group(2) @binding(14) var light_data_tex: texture_2d<f32>;
+@group(2) @binding(15) var light_index_tex: texture_2d<f32>;
+@group(2) @binding(16) var gradient_border_ch1: texture_2d<f32>;
+@group(2) @binding(17) var gradient_border_ch2: texture_2d<f32>;
+@group(2) @binding(18) var gradient_border_ch3: texture_2d<f32>;
+@group(2) @binding(19) var reflection_tex: texture_2d<f32>;
+@group(2) @binding(20) var shadow_map: texture_2d<f32>;
 
 struct VsIn {
     @builtin(vertex_index) vid: u32,
@@ -721,7 +915,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let diffuse01 = mix(diffuse0, diffuse1, clamp(texture_lod, 0.0, 1.0));
     let diffuse = mix(diffuse01, diffuse2, clamp(texture_lod - 1.0, 0.0, 1.0));
 
-    let normal0 = unpack_normal(textureSample(river_normal_0, river_sampler, scrolled_uv).rgb);
+    let lean_uv = in.map_px / vec2<f32>(128.0);
+    let lean = mix(
+        textureSample(lean1_tex, river_sampler, lean_uv + flow_dir * frame.global_time * 0.015),
+        textureSample(lean2_tex, river_sampler, lean_uv * 1.7 - flow_dir * frame.global_time * 0.011),
+        0.5
+    );
+    let lean_normal = unpack_normal(vec3<f32>(lean.r, lean.g, 1.0));
+    let normal0 = normalize(mix(
+        unpack_normal(textureSample(river_normal_0, river_sampler, scrolled_uv).rgb),
+        lean_normal,
+        0.18
+    ));
     let normal1 = unpack_normal(textureSample(river_normal_1, river_sampler, scrolled_uv * 0.92 + vec2<f32>(0.13, 0.07)).rgb);
     let normal2 = unpack_normal(textureSample(river_normal_2, river_sampler, scrolled_uv * 0.84 + vec2<f32>(0.29, 0.19)).rgb);
     let normal01 = normalize(mix(normal0, normal1, clamp(texture_lod, 0.0, 1.0)));
@@ -733,7 +938,40 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let spec = pow(max(dot(normal, flow_half), 0.0), 56.0) * mix(0.18, 0.42, level_norm);
 
     let depth_tint = mix(vec3<f32>(1.10, 1.08, 1.02), vec3<f32>(0.72, 0.82, 0.94), level_norm);
-    var color = diffuse * depth_tint + vec3<f32>(spec);
+    let water_base = textureSample(water_color, river_sampler, in.map_uv).rgb;
+    var color = mix(water_base, diffuse, 0.72) * depth_tint + vec3<f32>(spec);
+
+    let secondary = textureSample(province_secondary_color, river_sampler, in.map_uv);
+    color = mix(color, secondary.rgb, secondary.a * 0.20);
+
+    let mud_snow = textureSample(mud_snow_tex, river_sampler, in.map_uv);
+    let snow = get_snow(mud_snow, clamp(frame.fow_opacity_time_snow_max_speed.z, 0.0, 1.0));
+    color = mix(color, vec3<f32>(0.58, 0.68, 0.78), snow * 0.16);
+
+    let ch1 = textureSample(gradient_border_ch1, river_sampler, in.map_uv).r;
+    let ch2 = textureSample(gradient_border_ch2, river_sampler, in.map_uv).r;
+    let ch3 = textureSample(gradient_border_ch3, river_sampler, in.map_uv).r;
+    let border_hint = 1.0 - smoothstep(0.0, 0.016, min(min(ch1, ch2), ch3));
+    color = mix(color, vec3<f32>(0.09, 0.16, 0.21), border_hint * 0.035);
+
+    let reflection = textureSample(reflection_tex, river_sampler, in.map_uv).rgb;
+    color = mix(color, reflection, 0.06 + spec * 0.04);
+
+    let city_noise = textureSample(citylights_snow_noise, river_sampler, in.map_uv * 4.0).a;
+    color = color + vec3<f32>(city_noise) * snow * 0.025;
+
+    color = color + calculate_point_lights(
+        light_data_tex,
+        light_index_tex,
+        in.map_px,
+        in.world_pos,
+        normal,
+        0.18
+    );
+
+    let projected_shadow_uv = in.clip_pos.xy / max(frame.screen_size, vec2<f32>(1.0));
+    let projected_shadow = textureSample(shadow_map, river_sampler, clamp(projected_shadow_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
+    color = mix(color * 0.58, color, projected_shadow.r);
 
     color = day_night(
         color,
@@ -750,6 +988,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let river_alpha = smoothstep(zoom_cut - 0.10, zoom_cut + 0.10, river_lvl)
         * mix(0.52, 0.92, level_norm)
         * mix(0.45, 1.0, level_alpha)
+        * max(projected_shadow.g, projected_shadow.b)
         * rparams.base_alpha;
 
     return vec4<f32>(color, clamp(river_alpha, 0.0, 1.0));
@@ -784,6 +1023,59 @@ fn fragment_tex_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
+fn fragment_tex_entry_nonfilter(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::FRAGMENT,
+        ty: wgpu::BindingType::Texture {
+            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+            view_dimension: wgpu::TextureViewDimension::D2,
+            multisampled: false,
+        },
+        count: None,
+    }
+}
+
+fn river_p5_state_audit_entries() -> [BindingAuditEntry; 4] {
+    [
+        BindingAuditEntry::plain_resource(
+            "river",
+            "effect_selector",
+            "river:river",
+            true,
+            false,
+            Some("R12 selector default: high graphics byte +0x18 true".into()),
+            "river pass variant is selected independently from terrain and water",
+        ),
+        BindingAuditEntry::plain_resource(
+            "river",
+            "state_1620_blend",
+            "src_alpha/inv_src_alpha rgb, preserve destination alpha",
+            true,
+            false,
+            Some("reverse_out/exports/pdxwater_constants.tsv blend_state 1620".into()),
+            "river blends into the shared HDR scene with traced state 1620 semantics",
+        ),
+        BindingAuditEntry::plain_resource(
+            "river",
+            "depth_disabled",
+            "no depth-stencil attachment",
+            true,
+            false,
+            Some("reverse_out/08_water_river_pipeline.md river depth disabled".into()),
+            "river is submitted as an independent order-83 HDR pass before water",
+        ),
+        BindingAuditEntry::mock(
+            "river",
+            "ReflectionCubeMap",
+            "reflection_2d_placeholder",
+            "No cubemap-specific river reflection binding is produced yet; pass uses reflection.dds fallback.",
+            "river reflection is explicit fallback and cannot count as full vanilla parity",
+            BindingBlockingLevel::Degraded,
+        ),
+    ]
+}
+
 fn river_upload_request(
     role: MapResRole,
     label: &'static str,
@@ -801,5 +1093,32 @@ fn river_upload_request(
         pass: "river",
         binding: label,
         visual_impact,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn river_p5_state_audit_reports_depth_disabled_and_blend() {
+        let entries = river_p5_state_audit_entries();
+        assert!(entries
+            .iter()
+            .any(|entry| entry.binding == "effect_selector" && entry.source_name == "river:river"));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.binding == "state_1620_blend"));
+        assert!(entries.iter().any(|entry| {
+            entry.binding == "depth_disabled"
+                && entry
+                    .reason
+                    .as_deref()
+                    .is_some_and(|reason| reason.contains("depth disabled"))
+        }));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.binding == "ReflectionCubeMap"
+                && entry.blocking_level == BindingBlockingLevel::Degraded));
     }
 }

@@ -27,6 +27,27 @@ impl BindingSourceKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BindingProvenance {
+    VanillaBacked,
+    RuntimeGenerated,
+    NeutralFallback,
+    ProjectGenerated,
+    Missing,
+}
+
+impl BindingProvenance {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::VanillaBacked => "vanilla_backed",
+            Self::RuntimeGenerated => "runtime_generated",
+            Self::NeutralFallback => "neutral_fallback",
+            Self::ProjectGenerated => "project_generated",
+            Self::Missing => "missing",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum BindingBlockingLevel {
     None,
@@ -50,12 +71,17 @@ pub struct BindingAuditEntry {
     pub binding: &'static str,
     pub role: Option<MapResRole>,
     pub source_kind: BindingSourceKind,
+    pub provenance: BindingProvenance,
     pub source_name: String,
     pub source_detail: Option<String>,
     pub resource_format: Option<String>,
     pub resource_dimensions: Option<String>,
     pub source_trace: Option<String>,
     pub parity_status: Option<String>,
+    pub producer_status: Option<String>,
+    pub asset_loaded: bool,
+    pub binding_present: bool,
+    pub producer_equivalent: bool,
     pub loaded: bool,
     pub critical: bool,
     pub mock_name: Option<String>,
@@ -83,12 +109,21 @@ impl BindingAuditEntry {
             } else {
                 BindingSourceKind::ProjectFallback
             },
+            provenance: if loaded {
+                BindingProvenance::VanillaBacked
+            } else {
+                BindingProvenance::Missing
+            },
             source_name: role.relative_path(),
             source_detail: None,
             resource_format: None,
             resource_dimensions: None,
             source_trace: None,
             parity_status: None,
+            producer_status: None,
+            asset_loaded: loaded,
+            binding_present: true,
+            producer_equivalent: loaded,
             loaded,
             critical,
             mock_name: None,
@@ -115,12 +150,17 @@ impl BindingAuditEntry {
             binding,
             role: None,
             source_kind: BindingSourceKind::DynamicTarget,
+            provenance: BindingProvenance::RuntimeGenerated,
             source_name: source_name.into(),
             source_detail: None,
             resource_format: None,
             resource_dimensions: None,
             source_trace: None,
             parity_status: None,
+            producer_status: Some("runtime_generated".to_string()),
+            asset_loaded: false,
+            binding_present: true,
+            producer_equivalent: true,
             loaded: true,
             critical: false,
             mock_name: None,
@@ -148,12 +188,21 @@ impl BindingAuditEntry {
             } else {
                 BindingSourceKind::ProjectFallback
             },
+            provenance: if loaded {
+                BindingProvenance::VanillaBacked
+            } else {
+                BindingProvenance::Missing
+            },
             source_name: source_name.into(),
             source_detail: None,
             resource_format: None,
             resource_dimensions: None,
             source_trace: None,
             parity_status: None,
+            producer_status: None,
+            asset_loaded: loaded,
+            binding_present: true,
+            producer_equivalent: loaded,
             loaded,
             critical,
             mock_name: None,
@@ -181,12 +230,17 @@ impl BindingAuditEntry {
             binding,
             role: None,
             source_kind: BindingSourceKind::DynamicTarget,
+            provenance: BindingProvenance::RuntimeGenerated,
             source_name: source_name.into(),
             source_detail: None,
             resource_format: None,
             resource_dimensions: None,
             source_trace: None,
             parity_status: None,
+            producer_status: Some("missing_or_non_equivalent".to_string()),
+            asset_loaded: false,
+            binding_present: true,
+            producer_equivalent: false,
             loaded: true,
             critical: true,
             mock_name: None,
@@ -217,6 +271,21 @@ impl BindingAuditEntry {
         self
     }
 
+    pub fn with_producer_status(
+        mut self,
+        provenance: BindingProvenance,
+        producer_status: impl Into<String>,
+        producer_equivalent: bool,
+        blocking_level: BindingBlockingLevel,
+    ) -> Self {
+        self.provenance = provenance;
+        self.producer_status = Some(producer_status.into());
+        self.producer_equivalent = producer_equivalent;
+        self.critical = blocking_level == BindingBlockingLevel::Critical;
+        self.blocking_level = blocking_level;
+        self
+    }
+
     pub fn mock(
         pass: &'static str,
         binding: &'static str,
@@ -231,12 +300,17 @@ impl BindingAuditEntry {
             binding,
             role: None,
             source_kind: BindingSourceKind::Mock,
+            provenance: BindingProvenance::ProjectGenerated,
             source_name: mock_name.clone(),
             source_detail: None,
             resource_format: None,
             resource_dimensions: None,
             source_trace: None,
             parity_status: None,
+            producer_status: Some("mock".to_string()),
+            asset_loaded: false,
+            binding_present: true,
+            producer_equivalent: false,
             loaded: true,
             critical: blocking_level == BindingBlockingLevel::Critical,
             mock_name: Some(mock_name),
@@ -303,13 +377,21 @@ impl BindingAudit {
             .count()
     }
 
+    pub fn producer_non_equivalent_count(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|entry| entry.binding_present && !entry.producer_equivalent)
+            .count()
+    }
+
     pub fn summary_line(&self) -> String {
         format!(
-            "[binding-audit] bindings={} fallback={} mock={} critical={}",
+            "[binding-audit] bindings={} fallback={} mock={} critical={} producer_non_equivalent={}",
             self.total(),
             self.fallback_count(),
             self.mock_count(),
-            self.critical_count()
+            self.critical_count(),
+            self.producer_non_equivalent_count()
         )
     }
 
@@ -329,6 +411,17 @@ impl BindingAudit {
                 entry.blocking_level.as_str(),
                 entry.visual_impact
             );
+            let _ = writeln!(
+                out,
+                "    provenance={} asset_loaded={} binding_present={} producer_equivalent={}",
+                entry.provenance.as_str(),
+                entry.asset_loaded,
+                entry.binding_present,
+                entry.producer_equivalent
+            );
+            if let Some(producer_status) = &entry.producer_status {
+                let _ = writeln!(out, "    producer_status={}", producer_status);
+            }
             if let Some(reason) = &entry.reason {
                 let _ = writeln!(out, "    reason={}", reason);
             }
@@ -358,6 +451,11 @@ impl BindingAudit {
         let _ = writeln!(out, "  \"fallback\": {},", self.fallback_count());
         let _ = writeln!(out, "  \"mock\": {},", self.mock_count());
         let _ = writeln!(out, "  \"critical\": {},", self.critical_count());
+        let _ = writeln!(
+            out,
+            "  \"producer_non_equivalent\": {},",
+            self.producer_non_equivalent_count()
+        );
         out.push_str("  \"entries\": [\n");
         for (idx, entry) in self.entries.iter().enumerate() {
             out.push_str("    {\n");
@@ -388,6 +486,11 @@ impl BindingAudit {
             );
             let _ = writeln!(
                 out,
+                "      \"provenance\": \"{}\",",
+                entry.provenance.as_str()
+            );
+            let _ = writeln!(
+                out,
                 "      \"source_name\": \"{}\",",
                 json_escape(&entry.source_name)
             );
@@ -405,11 +508,19 @@ impl BindingAudit {
                 6,
             );
             write_json_string_option(&mut out, "source_trace", entry.source_trace.as_deref(), 6);
+            write_json_string_option(&mut out, "parity_status", entry.parity_status.as_deref(), 6);
             write_json_string_option(
                 &mut out,
-                "parity_status",
-                entry.parity_status.as_deref(),
+                "producer_status",
+                entry.producer_status.as_deref(),
                 6,
+            );
+            let _ = writeln!(out, "      \"asset_loaded\": {},", entry.asset_loaded);
+            let _ = writeln!(out, "      \"binding_present\": {},", entry.binding_present);
+            let _ = writeln!(
+                out,
+                "      \"producer_equivalent\": {},",
+                entry.producer_equivalent
             );
             let _ = writeln!(out, "      \"loaded\": {},", entry.loaded);
             let _ = writeln!(out, "      \"critical\": {},", entry.critical);
@@ -830,7 +941,9 @@ impl VanillaResourceViews {
                 "tree color no longer follows terrain ColorMap/ColorMapSecond",
             ),
         ]);
-        audit.extend(vanilla_targets::runtime_target_audit_entries_for_pass("tree"));
+        audit.extend(vanilla_targets::runtime_target_audit_entries_for_pass(
+            "tree",
+        ));
         audit.extend(vanilla_targets::runtime_target_audit_entries_for_pass(
             "pdxmesh",
         ));
@@ -887,6 +1000,12 @@ impl VanillaResourceViews {
                 impact,
             )]);
         }
+        audit.extend(vanilla_targets::runtime_target_audit_entries_for_pass(
+            "river",
+        ));
+        audit.extend(vanilla_targets::runtime_target_audit_entries_for_pass(
+            "projected_fow_shadow",
+        ));
         let color_cube_loaded = self.has_vanilla_color_cube();
         let color_cube_source = self.default_color_cube_source();
         let color_cube_reason = if color_cube_loaded {
@@ -956,7 +1075,7 @@ fn load_posteffect_volume_audit(
         match hoi4_assets::load_tga(db, path) {
             Ok(image) if is_color_cube_tga(&image) => loaded += 1,
             Ok(image) => warnings.push(format!(
-                "{}: unsupported ColorCube TGA dimensions {}x{}",
+                "{}: unsupported ColorCube TGA dimensions {}x{}; expected 1024x32",
                 path, image.width, image.height
             )),
             Err(err) => warnings.push(
@@ -969,8 +1088,8 @@ fn load_posteffect_volume_audit(
 }
 
 fn is_color_cube_tga(image: &TgaImage) -> bool {
-    image.height >= 2
-        && image.width == image.height * image.height
+    image.width == 1024
+        && image.height == 32
         && image.pixels.len() == (image.width * image.height * 4) as usize
 }
 
@@ -1294,7 +1413,11 @@ mod tests {
                 && entry.binding == "light_data"
                 && entry.source_kind == BindingSourceKind::DynamicTarget
                 && entry.source_name == "LightDataMap"
-                && entry.blocking_level == BindingBlockingLevel::None
+                && entry.provenance == BindingProvenance::ProjectGenerated
+                && entry.binding_present
+                && !entry.asset_loaded
+                && !entry.producer_equivalent
+                && entry.blocking_level == BindingBlockingLevel::Degraded
         }));
     }
 
@@ -1353,6 +1476,8 @@ mod tests {
             "GradientBorderChannel2",
             "GradientBorderChannel3",
             "ProvinceSecondaryColorMap",
+            "IntelMap",
+            "ShadowMap",
             "FOW",
             "MudSnow",
             "LightDataMap",
@@ -1365,37 +1490,83 @@ mod tests {
                 .unwrap_or_else(|| panic!("missing runtime target audit entry: {target}"));
             assert_eq!(entry.source_kind, BindingSourceKind::DynamicTarget);
             assert_eq!(entry.mock_name, None);
+            assert!(entry.binding_present, "{target} binding must be present");
+            assert!(
+                !entry.asset_loaded,
+                "{target} is a runtime target, not a static loaded asset"
+            );
             assert!(entry.resource_format.is_some(), "{target} missing format");
             assert!(
                 entry.resource_dimensions.is_some(),
                 "{target} missing dimensions"
             );
             assert!(
-                entry
-                    .source_trace
-                    .as_deref()
-                    .is_some_and(|trace| trace.contains("runtime_targets.json")),
+                entry.source_trace.as_deref().is_some_and(|trace| {
+                    trace.contains("runtime_targets.json") || trace.contains("reverse_out/")
+                }),
                 "{target} missing runtime trace provenance"
             );
             assert!(
                 entry.parity_status.is_some(),
                 "{target} missing parity status"
             );
+            assert!(
+                entry.producer_status.is_some(),
+                "{target} missing producer status"
+            );
         }
 
-        for fallback in ["FOW", "MudSnow"] {
+        for fallback in [
+            "GradientBorderChannel1",
+            "GradientBorderChannel2",
+            "ProvinceSecondaryColorMap",
+            "ShadowMap",
+            "FOW",
+            "MudSnow",
+        ] {
             let entry = audit
                 .entries
                 .iter()
                 .find(|entry| entry.source_name == fallback)
                 .unwrap();
             assert!(
-                entry
-                    .parity_status
-                    .as_deref()
-                    .is_some_and(|status| status.contains("fallback")),
-                "{fallback} must be explicitly marked fallback"
+                entry.parity_status.as_deref().is_some_and(|status| {
+                    status.contains("fallback")
+                        || status.contains("project-generated")
+                        || status.contains("non-parity")
+                }),
+                "{fallback} must be explicitly marked fallback or non-parity"
+            );
+            assert!(
+                !entry.producer_equivalent,
+                "{fallback} must not count as vanilla producer parity"
             );
         }
+
+        let mud_snow = audit
+            .entries
+            .iter()
+            .find(|entry| entry.source_name == "MudSnow")
+            .unwrap();
+        assert_eq!(mud_snow.provenance, BindingProvenance::NeutralFallback);
+        assert_eq!(
+            mud_snow.producer_status.as_deref(),
+            Some("SnowMudData=missing_game_state_zero_fallback_non_parity")
+        );
+        assert!(mud_snow
+            .resource_dimensions
+            .as_deref()
+            .is_some_and(|value| value.contains("1408x512")));
+
+        let shadow = audit
+            .entries
+            .iter()
+            .find(|entry| entry.source_name == "ShadowMap")
+            .unwrap();
+        assert_eq!(shadow.provenance, BindingProvenance::NeutralFallback);
+        assert_eq!(
+            shadow.producer_status.as_deref(),
+            Some("ShadowMap_ProjectFOW=missing/fallback")
+        );
     }
 }

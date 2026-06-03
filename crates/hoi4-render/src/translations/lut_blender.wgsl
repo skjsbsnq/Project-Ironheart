@@ -2,9 +2,8 @@
 // lut_blender.wgsl — Phase 3.11.13 vanilla `gfx/FX/lut_blender.shader`
 // =============================================================================
 //
-// 3D LUT 调色（vanilla `gfx/lut/*.dds` 全套 — 政治模式 / 战时 / DLC 主题色）。
-// 输入 RGB → LUT 查表 → 输出调色后 RGB。本 shader 假定 LUT 是 16×16×16
-// 解开成 256×16 的 2D atlas（vanilla 习惯）。
+// 3D LUT 调色。R17/B1I-023 证明 vanilla ColorCube 是 1024×32 的
+// flattened 32×32×32 TGA，blue 维度横向铺开 32 个 32×32 block。
 
 //#include "shader_lib.wgsl"
 
@@ -16,7 +15,7 @@
 struct LutParams {
     /// LUT 强度（0 = 原图，1 = 全 LUT）
     strength: f32,
-    /// LUT 维度（vanilla = 16；shader 假定）
+    /// LUT 维度（vanilla = 32）
     lut_size: f32,
     _pad0: f32,
     _pad1: f32,
@@ -37,7 +36,7 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
     return out;
 }
 
-/// 16×16 = 256 行 LUT 查表，blue 维度横向铺开 16 个 16×16 block。
+/// 1024×32 LUT 查表，blue 维度横向铺开 32 个 32×32 block。
 fn apply_lut(color: vec3<f32>) -> vec3<f32> {
     let n = lp.lut_size;
     let r = clamp(color.r, 0.0, 1.0);

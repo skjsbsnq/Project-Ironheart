@@ -45,11 +45,14 @@ pub struct MapFrameContext {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapRenderPass {
     ShadowCaster,
+    ProjectedFowShadow,
     Sky,
     Terrain,
-    Water,
+    BorderFirst,
     River,
-    Borders,
+    MapLayers,
+    Water,
+    BorderSecond,
     TradeRoutes,
     Straits,
     Hoi3Counters,
@@ -67,13 +70,16 @@ pub enum MapRenderPass {
 }
 
 impl MapRenderPass {
-    pub const PHASE1_ORDER: [Self; 20] = [
+    pub const PHASE1_ORDER: [Self; 23] = [
         Self::ShadowCaster,
+        Self::ProjectedFowShadow,
         Self::Sky,
         Self::Terrain,
-        Self::Water,
+        Self::BorderFirst,
         Self::River,
-        Self::Borders,
+        Self::MapLayers,
+        Self::Water,
+        Self::BorderSecond,
         Self::TradeRoutes,
         Self::Straits,
         Self::Railways,
@@ -93,11 +99,14 @@ impl MapRenderPass {
     pub const fn registry_name(self) -> &'static str {
         match self {
             Self::ShadowCaster => "shadow_caster",
+            Self::ProjectedFowShadow => "projected_fow_shadow",
             Self::Sky => "3d_sky",
             Self::Terrain => "3d_terrain",
-            Self::Water => "3d_water",
+            Self::BorderFirst => "3d_border_first",
             Self::River => "3d_river",
-            Self::Borders => "3d_border",
+            Self::MapLayers => "3d_map_layers",
+            Self::Water => "3d_water",
+            Self::BorderSecond => "3d_border_second",
             Self::TradeRoutes => "3d_traderoute",
             Self::Straits => "3d_strait",
             Self::Hoi3Counters => "hoi3_counter_v3",
@@ -118,11 +127,13 @@ impl MapRenderPass {
     fn enabled_by_mask(self, mask: MapLayerMask) -> bool {
         match self {
             Self::ShadowCaster => mask.terrain || mask.objects,
+            Self::ProjectedFowShadow => mask.terrain || mask.water || mask.river || mask.objects,
             Self::Sky => mask.sky,
             Self::Terrain => mask.terrain,
-            Self::Water => mask.water,
+            Self::BorderFirst | Self::BorderSecond => mask.borders,
             Self::River => mask.river,
-            Self::Borders => mask.borders,
+            Self::MapLayers => mask.terrain,
+            Self::Water => mask.water,
             Self::TradeRoutes | Self::Straits => mask.static_decals || mask.overlays,
             Self::Hoi3Counters => mask.objects || mask.overlays,
             Self::Trees | Self::Buildings | Self::PoiIcons => mask.objects,
@@ -197,10 +208,14 @@ impl MapRenderGraph {
 #[derive(Debug, Clone, Default)]
 pub struct MapPassDrawSet {
     pub shadow_caster: bool,
+    pub projected_fow_shadow: bool,
     pub sky: bool,
     pub terrain: bool,
-    pub water: bool,
+    pub border_first: bool,
     pub river: bool,
+    pub map_layers: bool,
+    pub water: bool,
+    pub border_second: bool,
     pub borders: bool,
     pub trade_routes: bool,
     pub straits: bool,
@@ -792,11 +807,20 @@ impl MapPassDrawSet {
     fn set(&mut self, pass: MapRenderPass, enabled: bool) {
         match pass {
             MapRenderPass::ShadowCaster => self.shadow_caster = enabled,
+            MapRenderPass::ProjectedFowShadow => self.projected_fow_shadow = enabled,
             MapRenderPass::Sky => self.sky = enabled,
             MapRenderPass::Terrain => self.terrain = enabled,
-            MapRenderPass::Water => self.water = enabled,
+            MapRenderPass::BorderFirst => {
+                self.border_first = enabled;
+                self.borders = self.border_first || self.border_second;
+            }
             MapRenderPass::River => self.river = enabled,
-            MapRenderPass::Borders => self.borders = enabled,
+            MapRenderPass::MapLayers => self.map_layers = enabled,
+            MapRenderPass::Water => self.water = enabled,
+            MapRenderPass::BorderSecond => {
+                self.border_second = enabled;
+                self.borders = self.border_first || self.border_second;
+            }
             MapRenderPass::TradeRoutes => self.trade_routes = enabled,
             MapRenderPass::Straits => self.straits = enabled,
             MapRenderPass::Hoi3Counters => self.hoi3_counters = enabled,
@@ -1115,11 +1139,14 @@ mod tests {
             names,
             vec![
                 "shadow_caster",
+                "projected_fow_shadow",
                 "3d_sky",
                 "3d_terrain",
-                "3d_water",
+                "3d_border_first",
                 "3d_river",
-                "3d_border",
+                "3d_map_layers",
+                "3d_water",
+                "3d_border_second",
                 "3d_traderoute",
                 "3d_strait",
                 "3d_railways",
@@ -1149,16 +1176,43 @@ mod tests {
     }
 
     #[test]
-    fn river_pass_draws_after_water_before_borders() {
+    fn vanilla_core_passes_keep_p1_order() {
         let names: Vec<_> = MapRenderPass::PHASE1_ORDER
             .iter()
             .map(|pass| pass.registry_name())
             .collect();
+        let projected_fow_shadow = names
+            .iter()
+            .position(|name| *name == "projected_fow_shadow")
+            .unwrap();
+        let terrain = names.iter().position(|name| *name == "3d_terrain").unwrap();
+        let border_first = names
+            .iter()
+            .position(|name| *name == "3d_border_first")
+            .unwrap();
         let water = names.iter().position(|name| *name == "3d_water").unwrap();
         let river = names.iter().position(|name| *name == "3d_river").unwrap();
-        let border = names.iter().position(|name| *name == "3d_border").unwrap();
-        assert!(water < river);
-        assert!(river < border);
+        let map_layers = names
+            .iter()
+            .position(|name| *name == "3d_map_layers")
+            .unwrap();
+        let border_second = names
+            .iter()
+            .position(|name| *name == "3d_border_second")
+            .unwrap();
+        let postprocess = names
+            .iter()
+            .position(|name| *name == "postprocess")
+            .unwrap();
+        let ui = names.iter().position(|name| *name == "ui").unwrap();
+        assert!(projected_fow_shadow < terrain);
+        assert!(terrain < border_first);
+        assert!(border_first < river);
+        assert!(river < map_layers);
+        assert!(map_layers < water);
+        assert!(water < border_second);
+        assert!(border_second < postprocess);
+        assert!(postprocess < ui);
     }
 
     #[test]
@@ -1175,6 +1229,7 @@ mod tests {
         );
         assert!(terrain.draw.terrain);
         assert!(terrain.draw.shadow_caster);
+        assert!(terrain.draw.projected_fow_shadow);
         assert!(!terrain.draw.water);
         assert!(!terrain.draw.borders);
         assert!(!terrain.draw.postprocess);
@@ -1190,6 +1245,7 @@ mod tests {
 
         let full = renderer.build_frame_plan(test_context(MapLayerMask::all()), &registry);
         assert!(full.draw.terrain);
+        assert!(full.draw.projected_fow_shadow);
         assert!(full.draw.water);
         assert!(full.draw.river);
         assert!(full.draw.map_arrows);

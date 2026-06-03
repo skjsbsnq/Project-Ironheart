@@ -195,10 +195,10 @@ pub fn estimate_frame_texture_memory_bytes(width: u32, height: u32, postprocess_
             lh = (lh / 4).max(1);
         }
 
-        // Phase 10 identity ColorCube fallback: 16 slices laid out as a
-        // 256x16 RGBA8 2D LUT. Vanilla DDS loading can replace the contents
-        // without changing the memory shape.
-        total += 256 * 16 * 4;
+        // Vanilla ColorCube is a 1024x32 flattened 32x32x32 RGBA8 LUT.
+        // The identity fallback keeps the same shape so missing assets do not
+        // silently exercise the old 16^3 path.
+        total += 1024 * 32 * 4;
     }
 
     total
@@ -635,11 +635,11 @@ mod tests {
         let stats = MapResourceCacheStats {
             dds_upload_entries: 7,
             mesh_parse_entries: 3,
-            runtime_target_cache_entries: 8,
+            runtime_target_cache_entries: 10,
         };
         assert_eq!(
             stats.summary(),
-            "dds_upload=7 mesh_parse=3 runtime_targets=8"
+            "dds_upload=7 mesh_parse=3 runtime_targets=10"
         );
     }
 }
