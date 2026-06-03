@@ -114,6 +114,11 @@ fn terrain_wgsl_final_path_keeps_semantic_debug_inputs_out_of_material() {
         "ProvinceSecondaryColorMap must feed the terrain final material path after snow/mud"
     );
     assert!(
+        material_body.contains("if (terrain_owns_sdf_borders())")
+            && material_body.contains("apply_gradient_border_channels(color, frag.map_uv)"),
+        "GradientBorderChannel1/2 must only feed the final material through the terrain border fallback owner"
+    );
+    assert!(
         !material_body.contains("gradient_border_ch3_dist_px("),
         "gradient_border_ch3 must stay out of the terrain final material path"
     );

@@ -224,11 +224,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     color = color + vec3<f32>(1.0, 0.97, 0.85) * sun_spec * 0.20;
 
     let projected_shadow = textureSample(shadow_map, water_sampler, map_uv);
-    let country_d_px = textureSample(gradient_border_ch1, water_sampler, map_uv).r * 255.0;
-    let province_d_px = textureSample(gradient_border_ch2, water_sampler, map_uv).r * 255.0;
-    let semantic_d_px = textureSample(gradient_border_ch3, water_sampler, map_uv).r * 255.0;
-    let border_hint = 1.0 - smoothstep(0.0, 3.0, min(min(country_d_px, province_d_px), semantic_d_px));
-    color = mix(color, vec3<f32>(0.09, 0.16, 0.21), border_hint * 0.045);
     color = mix(color, color * projected_shadow.r, 1.0 - projected_shadow.r);
 
     color = color + calculate_point_lights_water(in.map_px, in.world_pos, normal) * 0.12;

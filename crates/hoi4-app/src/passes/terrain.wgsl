@@ -835,9 +835,11 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
         mud = get_mud_amount(mud_snow);
         color = get_mud_color(frag.map_px, color, mud);
         color = apply_snow(frag.map_px, color, snow);
-        let gradient_border = apply_gradient_border_channels(color, frag.map_uv);
-        color = gradient_border.color;
-        border_bloom_alpha = gradient_border.bloom_alpha;
+        if (terrain_owns_sdf_borders()) {
+            let gradient_border = apply_gradient_border_channels(color, frag.map_uv);
+            color = gradient_border.color;
+            border_bloom_alpha = gradient_border.bloom_alpha;
+        }
         color = apply_province_secondary_color(color, frag.map_uv);
 
         let mud_n = rotate_vec_by_vec(surface_normal, mud_normal(frag.map_px));

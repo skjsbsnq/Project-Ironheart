@@ -5,7 +5,8 @@
 //! mapping）格�?—�?RG=mean(N.xy)，BA=方差�? 频率滚动采样后按 LEAN
 //! moments 混合�?//!
 //! Phase 6 材质路径覆盖�?//!
-//! 1. **SampleWater**：`colormap_water_0/1/2.dds` + `underwater_terrain_0.dds`
+//! 1. **SampleWater**：`colormap_water_0/1/2.dds` with `underwater_terrain_0.dds`
+//!    only on the full refraction path
 //! 2. **reflection/refraction**：`reflection.dds`、`reflection_land_unit.dds`�?//!    environment cube fallback �?Fresnel 混合
 //! 3. **water spec**：`fow_rgb_waterspec_a.dds` �?A 通道驱动太阳高光
 //! 4. **ApplyIce**：`ice_diffuse.dds` + `ice_noise_0/1.dds`
@@ -1417,13 +1418,16 @@ fn sample_water(map_uv: vec2<f32>, depth_ratio: f32, camera_dist: f32) -> vec3<f
     let far_color = textureSample(colormap_water_2, water_sampler, map_uv).rgb;
     let lod_t = smoothstep(32.0, 180.0, camera_dist);
     let map_color = mix(mix(near_color, mid_color, lod_t), far_color, lod_t * lod_t);
+    if (wparams.effect_variant == 1u) {
+        return map_color;
+    }
     let underwater = textureSample(underwater_terrain, water_sampler, map_uv * 4.0).rgb;
     return mix(map_color, underwater, clamp(depth_ratio * 0.22, 0.0, 0.22));
 }
 
 fn sample_refraction(map_uv: vec2<f32>, normal: vec3<f32>, depth_ratio: f32) -> vec3<f32> {
     if (wparams.effect_variant == 1u) {
-        return textureSample(colormap_water_1, water_sampler, map_uv).rgb;
+        return vec3<f32>(0.0, 0.1, 0.2);
     }
     let offset = normal.xz * (0.0018 + 0.0026 * (1.0 - depth_ratio));
     let refracted_uv = map_uv + offset;
@@ -1556,11 +1560,6 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, screen_uv: vec2<f3
 
     let projected_shadow = textureSample(shadow_map, water_map_sampler, clamp(screen_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
     let coast_d_px = 255.0;
-    let country_d_px = textureSample(gradient_border_ch1, water_map_sampler, map_uv).r * 255.0;
-    let province_d_px = textureSample(gradient_border_ch2, water_map_sampler, map_uv).r * 255.0;
-    let semantic_d_px = textureSample(gradient_border_ch3, water_map_sampler, map_uv).r * 255.0;
-    let border_hint = 1.0 - smoothstep(0.0, 3.0, min(min(country_d_px, province_d_px), semantic_d_px));
-    color = mix(color, vec3<f32>(0.09, 0.16, 0.21), border_hint * 0.045);
     color = mix(color, secondary.rgb, secondary.a * 0.30);
     let foam_alpha = 0.0;
     let water_shore = 1.0 - smoothstep(SEA_LEVEL - 0.035, SEA_LEVEL - 0.004, h);
@@ -1794,7 +1793,8 @@ mod tests {
     fn water_wgsl_uses_effect_variant_alpha_and_no_refraction_fallback() {
         assert!(WATER_WGSL.contains("effect_variant: u32"));
         assert!(WATER_WGSL.contains("wparams.effect_variant == 1u"));
-        assert!(WATER_WGSL.contains("return textureSample(colormap_water_1"));
+        assert!(WATER_WGSL.contains("return map_color;"));
+        assert!(WATER_WGSL.contains("return vec3<f32>(0.0, 0.1, 0.2);"));
         assert!(WATER_WGSL.contains("alpha: f32"));
         assert!(WATER_WGSL.contains("return vec4<f32>(color, material.alpha)"));
         assert!(!WATER_WGSL.contains("return vec4<f32>(color, 1.0)"));
@@ -1808,17 +1808,20 @@ mod tests {
     }
 
     #[test]
-    fn water_wgsl_applies_gradient_border_before_province_secondary_color() {
-        let gradient_idx = WATER_WGSL
-            .find("let country_d_px = textureSample(gradient_border_ch1")
-            .expect("water shader should sample gradient border");
-        let secondary_mix_idx = WATER_WGSL
-            .find("color = mix(color, secondary.rgb")
-            .expect("water shader should mix province secondary color");
+    fn water_wgsl_keeps_gradient_border_out_of_final_water_color() {
+        let material_start = WATER_WGSL
+            .find("fn build_water_material")
+            .expect("water shader should build material");
+        let fragment_start = WATER_WGSL
+            .find("@fragment")
+            .expect("water shader should have fragment entry");
+        let material_body = &WATER_WGSL[material_start..fragment_start];
+
         assert!(
-            gradient_idx < secondary_mix_idx,
-            "GradientBorder must be consumed before ProvinceSecondaryColorMap"
+            !material_body.contains("border_hint"),
+            "GradientBorder fallback SDFs must not darken final water color"
         );
+        assert!(material_body.contains("color = mix(color, secondary.rgb"));
     }
 
     #[test]

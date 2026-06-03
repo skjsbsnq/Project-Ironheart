@@ -791,25 +791,6 @@ fn debug_allows_kind(kind: u32, is_selected: bool) -> bool {
     return true;
 }
 
-fn hierarchy_color(kind: u32) -> vec3<f32> {
-    if (kind == KIND_COUNTRY) {
-        return vec3<f32>(0.055, 0.050, 0.040);
-    }
-    if (kind == KIND_STATE) {
-        return vec3<f32>(0.28, 0.26, 0.21);
-    }
-    if (kind == KIND_PROVINCE) {
-        return vec3<f32>(0.18, 0.17, 0.145);
-    }
-    if (kind == KIND_SEA) {
-        return vec3<f32>(0.32, 0.48, 0.54);
-    }
-    if (kind == KIND_SEA_REGION) {
-        return vec3<f32>(0.36, 0.52, 0.66);
-    }
-    return vec3<f32>(0.42, 0.29, 0.18);
-}
-
 fn false_color(kind: u32) -> vec3<f32> {
     if (kind == KIND_COUNTRY) {
         return vec3<f32>(1.0, 0.18, 0.12);
@@ -839,18 +820,18 @@ fn hierarchy_alpha(kind: u32, zoom: f32, distance_norm: f32, camera_distance_wor
             VANILLA_STATE_BORDER_FADE_FAR,
             camera_distance_world
         );
-        alpha = 0.62 * state_fade * mix(1.0, 0.64, distance_norm);
+        alpha = 0.46 * state_fade * mix(1.0, 0.58, distance_norm);
     } else if (kind == KIND_PROVINCE) {
         let province_fade = 1.0 - smoothstep(
-            VANILLA_PROVINCE_BORDER_FADE_NEAR,
-            VANILLA_PROVINCE_BORDER_FADE_FAR,
+            120.0,
+            220.0,
             camera_distance_world
         );
-        alpha = 0.30 * province_fade;
+        alpha = 0.11 * province_fade * smoothstep(0.58, 0.82, zoom);
     } else if (kind == KIND_SEA) {
-        alpha = 0.34 * smoothstep(0.28, 0.58, zoom);
+        alpha = 0.24 * smoothstep(0.36, 0.66, zoom);
     } else if (kind == KIND_SEA_REGION) {
-        alpha = 0.26 * smoothstep(0.20, 0.48, zoom) * (1.0 - smoothstep(0.86, 1.0, distance_norm));
+        alpha = 0.16 * smoothstep(0.32, 0.58, zoom) * (1.0 - smoothstep(0.86, 1.0, distance_norm));
     } else {
         alpha = 0.82 * smoothstep(0.30, 0.58, zoom);
     }
@@ -944,15 +925,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (debug_active) {
         layer_alpha = max(layer_alpha, 0.82);
     }
-    let style_color = hierarchy_color(kind);
-
-    var texture_mix = 0.55;
-    if (kind == KIND_SEA) {
-        texture_mix = 0.22;
-    } else if (kind == KIND_SEA_REGION) {
-        texture_mix = 0.30;
-    }
-    rgb = mix(style_color, rgb, texture_mix);
     alpha = alpha * edge_fade * width_mask * layer_alpha;
 
     if (bparams.debug_view == BORDER_DEBUG_FALSE_COLOR) {
