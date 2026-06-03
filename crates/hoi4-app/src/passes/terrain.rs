@@ -106,6 +106,42 @@ impl TerrainDebugView {
         Self::FinalBeforePostprocess,
     ];
 
+    /// Views reachable from the normal F6 runtime cycle. `MapPxGrid` is kept as
+    /// a shader/debug value but excluded here because it draws a strong 64/256
+    /// map-pixel grid that is easy to mistake for final map content.
+    pub const INTERACTIVE_CYCLE: [Self; 30] = [
+        Self::Off,
+        Self::TerrainId,
+        Self::AtlasTileId,
+        Self::TerrainBlendState,
+        Self::TerrainCorners,
+        Self::PoliticalBase,
+        Self::TerrainAlbedo,
+        Self::Normal,
+        Self::HeightSlope,
+        Self::SnowMask,
+        Self::MudMask,
+        Self::RiverMask,
+        Self::CityEmitMask,
+        Self::CityLightsRgb,
+        Self::NightFactor,
+        Self::CityLightContribution,
+        Self::MapUv,
+        Self::VanillaTileRepeat,
+        Self::CitylightUv,
+        Self::GradientBorderCh3,
+        Self::ProvinceSecondary,
+        Self::FowUnexplored,
+        Self::FowVisibility,
+        Self::FowEnemySpotted,
+        Self::MudSnowSnowAmount,
+        Self::MudSnowMudAmount,
+        Self::MudSnowTarget,
+        Self::PointLightContribution,
+        Self::Colormap,
+        Self::FinalBeforePostprocess,
+    ];
+
     pub const fn name(self) -> &'static str {
         match self {
             Self::Off => "off",
@@ -179,8 +215,14 @@ impl TerrainDebugView {
     }
 
     pub fn next(self) -> Self {
-        let idx = Self::ALL.iter().position(|view| *view == self).unwrap_or(0);
-        Self::ALL[(idx + 1) % Self::ALL.len()]
+        if self == Self::MapPxGrid {
+            return Self::Off;
+        }
+        let idx = Self::INTERACTIVE_CYCLE
+            .iter()
+            .position(|view| *view == self)
+            .unwrap_or(0);
+        Self::INTERACTIVE_CYCLE[(idx + 1) % Self::INTERACTIVE_CYCLE.len()]
     }
 }
 
@@ -1388,6 +1430,11 @@ mod tests {
             TerrainDebugView::RiverMask.next(),
             TerrainDebugView::CityEmitMask
         );
+        assert_eq!(
+            TerrainDebugView::MapUv.next(),
+            TerrainDebugView::VanillaTileRepeat
+        );
+        assert_eq!(TerrainDebugView::MapPxGrid.next(), TerrainDebugView::Off);
         assert_eq!(
             TerrainDebugView::CitylightUv.next(),
             TerrainDebugView::GradientBorderCh3

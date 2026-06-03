@@ -94,7 +94,7 @@ impl Default for BorderParams {
         Self {
             cam_distance_norm: 0.3,
             selection_intensity: 0.0,
-            enabled_mask: 0x3F, // 6 types
+            enabled_mask: Self::DEFAULT_VISIBLE_MASK,
             selected_province_id: u32::MAX,
             debug_view: BorderDebugView::Off.as_shader_value(),
             screen_width: 1920.0,
@@ -104,6 +104,23 @@ impl Default for BorderParams {
             map_size_px: [MAP_SIZE_X, MAP_SIZE_Y],
         }
     }
+}
+
+impl BorderParams {
+    pub const COUNTRY_MASK: u32 = 1 << 0;
+    pub const STATE_MASK: u32 = 1 << 1;
+    pub const PROVINCE_MASK: u32 = 1 << 2;
+    pub const SEA_MASK: u32 = 1 << 3;
+    pub const SEA_REGION_MASK: u32 = 1 << 4;
+    pub const IMPASSABLE_MASK: u32 = 1 << 5;
+    pub const ALL_VISIBLE_MASK: u32 = Self::COUNTRY_MASK
+        | Self::STATE_MASK
+        | Self::PROVINCE_MASK
+        | Self::SEA_MASK
+        | Self::SEA_REGION_MASK
+        | Self::IMPASSABLE_MASK;
+    pub const DEFAULT_VISIBLE_MASK: u32 =
+        Self::COUNTRY_MASK | Self::SEA_MASK | Self::IMPASSABLE_MASK;
 }
 
 const _: () = assert!(std::mem::size_of::<BorderParams>() == 48);
@@ -813,27 +830,27 @@ fn false_color(kind: u32) -> vec3<f32> {
 fn hierarchy_alpha(kind: u32, zoom: f32, distance_norm: f32, camera_distance_world: f32, is_selected: bool) -> f32 {
     var alpha = 0.0;
     if (kind == KIND_COUNTRY) {
-        alpha = mix(1.05, 0.76, distance_norm);
+        alpha = mix(0.70, 0.42, distance_norm);
     } else if (kind == KIND_STATE) {
         let state_fade = 1.0 - smoothstep(
-            VANILLA_STATE_BORDER_FADE_NEAR,
-            VANILLA_STATE_BORDER_FADE_FAR,
+            95.0,
+            175.0,
             camera_distance_world
         );
-        alpha = 0.46 * state_fade * mix(1.0, 0.58, distance_norm);
+        alpha = 0.14 * state_fade * mix(0.82, 0.32, distance_norm);
     } else if (kind == KIND_PROVINCE) {
         let province_fade = 1.0 - smoothstep(
-            120.0,
-            220.0,
+            38.0,
+            78.0,
             camera_distance_world
         );
-        alpha = 0.11 * province_fade * smoothstep(0.58, 0.82, zoom);
+        alpha = 0.014 * province_fade * smoothstep(0.92, 0.99, zoom);
     } else if (kind == KIND_SEA) {
-        alpha = 0.24 * smoothstep(0.36, 0.66, zoom);
+        alpha = 0.10 * smoothstep(0.56, 0.80, zoom);
     } else if (kind == KIND_SEA_REGION) {
-        alpha = 0.16 * smoothstep(0.32, 0.58, zoom) * (1.0 - smoothstep(0.86, 1.0, distance_norm));
+        alpha = 0.045 * smoothstep(0.62, 0.82, zoom) * (1.0 - smoothstep(0.70, 0.90, distance_norm));
     } else {
-        alpha = 0.82 * smoothstep(0.30, 0.58, zoom);
+        alpha = 0.38 * smoothstep(0.52, 0.72, zoom);
     }
 
     if (is_selected) {
@@ -845,22 +862,35 @@ fn hierarchy_alpha(kind: u32, zoom: f32, distance_norm: f32, camera_distance_wor
 fn target_half_width_px(kind: u32, zoom: f32, is_selected: bool) -> f32 {
     var px = 0.75;
     if (kind == KIND_COUNTRY) {
-        px = mix(1.25, 2.35, zoom);
+        px = mix(0.82, 1.55, zoom);
     } else if (kind == KIND_STATE) {
-        px = mix(0.65, 1.30, zoom);
+        px = mix(0.32, 0.74, zoom);
     } else if (kind == KIND_PROVINCE) {
-        px = mix(0.36, 0.82, zoom);
+        px = mix(0.08, 0.26, zoom);
     } else if (kind == KIND_SEA) {
-        px = mix(0.42, 0.86, zoom);
+        px = mix(0.22, 0.50, zoom);
     } else if (kind == KIND_SEA_REGION) {
-        px = mix(0.35, 0.70, zoom);
+        px = mix(0.16, 0.38, zoom);
     } else {
-        px = mix(0.76, 1.48, zoom);
+        px = mix(0.42, 0.86, zoom);
     }
     if (is_selected) {
         px = max(px, 1.35);
     }
     return px;
+}
+
+fn display_line_color(kind: u32, sampled_rgb: vec3<f32>) -> vec3<f32> {
+    if (kind == KIND_COUNTRY) {
+        return mix(sampled_rgb, vec3<f32>(0.18, 0.18, 0.15), 0.55);
+    }
+    if (kind == KIND_STATE) {
+        return mix(sampled_rgb, vec3<f32>(0.28, 0.29, 0.24), 0.72);
+    }
+    if (kind == KIND_PROVINCE) {
+        return mix(sampled_rgb, vec3<f32>(0.39, 0.40, 0.34), 0.86);
+    }
+    return mix(sampled_rgb, vec3<f32>(0.30, 0.34, 0.34), 0.68);
 }
 
 fn screen_width_mask(in: VsOut, kind: u32, zoom: f32, is_selected: bool) -> f32 {
@@ -926,6 +956,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         layer_alpha = max(layer_alpha, 0.82);
     }
     alpha = alpha * edge_fade * width_mask * layer_alpha;
+    if (!debug_active) {
+        rgb = display_line_color(kind, rgb);
+    }
 
     if (bparams.debug_view == BORDER_DEBUG_FALSE_COLOR) {
         rgb = false_color(kind);
@@ -958,7 +991,8 @@ mod tests {
     #[test]
     fn border_params_default_enabled_mask_all() {
         let p = BorderParams::default();
-        assert_eq!(p.enabled_mask, 0x3F);
+        assert_eq!(p.enabled_mask, BorderParams::DEFAULT_VISIBLE_MASK);
+        assert_eq!(BorderParams::ALL_VISIBLE_MASK, 0x3F);
         assert_eq!(p.map_size_px, [MAP_SIZE_X, MAP_SIZE_Y]);
     }
 
@@ -969,12 +1003,14 @@ mod tests {
     }
 
     #[test]
-    fn internal_border_alpha_uses_vanilla_distance_fades() {
+    fn internal_border_alpha_uses_far_zoom_suppression() {
         for needle in [
-            "const VANILLA_PROVINCE_BORDER_FADE_NEAR: f32 = 200.0;",
-            "const VANILLA_PROVINCE_BORDER_FADE_FAR: f32 = 300.0;",
-            "const VANILLA_STATE_BORDER_FADE_NEAR: f32 = 400.0;",
-            "const VANILLA_STATE_BORDER_FADE_FAR: f32 = 500.0;",
+            "95.0",
+            "175.0",
+            "38.0",
+            "78.0",
+            "0.014 * province_fade",
+            "display_line_color",
             "camera_distance_world",
         ] {
             assert!(

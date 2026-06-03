@@ -136,20 +136,20 @@ pub struct PostProcessCalibration {
 impl PostProcessCalibration {
     pub const fn phase10_vanilla() -> Self {
         Self {
-            bloom_bright_threshold: 0.90,
-            bloom_prefilter_strength: 0.90,
+            bloom_bright_threshold: 1.05,
+            bloom_prefilter_strength: 0.68,
             middle_grey: STANDARD_TONEMAP_MIDDLE_GREY,
             exposure_min: 0.125,
             exposure_max: 8.0,
-            exposure_bias: 1.0,
+            exposure_bias: 1.06,
             uncharted_white_point: 11.2,
-            final_bloom_strength: 0.22,
+            final_bloom_strength: 0.14,
             lut_strength: 1.0,
-            saturation: 1.0,
+            saturation: 0.97,
             hsv_hue_shift: 0.0,
-            hsv_saturation: 1.0,
-            hsv_value: 1.0,
-            color_balance: [0.0, 0.0, 0.0],
+            hsv_saturation: 0.94,
+            hsv_value: 1.03,
+            color_balance: [0.015, 0.010, -0.006],
             bloom_debug_gain: 4.0,
         }
     }
@@ -2197,21 +2197,21 @@ mod tests {
     }
 
     #[test]
-    fn phase10_calibration_is_vanilla_restore_scene() {
+    fn phase10_calibration_is_atmosphere_tuned_restore_scene() {
         let calibration = PostProcessCalibration::phase10_vanilla();
         assert!((calibration.middle_grey - 0.55).abs() < f32::EPSILON);
         assert!(calibration.exposure_min <= 0.125);
         assert!(calibration.exposure_max >= 8.0);
-        assert!((calibration.exposure_bias - 1.0).abs() < f32::EPSILON);
+        assert!((calibration.exposure_bias - 1.06).abs() < f32::EPSILON);
         assert!((calibration.uncharted_white_point - 11.2).abs() < f32::EPSILON);
-        assert!((calibration.final_bloom_strength - 0.22).abs() < f32::EPSILON);
-        assert!((calibration.bloom_bright_threshold - 0.90).abs() < f32::EPSILON);
-        assert!((calibration.bloom_prefilter_strength - 0.90).abs() < f32::EPSILON);
+        assert!((calibration.final_bloom_strength - 0.14).abs() < f32::EPSILON);
+        assert!((calibration.bloom_bright_threshold - 1.05).abs() < f32::EPSILON);
+        assert!((calibration.bloom_prefilter_strength - 0.68).abs() < f32::EPSILON);
         assert_eq!(calibration.lut_strength, 1.0);
-        assert_eq!(calibration.saturation, 1.0);
-        assert_eq!(calibration.hsv_saturation, 1.0);
-        assert_eq!(calibration.hsv_value, 1.0);
-        assert_eq!(calibration.color_balance, [0.0, 0.0, 0.0]);
+        assert_eq!(calibration.saturation, 0.97);
+        assert_eq!(calibration.hsv_saturation, 0.94);
+        assert_eq!(calibration.hsv_value, 1.03);
+        assert_eq!(calibration.color_balance, [0.015, 0.010, -0.006]);
         assert!(calibration.summary().contains("aces=off"));
         assert!(calibration.summary().contains("lut=1.00"));
         assert!(calibration.summary().contains("restore=uncharted"));

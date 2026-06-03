@@ -46,7 +46,7 @@ fn terrain_wgsl_has_phase3_runtime_debug_and_ownership_gates() {
         "feature_flags: vec4<f32>",
         "fn build_terrain_material",
         "fn apply_province_secondary_color",
-        "var color = terrain_albedo",
+        "var color = mix(political_color, terrain_albedo, weights.map_mode_weight)",
         "get_overlay(atlas_terr, cmap, COLORMAP_OVERLAY_STRENGTH_TERRAIN)",
         "calculate_occupation_mask",
         "fn terrain_debug_color",
@@ -99,7 +99,20 @@ fn terrain_wgsl_has_phase3_runtime_debug_and_ownership_gates() {
 }
 
 #[test]
-fn terrain_wgsl_final_path_keeps_semantic_debug_inputs_out_of_material() {
+fn terrain_wgsl_disables_city_and_point_light_glow_by_default() {
+    let source = include_str!("../src/passes/terrain.wgsl");
+    assert!(
+        source.contains("const TERRAIN_CITY_LIGHTS_ENABLED: bool = false"),
+        "terrain city light glow should stay disabled by default"
+    );
+    assert!(
+        source.contains("const TERRAIN_POINT_LIGHTS_ENABLED: bool = false"),
+        "terrain point light glow should stay disabled by default"
+    );
+}
+
+#[test]
+fn terrain_wgsl_uses_map_mode_blend_in_final_material() {
     let source = include_str!("../src/passes/terrain.wgsl");
     let material_start = source
         .find("fn build_terrain_material")
@@ -110,8 +123,39 @@ fn terrain_wgsl_final_path_keeps_semantic_debug_inputs_out_of_material() {
     let material_body = &source[material_start..debug_start];
 
     assert!(
-        material_body.contains("apply_province_secondary_color(color, frag.map_uv)"),
-        "ProvinceSecondaryColorMap must feed the terrain final material path after snow/mud"
+        source.contains("weights.map_mode_weight = clamp(params.map_mode_terrain_blend, 0.0, 1.0)"),
+        "map-mode terrain blend must drive final terrain/political mixing"
+    );
+    assert!(
+        material_body.contains("mix(political_color, terrain_albedo, weights.map_mode_weight)"),
+        "political/map-mode color should be part of the normal final material, not only a debug view"
+    );
+}
+
+#[test]
+fn terrain_wgsl_final_path_gates_semantic_overlay_inputs() {
+    let source = include_str!("../src/passes/terrain.wgsl");
+    let material_start = source
+        .find("fn build_terrain_material")
+        .expect("build_terrain_material should exist");
+    let debug_start = source
+        .find("fn terrain_debug_color")
+        .expect("terrain_debug_color should exist");
+    let material_body = &source[material_start..debug_start];
+
+    let overlay_gate = material_body
+        .find("if (terrain_overlays_enabled())")
+        .expect("terrain overlays should have a material gate");
+    let secondary_apply = material_body
+        .find("apply_province_secondary_color(color, frag.map_uv)")
+        .expect("ProvinceSecondaryColorMap should remain available to terrain overlays");
+    assert!(
+        secondary_apply > overlay_gate,
+        "ProvinceSecondaryColorMap must not feed the base terrain material before the overlay gate"
+    );
+    assert!(
+        source.contains("secondary.a * stripe * occupation_overlay_opacity()"),
+        "occupation stripe alpha must be controlled by the semantic overlay opacity"
     );
     assert!(
         material_body.contains("if (terrain_owns_sdf_borders())")

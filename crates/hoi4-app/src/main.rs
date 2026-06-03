@@ -26,7 +26,8 @@ use hoi4_render::defines::VanillaMapSpace;
 use hoi4_render::frontlines::{generate_frontline_vertices, FrontVertex};
 use hoi4_render::map_mode::{build_color_lut, build_occupation_lut, MapMode};
 use hoi4_render::railways::{
-    build_railway_vertices, compute_province_centroids, parse_railways, RailVertex, RailwayParams,
+    build_railway_vertices_with_bridges, compute_province_centroids, parse_railways, RailVertex,
+    RailwayParams,
 };
 use hoi4_render::sdf::{compute_coast_sdf, compute_country_sdf, compute_province_sdf};
 use hoi4_render::terrain::{build_wrapped_instance_buckets, ChunkGrid, ChunkInstance, LOD_GRID};
@@ -11027,11 +11028,7 @@ impl App {
         // Political view must read as a political map at gameplay zooms. The
         // shader still preserves atlas/colormap detail, but this is no longer
         // limited to a far-distance-only tint.
-        params.map_mode_terrain_blend = match self.map_mode {
-            MapMode::Political => 0.85,
-            MapMode::Terrain => 0.05,
-            _ => 0.55,
-        };
+        params.map_mode_terrain_blend = map_mode_terrain_blend_for(self.map_mode);
         // Diplomacy border lines in all modes except terrain.
         params.diplomacy_mode = match self.map_mode {
             MapMode::Terrain => 0,
@@ -11056,10 +11053,15 @@ impl App {
             } else {
                 0.0
             };
+            let enabled_mask = if self.border_debug_view == passes::BorderDebugView::Off {
+                passes::BorderParams::DEFAULT_VISIBLE_MASK
+            } else {
+                passes::BorderParams::ALL_VISIBLE_MASK
+            };
             let bp = passes::BorderParams {
                 cam_distance_norm: cam_dist_norm,
                 selection_intensity: sel_intensity,
-                enabled_mask: 0x3F,
+                enabled_mask,
                 selected_province_id: self.selected_province_id,
                 debug_view: self.border_debug_view.as_shader_value(),
                 screen_width: s.config.width as f32,
@@ -12296,131 +12298,21 @@ fn terrain_bucket_signature(bucket: &[ChunkInstance]) -> u64 {
     h.finish()
 }
 
-fn calc_globe_normal_cpu(map_px: [f32; 2], day_night_hour: f32) -> [f32; 3] {
-    use hoi4_render::defines::{
-        GMT_OFFSET, MAP_SIZE_X, MAP_SIZE_Y, NORTH_POLE_OFFSET, SOUTH_POLE_OFFSET,
-    };
-    use std::f32::consts::{PI, TAU};
-
-    let x = ((map_px[0] - GMT_OFFSET) / MAP_SIZE_X + day_night_hour).rem_euclid(1.0);
-    let y0 = (map_px[1] / MAP_SIZE_Y).clamp(0.0, 1.0);
-    let pole = SOUTH_POLE_OFFSET + (NORTH_POLE_OFFSET - SOUTH_POLE_OFFSET) * y0;
-    let y = -(pole * PI).cos();
-    let xz_len = 1.0 - y.abs();
-    let n =
-        glam::Vec3::new((x * TAU).sin() * xz_len, y, (x * TAU).cos() * xz_len).normalize_or_zero();
-    [n.x, n.y, n.z]
-}
-
-fn calc_day_night_factor_cpu(globe_normal: [f32; 3], sun_dir: [f32; 3]) -> f32 {
-    use hoi4_render::defines::{FEATHER_MAX, FEATHER_MIN};
-
-    let d =
-        globe_normal[0] * sun_dir[0] + globe_normal[1] * sun_dir[1] + globe_normal[2] * sun_dir[2];
-    ((d - FEATHER_MIN) / (FEATHER_MAX - FEATHER_MIN)).clamp(0.0, 1.0)
-}
-
 fn postprocess_lut_selection_for(
-    camera: &Camera,
-    world: &hoi4_state::World,
-    map_space: &VanillaMapSpace,
+    _camera: &Camera,
+    _world: &hoi4_state::World,
+    _map_space: &VanillaMapSpace,
 ) -> PostProcessLutSelection {
-    let world_extent = camera.world_size.x.max(camera.world_size.y).max(1.0);
-    let camera_distance_t = (camera.distance / (world_extent * 1.6)).clamp(0.0, 1.0);
-    let night_factor = {
-        let eye = camera.eye();
-        let map_px = map_space.world_xz_to_map_px([eye.x, eye.z]);
-        let globe = calc_globe_normal_cpu(map_px, world.date.hour as f32 / 24.0);
-        let sun_dir = RenderParams::compute_sun_dir(12, world.date.month);
-        calc_day_night_factor_cpu(globe, [sun_dir[0], sun_dir[1], sun_dir[2]])
-    };
-    let water_factor = camera_target_water_factor_for(camera, world);
-    // Phase B gate: gfx/posteffect_volumes.txt defines winter LUT values, but
-    // the default runtime path does not yet have a trace-backed classifier for
-    // selecting them. Do not let project date-derived snow formulas select the
-    // bright winter restore path by default.
-    let winter_factor = 0.0;
+    // Stable Phase B default: keep the restore LUT on the source-backed
+    // close-land day path until posteffect volume classification is mirrored.
+    // Camera distance, screen-sampled water ratio, and camera-longitude night
+    // factors made the entire frame switch LUTs while panning/zooming.
     PostProcessLutSelection {
-        camera_distance_t,
-        night_factor,
-        water_factor,
-        winter_factor,
+        camera_distance_t: 0.0,
+        night_factor: 0.0,
+        water_factor: 0.0,
+        winter_factor: 0.0,
     }
-}
-
-fn camera_target_water_factor_for(camera: &Camera, world: &hoi4_state::World) -> f32 {
-    let samples = [
-        Vec2::new(0.0, 0.0),
-        Vec2::new(-0.72, -0.72),
-        Vec2::new(0.72, -0.72),
-        Vec2::new(-0.72, 0.72),
-        Vec2::new(0.72, 0.72),
-        Vec2::new(-0.72, 0.0),
-        Vec2::new(0.72, 0.0),
-        Vec2::new(0.0, -0.72),
-        Vec2::new(0.0, 0.72),
-        Vec2::new(-0.36, -0.36),
-        Vec2::new(0.36, -0.36),
-        Vec2::new(-0.36, 0.36),
-        Vec2::new(0.36, 0.36),
-    ];
-
-    let mut water = 0.0;
-    let mut valid = 0.0;
-    for ndc in samples {
-        let Some(world_xz) = camera.pick_world_xz(ndc) else {
-            continue;
-        };
-        let Some(sample) = water_factor_at_world_xz(world_xz, camera.world_size, world) else {
-            continue;
-        };
-        water += sample;
-        valid += 1.0;
-    }
-
-    if valid > 0.0 {
-        water / valid
-    } else {
-        water_factor_at_world_xz(
-            Vec2::new(camera.target.x, camera.target.z),
-            camera.world_size,
-            world,
-        )
-        .unwrap_or(0.0)
-    }
-}
-
-fn water_factor_at_world_xz(
-    world_xz: Vec2,
-    world_size: Vec2,
-    world: &hoi4_state::World,
-) -> Option<f32> {
-    if world_size.x <= 0.0 || world_size.y <= 0.0 {
-        return None;
-    }
-    let u = world_xz.x.rem_euclid(world_size.x) / world_size.x;
-    let v = world_xz.y / world_size.y;
-    if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
-        return None;
-    }
-    let pmap = &world.map.province_map;
-    let px = ((u * pmap.width as f32) as u32).min(pmap.width.saturating_sub(1));
-    let py = ((v * pmap.height as f32) as u32).min(pmap.height.saturating_sub(1));
-    let pid = pmap.pixels[(py * pmap.width + px) as usize] as usize;
-    Some(
-        world
-            .map
-            .definitions
-            .get(pid)
-            .and_then(|def| def.as_ref())
-            .map(|def| {
-                matches!(
-                    def.province_type,
-                    hoi4_map::ProvinceType::Sea | hoi4_map::ProvinceType::Lake
-                ) as u8 as f32
-            })
-            .unwrap_or(0.0),
-    )
 }
 
 fn country_display_name_from_world(
@@ -14695,6 +14587,14 @@ fn map_mode_from_capture_name(name: &str) -> MapMode {
     }
 }
 
+fn map_mode_terrain_blend_for(map_mode: MapMode) -> f32 {
+    match map_mode {
+        MapMode::Political => 0.32,
+        MapMode::Terrain => 0.88,
+        _ => 0.52,
+    }
+}
+
 fn terrain_debug_view_for_baseline_layer(
     layer: map_baseline::MapBaselineLayer,
 ) -> passes::TerrainDebugView {
@@ -14841,6 +14741,18 @@ mod v6_app_tests {
                 expected
             );
         }
+    }
+
+    #[test]
+    fn political_mode_keeps_country_color_in_final_terrain_path() {
+        let political = super::map_mode_terrain_blend_for(super::MapMode::Political);
+        let terrain = super::map_mode_terrain_blend_for(super::MapMode::Terrain);
+        let infrastructure = super::map_mode_terrain_blend_for(super::MapMode::Infrastructure);
+
+        assert!(political < infrastructure);
+        assert!(infrastructure < terrain);
+        assert!(political <= 0.35, "political mode must not be terrain-led");
+        assert!(terrain >= 0.80, "terrain mode should stay terrain-led");
     }
 
     #[test]

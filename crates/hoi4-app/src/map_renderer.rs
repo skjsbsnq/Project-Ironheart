@@ -599,9 +599,7 @@ impl StaticMapDecalSystem {
             plan.impassable_marks =
                 StaticMapDecalDecision::visible(0.35 * smoothstep(0.55, 0.85, zoom));
         }
-        if static_enabled
-            && (zoom >= 0.44 || infrastructure_mode || context.map_mode == MapMode::Factories)
-        {
+        if static_enabled && (infrastructure_mode || context.map_mode == MapMode::Factories) {
             let zoom_alpha = smoothstep(0.32, 0.70, zoom) * 0.62;
             let mode_floor: f32 = match context.map_mode {
                 MapMode::Infrastructure | MapMode::Supply => 0.76,
@@ -713,7 +711,6 @@ impl WorldObjectSystem {
         let close = smoothstep(0.56, 0.86, zoom);
         let very_close = smoothstep(0.78, 0.96, zoom);
         let province_label_zoom = smoothstep(0.86, 0.98, zoom);
-        let map_mode_object_focus = map_mode_object_factor(context.map_mode);
 
         let mut plan = WorldObjectPlan {
             budget,
@@ -769,26 +766,9 @@ impl WorldObjectSystem {
         }
 
         if mask.objects {
-            let poi_mode_boost = mix(0.60, 1.0, map_mode_object_focus);
-            let poi_opacity = budget.objects * poi_mode_boost * smoothstep(0.30, 0.62, zoom);
-            plan.poi_icons = WorldObjectDecision::visible(poi_opacity, mix(0.78, 1.05, close), 70);
-            let poi_detail_level = if zoom < 0.34 {
-                1
-            } else if zoom < 0.60 {
-                2
-            } else {
-                3
-            };
-            plan.poi_detail_level = if quality.tree_density < 0.9 {
-                poi_detail_level.min(2)
-            } else {
-                poi_detail_level
-            };
-
-            let buildings_opacity =
-                budget.objects * map_mode_object_focus.max(0.35) * smoothstep(0.46, 0.78, zoom);
-            plan.buildings =
-                WorldObjectDecision::visible(buildings_opacity, mix(0.74, 1.0, close), 55);
+            plan.poi_icons = WorldObjectDecision::OFF;
+            plan.poi_detail_level = 0;
+            plan.buildings = WorldObjectDecision::OFF;
 
             let tree_noise_gate = smoothstep(0.24, 0.58, zoom);
             let tree_close_quality = 1.0 - (very_close * 0.12);
@@ -1089,16 +1069,6 @@ fn world_object_budget_for_mode(mode: MapMode) -> WorldObjectBudget {
     }
 }
 
-fn map_mode_object_factor(mode: MapMode) -> f32 {
-    match mode {
-        MapMode::Factories | MapMode::Infrastructure | MapMode::Supply => 1.0,
-        MapMode::Manpower | MapMode::Resistance => 0.82,
-        MapMode::Cores | MapMode::Ideology => 0.62,
-        MapMode::Political => 0.56,
-        MapMode::Terrain => 0.42,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1250,11 +1220,13 @@ mod tests {
         assert!(full.draw.river);
         assert!(full.draw.map_arrows);
         assert!(full.draw.postprocess);
+        assert!(!full.draw.buildings);
+        assert!(!full.draw.poi_icons);
         assert!(!full.draw.frontlines);
     }
 
     #[test]
-    fn static_decal_plan_zoom_gates_railways() {
+    fn static_decal_plan_keeps_railways_to_network_modes() {
         let renderer = MapRenderer::new();
         let mut registry = PassRegistry::new();
         renderer.register_passes(&mut registry);
@@ -1269,8 +1241,13 @@ mod tests {
         let mut close_context = far_context;
         close_context.zoom_factor = 0.75;
         let close = renderer.build_frame_plan(close_context, &registry);
-        assert!(close.draw.railways);
-        assert!(close.static_decals.railways.opacity > 0.2);
+        assert!(!close.draw.railways);
+        assert!(!close.static_decals.railways.visible);
+
+        close_context.map_mode = MapMode::Infrastructure;
+        let infrastructure = renderer.build_frame_plan(close_context, &registry);
+        assert!(infrastructure.draw.railways);
+        assert!(infrastructure.static_decals.railways.opacity > 0.2);
     }
 
     #[test]
@@ -1437,13 +1414,12 @@ mod tests {
             ultra_plan.world_objects.province_name_min_pixels
                 <= high_plan.world_objects.province_name_min_pixels
         );
-        assert!(
-            ultra_plan.world_objects.poi_detail_level >= high_plan.world_objects.poi_detail_level
-        );
+        assert_eq!(high_plan.world_objects.poi_detail_level, 0);
+        assert_eq!(ultra_plan.world_objects.poi_detail_level, 0);
     }
 
     #[test]
-    fn factory_mode_prioritizes_poi_and_buildings() {
+    fn building_and_poi_objects_stay_disabled_for_now() {
         let mut political = test_context(MapLayerMask::all());
         political.zoom_factor = 0.65;
         let mut factories = political;
@@ -1452,14 +1428,32 @@ mod tests {
         let political_plan = WorldObjectSystem::plan(political);
         let factory_plan = WorldObjectSystem::plan(factories);
 
-        assert!(factory_plan.poi_icons.opacity > political_plan.poi_icons.opacity);
-        assert!(factory_plan.buildings.opacity > political_plan.buildings.opacity);
-        assert_eq!(factory_plan.poi_detail_level, 2);
+        assert!(!political_plan.poi_icons.visible);
+        assert!(!factory_plan.poi_icons.visible);
+        assert!(!political_plan.buildings.visible);
+        assert!(!factory_plan.buildings.visible);
+        assert_eq!(political_plan.poi_detail_level, 0);
+        assert_eq!(factory_plan.poi_detail_level, 0);
 
         factories.settings =
             MapRenderSettings::with_quality(MapLayerMask::all(), MapQualityPreset::Ultra);
         let ultra_factory_plan = WorldObjectSystem::plan(factories);
-        assert_eq!(ultra_factory_plan.poi_detail_level, 3);
+        assert!(!ultra_factory_plan.poi_icons.visible);
+        assert!(!ultra_factory_plan.buildings.visible);
+        assert_eq!(ultra_factory_plan.poi_detail_level, 0);
+    }
+
+    #[test]
+    fn political_building_meshes_stay_disabled_at_mid_and_close_zoom() {
+        let mut mid = test_context(MapLayerMask::all());
+        mid.zoom_factor = 0.72;
+        let mid_plan = WorldObjectSystem::plan(mid);
+        assert!(!mid_plan.buildings.visible);
+
+        let mut close = mid;
+        close.zoom_factor = 0.96;
+        let close_plan = WorldObjectSystem::plan(close);
+        assert!(!close_plan.buildings.visible);
     }
 
     #[test]

@@ -33,6 +33,8 @@ pub struct PathConfig {
     game_path: PathBuf,
     /// mod 链（高优先级在前，vanilla 不出现在这里）
     mod_chain: Vec<ModEntry>,
+    /// Installed DLC roots, ordered high priority first.
+    dlc_roots: Vec<PathBuf>,
     /// 来源（用于诊断 / 启动 log）
     source: PathSource,
 }
@@ -144,9 +146,11 @@ impl PathConfig {
     }
 
     fn with_source(game_path: PathBuf, source: PathSource) -> Self {
+        let dlc_roots = discover_dlc_roots(&game_path);
         Self {
             game_path,
             mod_chain: Vec::new(),
+            dlc_roots,
             source,
         }
     }
@@ -165,6 +169,10 @@ impl PathConfig {
     /// mod 链（不含 vanilla）。
     pub fn mod_chain(&self) -> &[ModEntry] {
         &self.mod_chain
+    }
+
+    pub fn dlc_roots(&self) -> &[PathBuf] {
+        &self.dlc_roots
     }
 
     pub fn source(&self) -> PathSource {
@@ -189,9 +197,16 @@ impl PathConfig {
             }
         }
 
-        // 检查 replace_path 是否阻塞 vanilla 此前缀
+        // 检查 replace_path 是否阻塞所有低优先级官方内容
         if self.is_replaced_by_mod(relative) {
             return None;
+        }
+
+        for root in &self.dlc_roots {
+            let p = root.join(relative);
+            if p.exists() {
+                return Some(p);
+            }
         }
 
         let p = self.game_path.join(relative);
@@ -214,6 +229,12 @@ impl PathConfig {
             }
         }
         if !self.is_replaced_by_mod(relative) {
+            for root in &self.dlc_roots {
+                let p = root.join(relative);
+                if p.exists() {
+                    out.push(p);
+                }
+            }
             let p = self.game_path.join(relative);
             if p.exists() {
                 out.push(p);
@@ -288,6 +309,35 @@ fn steam_candidates() -> Vec<PathBuf> {
         }
     }
     v
+}
+
+fn discover_dlc_roots(game_path: &Path) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    for container in ["dlc", "integrated_dlc"] {
+        let dir = game_path.join(container);
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        let mut children: Vec<PathBuf> = entries
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| path.is_dir())
+            .filter(|path| {
+                path.join("gfx").is_dir()
+                    || path.join("common").is_dir()
+                    || path.join("interface").is_dir()
+                    || path.join("history").is_dir()
+                    || path.join("events").is_dir()
+            })
+            .collect();
+        children.sort_by(|a, b| {
+            b.file_name()
+                .unwrap_or_default()
+                .cmp(a.file_name().unwrap_or_default())
+        });
+        roots.extend(children);
+    }
+    roots
 }
 
 fn home_dir() -> Option<PathBuf> {
@@ -376,6 +426,29 @@ mod tests {
         assert_eq!(cfg.find("map/foo.txt").unwrap(), game.join("map/foo.txt"));
         // 不存在
         assert!(cfg.find("does/not/exist").is_none());
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn find_checks_installed_dlc_before_vanilla() {
+        let tmp = std::env::temp_dir().join("ironheart_paths_dlc");
+        let _ = fs::remove_dir_all(&tmp);
+        let game = tmp.join("game");
+        make_fake_install(&game);
+        let dlc_root = game.join("integrated_dlc/dlc999_test");
+        fs::create_dir_all(dlc_root.join("gfx/entities")).unwrap();
+        fs::create_dir_all(game.join("gfx/entities")).unwrap();
+        fs::write(game.join("gfx/entities/buildings.gfx"), "vanilla").unwrap();
+        fs::write(dlc_root.join("gfx/entities/buildings.gfx"), "dlc").unwrap();
+
+        let cfg = PathConfig::with_game_path(&game);
+
+        assert_eq!(
+            cfg.find("gfx/entities/buildings.gfx").unwrap(),
+            dlc_root.join("gfx/entities/buildings.gfx")
+        );
+        assert_eq!(cfg.dlc_roots().len(), 1);
 
         let _ = fs::remove_dir_all(&tmp);
     }

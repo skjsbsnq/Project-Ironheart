@@ -694,18 +694,31 @@ impl App {
             eprintln!("[mapname_3d] atlas bake failed (no system font?); 2D HUD fallback active");
         }
 
-        let rail_verts = build_railway_vertices(
+        let rail_rivers = vanilla_resources
+            .bytes(hoi4_assets::MapResRole::Rivers)
+            .and_then(|bytes| match hoi4_map::rivers::parse_rivers_bmp(bytes) {
+                Ok(rivers) => Some(rivers),
+                Err(err) => {
+                    eprintln!(
+                        "[railways] map/rivers.bmp parse failed; bridge markers disabled: {err}"
+                    );
+                    None
+                }
+            });
+        let (rail_verts, railway_bridge_count) = build_railway_vertices_with_bridges(
             &routes,
             &centroids,
             &self.world.map.heightmap,
+            rail_rivers.as_ref(),
             WORLD_SCALE,
             HEIGHT_SCALE,
             0.06, // lift above terrain
         );
         println!(
-            "  {} railway segments ({} routes)",
+            "  {} railway segments ({} routes, {} bridge markers)",
             rail_verts.len() / 2,
-            routes.len()
+            routes.len(),
+            railway_bridge_count
         );
         let railways_vertex_count = rail_verts.len() as u32;
         let railways_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

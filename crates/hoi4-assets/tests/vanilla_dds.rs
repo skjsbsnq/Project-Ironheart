@@ -5,7 +5,9 @@
 //!
 //! 此测试只在能定位真实 HOI4 安装目录时运行。
 
-use hoi4_assets::{AssetDb, DdsImage, FsAssetDb};
+use hoi4_assets::{
+    dds_upload_plan, AssetDb, DdsImage, FsAssetDb, MapAssetAudit, MapResRole, VanillaMapSet,
+};
 use hoi4_paths::PathConfig;
 
 /// 白名单内、最稳定的若干 DDS 资产。每条都来自 vanilla `gfx/` 根目录下的
@@ -87,5 +89,49 @@ fn frame_uvs_compute_without_gfx_idx_removed() {
     for i in 0..3 {
         let expected_max = (i + 1) as f32 / 4.0;
         assert!((uvs4[i].u_max - expected_max).abs() < 1e-5);
+    }
+}
+
+#[test]
+fn vanilla_map_visual_resources_parse_and_upload_plan() {
+    let cfg = match PathConfig::resolve(Default::default()) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!("[map_visual_resources] HOI4 install not found - skipping");
+            return;
+        }
+    };
+    let db = FsAssetDb::new(cfg);
+    let map_set = VanillaMapSet::load(&db).expect("required map resources should load");
+    let audit = MapAssetAudit::from_map_set(&map_set);
+
+    assert_eq!(audit.fallback, 0, "map resources should not need fallback");
+
+    for role in [
+        MapResRole::ColormapEmissive,
+        MapResRole::CityLights(0),
+        MapResRole::TerrainAtlas(0),
+        MapResRole::TerrainAtlasNormal(0),
+        MapResRole::Lean1,
+        MapResRole::Lean2,
+        MapResRole::ColormapWater(0),
+        MapResRole::FowWaterSpec,
+        MapResRole::UnderwaterTerrain(0),
+        MapResRole::RiverDiffuse(0),
+        MapResRole::RiverNormal(0),
+        MapResRole::RiverMasks,
+    ] {
+        let bytes = map_set
+            .bytes(role)
+            .unwrap_or_else(|| panic!("missing {}", role.relative_path()));
+        let dds = DdsImage::parse(bytes)
+            .unwrap_or_else(|err| panic!("{} failed to parse: {err}", role.relative_path()));
+        let plan = dds_upload_plan(&dds)
+            .unwrap_or_else(|| panic!("{} has no direct upload plan", role.relative_path()));
+        assert!(
+            plan.upload_mip_count > 0,
+            "{} should expose at least one uploadable mip",
+            role.relative_path()
+        );
     }
 }

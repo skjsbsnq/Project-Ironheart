@@ -828,6 +828,7 @@ struct VsOut {
 
 const SEA_LEVEL: f32 = 95.0;
 const RIVER_TILE_PX: f32 = 96.0;
+const RIVER_POINT_LIGHTS_ENABLED: bool = false;
 
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
@@ -909,7 +910,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let base_uv = in.map_px / vec2<f32>(RIVER_TILE_PX);
     let scrolled_uv = base_uv - flow_dir * time * rparams.flow_speed;
 
-    let diffuse0 = textureSample(river_diffuse_0, river_sampler, scrolled_uv).rgb;
+    let flow_ripple_uv = scrolled_uv + flow_dir.yx * vec2<f32>(0.18, -0.18) * sin(frame.global_time * 0.45 + in.map_px.x * 0.004);
+    let diffuse0 = textureSample(river_diffuse_0, river_sampler, flow_ripple_uv).rgb;
     let diffuse1 = textureSample(river_diffuse_1, river_sampler, scrolled_uv * 0.92 + vec2<f32>(0.13, 0.07)).rgb;
     let diffuse2 = textureSample(river_diffuse_2, river_sampler, scrolled_uv * 0.84 + vec2<f32>(0.29, 0.19)).rgb;
     let diffuse01 = mix(diffuse0, diffuse1, clamp(texture_lod, 0.0, 1.0));
@@ -934,15 +936,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
 
     let to_camera = normalize(frame.cam_pos - in.world_pos);
     let sun_dir = normalize(vec3<f32>(0.4, 1.0, 0.3));
-    let flow_half = normalize(to_camera + sun_dir + tangent * 0.35);
-    let spec = pow(max(dot(normal, flow_half), 0.0), 56.0) * mix(0.18, 0.42, level_norm);
+    let flow_half = normalize(to_camera + sun_dir + tangent * 0.55);
+    let flow_streak = pow(abs(dot(normalize(flow_dir), normalize(vec2<f32>(normal.x, normal.z) + flow_dir * 0.25))), 2.0);
+    let spec = pow(max(dot(normal, flow_half), 0.0), 44.0) * mix(0.14, 0.36, level_norm) * (0.65 + flow_streak * 0.35);
 
-    let depth_tint = mix(vec3<f32>(1.10, 1.08, 1.02), vec3<f32>(0.72, 0.82, 0.94), level_norm);
+    let depth_tint = mix(vec3<f32>(0.88, 0.95, 0.96), vec3<f32>(0.55, 0.68, 0.82), level_norm);
     let water_base = textureSample(water_color, river_sampler, in.map_uv).rgb;
-    var color = mix(water_base, diffuse, 0.72) * depth_tint + vec3<f32>(spec);
+    let river_tint = mix(vec3<f32>(0.040, 0.115, 0.165), vec3<f32>(0.060, 0.145, 0.230), level_norm);
+    let river_surface = mix(river_tint, diffuse, mix(0.26, 0.42, level_norm));
+    var color = mix(river_surface, water_base, 0.10) * depth_tint + vec3<f32>(spec * 0.72);
 
     let secondary = textureSample(province_secondary_color, river_sampler, in.map_uv);
-    color = mix(color, secondary.rgb, secondary.a * 0.20);
+    color = mix(color, secondary.rgb, secondary.a * 0.055);
 
     let mud_snow = textureSample(mud_snow_tex, river_sampler, in.map_uv);
     let snow = get_snow(mud_snow, clamp(frame.fow_opacity_time_snow_max_speed.z, 0.0, 1.0));
@@ -955,19 +960,23 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     color = mix(color, vec3<f32>(0.09, 0.16, 0.21), border_hint * 0.035);
 
     let reflection = textureSample(reflection_tex, river_sampler, in.map_uv).rgb;
-    color = mix(color, reflection, 0.06 + spec * 0.04);
+    color = mix(color, reflection, 0.020 + spec * 0.016);
 
     let city_noise = textureSample(citylights_snow_noise, river_sampler, in.map_uv * 4.0).a;
     color = color + vec3<f32>(city_noise) * snow * 0.025;
 
-    color = color + calculate_point_lights(
-        light_data_tex,
-        light_index_tex,
-        in.map_px,
-        in.world_pos,
-        normal,
-        0.18
-    );
+    var river_point_lights = vec3<f32>(0.0);
+    if (RIVER_POINT_LIGHTS_ENABLED) {
+        river_point_lights = calculate_point_lights(
+            light_data_tex,
+            light_index_tex,
+            in.map_px,
+            in.world_pos,
+            normal,
+            0.18
+        );
+    }
+    color = color + river_point_lights;
 
     let projected_shadow_uv = in.clip_pos.xy / max(frame.screen_size, vec2<f32>(1.0));
     let projected_shadow = textureSample(shadow_map, river_sampler, clamp(projected_shadow_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
@@ -986,8 +995,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let mask_ba = mix(mask_sample.b, mask_sample.a, clamp(level - 3.0, 0.0, 1.0));
     let level_alpha = mix(mask_rg, mask_ba, clamp((level - 2.0) * 0.5, 0.0, 1.0));
     let river_alpha = smoothstep(zoom_cut - 0.10, zoom_cut + 0.10, river_lvl)
-        * mix(0.52, 0.92, level_norm)
-        * mix(0.45, 1.0, level_alpha)
+        * mix(0.34, 0.70, level_norm)
+        * mix(0.28, 0.78, level_alpha)
         * max(projected_shadow.g, projected_shadow.b)
         * rparams.base_alpha;
 

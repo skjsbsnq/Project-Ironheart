@@ -160,18 +160,22 @@ pub struct PoiIconInstance {
     pub level: f32,
 }
 
-fn compute_state_world_pos(
+fn compute_province_world_pos(
     world: &World,
     centroids: &[(f32, f32)],
-    state_idx: usize,
+    province_id: usize,
     world_scale: f32,
     height_scale: f32,
 ) -> Option<[f32; 3]> {
-    let pid = world.states.provinces.get(state_idx)?.first()?.0 as usize;
-    if pid >= centroids.len() {
+    if province_id >= centroids.len() {
         return None;
     }
-    let (px, py) = centroids[pid];
+    let definition = world.map.definitions.get(province_id)?.as_ref()?;
+    if definition.province_type != hoi4_map::ProvinceType::Land {
+        return None;
+    }
+
+    let (px, py) = centroids[province_id];
     if px == 0.0 && py == 0.0 {
         return None;
     }
@@ -185,6 +189,60 @@ fn compute_state_world_pos(
     }
     let world_y = (raw_h as f32 / 255.0) * height_scale + 0.15;
     Some([px * world_scale, world_y, py * world_scale])
+}
+
+fn compute_state_world_pos(
+    world: &World,
+    centroids: &[(f32, f32)],
+    state_idx: usize,
+    world_scale: f32,
+    height_scale: f32,
+) -> Option<[f32; 3]> {
+    state_building_candidate_positions(
+        world,
+        centroids,
+        state_idx,
+        false,
+        world_scale,
+        height_scale,
+    )
+    .into_iter()
+    .next()
+}
+
+fn state_building_candidate_positions(
+    world: &World,
+    centroids: &[(f32, f32)],
+    state_idx: usize,
+    coastal_only: bool,
+    world_scale: f32,
+    height_scale: f32,
+) -> Vec<[f32; 3]> {
+    let Some(provinces) = world.states.provinces.get(state_idx) else {
+        return Vec::new();
+    };
+
+    let mut out = Vec::new();
+    for province in provinces {
+        let province_id = province.0 as usize;
+        let Some(definition) = world
+            .map
+            .definitions
+            .get(province_id)
+            .and_then(|def| def.as_ref())
+        else {
+            continue;
+        };
+        if coastal_only && !definition.coastal {
+            continue;
+        }
+        if let Some(pos) =
+            compute_province_world_pos(world, centroids, province_id, world_scale, height_scale)
+        {
+            out.push(pos);
+        }
+    }
+    out
 }
 
 /// Generate building icon instances from world state (Phase 3.5 legacy).
@@ -212,26 +270,49 @@ pub fn generate_buildings(
         if levels.iter().all(|&level| level == 0) {
             continue;
         }
-        let pos =
-            match compute_state_world_pos(world, centroids, state_idx, world_scale, height_scale) {
-                Some(p) => p,
-                None => continue,
-            };
+        let land_positions = state_building_candidate_positions(
+            world,
+            centroids,
+            state_idx,
+            false,
+            world_scale,
+            height_scale,
+        );
+        if land_positions.is_empty() {
+            continue;
+        }
+        let coastal_positions = state_building_candidate_positions(
+            world,
+            centroids,
+            state_idx,
+            true,
+            world_scale,
+            height_scale,
+        );
 
-        let mut col = 0i32;
-        let offset_step = 0.075;
+        let mut emitted = 0usize;
         for (kind, level) in levels.iter().copied().enumerate() {
             if level == 0 {
                 continue;
             }
-            for _ in 0..visual_instance_count(level) {
-                let x_offset = (col - 3) as f32 * offset_step;
-                let z_offset = ((col % 3) - 1) as f32 * offset_step * 0.65;
+            let positions = if coastal_preferred_kind(kind as u8) && !coastal_positions.is_empty() {
+                &coastal_positions
+            } else {
+                &land_positions
+            };
+            for instance_idx in 0..visual_instance_count(level) {
+                let base = distributed_building_position(
+                    positions,
+                    state_idx,
+                    kind,
+                    emitted,
+                    instance_idx,
+                );
                 out.push(BuildingInstance {
-                    pos: [pos[0] + x_offset, pos[1], pos[2] + z_offset],
+                    pos: base,
                     kind: kind as f32,
                 });
-                col += 1;
+                emitted += 1;
             }
         }
     }
@@ -241,10 +322,51 @@ pub fn generate_buildings(
 fn visual_instance_count(level: u16) -> u16 {
     match level {
         0 => 0,
-        1..=3 => 1,
-        4..=8 => 2,
-        _ => 3,
+        1 => 1,
+        2 => 2,
+        3..=4 => 3,
+        5..=7 => 4,
+        8..=10 => 5,
+        _ => 6,
     }
+}
+
+fn coastal_preferred_kind(kind: u8) -> bool {
+    matches!(
+        kind,
+        BUILDING_KIND_DOCKYARD | BUILDING_KIND_NAVAL_BASE | BUILDING_KIND_COASTAL_BUNKER
+    )
+}
+
+fn distributed_building_position(
+    positions: &[[f32; 3]],
+    state_idx: usize,
+    kind: usize,
+    emitted: usize,
+    instance_idx: u16,
+) -> [f32; 3] {
+    let pick = (emitted.wrapping_mul(37) + kind.wrapping_mul(17) + state_idx) % positions.len();
+    let mut pos = positions[pick];
+    let h = building_hash(state_idx, kind, emitted, instance_idx);
+    let angle = hash_unit(h) * std::f32::consts::TAU;
+    let radius = 0.018 + hash_unit(h.rotate_left(13)) * 0.052;
+    pos[0] += angle.cos() * radius;
+    pos[2] += angle.sin() * radius;
+    pos
+}
+
+fn building_hash(state_idx: usize, kind: usize, emitted: usize, instance_idx: u16) -> u32 {
+    let mut h = (state_idx as u32).wrapping_mul(0x9E37_79B1);
+    h ^= (kind as u32).wrapping_mul(0x85EB_CA6B);
+    h ^= (emitted as u32).wrapping_mul(0xC2B2_AE35);
+    h ^= (instance_idx as u32).wrapping_mul(0x27D4_EB2D);
+    h ^= h >> 16;
+    h = h.wrapping_mul(0x7FEB_352D);
+    h ^ (h >> 15)
+}
+
+fn hash_unit(h: u32) -> f32 {
+    (h as f32) / (u32::MAX as f32)
 }
 
 fn object_kind_for_building(def_id: &str, kind: hoi4_state::BuildingKind) -> Option<u8> {
@@ -421,7 +543,7 @@ mod tests {
     fn visual_instance_count_caps_dense_states() {
         assert_eq!(visual_instance_count(0), 0);
         assert_eq!(visual_instance_count(1), 1);
-        assert_eq!(visual_instance_count(4), 2);
-        assert_eq!(visual_instance_count(12), 3);
+        assert_eq!(visual_instance_count(4), 3);
+        assert_eq!(visual_instance_count(12), 6);
     }
 }

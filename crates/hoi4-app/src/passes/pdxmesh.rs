@@ -63,7 +63,7 @@ use crate::passes::HDR_FORMAT;
 use crate::vanilla_targets::VanillaRuntimeTargets;
 
 const PDXMESH_OBJECT_KIND_COUNT: usize = 13;
-const BASE_INSTANCE_SCALE: f32 = 0.022;
+const BASE_INSTANCE_SCALE: f32 = 0.0105;
 const MESH_LOD_WORLD_SCALE: f32 = 0.02;
 const DEFAULT_LOD_DISTANCES: [f32; 3] = [14.0, 28.0, 10_000.0];
 
@@ -131,16 +131,16 @@ pub fn split_buildings_by_kind(buildings: &[BuildingInstance]) -> Vec<Vec<PdxMes
         (0..PDXMESH_OBJECT_KIND_COUNT).map(|_| Vec::new()).collect();
     for (i, b) in buildings.iter().enumerate() {
         // 简单 hash 抖动：i * golden ratio 取小数 → [0, 2π)
-        let h = ((i as u32).wrapping_mul(2654435761)) as f32 / u32::MAX as f32;
-        let rotation_y = h * std::f32::consts::TAU;
         let kind = b.kind as i32;
         if kind < 0 || kind as usize >= split.len() {
             continue;
         }
+        let seed = instance_seed(i, kind as u8);
+        let rotation_y = hash_unit(seed) * std::f32::consts::TAU;
         let inst = PdxMeshInstance {
             pos: b.pos,
-            scale: BASE_INSTANCE_SCALE * scale_for_kind(b.kind),
-            tint: tint_for_kind(b.kind),
+            scale: BASE_INSTANCE_SCALE * scale_for_kind(b.kind) * scale_variation(seed),
+            tint: tint_for_instance(b.kind, seed),
             rotation_y,
             _pad: [0.0; 2],
         };
@@ -180,6 +180,40 @@ fn scale_for_kind(kind: f32) -> f32 {
         x if x == BUILDING_KIND_NUCLEAR_REACTOR as i32 => 1.15,
         _ => 1.0,
     }
+}
+
+fn tint_for_instance(kind: f32, seed: u32) -> [u8; 4] {
+    let base = tint_for_kind(kind);
+    let warm = (hash_unit(seed.rotate_left(7)) - 0.5) * 10.0;
+    let brightness = 0.88 + hash_unit(seed.rotate_left(17)) * 0.22;
+    [
+        tint_channel(base[0], brightness, warm),
+        tint_channel(base[1], brightness, warm * 0.25),
+        tint_channel(base[2], brightness, -warm * 0.35),
+        base[3],
+    ]
+}
+
+fn tint_channel(value: u8, brightness: f32, offset: f32) -> u8 {
+    ((value as f32 * brightness) + offset)
+        .round()
+        .clamp(0.0, 255.0) as u8
+}
+
+fn scale_variation(seed: u32) -> f32 {
+    0.78 + hash_unit(seed.rotate_left(11)) * 0.28
+}
+
+fn instance_seed(index: usize, kind: u8) -> u32 {
+    let mut h = (index as u32).wrapping_mul(0x9E37_79B1);
+    h ^= (kind as u32).wrapping_mul(0x85EB_CA6B);
+    h ^= h >> 16;
+    h = h.wrapping_mul(0x7FEB_352D);
+    h ^ (h >> 15)
+}
+
+fn hash_unit(seed: u32) -> f32 {
+    seed as f32 / u32::MAX as f32
 }
 
 // ─── 单个 mesh 类型的 GPU 资源 ────────────────────────────────────────────
@@ -1083,9 +1117,14 @@ const MESH_TYPE_SPECS: &[MeshTypeSpec] = &[
 
 fn load_buildings_gfx_index(db: &FsAssetDb) -> Option<GfxIndex> {
     let mut index = GfxIndex::new();
-    if let Err(e) = index.load_file(db, "gfx/entities/buildings.gfx") {
-        eprintln!("[pdxmesh] gfx/entities/buildings.gfx load failed: {}", e);
-        return None;
+    if let Err(e) = index.load_dir(db, "gfx/entities") {
+        eprintln!("[pdxmesh] gfx/entities directory load failed: {}", e);
+    }
+    if index.files_loaded == 0 {
+        if let Err(e) = index.load_file(db, "gfx/entities/buildings.gfx") {
+            eprintln!("[pdxmesh] gfx/entities/buildings.gfx load failed: {}", e);
+            return None;
+        }
     }
     Some(index)
 }
@@ -1791,6 +1830,9 @@ struct MeshMaterial {
 @group(2) @binding(3) var emissive_tex: texture_2d<f32>;
 @group(2) @binding(4) var mat_sampler: sampler;
 
+const PDXMESH_EMISSIVE_ENABLED: bool = false;
+const PDXMESH_POINT_LIGHTS_ENABLED: bool = false;
+
 struct VsIn {
     @location(0) pos: vec3<f32>,
     @location(1) normal: vec3<f32>,
@@ -1934,24 +1976,27 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
     let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
 
-    // Emissive（建筑窗户夜光）— feature_flags.z = 0 时跳过
-    if (material.feature_flags.z > 0.5) {
-        let emit = textureSample(emissive_tex, mat_sampler, in.uv).rgb;
-        lit += emit * material.pbr_packed.w * (0.2 + night * 0.8);
-    } else {
-        // 即使没贴图也给一个固定亮度的"窗户夜光"模拟（建筑被夜半球时整体提亮）
-        let globe_n = calc_globe_normal(in.map_px, frame.day_night_hour_sun_dir.x);
-        lit += diffuse_albedo * material.pbr_packed.w * 0.25 * night;
+    if (PDXMESH_EMISSIVE_ENABLED) {
+        // Emissive（建筑窗户夜光）— feature_flags.z = 0 时跳过
+        if (material.feature_flags.z > 0.5) {
+            let emit = textureSample(emissive_tex, mat_sampler, in.uv).rgb;
+            lit += emit * material.pbr_packed.w * (0.2 + night * 0.8);
+        } else {
+            // 即使没贴图也给一个固定亮度的"窗户夜光"模拟（建筑被夜半球时整体提亮）
+            lit += diffuse_albedo * material.pbr_packed.w * 0.25 * night;
+        }
     }
 
-    lit += calculate_point_lights(
-        light_data_tex,
-        light_index_tex,
-        in.map_px,
-        in.world_pos,
-        normal,
-        (0.18 + night * 0.82) * 0.52
-    ) * 0.20;
+    if (PDXMESH_POINT_LIGHTS_ENABLED) {
+        lit += calculate_point_lights(
+            light_data_tex,
+            light_index_tex,
+            in.map_px,
+            in.world_pos,
+            normal,
+            (0.18 + night * 0.82) * 0.52
+        ) * 0.20;
+    }
 
     // Rim light
     let rim = smoothstep(0.55, 0.6, 1.0 - max(dot(normal, to_camera), 0.0));

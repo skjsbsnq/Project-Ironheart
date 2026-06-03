@@ -12,7 +12,7 @@
 //! draw). The Y coordinate is sampled from the heightmap and lifted slightly
 //! to avoid Z-fighting with the terrain.
 
-use hoi4_map::{Heightmap, ProvinceMap};
+use hoi4_map::{Heightmap, ProvinceMap, RiverBitmap};
 
 /// Per-vertex data for the railway line pipeline.
 #[repr(C)]
@@ -133,9 +133,33 @@ pub fn build_railway_vertices(
     height_scale: f32,
     lift: f32,
 ) -> Vec<RailVertex> {
+    build_railway_vertices_with_bridges(
+        routes,
+        centroids,
+        heightmap,
+        None,
+        world_scale,
+        height_scale,
+        lift,
+    )
+    .0
+}
+
+/// Build railway line vertices and add small bridge markers where railway
+/// segments cross active `rivers.bmp` pixels.
+pub fn build_railway_vertices_with_bridges(
+    routes: &[RailwayRoute],
+    centroids: &[(f32, f32)],
+    heightmap: &Heightmap,
+    rivers: Option<&RiverBitmap>,
+    world_scale: f32,
+    height_scale: f32,
+    lift: f32,
+) -> (Vec<RailVertex>, usize) {
     let w = heightmap.width;
     let h = heightmap.height;
     let mut verts = Vec::new();
+    let mut bridge_count = 0usize;
     let sample_y = |px: f32, py: f32| -> f32 {
         let xi = (px as u32).min(w.saturating_sub(1));
         let yi = (py as u32).min(h.saturating_sub(1));
@@ -172,9 +196,84 @@ pub fn build_railway_vertices(
             };
             verts.push(av);
             verts.push(bv);
+            if let Some(rivers) = rivers {
+                if let Some((cx, cy)) = find_river_crossing(rivers, ax, ay, bx, by) {
+                    append_bridge_marker(
+                        &mut verts,
+                        cx,
+                        cy,
+                        bx - ax,
+                        by - ay,
+                        sample_y(cx, cy) * height_scale + lift + 0.018,
+                        world_scale,
+                    );
+                    bridge_count += 1;
+                }
+            }
         }
     }
-    verts
+    (verts, bridge_count)
+}
+
+fn find_river_crossing(
+    rivers: &RiverBitmap,
+    ax: f32,
+    ay: f32,
+    bx: f32,
+    by: f32,
+) -> Option<(f32, f32)> {
+    let dx = bx - ax;
+    let dy = by - ay;
+    let dist = (dx * dx + dy * dy).sqrt();
+    let steps = ((dist / 2.0).ceil() as u32).clamp(4, 160);
+
+    for step in 1..steps {
+        let t = step as f32 / steps as f32;
+        let x = ax + dx * t;
+        let y = ay + dy * t;
+        let xi = x.round().clamp(0.0, rivers.width.saturating_sub(1) as f32) as u32;
+        let yi = y.round().clamp(0.0, rivers.height.saturating_sub(1) as f32) as u32;
+        if rivers.level_at(xi, yi) > 0 {
+            return Some((x, y));
+        }
+    }
+    None
+}
+
+fn append_bridge_marker(
+    out: &mut Vec<RailVertex>,
+    cx: f32,
+    cy: f32,
+    rail_dx: f32,
+    rail_dy: f32,
+    world_y: f32,
+    world_scale: f32,
+) {
+    let len = (rail_dx * rail_dx + rail_dy * rail_dy).sqrt();
+    if len <= f32::EPSILON {
+        return;
+    }
+    let dir = (rail_dx / len, rail_dy / len);
+    let perp = (-dir.1, dir.0);
+    let half_width_px = 4.0;
+    let offsets_px = [-3.2, 0.0, 3.2];
+
+    for offset in offsets_px {
+        let center_x = cx + dir.0 * offset;
+        let center_y = cy + dir.1 * offset;
+        let ax = center_x - perp.0 * half_width_px;
+        let ay = center_y - perp.1 * half_width_px;
+        let bx = center_x + perp.0 * half_width_px;
+        let by = center_y + perp.1 * half_width_px;
+        out.push(RailVertex {
+            pos: [ax * world_scale, world_y, ay * world_scale],
+            level: 8.0,
+        });
+        out.push(RailVertex {
+            pos: [bx * world_scale, world_y, by * world_scale],
+            level: 8.0,
+        });
+    }
 }
 
 #[cfg(test)]
@@ -253,6 +352,43 @@ mod tests {
         assert_eq!(verts[0].level, 2.0);
         // Y should be height_value (100/255) * 10 + lift 0.05 ≈ 3.97.
         assert!((verts[0].pos[1] - (100.0 / 255.0 * 10.0 + 0.05)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn railway_crossing_river_emits_bridge_marker() {
+        let route = RailwayRoute {
+            level: 2,
+            capacity: 5,
+            province_ids: vec![1, 2],
+        };
+        let centroids = vec![(0.0, 0.0), (1.0, 5.0), (9.0, 5.0)];
+        let heightmap = Heightmap {
+            width: 10,
+            height: 10,
+            pixels: vec![100; 100],
+        };
+        let mut river_pixels = vec![254u8; 100];
+        river_pixels[5 * 10 + 5] = 5;
+        let rivers = RiverBitmap {
+            width: 10,
+            height: 10,
+            pixels: river_pixels,
+            palette: [[0; 3]; 256],
+        };
+
+        let (verts, bridge_count) = build_railway_vertices_with_bridges(
+            &[route],
+            &centroids,
+            &heightmap,
+            Some(&rivers),
+            1.0,
+            10.0,
+            0.05,
+        );
+
+        assert_eq!(bridge_count, 1);
+        assert_eq!(verts.len(), 8);
+        assert!(verts.iter().skip(2).all(|v| v.level >= 8.0));
     }
 
     #[test]

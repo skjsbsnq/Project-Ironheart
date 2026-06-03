@@ -73,6 +73,12 @@ pub struct TradeRoutePass {
     pub load_warnings: Vec<String>,
 }
 
+const INITIAL_VERTEX_CAPACITY: u32 = 256;
+
+fn vertex_buffer_size(capacity: u32) -> u64 {
+    capacity as u64 * std::mem::size_of::<TradeRouteVertex>() as u64
+}
+
 impl TradeRoutePass {
     pub fn new(
         device: &wgpu::Device,
@@ -134,7 +140,7 @@ impl TradeRoutePass {
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("traderoute_vb"),
-            size: 4096,
+            size: vertex_buffer_size(INITIAL_VERTEX_CAPACITY),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -210,7 +216,7 @@ impl TradeRoutePass {
         Self {
             pipeline,
             vertex_buffer,
-            vertex_capacity: 256,
+            vertex_capacity: INITIAL_VERTEX_CAPACITY,
             vertex_count: 0,
             params_buffer,
             params_bind_group,
@@ -238,8 +244,7 @@ impl TradeRoutePass {
             self.vertex_capacity = (vertices.len() as u32).next_power_of_two();
             self.vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("traderoute_vb"),
-                size: (self.vertex_capacity as usize * std::mem::size_of::<TradeRouteVertex>())
-                    as u64,
+                size: vertex_buffer_size(self.vertex_capacity),
                 usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
@@ -630,6 +635,15 @@ mod tests {
     #[test]
     fn trade_route_vertex_size_is_28() {
         assert_eq!(std::mem::size_of::<TradeRouteVertex>(), 28);
+    }
+
+    #[test]
+    fn initial_vertex_capacity_matches_initial_buffer_size() {
+        assert_eq!(
+            vertex_buffer_size(INITIAL_VERTEX_CAPACITY),
+            INITIAL_VERTEX_CAPACITY as u64 * 28
+        );
+        assert!(vertex_buffer_size(INITIAL_VERTEX_CAPACITY) >= 5040);
     }
 
     #[test]

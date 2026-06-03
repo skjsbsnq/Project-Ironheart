@@ -46,6 +46,8 @@ struct TreeParams {
 @group(2) @binding(1) var tree_normal: texture_2d<f32>;
 @group(2) @binding(2) var tree_sampler: sampler;
 
+const TREE_POINT_LIGHTS_ENABLED: bool = false;
+
 struct VsIn {
     @location(0) pos: vec3<f32>,
     @location(1) normal: vec3<f32>,
@@ -86,6 +88,9 @@ fn apply_tree_snow(map_uv: vec2<f32>, base_color: vec3<f32>) -> vec3<f32> {
 }
 
 fn calculate_point_lights_tree(map_px: vec2<f32>, world_pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    if (!TREE_POINT_LIGHTS_ENABLED) {
+        return vec3<f32>(0.0);
+    }
     let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
     let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
     return calculate_point_lights(

@@ -40,6 +40,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
 
+    if (in.level >= 8.0) {
+        let close_boost = smoothstep(0.35, 0.78, rparams.zoom_factor);
+        let color = mix(vec3<f32>(0.62, 0.57, 0.47), vec3<f32>(0.82, 0.78, 0.66), close_boost);
+        return vec4<f32>(color, clamp(rparams.alpha * mix(0.72, 0.95, close_boost), 0.0, 0.95));
+    }
+
     // Level 1 = light track, 2 = medium, 3 = major trunk.
     let t = clamp((in.level - 1.0) / 2.0, 0.0, 1.0);
     let minor = vec3<f32>(0.48, 0.44, 0.36);

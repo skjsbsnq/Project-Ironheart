@@ -130,6 +130,8 @@ const COLORMAP_OVERLAY_STRENGTH_TERRAIN: f32 = 0.75;
 const COLORMAP_MUD_OVERLAY_STRENGTH_TERRAIN: f32 = 0.5;
 const CITY_LIGHTS_INTENSITY_TERRAIN: f32 = 5.5;
 const CITY_LIGHTS_BLOOM_FACTOR_TERRAIN: f32 = 0.3;
+const TERRAIN_CITY_LIGHTS_ENABLED: bool = false;
+const TERRAIN_POINT_LIGHTS_ENABLED: bool = false;
 const MUD_TILING_TERRAIN: f32 = 0.09;
 const SNOW_TILING_TERRAIN: f32 = 0.05;
 const SNOW_NORMAL_START_TERRAIN: f32 = 0.7;
@@ -685,18 +687,18 @@ fn map_mode_overlay_opacity() -> f32 {
 fn terrain_material_weights() -> TerrainMaterialWeights {
     var weights: TerrainMaterialWeights;
     weights.terrain_albedo_weight = 1.0;
-    weights.political_tint_weight = 0.0;
+    weights.political_tint_weight = 1.0 - clamp(params.map_mode_terrain_blend, 0.0, 1.0);
     weights.season_weight = 0.06;
     weights.detail_weight = close_detail_factor();
     weights.snow_weight = 1.0;
-    weights.map_mode_weight = 0.0;
+    weights.map_mode_weight = clamp(params.map_mode_terrain_blend, 0.0, 1.0);
     return weights;
 }
 
 fn apply_province_secondary_color(base_color: vec3<f32>, uv: vec2<f32>) -> vec3<f32> {
     let secondary = province_secondary_at(uv);
     let stripe = calculate_occupation_mask(uv, frame.global_time, frame.cam_pos.y);
-    return mix(base_color, secondary.rgb, clamp(secondary.a * stripe, 0.0, 1.0));
+    return mix(base_color, secondary.rgb, clamp(secondary.a * stripe * occupation_overlay_opacity(), 0.0, 1.0));
 }
 
 fn gradient_border_alpha_from_distance(dist_px: f32) -> f32 {
@@ -792,7 +794,7 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
     let atlas_terr = terrain_atlas_color(frag.map_uv, frag.map_px);
     let cmap = sample_season_color(frag.map_uv);
     var terrain_albedo = get_overlay(atlas_terr, cmap, COLORMAP_OVERLAY_STRENGTH_TERRAIN);
-    var color = terrain_albedo;
+    var color = mix(political_color, terrain_albedo, weights.map_mode_weight);
     if (terrain_legacy_art_enabled()) {
         let atlas_terr2 = terrain_atlas_color(
             frag.map_uv,
@@ -840,8 +842,6 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
             color = gradient_border.color;
             border_bloom_alpha = gradient_border.bloom_alpha;
         }
-        color = apply_province_secondary_color(color, frag.map_uv);
-
         let mud_n = rotate_vec_by_vec(surface_normal, mud_normal(frag.map_px));
         surface_normal = normalize(mix(surface_normal, mud_n, mud * 0.30));
         let snow_n = rotate_vec_by_vec(surface_normal, snow_normal(frag.map_px));
@@ -871,6 +871,8 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
         let zoom_cut = mix(0.55, 0.18, params.zoom_factor);
         river_mask = smoothstep(zoom_cut - 0.06, zoom_cut + 0.08, river_lvl);
         if (terrain_overlays_enabled()) {
+            color = apply_province_secondary_color(color, frag.map_uv);
+
             if (terrain_river_overlay_enabled()) {
                 let river_alpha = river_mask * 0.34;
                 let river_blue = mix(vec3<f32>(0.11, 0.28, 0.42), vec3<f32>(0.20, 0.46, 0.62), river_lvl);
@@ -929,18 +931,27 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
     }
 
     let globe_n = calc_globe_normal(frag.map_px, frame.day_night_hour_sun_dir.x);
-    let night = select(0.0, day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0), !terrain_is_water);
-    let city_emit = select(0.0, textureSample(colormap_emissive_tex, generic_sampler, frag.map_uv).a, !terrain_is_water);
-    let city_rgb = select(vec3<f32>(0.0), textureSample(citylights_tex, pass_sampler, vanilla_citylight_uv(frag.map_px)).rgb, !terrain_is_water);
-    let city_contrib = city_rgb * city_emit * night * CITY_LIGHTS_INTENSITY_TERRAIN;
-    let point_contrib = calculate_point_lights(
-        light_data_tex,
-        light_index_tex,
-        frag.map_px,
-        frag.world_pos,
-        surface_normal,
-        (0.20 + night * 0.80) * 0.55
-    );
+    let terrain_light_sources_enabled = (TERRAIN_CITY_LIGHTS_ENABLED || TERRAIN_POINT_LIGHTS_ENABLED) && !terrain_is_water;
+    let night = select(0.0, day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0), terrain_light_sources_enabled);
+    var city_emit = 0.0;
+    var city_rgb = vec3<f32>(0.0);
+    var city_contrib = vec3<f32>(0.0);
+    if (TERRAIN_CITY_LIGHTS_ENABLED && !terrain_is_water) {
+        city_emit = textureSample(colormap_emissive_tex, generic_sampler, frag.map_uv).a;
+        city_rgb = textureSample(citylights_tex, pass_sampler, vanilla_citylight_uv(frag.map_px)).rgb;
+        city_contrib = city_rgb * city_emit * night * CITY_LIGHTS_INTENSITY_TERRAIN;
+    }
+    var point_contrib = vec3<f32>(0.0);
+    if (TERRAIN_POINT_LIGHTS_ENABLED && !terrain_is_water) {
+        point_contrib = calculate_point_lights(
+            light_data_tex,
+            light_index_tex,
+            frag.map_px,
+            frag.world_pos,
+            surface_normal,
+            (0.20 + night * 0.80) * 0.55
+        );
+    }
 
     var material: TerrainMaterial;
     material.hdr_color = color;
@@ -956,7 +967,7 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
     material.city_lights_rgb = city_rgb;
     material.night_factor = night;
     material.border_bloom_alpha = border_bloom_alpha;
-    material.city_light_bloom_alpha = clamp(city_emit * night * CITY_LIGHTS_BLOOM_FACTOR_TERRAIN, 0.0, 1.0);
+    material.city_light_bloom_alpha = select(0.0, clamp(city_emit * night * CITY_LIGHTS_BLOOM_FACTOR_TERRAIN, 0.0, 1.0), TERRAIN_CITY_LIGHTS_ENABLED);
     material.city_light_contribution = city_contrib;
     material.point_light_contribution = point_contrib;
     return material;
@@ -1149,7 +1160,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         in.clip_position.y / max(params.screen_height, 1.0),
     );
     let shadow = shadow_pcf(projected_shadow_uv);
-    let ambient = 0.55;
+    let ambient = 0.72;
     let shade = ambient + (1.0 - ambient) * lambert * shadow;
 
     if (is_water && terrain_owns_water_color()) {
@@ -1178,11 +1189,13 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             frame.cam_pos,
             params.world_size_xy_height_lat.x
         );
+        // Keep the default Phase-B terrain restore path visually stable until
+        // traced posteffect/day-night volume classification is mirrored.
         color = day_night_with_blend(
             color,
             globe_n,
             frame.day_night_hour_sun_dir.yzw,
-            1.0,
+            0.0,
             mix(POLITICAL_NIGHT_DESAT_BLEND, 1.0, material.border_bloom_alpha)
         );
     }

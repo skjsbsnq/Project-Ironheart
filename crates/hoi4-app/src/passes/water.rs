@@ -1277,6 +1277,7 @@ struct ChunkUniform {
 
 const SEA_LEVEL: f32 = 95.0 / 255.0;
 const ID_NONE: u32 = 4294967295u;
+const WATER_POINT_LIGHTS_ENABLED: bool = false;
 const WATER_DEBUG_OFF: u32 = 0u;
 const WATER_DEBUG_DEPTH_RATIO: u32 = 1u;
 const WATER_DEBUG_COAST_DISTANCE: u32 = 2u;
@@ -1416,18 +1417,24 @@ fn sample_water(map_uv: vec2<f32>, depth_ratio: f32, camera_dist: f32) -> vec3<f
     let near_color = textureSample(colormap_water, water_sampler, map_uv).rgb;
     let mid_color = textureSample(colormap_water_1, water_sampler, map_uv).rgb;
     let far_color = textureSample(colormap_water_2, water_sampler, map_uv).rgb;
+    let depth_lod = smoothstep(0.18, 0.90, depth_ratio);
+    let depth_color = mix(mix(near_color, mid_color, depth_lod), far_color, depth_lod * depth_lod * 0.65);
+    if (wparams.effect_variant == 1u) {
+        // Without the real WaterRefraction producer, camera-distance water
+        // color LOD shifts read as whole-ocean tint changes while zooming. Use
+        // depth-driven vanilla water maps instead so coasts stay shallow.
+        return depth_color;
+    }
     let lod_t = smoothstep(32.0, 180.0, camera_dist);
     let map_color = mix(mix(near_color, mid_color, lod_t), far_color, lod_t * lod_t);
-    if (wparams.effect_variant == 1u) {
-        return map_color;
-    }
     let underwater = textureSample(underwater_terrain, water_sampler, map_uv * 4.0).rgb;
-    return mix(map_color, underwater, clamp(depth_ratio * 0.22, 0.0, 0.22));
+    let water_color = mix(depth_color, map_color, 0.35);
+    return mix(water_color, underwater, clamp(depth_ratio * 0.18, 0.0, 0.18));
 }
 
 fn sample_refraction(map_uv: vec2<f32>, normal: vec3<f32>, depth_ratio: f32) -> vec3<f32> {
     if (wparams.effect_variant == 1u) {
-        return vec3<f32>(0.0, 0.1, 0.2);
+        return sample_water(map_uv, depth_ratio, 96.0);
     }
     let offset = normal.xz * (0.0018 + 0.0026 * (1.0 - depth_ratio));
     let refracted_uv = map_uv + offset;
@@ -1436,7 +1443,58 @@ fn sample_refraction(map_uv: vec2<f32>, normal: vec3<f32>, depth_ratio: f32) -> 
     return mix(water_lod, under, 0.35 * depth_ratio);
 }
 
+fn probe_coast_distance_px(map_uv: vec2<f32>, texel: vec2<f32>, offset_px: vec2<f32>, current: f32) -> f32 {
+    let sample_h = load_height_uv(map_uv + offset_px * texel);
+    if (sample_h > SEA_LEVEL + 0.002) {
+        return min(current, length(offset_px));
+    }
+    return current;
+}
+
+fn estimate_coast_distance_px(map_uv: vec2<f32>) -> f32 {
+    let dim = vec2<f32>(textureDimensions(heightmap_tex));
+    let texel = 1.0 / max(dim, vec2<f32>(1.0));
+    var d = 255.0;
+
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 1.0,  0.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>(-1.0,  0.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 0.0,  1.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 0.0, -1.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 1.0,  1.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>(-1.0,  1.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 1.0, -1.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>(-1.0, -1.0), d);
+
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 3.0,  0.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>(-3.0,  0.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 0.0,  3.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 0.0, -3.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 2.0,  2.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>(-2.0,  2.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 2.0, -2.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>(-2.0, -2.0), d);
+
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 6.0,  0.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>(-6.0,  0.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 0.0,  6.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 0.0, -6.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 4.0,  4.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>(-4.0,  4.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 4.0, -4.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>(-4.0, -4.0), d);
+
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>(12.0,  0.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>(-12.0,  0.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 0.0, 12.0), d);
+    d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 0.0,-12.0), d);
+
+    return d;
+}
+
 fn calculate_point_lights_water(map_px: vec2<f32>, world_pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    if (!WATER_POINT_LIGHTS_ENABLED) {
+        return vec3<f32>(0.0);
+    }
     let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
     let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
     return calculate_point_lights(
@@ -1544,26 +1602,32 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, screen_uv: vec2<f3
     let plane_refl = textureSample(reflection_tex, water_sampler, map_uv).rgb;
     let land_unit_refl = textureSample(reflection_land_unit, water_sampler, map_uv).rgb;
     let refraction = sample_refraction(map_uv, normal, depth_ratio);
-    let env = mix(plane_refl, env_raw, 0.35);
-    let reflected = mix(env, land_unit_refl, secondary.a * 0.15);
+    let env = mix(plane_refl, env_raw, 0.22);
+    let reflected = mix(env, land_unit_refl, secondary.a * 0.10);
 
     let fresnel_t = pow(1.0 - max(dot(normal, to_camera), 0.0), wparams.fresnel_power);
-    let reflection_contribution = clamp(0.08 + fresnel_t * 0.52, 0.0, 0.70);
-    var color = mix(mix(refraction, base, 0.68), reflected, reflection_contribution);
+    let reflection_contribution = clamp(0.04 + fresnel_t * 0.34, 0.0, 0.48);
+    var color = mix(mix(refraction, base, 0.78), reflected, reflection_contribution);
 
     let sun_dir = normalize(frame.day_night_hour_sun_dir.yzw);
     let half_dir = normalize(to_camera + sun_dir);
     let n_dot_h = max(dot(normal, half_dir), 0.0);
     let spec_mask = textureSample(fow_water_spec, water_sampler, map_uv).a;
-    let sun_spec = pow(n_dot_h, 192.0) * spec_mask * max(frame.sun_specular_intensity, 0.4);
-    color = color + vec3<f32>(1.0, 0.97, 0.85) * sun_spec * 0.20 * (1.0 - polar_edge * 0.90);
+    let sun_spec = pow(n_dot_h, 128.0) * spec_mask * max(frame.sun_specular_intensity, 0.4);
+    color = color + vec3<f32>(1.0, 0.97, 0.86) * sun_spec * 0.13 * (1.0 - polar_edge * 0.90);
 
     let projected_shadow = textureSample(shadow_map, water_map_sampler, clamp(screen_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
-    let coast_d_px = 255.0;
-    color = mix(color, secondary.rgb, secondary.a * 0.30);
-    let foam_alpha = 0.0;
-    let water_shore = 1.0 - smoothstep(SEA_LEVEL - 0.035, SEA_LEVEL - 0.004, h);
-    let water_alpha = clamp(1.0 - water_shore, 0.0, 1.0);
+    let coast_d_px = estimate_coast_distance_px(map_uv);
+    color = mix(color, secondary.rgb, secondary.a * 0.18);
+    let water_alpha = 1.0;
+    let shallow = 1.0 - smoothstep(0.10, 0.48, depth_ratio);
+    let shore_band = 1.0 - smoothstep(wparams.foam_threshold, wparams.foam_threshold + 9.0, coast_d_px);
+    let foam_wave = 0.5 + 0.5 * sin(frame.global_time * 0.85 + map_px.x * 0.07 + map_px.y * 0.035);
+    let foam_noise = textureSample(water_normal_lean2, water_sampler, map_px / vec2<f32>(72.0) + vec2<f32>(frame.global_time * 0.012, -frame.global_time * 0.009)).b;
+    let foam_alpha = shore_band * shallow * smoothstep(0.38, 0.88, foam_noise * 0.62 + foam_wave * 0.38) * 0.28;
+    color = mix(color, color + vec3<f32>(0.030, 0.050, 0.045), shallow * 0.14);
+    color = mix(color, vec3<f32>(0.030, 0.095, 0.165), smoothstep(0.40, 1.0, depth_ratio) * 0.18);
+    color = mix(color, vec3<f32>(0.66, 0.82, 0.88), foam_alpha);
     color = mix(color, color * projected_shadow.r, 1.0 - projected_shadow.r);
 
     color = color + calculate_point_lights_water(map_px, world_pos, normal) * 0.12;
@@ -1793,11 +1857,22 @@ mod tests {
     fn water_wgsl_uses_effect_variant_alpha_and_no_refraction_fallback() {
         assert!(WATER_WGSL.contains("effect_variant: u32"));
         assert!(WATER_WGSL.contains("wparams.effect_variant == 1u"));
-        assert!(WATER_WGSL.contains("return map_color;"));
-        assert!(WATER_WGSL.contains("return vec3<f32>(0.0, 0.1, 0.2);"));
+        assert!(WATER_WGSL.contains("return depth_color;"));
+        assert!(WATER_WGSL.contains("return sample_water(map_uv, depth_ratio, 96.0);"));
         assert!(WATER_WGSL.contains("alpha: f32"));
         assert!(WATER_WGSL.contains("return vec4<f32>(color, material.alpha)"));
         assert!(!WATER_WGSL.contains("return vec4<f32>(color, 1.0)"));
+    }
+
+    #[test]
+    fn water_wgsl_estimates_coast_distance_and_foam_from_heightmap() {
+        assert!(WATER_WGSL.contains("fn estimate_coast_distance_px"));
+        assert!(WATER_WGSL.contains("probe_coast_distance_px"));
+        assert!(WATER_WGSL.contains("let coast_d_px = estimate_coast_distance_px(map_uv);"));
+        assert!(WATER_WGSL.contains("let shore_band = 1.0 - smoothstep"));
+        assert!(WATER_WGSL.contains("let foam_alpha = shore_band * shallow"));
+        assert!(!WATER_WGSL.contains("let coast_d_px = 255.0;"));
+        assert!(!WATER_WGSL.contains("let foam_alpha = 0.0;"));
     }
 
     #[test]
