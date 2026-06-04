@@ -62,6 +62,30 @@ impl ApplicationHandler for App {
         } else {
             false
         };
+        let global_debug_key = matches!(
+            &event,
+            WindowEvent::KeyboardInput {
+                event: KeyEvent {
+                    physical_key: PhysicalKey::Code(
+                        KeyCode::F1
+                            | KeyCode::F2
+                            | KeyCode::F3
+                            | KeyCode::F4
+                            | KeyCode::F5
+                            | KeyCode::F6
+                            | KeyCode::F7
+                            | KeyCode::F8
+                            | KeyCode::F9
+                            | KeyCode::F10
+                            | KeyCode::F11
+                            | KeyCode::F12
+                            | KeyCode::KeyR,
+                    ),
+                    ..
+                },
+                ..
+            }
+        );
         let forward_map_click_through_ui = consumed
             && self.game_phase == GamePhase::Playing
             && matches!(self.open_panel, Some(InGamePanel::Air | InGamePanel::Naval))
@@ -77,7 +101,7 @@ impl ApplicationHandler for App {
                 .as_ref()
                 .map(|s| !s.ui.ctx.is_pointer_over_area())
                 .unwrap_or(false);
-        if consumed && !forward_map_click_through_ui {
+        if consumed && !global_debug_key && !forward_map_click_through_ui {
             if matches!(
                 event,
                 WindowEvent::MouseInput {

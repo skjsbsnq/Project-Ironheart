@@ -664,7 +664,7 @@ mod tests {
         assert_eq!(dto.sector_buildings.len(), 1);
         assert_eq!(dto.sector_buildings[0].sector_id, "secondary");
         assert_eq!(dto.sector_buildings[0].demand, 160);
-        assert_eq!(dto.employment_rows.len(), 4);
+        assert_eq!(dto.employment_rows.len(), 7);
         assert_eq!(
             dto.employment_rows
                 .iter()

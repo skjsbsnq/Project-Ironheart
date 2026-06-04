@@ -348,7 +348,7 @@ fn compute_labor_ratio(world: &World, ci: usize, state: StateId, labor_need: u32
     if state_idx >= world.states.count || world.states.owners[state_idx] != country {
         return 0.0;
     }
-    let available: u32 = world
+    let unemployed: u32 = world
         .countries
         .pops
         .groups
@@ -356,7 +356,16 @@ fn compute_labor_ratio(world: &World, ci: usize, state: StateId, labor_need: u32
         .filter(|pg| pg.state == state && pg.class != PopClass::Soldier && pg.employed_at.is_none())
         .map(|pg| pg.size)
         .sum();
-    (available as f32 / labor_need as f32).clamp(0.0, 1.0)
+    let local_population: u32 = world
+        .countries
+        .pops
+        .groups
+        .iter()
+        .filter(|pg| pg.state == state && pg.class != PopClass::Soldier)
+        .map(|pg| pg.size)
+        .sum();
+    let available = unemployed as f32 + local_population as f32 * 0.10;
+    (available / labor_need as f32).clamp(0.0, 1.0)
 }
 
 fn compute_engineering_ratio(world: &World, ci: usize, engineering_need: u32) -> f32 {
@@ -550,7 +559,7 @@ fn finance_capacity_cp(world: &World, econ: &EconomyState, ci: usize, physical_c
     if physical_cp <= 0.0 || ci >= econ.construction.len() {
         return physical_cp.max(0.0);
     }
-    let mut treasury_need = 0.0_f64;
+    let mut credit_funded_need = 0.0_f64;
     let mut private_need = 0.0_f64;
     let mut cartel_need = 0.0_f64;
     for item in econ.construction[ci]
@@ -565,7 +574,7 @@ fn finance_capacity_cp(world: &World, econ: &EconomyState, ci: usize, physical_c
         let daily_payment = (remaining * DAILY_FUND_RATIO).max(1.0);
         match item.funding_source {
             ConstructionFundingSource::Government | ConstructionFundingSource::Mefo => {
-                treasury_need += daily_payment;
+                credit_funded_need += daily_payment;
             }
             ConstructionFundingSource::PrivatePool => {
                 private_need += daily_payment;
@@ -575,23 +584,15 @@ fn finance_capacity_cp(world: &World, econ: &EconomyState, ci: usize, physical_c
             }
             ConstructionFundingSource::OverlordInvestment { .. }
             | ConstructionFundingSource::ForeignInvestment { .. } => {
-                treasury_need += daily_payment;
+                credit_funded_need += daily_payment;
             }
         };
     }
-    let daily_need = treasury_need + private_need + cartel_need;
+    let daily_need = credit_funded_need + private_need + cartel_need;
     if daily_need <= 0.0 {
         return physical_cp;
     }
     let country = CountryId(ci as u16);
-    let treasury_available = world
-        .countries
-        .treasury
-        .treasuries
-        .get(ci)
-        .map(|treasury| treasury.cash_rm.max(0.0))
-        .unwrap_or(0.0)
-        .min(treasury_need);
     let private_available = world
         .countries
         .investment_balance_rm(country, InvestmentAccountKind::Private)
@@ -602,7 +603,7 @@ fn finance_capacity_cp(world: &World, econ: &EconomyState, ci: usize, physical_c
         .investment_balance_rm(country, InvestmentAccountKind::Cartel)
         .max(0.0)
         .min(cartel_need);
-    let available = treasury_available + private_available + cartel_available;
+    let available = credit_funded_need + private_available + cartel_available;
     physical_cp * (available / daily_need).clamp(0.0, 1.0) as f32
 }
 
@@ -737,14 +738,7 @@ fn pay_daily_construction_funds(world: &mut World, item: &mut ConstructionItem, 
     let daily_payment = (remaining_budget * DAILY_FUND_RATIO).max(1.0);
 
     let actual_payment = match item.funding_source {
-        ConstructionFundingSource::Government | ConstructionFundingSource::Mefo => {
-            let treasury = &world.countries.treasury.treasuries[ci];
-            let available = treasury.cash_rm.max(0.0);
-            if available <= 0.0 {
-                return 0.0;
-            }
-            daily_payment.min(available)
-        }
+        ConstructionFundingSource::Government | ConstructionFundingSource::Mefo => daily_payment,
         ConstructionFundingSource::PrivatePool => {
             let pool_balance = world
                 .countries
@@ -764,14 +758,7 @@ fn pay_daily_construction_funds(world: &mut World, item: &mut ConstructionItem, 
             daily_payment.min(pool_balance)
         }
         ConstructionFundingSource::OverlordInvestment { .. }
-        | ConstructionFundingSource::ForeignInvestment { .. } => {
-            let treasury = &world.countries.treasury.treasuries[ci];
-            let available = treasury.cash_rm.max(0.0);
-            if available <= 0.0 {
-                return 0.0;
-            }
-            daily_payment.min(available)
-        }
+        | ConstructionFundingSource::ForeignInvestment { .. } => daily_payment,
     };
     if actual_payment <= 0.0 {
         return 0.0;

@@ -9,6 +9,15 @@ use hoi4_state::{
 
 use super::names::{DisplayNameKind, DisplayNameResolver};
 
+pub fn panel_data(
+    world: &World,
+    v6_db: &hoi4_content::V6Database,
+    loc_catalog: &hoi4_ui::loc::LocCatalog,
+    player_country: usize,
+) -> Option<hoi4_ui::pop_panel::PopPanelData> {
+    build_pop_panel_data(world, v6_db, loc_catalog, player_country)
+}
+
 pub fn build_pop_panel_data(
     world: &World,
     v6_db: &hoi4_content::V6Database,

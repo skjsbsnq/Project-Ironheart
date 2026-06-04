@@ -779,12 +779,6 @@ fn tick_country_daily_v6(
         }
     }
 
-    if !country_full_economy_due(world, ci, day) {
-        construction_tick::run(world, econ, db, ci);
-        v6_events::tick_v6_events(world, db, ci, day);
-        return;
-    }
-
     let current_economy_law = world.countries.law_store.law_sets[ci].0
         [LawCategory::Economy.index()]
     .current
@@ -798,25 +792,6 @@ fn tick_country_daily_v6(
     }
     construction_tick::run(world, econ, db, ci);
     v6_events::tick_v6_events(world, db, ci, day);
-}
-
-fn country_full_economy_due(world: &World, ci: usize, day: i64) -> bool {
-    let country = CountryId(ci as u16);
-    if country == world.player || world.countries.at_war.get(ci).copied().unwrap_or(false) {
-        return true;
-    }
-    let building_count = world
-        .country_building_index
-        .get(ci)
-        .map(|buildings| buildings.len())
-        .unwrap_or(0);
-    let pop_group_count = world
-        .country_pop_index
-        .get(ci)
-        .map(|pops| pops.len())
-        .unwrap_or(0);
-    let _ = (building_count, pop_group_count);
-    day % 14 == ci as i64 % 14
 }
 
 fn private_investment_tick(

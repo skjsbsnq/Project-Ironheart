@@ -567,7 +567,6 @@ fn daily_accumulator_zeroes() {
 }
 
 #[test]
-#[ignore = "known Phase 9 baseline: V6 economy formula calibration is not yet reconciled"]
 fn consumption_tax_real_rate() {
     let mut world = world_with_law("interventionism");
     add_building(
@@ -918,7 +917,6 @@ fn combat_casualties_reduce_stability_and_pop_satisfaction() {
 }
 
 #[test]
-#[ignore = "known Phase 9 baseline: V6 economy formula calibration is not yet reconciled"]
 fn i18_war_taxation_changes_daily_income_same_tick() {
     let mut medium_world = world_with_law("interventionism");
     add_building(
@@ -978,7 +976,6 @@ fn i19_civil_rights_police_state_changes_pop_law_fields_same_tick() {
 }
 
 #[test]
-#[ignore = "known Phase 9 baseline: V6 economy formula calibration is not yet reconciled"]
 fn i20_total_propaganda_applies_loyalty_decay_multiplier_same_tick() {
     let mut world = world_with_law("interventionism");
     world.countries.law_store.law_sets[0].0[LawCategory::InformationControl.index()] =
@@ -1219,7 +1216,6 @@ fn equipment_category_12() {
 }
 
 #[test]
-#[ignore = "known Phase 9 baseline: V6 economy formula calibration is not yet reconciled"]
 fn unemployed_wage_zero() {
     let mut world = world_with_law("interventionism");
     world.countries.pops.groups[0].employed_at = None;
@@ -1232,7 +1228,6 @@ fn unemployed_wage_zero() {
 }
 
 #[test]
-#[ignore = "known Phase 9 baseline: V6 economy formula calibration is not yet reconciled"]
 fn blocked_building_releases_employment() {
     let mut world = world_with_law("interventionism");
     world.countries.pops.groups.clear();
@@ -1287,7 +1282,6 @@ fn blocked_building_releases_employment() {
 }
 
 #[test]
-#[ignore = "known Phase 9 baseline: V6 economy formula calibration is not yet reconciled"]
 fn cartel_profit_splits_state_share_and_capitalist_income() {
     let mut world = world_with_law("interventionism");
     world.countries.pops.groups.clear();
@@ -1349,7 +1343,6 @@ fn cartel_profit_splits_state_share_and_capitalist_income() {
 }
 
 #[test]
-#[ignore = "known Phase 9 baseline: V6 economy formula calibration is not yet reconciled"]
 fn tariffs_use_import_and_export_rates_separately() {
     let mut world = world_with_law("interventionism");
     world.countries.pops.groups.clear();
@@ -1391,7 +1384,6 @@ fn tariffs_use_import_and_export_rates_separately() {
 }
 
 #[test]
-#[ignore = "known Phase 9 baseline: V6 economy formula calibration is not yet reconciled"]
 fn h5_imports_cap_at_available_foreign_exchange() {
     let mut world = world_with_law("interventionism");
     world.countries.pops.groups.clear();
@@ -1519,7 +1511,6 @@ fn ron_military_equipment_outputs_cover_12_categories() {
 }
 
 #[test]
-#[ignore = "known Phase 9 baseline: V6 economy formula calibration is not yet reconciled"]
 fn single_building_does_not_monopolize_state_workers() {
     let mut world = world_with_law("interventionism");
     world.countries.pops.groups.clear();
@@ -1576,7 +1567,6 @@ fn single_building_does_not_monopolize_state_workers() {
 }
 
 #[test]
-#[ignore = "known Phase 9 baseline: V6 economy formula calibration is not yet reconciled"]
 fn private_payroll_depends_on_profit() {
     let mut world = world_with_law("interventionism");
     world.countries.pops.groups.clear();

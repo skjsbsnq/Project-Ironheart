@@ -141,15 +141,15 @@ impl PostProcessCalibration {
             middle_grey: STANDARD_TONEMAP_MIDDLE_GREY,
             exposure_min: 0.125,
             exposure_max: 8.0,
-            exposure_bias: 1.06,
+            exposure_bias: 1.02,
             uncharted_white_point: 11.2,
             final_bloom_strength: 0.14,
-            lut_strength: 1.0,
-            saturation: 0.97,
+            lut_strength: 0.35,
+            saturation: 0.96,
             hsv_hue_shift: 0.0,
             hsv_saturation: 0.94,
-            hsv_value: 1.03,
-            color_balance: [0.015, 0.010, -0.006],
+            hsv_value: 1.02,
+            color_balance: [0.004, 0.002, -0.004],
             bloom_debug_gain: 4.0,
         }
     }
@@ -1119,6 +1119,13 @@ fn uncharted2_tonemap(color: vec3<f32>, white_point: f32) -> vec3<f32> {
     return clamp(curr * white_scale, vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
+fn restore_map_tonemap(color: vec3<f32>, white_point: f32) -> vec3<f32> {
+    let linear_restore = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
+    let shoulder = uncharted2_tonemap(color, white_point);
+    let highlight = smoothstep(0.70, 1.35, max(color.r, max(color.g, color.b)));
+    return mix(linear_restore, shoulder, 0.10 + highlight * 0.22);
+}
+
 fn rgb_to_hsv(c: vec3<f32>) -> vec3<f32> {
     let k = vec4<f32>(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
     let p = select(vec4<f32>(c.bg, k.wz), vec4<f32>(c.gb, k.xy), c.b < c.g);
@@ -1186,7 +1193,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // ratios. Keep the final map path stable and leave avg_lum for debug.
     let exposure = rp.exposure_bias;
     let tonemap_input = scene_with_bloom * exposure;
-    let tonemapped = uncharted2_tonemap(tonemap_input, rp.uncharted_white_point);
+    let tonemapped = restore_map_tonemap(tonemap_input, rp.uncharted_white_point);
 
     var graded = apply_color_cube(tonemapped);
     graded = apply_hsv(graded);
@@ -2202,18 +2209,18 @@ mod tests {
         assert!((calibration.middle_grey - 0.55).abs() < f32::EPSILON);
         assert!(calibration.exposure_min <= 0.125);
         assert!(calibration.exposure_max >= 8.0);
-        assert!((calibration.exposure_bias - 1.06).abs() < f32::EPSILON);
+        assert!((calibration.exposure_bias - 1.02).abs() < f32::EPSILON);
         assert!((calibration.uncharted_white_point - 11.2).abs() < f32::EPSILON);
         assert!((calibration.final_bloom_strength - 0.14).abs() < f32::EPSILON);
         assert!((calibration.bloom_bright_threshold - 1.05).abs() < f32::EPSILON);
         assert!((calibration.bloom_prefilter_strength - 0.68).abs() < f32::EPSILON);
-        assert_eq!(calibration.lut_strength, 1.0);
-        assert_eq!(calibration.saturation, 0.97);
+        assert_eq!(calibration.lut_strength, 0.35);
+        assert_eq!(calibration.saturation, 0.96);
         assert_eq!(calibration.hsv_saturation, 0.94);
-        assert_eq!(calibration.hsv_value, 1.03);
-        assert_eq!(calibration.color_balance, [0.015, 0.010, -0.006]);
+        assert_eq!(calibration.hsv_value, 1.02);
+        assert_eq!(calibration.color_balance, [0.004, 0.002, -0.004]);
         assert!(calibration.summary().contains("aces=off"));
-        assert!(calibration.summary().contains("lut=1.00"));
+        assert!(calibration.summary().contains("lut=0.35"));
         assert!(calibration.summary().contains("restore=uncharted"));
     }
 
@@ -2223,6 +2230,15 @@ mod tests {
         assert!(
             !RESTORESCENE_PHASE10_WGSL.contains("let exposure = clamp((rp.middle_grey / avg_lum)")
         );
+    }
+
+    #[test]
+    fn restore_shader_keeps_map_luminance_near_simple_blit() {
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("fn restore_map_tonemap"));
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("let linear_restore = clamp(color"));
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("return mix(linear_restore, shoulder"));
+        assert!(!RESTORESCENE_PHASE10_WGSL
+            .contains("let tonemapped = uncharted2_tonemap(tonemap_input"));
     }
 
     #[test]

@@ -3,6 +3,15 @@ use hoi4_state::World;
 
 use super::names::{DisplayNameKind, DisplayNameResolver};
 
+pub fn market_panel(
+    world: &World,
+    v6_db: &hoi4_content::V6Database,
+    econ: &hoi4_logic::economy::EconomyState,
+    player: usize,
+) -> Option<hoi4_ui::market_panel::MarketPanelData> {
+    build_market_panel_data(world, v6_db, econ, player)
+}
+
 pub fn build_market_panel_data(
     world: &World,
     v6_db: &hoi4_content::V6Database,
@@ -929,6 +938,14 @@ pub fn build_market_panel_data(
         actions,
         alerts,
     })
+}
+
+pub fn trade_panel(
+    world: &World,
+    v6_db: &hoi4_content::V6Database,
+    player: usize,
+) -> Option<hoi4_ui::trade_panel::TradePanelData> {
+    build_trade_panel_data(world, v6_db, player)
 }
 
 pub fn build_trade_panel_data(

@@ -3011,7 +3011,7 @@ fn allocate_levels_across_states(
         }
         let sid = state_ids[cursor % state_ids.len()];
         cursor += 1;
-        if !can_place_non_resource(world, sid, building_id) {
+        if !can_place_building(world, sid, building_id, db) {
             continue;
         }
         inject_building(world, ci, building_id, sid, 1, db);
@@ -3033,7 +3033,7 @@ fn states_for_building(
         return Vec::new();
     };
     match def.kind {
-        BuildingKindDef::Resource => states_for_resource_building(world, country, def),
+        BuildingKindDef::Resource => states_for_resource_building(world, country, def, db),
         BuildingKindDef::Agriculture => states_for_agriculture_building(world, country),
         BuildingKindDef::ConsumerGoods if building_id.contains("plantation") => {
             states_for_agriculture_building(world, country)
@@ -3068,10 +3068,13 @@ fn states_for_resource_building(
     world: &World,
     country: CountryId,
     def: &BuildingDef,
+    db: &V6Database,
 ) -> Vec<StateId> {
     let mut states = owned_states_by_weight(world, country);
     if def.state_limit_kind.as_deref() == Some("coastal") {
         states.retain(|state| state_is_coastal(world, *state));
+    } else if def.state_limit_kind.is_some() {
+        states.retain(|state| resource_capacity_remaining(world, db, def, *state) > 0);
     }
     states
 }
@@ -3084,7 +3087,18 @@ fn states_for_service_building(world: &World, country: CountryId) -> Vec<StateId
     owned_states_by_weight(world, country)
 }
 
-fn can_place_non_resource(world: &World, state: StateId, building_id: &str) -> bool {
+fn can_place_building(world: &World, state: StateId, building_id: &str, db: &V6Database) -> bool {
+    let Some(def) = db
+        .buildings
+        .iter()
+        .find(|building| building.id == building_id)
+    else {
+        return false;
+    };
+    if resource_limited_building(def) {
+        return resource_capacity_remaining(world, db, def, state) > 0;
+    }
+
     if matches!(building_id, "shipyard" | "port" | "v6_naval_base")
         && !state_is_coastal(world, state)
     {
@@ -3103,6 +3117,59 @@ fn can_place_non_resource(world: &World, state: StateId, building_id: &str) -> b
         .map(|building| building.level as u16)
         .sum();
     used < (world.states.category_slots[si] as u16).max(4) + 20
+}
+
+fn resource_limited_building(def: &BuildingDef) -> bool {
+    matches!(
+        def.state_limit_kind.as_deref(),
+        Some(kind) if !matches!(kind, "coastal" | "urban")
+    )
+}
+
+fn resource_capacity_remaining(
+    world: &World,
+    db: &V6Database,
+    def: &BuildingDef,
+    state: StateId,
+) -> u16 {
+    let Some(resource_kind) = def.state_limit_kind.as_deref() else {
+        return 0;
+    };
+    if matches!(resource_kind, "coastal" | "urban") {
+        return 0;
+    }
+    let game_state_id = game_state_id_from_internal(world, state);
+    let discovered = db
+        .state_resource_deposits
+        .iter()
+        .find(|entry| entry.state_id == game_state_id)
+        .and_then(|entry| {
+            entry
+                .deposits
+                .iter()
+                .find(|deposit| deposit.good_id == resource_kind)
+        })
+        .map(|deposit| deposit.discovered_level as u16)
+        .unwrap_or(0);
+    let existing: u16 = world
+        .countries
+        .buildings_v6
+        .buildings
+        .iter()
+        .filter(|building| {
+            building.state == state && building.building_def_id == def.id && building.level > 0
+        })
+        .map(|building| building.level as u16)
+        .sum();
+    discovered.saturating_sub(existing)
+}
+
+fn game_state_id_from_internal(world: &World, state: StateId) -> u16 {
+    world
+        .state_id_lookup
+        .iter()
+        .find_map(|(game_id, sid)| (*sid == state).then_some(*game_id))
+        .unwrap_or(state.0)
 }
 
 fn owned_states_by_weight(world: &World, country: CountryId) -> Vec<StateId> {
@@ -3313,7 +3380,13 @@ fn inject_building(
         Some(d) => d,
         None => return,
     };
-    let level = level.min(def.max_level);
+    let mut level = level.min(def.max_level);
+    if resource_limited_building(def) {
+        level = level.min(resource_capacity_remaining(world, db, def, state) as u8);
+        if level == 0 {
+            return;
+        }
+    }
     let active_pm_by_group = default_active_pm_entries(db, &def.id);
     let active_pm = active_pm_by_group
         .first()
@@ -3387,7 +3460,13 @@ fn inject_building_state_owned(
         Some(d) => d,
         None => return,
     };
-    let level = level.min(def.max_level);
+    let mut level = level.min(def.max_level);
+    if resource_limited_building(def) {
+        level = level.min(resource_capacity_remaining(world, db, def, state) as u8);
+        if level == 0 {
+            return;
+        }
+    }
     let active_pm_by_group = default_active_pm_entries(db, &def.id);
     let active_pm = active_pm_by_group
         .first()
@@ -5350,7 +5429,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known Phase 9 baseline: historical resource deposit calibration is not yet reconciled"]
     fn h2_resource_buildings_do_not_exceed_discovered_deposits() {
         let mut world = h2_test_world();
         let db = V6Database::load();

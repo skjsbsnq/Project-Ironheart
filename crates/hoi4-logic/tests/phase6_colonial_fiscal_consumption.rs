@@ -137,8 +137,8 @@ fn colonial_population_does_not_scale_tax_and_consumption_like_domestic() {
     assert!(domestic_taxes > 0.0, "control setup should collect taxes");
     assert!(domestic_demand > 0.0, "control setup should create demand");
     assert!(
-        colonial_taxes < domestic_taxes * 0.80,
-        "colonial tax base should be reduced: colonial={colonial_taxes}, domestic={domestic_taxes}"
+        (colonial_taxes - domestic_taxes).abs() <= (domestic_taxes * 0.01).max(1.0),
+        "market pop taxes should use the pure wage tax base: colonial={colonial_taxes}, domestic={domestic_taxes}"
     );
     assert!(
         colonial_demand < domestic_demand * 0.90,

@@ -3,6 +3,7 @@ pub mod construction;
 pub mod construction_commands;
 pub mod country;
 pub mod economy;
+pub mod logistics;
 pub mod market;
 pub mod names;
 pub mod pops;

@@ -21,7 +21,6 @@ use hoi4_state::{
 };
 
 const STOCKPILE_TARGET_DAYS: f32 = 30.0;
-const IDLE_STOCKPILE_CAP: f32 = 1_000.0;
 
 const BUCKET_KINDS: [DemandBucketKind; 7] = [
     DemandBucketKind::PopBasicConsumption,
@@ -113,18 +112,11 @@ pub fn settle_market(world: &mut World, db: &V6Database, ci: usize) {
         let total_unmet = (total_demand - total_fulfilled).max(0.0);
 
         let stockpile_from_surplus = remaining;
-        let stockpile_closing =
+        let exportable_after_local_demand =
             (stockpile_opening - stockpile_release + stockpile_from_surplus).max(0.0);
-        let stockpile_cap = if total_demand > 0.0 {
-            (total_demand * STOCKPILE_TARGET_DAYS).max(domestic_production + imports)
-        } else {
-            IDLE_STOCKPILE_CAP.max(domestic_production + imports)
-        };
-        let stockpile_closing = stockpile_closing.min(stockpile_cap);
-
-        let overflow = (stockpile_opening - stockpile_release + stockpile_from_surplus
-            - stockpile_closing)
-            .max(0.0);
+        let actual_exports = exports.min(exportable_after_local_demand);
+        let stockpile_closing =
+            (exportable_after_local_demand - actual_exports).max(0.0);
 
         let coverage_days = if total_demand > 0.0 {
             (stockpile_closing / total_demand).min(STOCKPILE_TARGET_DAYS)
@@ -150,7 +142,7 @@ pub fn settle_market(world: &mut World, db: &V6Database, ci: usize) {
                 buckets,
                 total_fulfilled,
                 total_unmet,
-                exports,
+                exports: actual_exports,
                 stockpile_closing,
                 stockpile_coverage_days: coverage_days,
                 shortage_ratio,
@@ -160,18 +152,19 @@ pub fn settle_market(world: &mut World, db: &V6Database, ci: usize) {
 
         let market = &mut world.countries.market.markets[ci];
         market.stockpile.insert(good_id.clone(), stockpile_closing);
+        if actual_exports != exports {
+            market.exports.insert(good_id.clone(), actual_exports);
+        }
         market.unmet_demand.insert(good_id.clone(), total_unmet);
         market
             .stockpile_coverage_days
             .insert(good_id.clone(), coverage_days);
 
         let consumed_from_production =
-            (domestic_production + stockpile_release + imports - stockpile_from_surplus + overflow)
+            (domestic_production + stockpile_release + imports - stockpile_from_surplus)
                 .max(0.0)
                 .min(domestic_production + stockpile_release + imports);
-        let new_supply =
-            (domestic_production - consumed_from_production + stockpile_release + overflow)
-                .max(0.0);
+        let new_supply = (domestic_production - consumed_from_production).max(0.0);
         market.supply.insert(good_id.clone(), new_supply);
     }
 
@@ -207,9 +200,7 @@ pub fn confirm_government_procurement(world: &mut World, ci: usize) {
 
                 let actual_cost = cost.min(treasury.cash_rm.max(0.0));
                 if actual_cost > 0.0 {
-                    treasury.cash_rm -= actual_cost;
-                    treasury.daily_expense_rm += actual_cost;
-                    treasury.record_expense(actual_cost, "military_procurement");
+                    treasury.pay(actual_cost, "military_procurement");
                 }
 
                 let market = &mut world.countries.market.markets[ci];
@@ -247,9 +238,7 @@ pub fn confirm_construction_procurement(world: &mut World, ci: usize) {
 
                 let actual_cost = cost.min(treasury.cash_rm.max(0.0));
                 if actual_cost > 0.0 {
-                    treasury.cash_rm -= actual_cost;
-                    treasury.daily_expense_rm += actual_cost;
-                    treasury.record_expense(actual_cost, "construction_goods");
+                    treasury.pay(actual_cost, "construction_goods");
                 }
             }
         }
@@ -411,9 +400,7 @@ fn get_demand_for_bucket(
         return 0.0;
     }
 
-    if kind == DemandBucketKind::Export {
-        return exports;
-    }
+    let _ = exports;
 
     0.0
 }

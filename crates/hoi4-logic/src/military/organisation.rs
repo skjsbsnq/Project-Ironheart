@@ -43,11 +43,11 @@ mod tests {
 
     #[test]
     fn regen_amount() {
-        // 起始 org=10、max=60、regen=10% → +6 → 16
+        // 起始 org=10、max=60、regen=18% -> +10.8 -> 20.8
         let max: f32 = 60.0;
         let cur: f32 = 10.0;
         let after = (cur + max * ORG_REGEN_PER_DAY).min(max);
-        assert!((after - 16.0).abs() < 1e-3);
+        assert!((after - 20.8).abs() < 1e-3);
     }
 
     #[test]

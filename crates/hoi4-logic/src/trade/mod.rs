@@ -54,7 +54,7 @@ pub fn step_trade_matching(world: &mut World, db: &V6Database, ci: usize) {
     let import_efficiency = trade_def.map(|t| t.import_efficiency).unwrap_or(0.5);
     let export_efficiency = trade_def.map(|t| t.export_efficiency).unwrap_or(0.5);
     let import_tariff_rate = trade_def.map(|t| t.import_tariff_rate).unwrap_or(0.0);
-    let _export_tariff_rate = trade_def.map(|t| t.export_tariff_rate).unwrap_or(0.0);
+    let export_tariff_rate = trade_def.map(|t| t.export_tariff_rate).unwrap_or(0.0);
 
     if is_autarky {
         zero_imports_exports(world, ci);
@@ -160,7 +160,8 @@ pub fn step_trade_matching(world: &mut World, db: &V6Database, ci: usize) {
         } else {
             importer_price_rm * world_spot_mult
         };
-        let trade_price_rm = (importer_price_rm + exporter_price_rm) * 0.5;
+        let _ = exporter_price_rm;
+        let trade_price_rm = importer_price_rm;
         let price_gbp = trade_price_rm as f64 / rm_per_gbp as f64;
         let requested_cost_gbp: f64 = *amount as f64 * price_gbp;
         let actual_amount = if requested_cost_gbp <= remaining_reserve_gbp {
@@ -206,8 +207,10 @@ pub fn step_trade_matching(world: &mut World, db: &V6Database, ci: usize) {
         treasury.reserve_gbp -= cost_gbp;
         treasury.daily_trade_balance_gbp -= cost_gbp;
         treasury.reserve_gbp += tariff_income_gbp;
-        treasury.daily_budget.income_trade_tariffs_rm += tariff_income_gbp * rm_per_gbp as f64;
-        remaining_reserve_gbp = (remaining_reserve_gbp - cost_gbp + tariff_income_gbp).max(0.0);
+        let tariff_income_rm = tariff_income_gbp * rm_per_gbp as f64;
+        treasury.cash_rm += tariff_income_rm;
+        treasury.daily_budget.income_trade_tariffs_rm += tariff_income_rm;
+        remaining_reserve_gbp = (remaining_reserve_gbp - cost_gbp).max(0.0);
         if !exporter.is_none() {
             let exporter_idx = exporter.0 as usize;
             if exporter_idx < world.countries.treasury.treasuries.len() {
@@ -219,7 +222,27 @@ pub fn step_trade_matching(world: &mut World, db: &V6Database, ci: usize) {
         }
     }
 
-    let _ = &export_flows;
+    for (good_id, amount) in &export_flows {
+        if *amount <= 0.0 {
+            continue;
+        }
+        let price_rm = world.countries.market.markets[ci]
+            .price
+            .get(good_id)
+            .copied()
+            .unwrap_or(1.0);
+        let value_gbp = *amount as f64 * price_rm as f64 / rm_per_gbp as f64;
+        let export_tariff_gbp = value_gbp * export_tariff_rate as f64;
+        let market = &mut world.countries.market.markets[ci];
+        *market.exports.entry(good_id.clone()).or_insert(0.0) += *amount;
+        if let Some(supply) = market.supply.get_mut(good_id) {
+            *supply = (*supply - *amount).max(0.0);
+        }
+        let treasury = &mut world.countries.treasury.treasuries[ci];
+        treasury.reserve_gbp += value_gbp - export_tariff_gbp;
+        treasury.daily_trade_balance_gbp += value_gbp - export_tariff_gbp;
+        treasury.daily_budget.income_trade_tariffs_rm += export_tariff_gbp * rm_per_gbp as f64;
+    }
     let treasury = &mut world.countries.treasury.treasuries[ci];
     treasury.reserve_gbp = treasury.reserve_gbp.max(0.0);
 

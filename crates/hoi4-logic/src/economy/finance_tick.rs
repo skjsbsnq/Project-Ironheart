@@ -42,10 +42,14 @@ pub fn step_collect_taxes_planned(world: &mut World, _db: &V6Database, ci: usize
         let Some(building) = world.countries.buildings_v6.buildings.get(building_idx) else {
             continue;
         };
-        if building.level == 0 {
+        if building.level == 0 || building.owner == BuildingOwner::State {
             continue;
         }
-        let profit_estimate = building.profit_rm
+        let operating_surplus_rm = (building.output_value_gbp
+            * world.countries.treasury.exchange_rates[ci].rm_per_gbp as f64
+            - building.input_cost_rm)
+            / super::valuation::GOODS_RM_SCALE;
+        let profit_estimate = operating_surplus_rm.max(0.0)
             * integration_tax_factor(integration_status[building.state.0 as usize]) as f64
             * crate::occupation::state_governance_yield_factor(world, building.state) as f64;
         for share in ownership_shares_for(building, country_id) {
@@ -63,14 +67,6 @@ pub fn step_collect_taxes_planned(world: &mut World, _db: &V6Database, ci: usize
 
 pub fn step_collect_taxes(world: &mut World, _db: &V6Database, ci: usize) {
     let country_id = CountryId(ci as u16);
-    let state_count = world.states.count;
-    let integration_status = world.states.integration_status.clone();
-    let governance_factors: Vec<f32> = (0..state_count)
-        .map(|si| {
-            crate::occupation::state_governance_yield_factor(world, hoi4_state::StateId(si as u16))
-        })
-        .collect();
-
     let [income_tax_rate, consumption_tax_rate, corporate_tax_rate] =
         world.countries.treasury.treasuries[ci].tax_rates;
 
@@ -85,14 +81,7 @@ pub fn step_collect_taxes(world: &mut World, _db: &V6Database, ci: usize) {
         if pg.class == PopClass::Soldier {
             continue;
         }
-        let state_idx = pg.state.0 as usize;
-        let governance_factor = governance_factors.get(state_idx).copied().unwrap_or(1.0);
-        let tax_factor = integration_status
-            .get(state_idx)
-            .copied()
-            .map(integration_tax_factor)
-            .unwrap_or(1.0) as f64
-            * governance_factor as f64;
+        let tax_factor = 1.0_f64;
         let wage_total = pg.wage_rm as f64 * pg.size as f64 * tax_factor;
         total_income_tax += wage_total * income_tax_rate as f64;
 
@@ -136,24 +125,26 @@ pub fn step_collect_taxes(world: &mut World, _db: &V6Database, ci: usize) {
         let Some(building) = world.countries.buildings_v6.buildings.get(building_idx) else {
             continue;
         };
-        if building.level == 0 {
+        if building.level == 0 || building.owner == BuildingOwner::State {
             continue;
         }
-        let profit_estimate = building.profit_rm
-            * integration_tax_factor(integration_status[building.state.0 as usize]) as f64
-            * crate::occupation::state_governance_yield_factor(world, building.state) as f64;
+        let operating_surplus_rm = (building.output_value_gbp
+            * world.countries.treasury.exchange_rates[ci].rm_per_gbp as f64
+            - building.input_cost_rm)
+            / super::valuation::GOODS_RM_SCALE;
+        let profit_estimate = operating_surplus_rm.max(0.0);
         for share in ownership_shares_for(building, country_id) {
             let amount = profit_estimate * share.share as f64;
             match share.account {
                 OwnershipAccount::State { country } if country == country_id => {
                     total_state_profit_share += amount;
+                    total_corporate_tax += amount * corporate_tax_rate as f64;
                 }
                 OwnershipAccount::DomesticPrivate { country } if country == country_id => {
                     total_corporate_tax += amount * corporate_tax_rate as f64;
                     private_retained_profit += amount * (1.0 - corporate_tax_rate as f64) * 0.03;
                 }
                 OwnershipAccount::Cartel { country } if country == country_id => {
-                    total_corporate_tax += amount * corporate_tax_rate as f64;
                     cartel_capitalist_income += amount;
                     cartel_retained_profit += amount * (1.0 - corporate_tax_rate as f64) * 0.02;
                 }
@@ -722,7 +713,11 @@ pub fn can_print_mefo(world: &World, db: &V6Database, ci: usize) -> bool {
             "planned_economy",
         ],
     );
-    conscription_ok && economy_ok
+    let wartime_economy_ok = matches!(
+        economy.as_str(),
+        "war_economy" | "corporatist_war_economy" | "planned_economy"
+    );
+    conscription_ok && economy_ok && wartime_economy_ok
 }
 
 #[cfg(test)]

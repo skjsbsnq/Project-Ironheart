@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use glam::{Vec2, Vec4};
 use wgpu::util::DeviceExt;
@@ -60,6 +60,7 @@ mod map_frame;
 mod map_image_diff;
 mod map_perf;
 mod map_renderer;
+mod map_trade_routes;
 mod mapname_atlas;
 mod menu_pass;
 mod menu_scene;
@@ -73,6 +74,8 @@ mod runtime;
 mod ui_binding;
 mod update_loop;
 use flag_bank::FlagBank;
+use hoi4_app::ui_data::cache::{UiPanelCache, UiPanelCacheKind};
+use hoi4_app::ui_data::names::localized_content_name;
 pub use hoi4_app::vanilla_resource_views;
 pub use hoi4_app::vanilla_targets;
 use hoi4_render::global_uniform::GlobalFrameUniform;
@@ -166,57 +169,6 @@ impl Default for BuildingParams {
 
 const _: () = assert!(std::mem::size_of::<BuildingParams>() == 16);
 
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-enum UiPanelCacheKind {
-    Finance,
-    Market,
-    Construction,
-    Diplomacy,
-    Military,
-}
-
-#[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct UiPanelCacheKey {
-    player: usize,
-    day: i64,
-    signature: u64,
-    selected_tag: Option<String>,
-}
-
-impl UiPanelCacheKey {
-    fn new(player: usize, day: i64, signature: u64) -> Self {
-        Self {
-            player,
-            day,
-            signature,
-            selected_tag: None,
-        }
-    }
-
-    fn with_selected_tag(mut self, selected_tag: Option<String>) -> Self {
-        self.selected_tag = selected_tag;
-        self
-    }
-}
-
-#[derive(Default)]
-struct UiPanelCache {
-    finance: Option<(UiPanelCacheKey, hoi4_ui::finance_panel::FinancePanelData)>,
-    market: Option<(UiPanelCacheKey, hoi4_ui::market_panel::MarketPanelData)>,
-    construction: Option<(
-        UiPanelCacheKey,
-        hoi4_ui::construction_v6_panel::ConstructionV6PanelData,
-    )>,
-    diplomacy: Option<(UiPanelCacheKey, hoi4_ui::diplomacy::DiplomacyData)>,
-    last_builds: Vec<UiPanelBuildPerf>,
-}
-
-struct UiPanelBuildPerf {
-    kind: UiPanelCacheKind,
-    elapsed: Duration,
-    reused: bool,
-}
-
 struct MapPhase0Run {
     output_dir: PathBuf,
     reference_root: Option<PathBuf>,
@@ -266,61 +218,10 @@ struct PendingPngReadback {
     format: wgpu::TextureFormat,
 }
 
-impl UiPanelCache {
-    fn clear(&mut self) {
-        self.finance = None;
-        self.market = None;
-        self.construction = None;
-        self.diplomacy = None;
-    }
-
-    fn begin_frame(&mut self) {
-        self.last_builds.clear();
-    }
-
-    fn record(&mut self, kind: UiPanelCacheKind, elapsed: Duration, reused: bool) {
-        self.last_builds.push(UiPanelBuildPerf {
-            kind,
-            elapsed,
-            reused,
-        });
-    }
-
-    fn perf_report(&self) -> Option<String> {
-        if self.last_builds.is_empty() {
-            return None;
-        }
-        Some(
-            self.last_builds
-                .iter()
-                .map(|entry| {
-                    let state = if entry.reused { "hit" } else { "build" };
-                    format!(
-                        "{:?}:{}:{:.2}ms",
-                        entry.kind,
-                        state,
-                        entry.elapsed.as_secs_f64() * 1000.0
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(" | "),
-        )
-    }
-}
-
-fn localized_content_name(id: &str, fallback: &str) -> String {
-    hoi4_app::ui_data::names::DisplayNameResolver::new(None).content_name(
-        hoi4_app::ui_data::names::DisplayNameKind::Generic,
-        id,
-        fallback,
-    )
-}
-
 fn build_law_tiers(
     cat: hoi4_state::LawCategory,
     db: &hoi4_content::V6Database,
 ) -> Vec<hoi4_ui::law_panel::LawTierEntry> {
-    use hoi4_content::v6_loader::*;
     match cat {
         hoi4_state::LawCategory::Conscription => db
             .conscription_laws
@@ -837,7 +738,7 @@ struct App {
     /// 11.4???irty hash for frontline arrow instances.
     prev_armies_hash: u64,
     frontline_overlay_hash: u64,
-    trade_route_overlay_hash: u64,
+    trade_routes_hash: u64,
     /// 11.2???urrently selected army (click frontline on map or select in bottom bar).
     selected_army_id: Option<hoi4_state::ArmyId>,
     template_editor_open: bool,
@@ -1080,7 +981,7 @@ impl App {
             frontline_overlay_visible: true,
             prev_armies_hash: 0,
             frontline_overlay_hash: 0,
-            trade_route_overlay_hash: 0,
+            trade_routes_hash: 0,
             selected_army_id: None,
             template_editor_open: false,
             selected_template_idx: None,
@@ -1692,29 +1593,6 @@ impl App {
         (world.states.category_slots[si] as u16).max(4) + 20
     }
 
-    fn v6_law_category_index(category: hoi4_content::v6_loader::LawCategoryDef) -> usize {
-        match category {
-            hoi4_content::v6_loader::LawCategoryDef::Conscription => {
-                hoi4_state::LawCategory::Conscription.index()
-            }
-            hoi4_content::v6_loader::LawCategoryDef::Economy => {
-                hoi4_state::LawCategory::Economy.index()
-            }
-            hoi4_content::v6_loader::LawCategoryDef::Trade => {
-                hoi4_state::LawCategory::Trade.index()
-            }
-            hoi4_content::v6_loader::LawCategoryDef::Taxation => {
-                hoi4_state::LawCategory::Taxation.index()
-            }
-            hoi4_content::v6_loader::LawCategoryDef::CivilRights => {
-                hoi4_state::LawCategory::CivilRights.index()
-            }
-            hoi4_content::v6_loader::LawCategoryDef::InformationControl => {
-                hoi4_state::LawCategory::InformationControl.index()
-            }
-        }
-    }
-
     fn v6_current_building_level(
         world: &World,
         building_key: &str,
@@ -1854,389 +1732,6 @@ impl App {
             .unwrap_or_else(|| pm_id.to_owned())
     }
 
-    fn equipment_display_name(equipment_id: &str) -> String {
-        match equipment_id {
-            "infantry_equipment" => "??????".to_owned(),
-            "artillery" => "???".to_owned(),
-            "anti_tank" => "??????".to_owned(),
-            "anti_air" => "Anti-air".to_owned(),
-            "support_equipment" => "??????".to_owned(),
-            "motorized" => "Motorized".to_owned(),
-            "mechanized" => "Mechanized".to_owned(),
-            "armor" => "???".to_owned(),
-            "aircraft" => "???".to_owned(),
-            "naval_vessel" => "???".to_owned(),
-            "convoy" => "Convoy".to_owned(),
-            "train" => "??????".to_owned(),
-            _ => equipment_id.to_owned(),
-        }
-    }
-
-    fn logistics_equipment_ids(db: &hoi4_content::V6Database) -> Vec<String> {
-        const ORDER: [&str; 12] = [
-            "infantry_equipment",
-            "artillery",
-            "anti_tank",
-            "anti_air",
-            "support_equipment",
-            "motorized",
-            "mechanized",
-            "armor",
-            "aircraft",
-            "naval_vessel",
-            "convoy",
-            "train",
-        ];
-        let mut ids: Vec<String> = ORDER.into_iter().map(str::to_owned).collect();
-        for pm in &db.production_methods {
-            if let Some(eq) = &pm.equipment_output {
-                if !ids.contains(&eq.equipment_category) {
-                    ids.push(eq.equipment_category.clone());
-                }
-            }
-        }
-        ids
-    }
-
-    fn logistics_equipment_unit_cost_rm(equipment_id: &str) -> f64 {
-        match equipment_id.to_ascii_lowercase().as_str() {
-            e if e.contains("tank") || e.contains("armor") => 80_000.0,
-            e if e.contains("fighter")
-                || e.contains("bomber")
-                || e.contains("plane")
-                || e.contains("aircraft") =>
-            {
-                120_000.0
-            }
-            e if e.contains("artillery") => 18_000.0,
-            e if e.contains("truck") || e.contains("motorized") => 12_000.0,
-            e if e.contains("support") => 8_000.0,
-            e if e.contains("ship") || e.contains("naval") => 250_000.0,
-            e if e.contains("convoy") => 60_000.0,
-            e if e.contains("train") => 40_000.0,
-            _ => 4_000.0,
-        }
-    }
-
-    fn logistics_building_output_ratio(
-        building: &hoi4_state::Building,
-        pms: &[&hoi4_content::ProductionMethodDef],
-        market: &hoi4_state::market::NationalMarket,
-    ) -> f32 {
-        if building.level == 0 {
-            return 0.0;
-        }
-        let mut total_needed = 0.0;
-        let mut total_filled = 0.0;
-        for class_idx in 0..hoi4_state::PopClass::COUNT {
-            let needed = pms
-                .iter()
-                .map(|pm| pm.employment_demand.get(class_idx).copied().unwrap_or(0) as f32)
-                .sum::<f32>()
-                * building.level as f32;
-            let filled = building.employment.get(class_idx).copied().unwrap_or(0) as f32;
-            total_needed += needed;
-            total_filled += filled.min(needed);
-        }
-        let employment_ratio = if total_needed <= 0.0 {
-            1.0
-        } else if total_filled <= 0.0 {
-            // Logistics is a status panel; before the first labor tick, V6
-            // buildings may be valid but have not received an employment
-            // snapshot yet. Show their readable capacity instead of all zeroes.
-            1.0
-        } else {
-            (total_filled / total_needed).clamp(0.0, 1.0)
-        };
-        let market_empty = market.supply.values().all(|v| v.abs() <= f32::EPSILON)
-            && market.stockpile.values().all(|v| v.abs() <= f32::EPSILON);
-        let input_ratio = pms
-            .iter()
-            .flat_map(|pm| {
-                pm.input_good_ids
-                    .iter()
-                    .enumerate()
-                    .map(move |(i, good_id)| (pm, i, good_id))
-            })
-            .fold(1.0_f32, |ratio, (pm, i, good_id)| {
-                let demand = pm.input_good_amounts.get(i).copied().unwrap_or(0.0)
-                    * building.level as f32
-                    * employment_ratio;
-                if demand <= 0.0 || market_empty {
-                    ratio
-                } else {
-                    let available = market.supply.get(good_id).copied().unwrap_or(0.0)
-                        + market.stockpile.get(good_id).copied().unwrap_or(0.0);
-                    ratio.min((available / demand).clamp(0.0, 1.0))
-                }
-            });
-        employment_ratio * input_ratio
-    }
-
-    fn logistics_resource_entries(
-        world: &World,
-        player: usize,
-    ) -> Vec<hoi4_ui::logistics_panel::ResourceEntry> {
-        let market = world.countries.market.markets.get(player);
-        let country_id = hoi4_state::CountryId(player as u16);
-        hoi4_data::ResourceKind::all()
-            .iter()
-            .map(|k| {
-                let key = k.as_str();
-                let market_produced = market
-                    .and_then(|m| m.supply.get(key).copied())
-                    .unwrap_or(0.0)
-                    + market
-                        .and_then(|m| m.imports.get(key).copied())
-                        .unwrap_or(0.0);
-                let static_produced = world
-                    .data
-                    .states
-                    .iter()
-                    .enumerate()
-                    .filter(|(idx, _)| world.states.owners.get(*idx) == Some(&country_id))
-                    .flat_map(|(_, state)| state.resources.iter())
-                    .filter(|(kind, _)| kind == k)
-                    .map(|(_, amount)| *amount)
-                    .sum::<f32>();
-                let produced = if market_produced > 0.0 {
-                    market_produced
-                } else {
-                    static_produced
-                };
-                let consumed = market
-                    .and_then(|m| m.demand.get(key).copied())
-                    .unwrap_or(0.0)
-                    + market
-                        .and_then(|m| m.exports.get(key).copied())
-                        .unwrap_or(0.0);
-                let stored = market
-                    .and_then(|m| m.stockpile.get(key).copied())
-                    .unwrap_or(0.0);
-                hoi4_ui::logistics_panel::ResourceEntry {
-                    name: key.to_owned(),
-                    produced,
-                    consumed,
-                    stored,
-                }
-            })
-            .collect()
-    }
-
-    fn logistics_v6_military_outputs(
-        world: &World,
-        db: &hoi4_content::V6Database,
-        player: usize,
-    ) -> (HashMap<String, f32>, HashMap<String, Vec<String>>) {
-        let country_id = hoi4_state::CountryId(player as u16);
-        let completed_techs = world.countries.completed_techs[player].clone();
-        let market = &world.countries.market.markets[player];
-        let mut outputs: HashMap<String, f32> = HashMap::new();
-        let mut sources: HashMap<String, Vec<String>> = HashMap::new();
-        for building in &world.countries.buildings_v6.buildings {
-            let state_idx = building.state.0 as usize;
-            if state_idx >= world.states.count
-                || world.states.owners[state_idx] != country_id
-                || building.level == 0
-            {
-                continue;
-            }
-            let pms = hoi4_content::active_pms_for_building(building, db)
-                .into_iter()
-                .filter(|pm| {
-                    let tech_ok = pm
-                        .unlocked_by
-                        .as_ref()
-                        .map(|tech| completed_techs.contains(tech))
-                        .unwrap_or(true);
-                    let law_ok = pm
-                        .required_law
-                        .as_ref()
-                        .map(|(cat, law_id)| {
-                            world.countries.law_store.law_sets[player].0
-                                [Self::v6_law_category_index(*cat)]
-                            .current
-                                == *law_id
-                        })
-                        .unwrap_or(true);
-                    tech_ok && law_ok
-                })
-                .collect::<Vec<_>>();
-            if pms.iter().all(|pm| pm.equipment_output.is_none()) {
-                continue;
-            }
-            let ratio = Self::logistics_building_output_ratio(building, &pms, market);
-            let state_name = world
-                .states
-                .names
-                .get(state_idx)
-                .cloned()
-                .unwrap_or_default();
-            let building_name = Self::v6_building_name(db, &building.building_def_id);
-            for pm in pms {
-                let Some(eq) = &pm.equipment_output else {
-                    continue;
-                };
-                let daily = eq.daily_per_level
-                    * pm.throughput_modifier.max(0.0)
-                    * building.level as f32
-                    * ratio;
-                if daily <= 0.0 {
-                    continue;
-                }
-                *outputs.entry(eq.equipment_category.clone()).or_insert(0.0) += daily;
-                let source = if state_name.is_empty() {
-                    format!("{} Lv{} +{:.1}/day", building_name, building.level, daily)
-                } else {
-                    format!(
-                        "{} {} Lv{} +{:.1}/day",
-                        state_name, building_name, building.level, daily
-                    )
-                };
-                sources
-                    .entry(eq.equipment_category.clone())
-                    .or_default()
-                    .push(source);
-            }
-        }
-        for rows in sources.values_mut() {
-            rows.truncate(3);
-        }
-        (outputs, sources)
-    }
-
-    fn logistics_force_needs(
-        world: &World,
-        player: usize,
-    ) -> (HashMap<String, f32>, HashMap<String, f32>) {
-        let country_id = hoi4_state::CountryId(player as u16);
-        let tag = world.country_tag(country_id).map(|s| s.to_owned());
-        let templates = tag
-            .as_deref()
-            .and_then(|t| world.data.division_templates.get(t));
-        let mut total_need: HashMap<String, f32> = HashMap::new();
-        let mut replenishment_need: HashMap<String, f32> = HashMap::new();
-        let Some(templates) = templates else {
-            return (total_need, replenishment_need);
-        };
-        for div_idx in 0..world.divisions.count {
-            if world.divisions.owners[div_idx] != country_id {
-                continue;
-            }
-            let tpl_idx = world.divisions.template_indices[div_idx] as usize;
-            let Some(template) = templates.get(tpl_idx) else {
-                continue;
-            };
-            let strength = world
-                .divisions
-                .strength
-                .get(div_idx)
-                .copied()
-                .unwrap_or(1.0)
-                .clamp(0.0, 1.0);
-            let gap = 1.0 - strength;
-            for (equipment, qty) in
-                hoi4_logic::economy::stockpile::template_equipment_needs(template, &world.data)
-            {
-                let qty = qty as f32;
-                *total_need.entry(equipment.clone()).or_insert(0.0) += qty;
-                if gap > 0.0 && !world.divisions.in_combat[div_idx] {
-                    *replenishment_need.entry(equipment).or_insert(0.0) += qty * gap.min(0.01);
-                }
-            }
-        }
-        (total_need, replenishment_need)
-    }
-
-    fn logistics_training_shortfalls(
-        world: &World,
-        econ: &hoi4_logic::economy::EconomyState,
-        player: usize,
-    ) -> HashMap<String, f32> {
-        let mut shortfalls: HashMap<String, f32> = HashMap::new();
-        let country_id = hoi4_state::CountryId(player as u16);
-        let Some(tag) = world.country_tag(country_id) else {
-            return shortfalls;
-        };
-        let Some(templates) = world.data.division_templates.get(tag) else {
-            return shortfalls;
-        };
-        let Some(queue) = econ.training_queues.get(player) else {
-            return shortfalls;
-        };
-
-        for item in queue {
-            let Some(template) = templates.get(item.template_id as usize) else {
-                continue;
-            };
-            for (equipment, qty) in
-                hoi4_logic::economy::stockpile::template_equipment_needs(template, &world.data)
-            {
-                let needed = qty as f32 * item.count.max(1) as f32;
-                let allocated = item
-                    .equipment_allocated
-                    .get(&equipment)
-                    .copied()
-                    .unwrap_or(0.0);
-                let missing = (needed - allocated).max(0.0);
-                if missing > 0.0 {
-                    *shortfalls.entry(equipment).or_insert(0.0) += missing;
-                }
-            }
-        }
-        shortfalls
-    }
-
-    fn v6_pm_lock_reason(
-        world: &World,
-        db: &hoi4_content::V6Database,
-        player: usize,
-        pm: &hoi4_content::ProductionMethodDef,
-    ) -> Option<String> {
-        if let Some(tech_id) = &pm.unlocked_by {
-            if !world.countries.completed_techs[player].contains(tech_id) {
-                let tech_name = db
-                    .technologies
-                    .iter()
-                    .find(|tech| tech.id == *tech_id)
-                    .map(|tech| tech.name.as_str())
-                    .unwrap_or(tech_id.as_str());
-                return Some(format!("Requires technology: {}", tech_name));
-            }
-        }
-        if let Some(reason) = Self::v6_required_law_label(db, pm.required_law.as_ref()) {
-            if let Some((cat, law_id)) = &pm.required_law {
-                let current = &world.countries.law_store.law_sets[player].0
-                    [Self::v6_law_category_index(*cat)]
-                .current;
-                if current != law_id {
-                    return Some(reason);
-                }
-            }
-        }
-        None
-    }
-
-    fn v6_set_building_pm_group(building: &mut hoi4_state::Building, group: &str, pm_id: &str) {
-        if let Some(active) = building
-            .active_pm_by_group
-            .iter_mut()
-            .find(|active| active.group == group)
-        {
-            active.pm_id = pm_id.to_owned();
-        } else {
-            building
-                .active_pm_by_group
-                .push(hoi4_state::ActiveProductionMethod {
-                    group: group.to_owned(),
-                    pm_id: pm_id.to_owned(),
-                });
-        }
-        if group == "base" || building.active_pm.is_empty() {
-            building.active_pm = pm_id.to_owned();
-        }
-    }
-
     fn v6_building_name(db: &hoi4_content::V6Database, building_id: &str) -> String {
         let name_resolver = hoi4_app::ui_data::names::DisplayNameResolver::new(None);
         db.buildings
@@ -2256,14 +1751,6 @@ impl App {
                     building_id,
                 )
             })
-    }
-
-    fn v6_expected_profit_rm_daily(
-        pms: &[&hoi4_content::ProductionMethodDef],
-        level: u8,
-        market: Option<&hoi4_state::market::NationalMarket>,
-    ) -> f64 {
-        hoi4_logic::economy::valuation::expected_profit_rm_daily(pms, level, market)
     }
 
     fn v6_employment_gap_for_building(
@@ -4648,29 +4135,12 @@ impl App {
         s.maparrow_pass.set_arrows(&s.device, &s.queue, &arrows);
     }
 
-    fn trade_route_overlay_signature(&self) -> u64 {
-        let mut h = DefaultHasher::new();
-        self.world.countries.trade.routes.len().hash(&mut h);
-        for route in &self.world.countries.trade.routes {
-            route.id.hash(&mut h);
-            route.importer.hash(&mut h);
-            route.exporter.hash(&mut h);
-            route.good_id.hash(&mut h);
-            route.kind.hash(&mut h);
-            route.port_state.hash(&mut h);
-            route.throughput.to_bits().hash(&mut h);
-            route.is_blockaded.hash(&mut h);
-        }
-        self.world.countries.capitals.hash(&mut h);
-        h.finish()
-    }
-
     fn update_trade_routes_overlay(&mut self) {
-        let sig = self.trade_route_overlay_signature();
-        if sig == self.trade_route_overlay_hash {
+        let sig = map_trade_routes::signature(&self.world);
+        if sig == self.trade_routes_hash {
             return;
         }
-        self.trade_route_overlay_hash = sig;
+        self.trade_routes_hash = sig;
 
         let centroids = match self.state.as_ref() {
             Some(s) => s.unit_counter_centroids.clone(),
@@ -5091,7 +4561,7 @@ impl App {
         let mut law_close = false;
         let mut law_cmds: Vec<hoi4_ui::law_panel::LawCommand> = Vec::new();
         let pop_panel_data = if open_panel == Some(InGamePanel::Pops) {
-            hoi4_app::ui_data::pops::build_pop_panel_data(
+            hoi4_app::ui_data::pops::panel_data(
                 &self.world,
                 &self.v6_db,
                 &self.loc_catalog,
@@ -5102,149 +4572,47 @@ impl App {
         };
         let mut pop_panel_close = false;
         let market_panel_data = if open_panel == Some(InGamePanel::Market) {
-            let cache_started = Instant::now();
-            let cache_key = UiPanelCacheKey::new(
+            hoi4_app::ui_data::cache::cached_market_panel(
+                &mut self.ui_panel_cache,
+                &self.world,
+                &self.v6_db,
+                &self.econ,
                 player_country,
-                self.world.date.days_since_epoch(),
-                hoi4_app::ui_data::cache::market_panel_signature(
-                    &self.world,
-                    &self.econ,
-                    player_country,
-                ),
-            );
-            if let Some(data) = self
-                .ui_panel_cache
-                .market
-                .as_ref()
-                .filter(|(key, _)| *key == cache_key)
-                .map(|(_, data)| data.clone())
-            {
-                self.ui_panel_cache
-                    .record(UiPanelCacheKind::Market, cache_started.elapsed(), true);
-                Some(data)
-            } else {
-                let built = hoi4_app::ui_data::market::build_market_panel_data(
-                    &self.world,
-                    &self.v6_db,
-                    &self.econ,
-                    player_country,
-                );
-                if let Some(data) = built.as_ref() {
-                    self.ui_panel_cache.market = Some((cache_key, data.clone()));
-                }
-                self.ui_panel_cache.record(
-                    UiPanelCacheKind::Market,
-                    cache_started.elapsed(),
-                    false,
-                );
-                built
-            }
+            )
         } else {
             None
         };
         let mut market_close = false;
         let finance_panel_data = if open_panel == Some(InGamePanel::Finance) {
-            let cache_started = Instant::now();
-            let cache_key = UiPanelCacheKey::new(
+            hoi4_app::ui_data::cache::cached_finance_panel(
+                &mut self.ui_panel_cache,
+                &self.world,
+                &self.v6_db,
+                &self.econ,
                 player_country,
-                self.world.date.days_since_epoch(),
-                hoi4_app::ui_data::cache::finance_panel_signature(
-                    &self.world,
-                    &self.econ,
-                    player_country,
-                ),
-            );
-            if let Some(data) = self
-                .ui_panel_cache
-                .finance
-                .as_ref()
-                .filter(|(key, _)| *key == cache_key)
-                .map(|(_, data)| data.clone())
-            {
-                self.ui_panel_cache.record(
-                    UiPanelCacheKind::Finance,
-                    cache_started.elapsed(),
-                    true,
-                );
-                Some(data)
-            } else {
-                let built = hoi4_app::ui_data::economy::build_finance_panel_data(
-                    &self.world,
-                    &self.econ,
-                    &self.v6_db,
-                    player_country,
-                );
-                if let Some(data) = built.as_ref() {
-                    self.ui_panel_cache.finance = Some((cache_key, data.clone()));
-                }
-                self.ui_panel_cache.record(
-                    UiPanelCacheKind::Finance,
-                    cache_started.elapsed(),
-                    false,
-                );
-                built
-            }
+            )
         } else {
             None
         };
         let mut finance_close = false;
         let mut finance_cmds: Vec<hoi4_ui::finance_panel::FinanceCommand> = Vec::new();
         let trade_panel_data = if open_panel == Some(InGamePanel::Trade) {
-            hoi4_app::ui_data::market::build_trade_panel_data(
-                &self.world,
-                &self.v6_db,
-                player_country,
-            )
+            hoi4_app::ui_data::market::trade_panel(&self.world, &self.v6_db, player_country)
         } else {
             None
         };
         let mut trade_close = false;
         let construction_v6_data = if open_panel == Some(InGamePanel::ConstructionV6) {
-            let cache_started = Instant::now();
-            let cache_key = UiPanelCacheKey::new(
+            hoi4_app::ui_data::cache::cached_construction_panel(
+                &mut self.ui_panel_cache,
+                &self.world,
+                &self.v6_db,
+                &self.econ,
                 player_country,
-                self.world.date.days_since_epoch(),
-                hoi4_app::ui_data::cache::construction_panel_signature(
-                    &self.world,
-                    &self.econ,
-                    self.auto_build_enabled,
-                    self.last_auto_build_explanations.len(),
-                    player_country,
-                ),
-            );
-            if let Some(data) = self
-                .ui_panel_cache
-                .construction
-                .as_ref()
-                .filter(|(key, _)| *key == cache_key)
-                .map(|(_, data)| data.clone())
-            {
-                self.ui_panel_cache.record(
-                    UiPanelCacheKind::Construction,
-                    cache_started.elapsed(),
-                    true,
-                );
-                Some(data)
-            } else {
-                let built = hoi4_app::ui_data::construction::build_construction_v6_panel_data(
-                    &self.world,
-                    &self.v6_db,
-                    &self.econ,
-                    player_country,
-                    &self.construction_mode,
-                    self.auto_build_enabled,
-                    &self.last_auto_build_explanations,
-                );
-                if let Some(data) = built.as_ref() {
-                    self.ui_panel_cache.construction = Some((cache_key, data.clone()));
-                }
-                self.ui_panel_cache.record(
-                    UiPanelCacheKind::Construction,
-                    cache_started.elapsed(),
-                    false,
-                );
-                built
-            }
+                &self.construction_mode,
+                self.auto_build_enabled,
+                &self.last_auto_build_explanations,
+            )
         } else {
             None
         };
@@ -5331,7 +4699,6 @@ impl App {
         let mut research_close = false;
         let mut research_cmds: Vec<hoi4_ui::research::ResearchCommand> = Vec::new();
         let diplomacy_data = if open_panel == Some(InGamePanel::Diplomacy) {
-            let cache_started = Instant::now();
             let selected_tag = self.diplomacy_selected_country_tag.clone().or_else(|| {
                 self.world
                     .countries
@@ -5341,44 +4708,15 @@ impl App {
                     .find(|(idx, tag)| *idx != player_country && !tag.is_empty())
                     .map(|(_, tag)| tag.clone())
             });
-            let cache_key = UiPanelCacheKey::new(
+            hoi4_app::ui_data::cache::cached_diplomacy_panel(
+                &mut self.ui_panel_cache,
+                &self.world,
+                &self.historical_1936,
+                &self.v6_db,
                 player_country,
-                self.world.date.days_since_epoch(),
-                hoi4_app::ui_data::cache::diplomacy_panel_signature(&self.world, player_country),
+                selected_tag,
+                self.settings.instant_war,
             )
-            .with_selected_tag(selected_tag.clone());
-            if let Some(data) = self
-                .ui_panel_cache
-                .diplomacy
-                .as_ref()
-                .filter(|(key, _)| *key == cache_key)
-                .map(|(_, data)| data.clone())
-            {
-                self.ui_panel_cache.record(
-                    UiPanelCacheKind::Diplomacy,
-                    cache_started.elapsed(),
-                    true,
-                );
-                Some(data)
-            } else {
-                let built = hoi4_app::ui_data::country::build_diplomacy_panel_data(
-                    &self.world,
-                    &self.historical_1936,
-                    &self.v6_db,
-                    player_country,
-                    selected_tag.as_deref(),
-                    self.settings.instant_war,
-                );
-                if let Some(data) = built.as_ref() {
-                    self.ui_panel_cache.diplomacy = Some((cache_key, data.clone()));
-                }
-                self.ui_panel_cache.record(
-                    UiPanelCacheKind::Diplomacy,
-                    cache_started.elapsed(),
-                    false,
-                );
-                built
-            }
         } else {
             None
         };
@@ -5800,113 +5138,12 @@ impl App {
 
         // J.4b / V6.G7: logistics panel data from V6 military buildings + force needs.
         let logistics_data = if open_panel == Some(InGamePanel::Logistics) {
-            let player = player_country;
-            if let Some(stockpile) = self.econ.stockpile.get_mut(player) {
-                hoi4_logic::economy::stockpile::normalize_stockpile_keys(stockpile);
-            }
-            let stockpile = &self.econ.stockpile[player];
-            let (daily_outputs, production_sources) =
-                Self::logistics_v6_military_outputs(&self.world, &self.v6_db, player);
-            let (force_need, replenishment_need) = Self::logistics_force_needs(&self.world, player);
-            let training_shortfalls =
-                Self::logistics_training_shortfalls(&self.world, &self.econ, player);
-            let treasury = &self.world.countries.treasury.treasuries[player];
-            let mut ids = Self::logistics_equipment_ids(&self.v6_db);
-            for id in stockpile
-                .keys()
-                .chain(daily_outputs.keys())
-                .chain(force_need.keys())
-                .chain(training_shortfalls.keys())
-            {
-                if !ids.contains(id) {
-                    ids.push(id.clone());
-                }
-            }
-            let total_shortfall_value: f64 = ids
-                .iter()
-                .map(|id| {
-                    let daily_prod = daily_outputs.get(id).copied().unwrap_or(0.0);
-                    let daily_replenishment_need =
-                        replenishment_need.get(id).copied().unwrap_or(0.0);
-                    let total_equipment_need = force_need.get(id).copied().unwrap_or(0.0);
-                    let daily_maintenance_need = total_equipment_need * 0.0005;
-                    let daily_consumption = daily_replenishment_need + daily_maintenance_need;
-                    let daily_deficit = (daily_consumption - daily_prod).max(0.0);
-                    daily_deficit as f64 * Self::logistics_equipment_unit_cost_rm(id)
-                })
-                .sum();
-            let mut entries: Vec<hoi4_ui::logistics_panel::LogisticsEntry> = ids
-                .into_iter()
-                .map(|id| {
-                    let qty = stockpile.get(&id).copied().unwrap_or(0.0);
-                    let daily_prod = daily_outputs.get(&id).copied().unwrap_or(0.0);
-                    let daily_replenishment_need =
-                        replenishment_need.get(&id).copied().unwrap_or(0.0);
-                    let total_equipment_need = force_need.get(&id).copied().unwrap_or(0.0);
-                    let training_shortfall = training_shortfalls.get(&id).copied().unwrap_or(0.0);
-                    let display_qty = qty - training_shortfall;
-                    let daily_training_need = training_shortfall / 30.0;
-                    let daily_maintenance_need = total_equipment_need * 0.0005;
-                    let daily_consumption =
-                        daily_replenishment_need + daily_training_need + daily_maintenance_need;
-                    let net_change = daily_prod - daily_consumption;
-                    let deficit = (daily_consumption - daily_prod).max(0.0);
-                    let days_until_empty = if net_change < 0.0 && display_qty > 0.0 {
-                        Some(display_qty / -net_change)
-                    } else if deficit > 0.0 && qty <= 0.0 {
-                        None
-                    } else {
-                        None
-                    };
-                    let shortfall_value =
-                        deficit as f64 * Self::logistics_equipment_unit_cost_rm(&id);
-                    let procurement_rm = if total_shortfall_value > 0.0 {
-                        treasury.daily_budget.expense_military_procurement_rm * shortfall_value
-                            / total_shortfall_value
-                    } else {
-                        0.0
-                    };
-                    hoi4_ui::logistics_panel::LogisticsEntry {
-                        name: Self::equipment_display_name(&id),
-                        stockpile: display_qty,
-                        daily_production: daily_prod,
-                        daily_replenishment_need,
-                        daily_training_need,
-                        daily_maintenance_need,
-                        daily_consumption,
-                        net_change,
-                        deficit,
-                        days_until_empty,
-                        procurement_rm,
-                        production_sources: production_sources
-                            .get(&id)
-                            .cloned()
-                            .unwrap_or_default(),
-                    }
-                })
-                .collect();
-            entries.sort_by(|a, b| {
-                b.deficit
-                    .partial_cmp(&a.deficit)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.name.cmp(&b.name))
-            });
-            let deficit_types = entries.iter().filter(|e| e.deficit > 0.0).count();
-            let total_daily_production = entries.iter().map(|e| e.daily_production).sum();
-            let total_daily_need = entries.iter().map(|e| e.daily_consumption).sum();
-            // Resource quick view; use the live V6 market with static state
-            // deposits as a pre-tick fallback so the panel is not all zeroes.
-            let resources = Self::logistics_resource_entries(&self.world, player_country);
-            Some(hoi4_ui::logistics_panel::LogisticsData {
-                total_types: entries.len(),
-                deficit_types,
-                total_daily_production,
-                total_daily_need,
-                military_procurement_rm: treasury.daily_budget.expense_military_procurement_rm,
-                military_maintenance_rm: treasury.daily_budget.expense_military_maintenance_rm,
-                entries,
-                resources,
-            })
+            hoi4_app::ui_data::logistics::panel_data(
+                &self.world,
+                &self.v6_db,
+                &mut self.econ,
+                player_country,
+            )
         } else {
             None
         };
@@ -6666,7 +5903,6 @@ impl App {
             }
         }
         for cmd in construction_v6_cmds {
-            use hoi4_ui::construction_v6_panel::ConstructionV6Command;
             let effect =
                 hoi4_app::ui_data::construction_commands::apply_construction_control_command(
                     &cmd,
@@ -6683,77 +5919,6 @@ impl App {
                     self.last_auto_build_month = None;
                 }
                 construction_highlight_changed |= effect.highlight_changed;
-                continue;
-            }
-            match cmd {
-                ConstructionV6Command::ToggleAutoBuild(_)
-                | ConstructionV6Command::MoveUp(_)
-                | ConstructionV6Command::MoveDown(_)
-                | ConstructionV6Command::Remove(_)
-                | ConstructionV6Command::ToggleProjectPaused(_, _)
-                | ConstructionV6Command::SetProjectPriority { .. }
-                | ConstructionV6Command::SetProjectWeight { .. }
-                | ConstructionV6Command::StartConstructionMode { .. } => {}
-                ConstructionV6Command::SwitchPM {
-                    building_idx,
-                    group,
-                    pm_id,
-                } => {
-                    let pm_valid = self.v6_db.production_methods.iter().any(|pm| {
-                        self.world
-                            .countries
-                            .buildings_v6
-                            .buildings
-                            .get(building_idx)
-                            .map(|b| {
-                                pm.id == pm_id
-                                    && pm.building_id == b.building_def_id
-                                    && hoi4_content::production_method_group(pm) == group
-                                    && Self::v6_pm_lock_reason(
-                                        &self.world,
-                                        &self.v6_db,
-                                        self.player_country,
-                                        pm,
-                                    )
-                                    .is_none()
-                            })
-                            .unwrap_or(false)
-                    });
-                    if pm_valid && building_idx < self.world.countries.buildings_v6.buildings.len()
-                    {
-                        Self::v6_set_building_pm_group(
-                            &mut self.world.countries.buildings_v6.buildings[building_idx],
-                            &group,
-                            &pm_id,
-                        );
-                    }
-                }
-                ConstructionV6Command::SwitchPMNationwide {
-                    building_def_id,
-                    group,
-                    pm_id,
-                } => {
-                    let player = self.player_country;
-                    let pm_valid = self.v6_db.production_methods.iter().any(|pm| {
-                        pm.id == pm_id
-                            && pm.building_id == building_def_id
-                            && hoi4_content::production_method_group(pm) == group
-                            && Self::v6_pm_lock_reason(&self.world, &self.v6_db, player, pm)
-                                .is_none()
-                    });
-                    if pm_valid {
-                        for building in self
-                            .world
-                            .countries
-                            .buildings_v6
-                            .buildings
-                            .iter_mut()
-                            .filter(|building| building.building_def_id == building_def_id)
-                        {
-                            Self::v6_set_building_pm_group(building, &group, &pm_id);
-                        }
-                    }
-                }
             }
         }
 

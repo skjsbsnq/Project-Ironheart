@@ -62,6 +62,9 @@ pub fn accum_modifiers(world: &World, db: &V6Database, ci: usize) -> Accumulated
         out.political_cost_multiplier = def.political_cost_multiplier;
         out.radicalism_gain_multiplier = def.radicalism_gain_multiplier;
         out.recruit_speed_mult = def.conscription_conversion_rate;
+        if conscription_id == "volunteer_only" {
+            out.recruit_speed_mult = 0.0;
+        }
         out.satisfaction_law_modifier += def.pop_modifiers.satisfaction;
     }
 

@@ -42,17 +42,6 @@ fn government_procurement_reduces_steel_availability() {
     let ger = world.country("GER").unwrap();
     let ci = ger.0 as usize;
 
-    let initial_steel = world.countries.market.markets[ci]
-        .stockpile
-        .get("steel")
-        .copied()
-        .unwrap_or(0.0)
-        + world.countries.market.markets[ci]
-            .supply
-            .get("steel")
-            .copied()
-            .unwrap_or(0.0);
-
     tick_daily_v6(&mut world, &mut econ, &db, 1);
 
     let sheet = &world.countries.market.markets[ci].clearing_sheet;
@@ -64,22 +53,19 @@ fn government_procurement_reduces_steel_availability() {
             .find(|b| b.kind == DemandBucketKind::GovernmentProcurement);
         if let Some(bucket) = gov_bucket {
             if bucket.fulfilled > 0.0 {
-                let final_steel = world.countries.market.markets[ci]
-                    .stockpile
-                    .get("steel")
-                    .copied()
-                    .unwrap_or(0.0)
-                    + world.countries.market.markets[ci]
-                        .supply
-                        .get("steel")
-                        .copied()
-                        .unwrap_or(0.0);
-
+                let total_consumed: f32 = result.buckets.iter().map(|b| b.fulfilled).sum();
+                let expected_closing = result.stockpile_opening + result.domestic_production
+                    + result.imports
+                    - total_consumed
+                    - result.exports;
+                let without_government_procurement = result.stockpile_closing + bucket.fulfilled;
+                let tolerance = (expected_closing.abs() * 0.01).max(1.0);
                 assert!(
-                    final_steel < initial_steel + 1.0,
-                    "采购后钢可用量应减少：初始 {:.1}，期末 {:.1}，政府满足 {:.1}",
-                    initial_steel,
-                    final_steel,
+                    (result.stockpile_closing - expected_closing).abs() <= tolerance
+                        && without_government_procurement > result.stockpile_closing,
+                    "government procurement should reduce steel by fulfilled amount: closing {:.1}, without procurement {:.1}, fulfilled {:.1}",
+                    result.stockpile_closing,
+                    without_government_procurement,
                     bucket.fulfilled
                 );
             }

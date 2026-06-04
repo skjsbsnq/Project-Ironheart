@@ -94,8 +94,58 @@ pub fn apply_construction_control_command(
                 highlight_changed: true,
             }
         }
-        ConstructionV6Command::SwitchPM { .. }
-        | ConstructionV6Command::SwitchPMNationwide { .. } => ConstructionControlEffect::default(),
+        ConstructionV6Command::SwitchPM {
+            building_idx,
+            group,
+            pm_id,
+        } => {
+            let pm_valid = db.production_methods.iter().any(|pm| {
+                world
+                    .countries
+                    .buildings_v6
+                    .buildings
+                    .get(*building_idx)
+                    .map(|building| {
+                        pm.id == *pm_id
+                            && pm.building_id == building.building_def_id
+                            && hoi4_content::production_method_group(pm) == *group
+                            && production_method_lock_reason(world, db, player, pm).is_none()
+                    })
+                    .unwrap_or(false)
+            });
+            if pm_valid && *building_idx < world.countries.buildings_v6.buildings.len() {
+                set_building_pm_group(
+                    &mut world.countries.buildings_v6.buildings[*building_idx],
+                    group,
+                    pm_id,
+                );
+            }
+            handled()
+        }
+        ConstructionV6Command::SwitchPMNationwide {
+            building_def_id,
+            group,
+            pm_id,
+        } => {
+            let pm_valid = db.production_methods.iter().any(|pm| {
+                pm.id == *pm_id
+                    && pm.building_id == *building_def_id
+                    && hoi4_content::production_method_group(pm) == *group
+                    && production_method_lock_reason(world, db, player, pm).is_none()
+            });
+            if pm_valid {
+                for building in world
+                    .countries
+                    .buildings_v6
+                    .buildings
+                    .iter_mut()
+                    .filter(|building| building.building_def_id == *building_def_id)
+                {
+                    set_building_pm_group(building, group, pm_id);
+                }
+            }
+            handled()
+        }
     }
 }
 
@@ -166,6 +216,119 @@ fn handled() -> ConstructionControlEffect {
         handled: true,
         reset_auto_build_month: false,
         highlight_changed: false,
+    }
+}
+
+fn production_method_lock_reason(
+    world: &World,
+    db: &hoi4_content::V6Database,
+    player: usize,
+    pm: &hoi4_content::ProductionMethodDef,
+) -> Option<String> {
+    if let Some(tech_id) = &pm.unlocked_by {
+        if !world.countries.completed_techs[player].contains(tech_id) {
+            let tech_name = db
+                .technologies
+                .iter()
+                .find(|tech| tech.id == *tech_id)
+                .map(|tech| tech.name.as_str())
+                .unwrap_or(tech_id.as_str());
+            return Some(format!("Requires technology: {}", tech_name));
+        }
+    }
+    if let Some(reason) = required_law_label(db, pm.required_law.as_ref()) {
+        if let Some((cat, law_id)) = &pm.required_law {
+            let current =
+                &world.countries.law_store.law_sets[player].0[law_category_index(*cat)].current;
+            if current != law_id {
+                return Some(reason);
+            }
+        }
+    }
+    None
+}
+
+fn required_law_label(
+    db: &hoi4_content::V6Database,
+    requirement: Option<&(hoi4_content::v6_loader::LawCategoryDef, String)>,
+) -> Option<String> {
+    let (category, law_id) = requirement?;
+    let law_name = match category {
+        hoi4_content::v6_loader::LawCategoryDef::Conscription => db
+            .conscription_laws
+            .iter()
+            .find(|law| law.id == *law_id)
+            .map(|law| law.name.as_str()),
+        hoi4_content::v6_loader::LawCategoryDef::Economy => db
+            .economy_laws
+            .iter()
+            .find(|law| law.id == *law_id)
+            .map(|law| law.name.as_str()),
+        hoi4_content::v6_loader::LawCategoryDef::Trade => db
+            .trade_laws
+            .iter()
+            .find(|law| law.id == *law_id)
+            .map(|law| law.name.as_str()),
+        hoi4_content::v6_loader::LawCategoryDef::Taxation => db
+            .taxation_laws
+            .iter()
+            .find(|law| law.id == *law_id)
+            .map(|law| law.name.as_str()),
+        hoi4_content::v6_loader::LawCategoryDef::CivilRights => db
+            .civil_rights_laws
+            .iter()
+            .find(|law| law.id == *law_id)
+            .map(|law| law.name.as_str()),
+        hoi4_content::v6_loader::LawCategoryDef::InformationControl => db
+            .information_control_laws
+            .iter()
+            .find(|law| law.id == *law_id)
+            .map(|law| law.name.as_str()),
+    };
+    Some(format!(
+        "Requires law: {}",
+        law_name.unwrap_or(law_id.as_str())
+    ))
+}
+
+fn law_category_index(category: hoi4_content::v6_loader::LawCategoryDef) -> usize {
+    match category {
+        hoi4_content::v6_loader::LawCategoryDef::Conscription => {
+            hoi4_state::LawCategory::Conscription.index()
+        }
+        hoi4_content::v6_loader::LawCategoryDef::Economy => {
+            hoi4_state::LawCategory::Economy.index()
+        }
+        hoi4_content::v6_loader::LawCategoryDef::Trade => hoi4_state::LawCategory::Trade.index(),
+        hoi4_content::v6_loader::LawCategoryDef::Taxation => {
+            hoi4_state::LawCategory::Taxation.index()
+        }
+        hoi4_content::v6_loader::LawCategoryDef::CivilRights => {
+            hoi4_state::LawCategory::CivilRights.index()
+        }
+        hoi4_content::v6_loader::LawCategoryDef::InformationControl => {
+            hoi4_state::LawCategory::InformationControl.index()
+        }
+    }
+}
+
+fn set_building_pm_group(building: &mut hoi4_state::Building, group: &str, pm_id: &str) {
+    if let Some(active) = building
+        .active_pm_by_group
+        .iter_mut()
+        .find(|active| active.group == group)
+    {
+        active.pm_id = pm_id.to_owned();
+    } else {
+        building
+            .active_pm_by_group
+            .push(hoi4_state::ActiveProductionMethod {
+                group: group.to_owned(),
+                pm_id: pm_id.to_owned(),
+            });
+    }
+    if group == "base" || building.active_pm.is_empty() {
+        building.active_pm = pm_id.to_owned();
     }
 }
 

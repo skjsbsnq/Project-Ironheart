@@ -213,6 +213,11 @@ fn cartel_project_completes_as_cartel_owner() {
         BuildingOwner::Cartel,
         250_000_000.0,
     );
+    world
+        .countries
+        .investment_account_mut(country, InvestmentAccountKind::Cartel)
+        .expect("cartel account should exist")
+        .balance_rm = 250_000_000.0;
 
     econ.enqueue_construction(country, order, &world);
     complete_first_item(&mut world, &mut econ, &db, country);
@@ -289,6 +294,8 @@ fn profit_distribution_follows_ownership_shares() {
             share: 0.40,
         },
     ];
+    building.output_value_gbp = 100_000_000.0;
+    building.input_cost_rm = 0.0;
 
     let treasury_before = world.countries.treasury.treasuries[country.0 as usize].cash_rm;
     let private_before = world

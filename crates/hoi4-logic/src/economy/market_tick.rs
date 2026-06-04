@@ -46,13 +46,10 @@ impl EconomicSystemTick for MarketTick {
         let completed_techs: Vec<String> = world.countries.completed_techs[ci].clone();
 
         step_building_production(world, econ, db, ci, &completed_techs);
-        if day % LABOR_UPDATE_INTERVAL_DAYS == 0 {
-            step_pop_employment(world, db, ci);
-            econ.invalidate_qualification_totals();
-            step_pop_wage(world, db, ci);
-        } else {
-            step_pop_income_from_existing_wage(world, ci);
-        }
+        step_pop_employment(world, db, ci);
+        econ.invalidate_qualification_totals();
+        super::building_runtime::update(world, db, ci);
+        step_pop_wage(world, db, ci);
         if day % PRICE_UPDATE_INTERVAL_DAYS == 0 {
             step_price_update(world, db, ci, &completed_techs);
         }
@@ -63,7 +60,6 @@ impl EconomicSystemTick for MarketTick {
 
         step_military_production(world, econ, db, ci, &completed_techs);
         step_military_government_procurement(world, econ, db, ci);
-        super::building_runtime::update(world, db, ci);
 
         finance_tick::step_collect_taxes(world, db, ci);
         step_pop_consumption_demand(world, db, ci);
@@ -91,10 +87,8 @@ impl EconomicSystemTick for MarketTick {
         finance_tick::step_compute_fiscal_summary(world, ci);
 
         step_pop_satisfaction_from_clearing(world, db, ci);
-        if day % LABOR_UPDATE_INTERVAL_DAYS == 0 {
-            step_pop_radicalism(world, ci);
-            step_pop_loyalty(world, db, ci);
-        }
+        step_pop_radicalism(world, ci);
+        step_pop_loyalty(world, db, ci);
     }
 }
 
@@ -1035,6 +1029,18 @@ fn step_military_government_procurement(
             .filter(|pm| pm.equipment_output.is_some())
             .collect::<Vec<_>>();
         for pm in pms {
+            if let Some(eq_output) = &pm.equipment_output {
+                if let Some(good_id) = equipment_procurement_good(db, &eq_output.equipment_category)
+                {
+                    let amount = eq_output.daily_per_level
+                        * pm.throughput_modifier.max(0.0)
+                        * building.level as f32
+                        * procurement_scale;
+                    if amount > 0.0 {
+                        procurement_demand.push((good_id, amount));
+                    }
+                }
+            }
             for (i, good_id) in pm.input_good_ids.iter().enumerate() {
                 let amount = pm.input_good_amounts.get(i).copied().unwrap_or(0.0)
                     * building.level as f32
@@ -1056,6 +1062,16 @@ fn step_military_government_procurement(
                 .unwrap_or(false)
         }) {
             let budget_mult = (order.daily_budget_rm / 100_000.0).clamp(1.0, 25.0) as f32;
+            if let Some(eq_output) = &pm.equipment_output {
+                if let Some(good_id) = equipment_procurement_good(db, &eq_output.equipment_category)
+                {
+                    let amount =
+                        eq_output.daily_per_level * pm.throughput_modifier.max(0.0) * budget_mult;
+                    if amount > 0.0 {
+                        procurement_demand.push((good_id, amount));
+                    }
+                }
+            }
             for (i, good_id) in pm.input_good_ids.iter().enumerate() {
                 let amount = pm.input_good_amounts.get(i).copied().unwrap_or(0.0) * budget_mult;
                 if amount > 0.0 {
@@ -1116,6 +1132,28 @@ fn military_procurement_multiplier(world: &World, ci: usize, economy_law: &str) 
     };
     let mefo_credit_mult = 1.0 + mefo_room_ratio * 10.0;
     base * army_target_mult * mefo_credit_mult
+}
+
+fn equipment_procurement_good(db: &V6Database, equipment_category: &str) -> Option<String> {
+    let normalized = super::stockpile::normalize_equipment_id(equipment_category);
+    let candidate = match normalized.as_str() {
+        "infantry_equipment" => "small_arms",
+        "support_equipment" => "support_equipment",
+        "artillery" => "artillery_shells",
+        "anti_tank" => "anti_tank_guns",
+        "anti_air" => "anti_air_guns",
+        "motorized" | "mechanized" => "vehicles",
+        "armor" => "tanks",
+        "aircraft" => "aircraft_parts",
+        "naval_vessel" => "ship_components",
+        "train" => "locomotives",
+        "convoy" => "ship_components",
+        other => other,
+    };
+    db.goods
+        .iter()
+        .any(|good| good.id == candidate)
+        .then(|| candidate.to_owned())
 }
 
 fn step_class_mobility(world: &mut World, ci: usize) {

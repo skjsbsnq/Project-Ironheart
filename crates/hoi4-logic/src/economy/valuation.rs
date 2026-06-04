@@ -104,8 +104,15 @@ fn compute_value_added(
             output_value += amount as f64 * price as f64;
         }
         if let Some(eq_out) = &pm.equipment_output {
-            output_value +=
-                eq_out.daily_per_level as f64 * throughput as f64 * building.level as f64 * 100.0;
+            let price = equipment_procurement_good(&eq_out.equipment_category)
+                .and_then(|good_id| market.price.get(good_id))
+                .copied()
+                .unwrap_or(1.0);
+            output_value += eq_out.daily_per_level as f64
+                * throughput as f64
+                * building.level as f64
+                * price as f64
+                * 100.0;
         }
         for (i, good_id) in pm.input_good_ids.iter().enumerate() {
             let amount =
@@ -165,9 +172,14 @@ fn output_value_rm(
                 + pm.equipment_output
                     .as_ref()
                     .map(|eq| {
+                        let price = equipment_procurement_good(&eq.equipment_category)
+                            .and_then(|good_id| market.price.get(good_id))
+                            .copied()
+                            .unwrap_or(1.0);
                         eq.daily_per_level as f64
                             * throughput as f64
                             * building.level as f64
+                            * price as f64
                             * 100.0
                     })
                     .unwrap_or(0.0)
@@ -274,7 +286,15 @@ pub fn expected_profit_rm_daily(
             output_rm += amount as f64 * price as f64;
         }
         if let Some(eq_out) = &pm.equipment_output {
-            output_rm += eq_out.daily_per_level as f64 * throughput as f64 * level as f64 * 100.0;
+            let price = equipment_procurement_good(&eq_out.equipment_category)
+                .and_then(|good_id| market.price.get(good_id))
+                .copied()
+                .unwrap_or(1.0);
+            output_rm += eq_out.daily_per_level as f64
+                * throughput as f64
+                * level as f64
+                * price as f64
+                * 100.0;
         }
         for (i, good_id) in pm.input_good_ids.iter().enumerate() {
             let amount = pm.input_good_amounts.get(i).copied().unwrap_or(0.0) * level as f32;
@@ -288,4 +308,24 @@ pub fn expected_profit_rm_daily(
         }
     }
     (output_rm * GOODS_RM_SCALE - input_rm * GOODS_RM_SCALE - wage_rm as f64).max(0.0)
+}
+
+fn equipment_procurement_good(category: &str) -> Option<&'static str> {
+    match category {
+        "infantry_equipment" => Some("small_arms"),
+        "artillery" => Some("artillery"),
+        "anti_tank" => Some("anti_tank"),
+        "anti_air" => Some("anti_air"),
+        "support_equipment" => Some("support_equipment"),
+        "motorized" => Some("trucks"),
+        "mechanized" => Some("halftracks"),
+        "light_tank" | "medium_tank" | "heavy_tank" | "modern_tank" => Some("tanks"),
+        "fighter" | "cas" | "tactical_bomber" | "strategic_bomber" | "naval_bomber" => {
+            Some("airframes")
+        }
+        "convoy" => Some("convoys"),
+        "destroyer" | "submarine" | "cruiser" | "capital_ship" => Some("warships"),
+        "train" => Some("trains"),
+        _ => None,
+    }
 }
