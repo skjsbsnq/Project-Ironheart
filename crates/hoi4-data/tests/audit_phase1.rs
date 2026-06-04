@@ -3,6 +3,8 @@
 use clausewitz_parser::{parse, parse_defines, Value};
 use hoi4_data::{CountryTag, GameData};
 use hoi4_map::GameMap;
+use serde::Deserialize;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn hoi4_path() -> std::path::PathBuf {
     hoi4_paths::PathConfig::resolve(Default::default())
@@ -438,4 +440,166 @@ fn audit_1_4_state_coverage() {
         states_by_country.get("GER").copied().unwrap_or(0) > 5,
         "GER should have multiple states"
     );
+}
+
+#[derive(Debug, Deserialize)]
+struct TagOnlyProfile {
+    tag: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct FinanceProfileForCoverage {
+    country: String,
+    year: u16,
+    quarter: u8,
+}
+
+#[test]
+fn audit_g04_1936_country_economy_coverage_sets() {
+    let data = GameData::load(&hoi4_path()).expect("Failed to load game data");
+    let economy_tags = load_history_country_profile_tags();
+    let pop_tags = load_initial_pop_profile_tags();
+    let finance_profiles: Vec<FinanceProfileForCoverage> =
+        ron::from_str(&ron_without_directives(include_str!(
+            "../../hoi4-content/content/economy_v6/finance/historical_finance_profiles.ron"
+        )))
+        .expect("historical finance profiles should load");
+
+    let existing_by_tag = existing_state_owner_counts(&data);
+    let existing_tags: BTreeSet<String> = existing_by_tag.keys().cloned().collect();
+    let building_tags = economy_tags.clone();
+    let finance_tags: BTreeSet<String> = finance_profiles
+        .iter()
+        .filter(|profile| profile.year == 1936 && (1..=4).contains(&profile.quarter))
+        .map(|profile| profile.country.clone())
+        .collect();
+
+    let missing_economy = missing(&existing_tags, &economy_tags);
+    let missing_pops = missing(&existing_tags, &pop_tags);
+    let missing_buildings = missing(&existing_tags, &building_tags);
+    let missing_finance = missing(&existing_tags, &finance_tags);
+
+    println!(
+        "G04 existing countries with owned 1936 states: {}",
+        existing_tags.len()
+    );
+    println!("G04 existing country tags: {}", join_set(&existing_tags));
+    println!("G04 state owner counts:");
+    for (tag, count) in &existing_by_tag {
+        println!("  {tag}: {count}");
+    }
+    println!(
+        "G04 missing economy profiles: {}",
+        join_vec(&missing_economy)
+    );
+    println!("G04 missing POP profiles: {}", join_vec(&missing_pops));
+    println!(
+        "G04 missing building profiles: {}",
+        join_vec(&missing_buildings)
+    );
+    println!(
+        "G04 missing finance profiles: {}",
+        join_vec(&missing_finance)
+    );
+
+    assert!(
+        !existing_tags.is_empty(),
+        "existing country set must not be empty"
+    );
+    assert!(
+        existing_tags.contains("GER")
+            && existing_tags.contains("CHI")
+            && existing_tags.contains("AUS"),
+        "1936 owner set should include vanilla majors and 1936 override countries"
+    );
+    assert!(
+        missing_economy.iter().any(|tag| tag == "AUS"),
+        "AUS should remain visible as missing economy coverage until G06 fills it"
+    );
+    assert!(
+        missing_pops.iter().any(|tag| tag == "AUS"),
+        "AUS should remain visible as missing POP coverage until G06/G05 fills it"
+    );
+    assert!(
+        missing_finance.iter().any(|tag| tag == "AUS"),
+        "AUS should remain visible as missing finance coverage until G06 fills it"
+    );
+}
+
+fn existing_state_owner_counts(data: &GameData) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for state in &data.states {
+        let tag = state.owner.as_str();
+        if tag.is_empty() || tag == "---" {
+            continue;
+        }
+        *counts.entry(tag.to_owned()).or_insert(0) += 1;
+    }
+    counts
+}
+
+fn load_history_country_profile_tags() -> BTreeSet<String> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../hoi4-content/content/history_1936/countries");
+    let mut tags = BTreeSet::new();
+    for entry in std::fs::read_dir(&dir)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", dir.display()))
+    {
+        let path = entry.expect("country profile dir entry").path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("ron") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
+        let profile: TagOnlyProfile = ron::from_str(&ron_without_directives(&text))
+            .unwrap_or_else(|err| panic!("failed to parse {}: {err}", path.display()));
+        tags.insert(profile.tag);
+    }
+    tags
+}
+
+fn ron_without_directives(text: &str) -> String {
+    text.trim_start_matches('\u{feff}')
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("#!["))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn load_initial_pop_profile_tags() -> BTreeSet<String> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../hoi4-content/content/economy_v6/pops");
+    let mut tags = BTreeSet::new();
+    for entry in std::fs::read_dir(&dir)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", dir.display()))
+    {
+        let path = entry.expect("POP profile dir entry").path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("ron") {
+            continue;
+        }
+        let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            continue;
+        };
+        let Some(tag) = stem.strip_prefix("initial_") else {
+            continue;
+        };
+        tags.insert(tag.to_ascii_uppercase());
+    }
+    tags
+}
+
+fn missing(existing: &BTreeSet<String>, covered: &BTreeSet<String>) -> Vec<String> {
+    existing.difference(covered).cloned().collect()
+}
+
+fn join_set(values: &BTreeSet<String>) -> String {
+    values.iter().cloned().collect::<Vec<_>>().join(", ")
+}
+
+fn join_vec(values: &[String]) -> String {
+    if values.is_empty() {
+        "无".to_owned()
+    } else {
+        values.join(", ")
+    }
 }

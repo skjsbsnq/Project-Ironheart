@@ -3,7 +3,7 @@
 //! 本模块被 `market_tick` 和 `planned_tick` 共同调用（经 `EconomicSystemTick` trait），
 //! 但自身不直接实现 trait，避免违反 HC-3。
 
-use hoi4_content::V6Database;
+use hoi4_content::{v6_loader::EconomicSectorDef, V6Database};
 use hoi4_state::{
     Building, BuildingOwner, CountryId, InvestmentAccountKind, LawCategory, OwnershipAccount,
     PopClass, StateIntegrationStatus, World,
@@ -13,9 +13,6 @@ use super::building_tick_common::{country_building_indices, country_pop_indices}
 use crate::EconomyState;
 
 const GDP_WEEKLY_INTERVAL: i64 = 7;
-const GDP_WEEKLY_EMA: f64 = 0.03;
-const GDP_MAX_WEEKLY_CHANGE: f64 = 0.0025;
-const GDP_BASELINE_STABILIZATION_DAYS: i64 = 90;
 
 pub fn reset_daily_accumulators(world: &mut World, ci: usize) {
     world.countries.treasury.treasuries[ci].reset_daily_accumulators();
@@ -192,6 +189,9 @@ pub fn step_collect_taxes(world: &mut World, _db: &V6Database, ci: usize) {
     let daily_tax_income =
         total_income_tax + total_consumption_tax + total_corporate_tax + total_state_profit_share;
     treasury.receive(daily_tax_income, "taxes");
+    treasury.daily_budget.income_pop_taxes_rm += total_income_tax.max(0.0);
+    treasury.daily_budget.income_consumption_taxes_rm += total_consumption_tax.max(0.0);
+    treasury.daily_budget.income_corporate_taxes_rm += total_corporate_tax.max(0.0);
     record_investment_income(
         world,
         country_id,
@@ -389,91 +389,30 @@ pub fn step_construction_cost(world: &mut World, _db: &V6Database, ci: usize) {
 }
 
 pub fn step_construction_project_funding(
-    world: &mut World,
-    econ: &mut crate::EconomyState,
-    ci: usize,
+    _world: &mut World,
+    _econ: &mut crate::EconomyState,
+    _ci: usize,
 ) {
-    if ci >= econ.construction.len() || econ.construction[ci].items.is_empty() {
-        return;
-    }
-    let item = &econ.construction[ci].items[0];
-    let remaining_budget = item.funds_remaining_rm();
-    if remaining_budget <= 0.0 {
-        return;
-    }
-    let daily_payment = (remaining_budget * 0.015).max(1.0);
-    let funding_source = item.funding_source;
-
-    let actual_payment = match funding_source {
-        crate::ConstructionFundingSource::Government | crate::ConstructionFundingSource::Mefo => {
-            let available = world.countries.treasury.treasuries[ci].cash_rm.max(0.0);
-            daily_payment.min(available)
-        }
-        crate::ConstructionFundingSource::PrivatePool => {
-            let pool = world
-                .countries
-                .investment_balance_rm(CountryId(ci as u16), InvestmentAccountKind::Private);
-            daily_payment.min(pool)
-        }
-        crate::ConstructionFundingSource::CartelPool => {
-            let pool = world
-                .countries
-                .investment_balance_rm(CountryId(ci as u16), InvestmentAccountKind::Cartel);
-            daily_payment.min(pool)
-        }
-        crate::ConstructionFundingSource::OverlordInvestment { .. }
-        | crate::ConstructionFundingSource::ForeignInvestment { .. } => {
-            let available = world.countries.treasury.treasuries[ci].cash_rm.max(0.0);
-            daily_payment.min(available)
-        }
-    };
-
-    if actual_payment <= 0.0 {
-        return;
-    }
-
-    match funding_source {
-        crate::ConstructionFundingSource::Government | crate::ConstructionFundingSource::Mefo => {
-            world.countries.treasury.treasuries[ci].pay(actual_payment, "construction_goods");
-        }
-        crate::ConstructionFundingSource::PrivatePool => {
-            if let Some(account) = world
-                .countries
-                .investment_account_mut(CountryId(ci as u16), InvestmentAccountKind::Private)
-            {
-                account.balance_rm = (account.balance_rm - actual_payment).max(0.0);
-                account.last_spent_rm += actual_payment;
-            }
-            if let Some(pool) = world.countries.private_investment_pool_rm.get_mut(ci) {
-                *pool = (*pool - actual_payment).max(0.0);
-            }
-        }
-        crate::ConstructionFundingSource::CartelPool => {
-            if let Some(account) = world
-                .countries
-                .investment_account_mut(CountryId(ci as u16), InvestmentAccountKind::Cartel)
-            {
-                account.balance_rm = (account.balance_rm - actual_payment).max(0.0);
-                account.last_spent_rm += actual_payment;
-            }
-        }
-        crate::ConstructionFundingSource::OverlordInvestment { .. }
-        | crate::ConstructionFundingSource::ForeignInvestment { .. } => {
-            world.countries.treasury.treasuries[ci].pay(actual_payment, "construction_goods");
-        }
-    }
-
-    if ci < econ.construction.len() && !econ.construction[ci].items.is_empty() {
-        econ.construction[ci].items[0].paid_funds_rm += actual_payment;
-    }
+    // G09 construction runtime allocates and funds every active project inside
+    // `construction_tick::run`; this legacy hook remains for older tick order callers.
 }
 
-pub fn step_update_gdp(world: &mut World, _db: &V6Database, ci: usize, day: i64) {
+fn building_sector(db: &V6Database, building_def_id: &str) -> EconomicSectorDef {
+    db.buildings
+        .iter()
+        .find(|def| def.id == building_def_id)
+        .map(|def| def.economic_sector)
+        .unwrap_or(EconomicSectorDef::Secondary)
+}
+
+pub fn step_update_gdp(world: &mut World, db: &V6Database, ci: usize, day: i64) {
     if day % GDP_WEEKLY_INTERVAL != 0 {
         return;
     }
 
-    let mut domestic_building_value_added_rm: f64 = 0.0;
+    let mut building_primary_rm: f64 = 0.0;
+    let mut building_secondary_rm: f64 = 0.0;
+    let mut building_tertiary_rm: f64 = 0.0;
     let mut colonial_building_value_added_rm: f64 = 0.0;
     for building_idx in country_building_indices(world, ci) {
         let Some(building) = world.countries.buildings_v6.buildings.get(building_idx) else {
@@ -484,13 +423,40 @@ pub fn step_update_gdp(world: &mut World, _db: &V6Database, ci: usize, day: i64)
             continue;
         }
 
-        let value = building.value_added_rm;
+        let value = building.value_added_rm.max(0.0);
         if world.states.integration_status[state_idx].is_domestic() {
-            domestic_building_value_added_rm += value;
+            match building_sector(db, &building.building_def_id) {
+                EconomicSectorDef::Primary => building_primary_rm += value,
+                EconomicSectorDef::Secondary => building_secondary_rm += value,
+                EconomicSectorDef::Tertiary => building_tertiary_rm += value,
+            }
         } else {
             colonial_building_value_added_rm += value
                 * crate::occupation::state_governance_yield_factor(world, building.state) as f64;
         }
+    }
+
+    let mut pop_income_rm: f64 = 0.0;
+    let mut pop_consumption_rm: f64 = 0.0;
+    for pop_idx in country_pop_indices(world, ci) {
+        let Some(pg) = world.countries.pops.groups.get(pop_idx) else {
+            continue;
+        };
+        let state_idx = pg.state.0 as usize;
+        let integration = world
+            .states
+            .integration_status
+            .get(state_idx)
+            .copied()
+            .unwrap_or_default();
+        let governance = if integration.is_domestic() {
+            1.0
+        } else {
+            crate::occupation::state_governance_yield_factor(world, pg.state) as f64
+        };
+        let size = pg.size as f64;
+        pop_income_rm += pg.income_rm.max(0.0) as f64 * size * governance;
+        pop_consumption_rm += pg.basic_consumption_budget.max(0.0) as f64 * size * governance;
     }
 
     let treasury_snapshot = &world.countries.treasury.treasuries[ci];
@@ -503,60 +469,40 @@ pub fn step_update_gdp(world: &mut World, _db: &V6Database, ci: usize, day: i64)
     let net_exports_rm = treasury_snapshot.daily_trade_balance_gbp
         * world.countries.treasury.exchange_rates[ci].rm_per_gbp as f64;
 
-    // GDP = value added by buildings + government services + military procurement + net exports.
-    // Goods are abstract throughput units, so value-added is calibrated into annual RM with
-    // the existing scale while fiscal flows are already daily RM and only annualized.
-    let domestic_target_component_rm = domestic_building_value_added_rm.max(0.0)
-        + government_spending_rm.max(0.0)
-        + military_procurement_rm.max(0.0)
-        + net_exports_rm;
-    let colonial_target_component_rm = colonial_building_value_added_rm.max(0.0);
-    let target_gdp_rm =
-        (domestic_target_component_rm + colonial_target_component_rm).max(0.0) * 365.0;
-
     let rm_per_gbp = world.countries.treasury.exchange_rates[ci].rm_per_gbp;
     let treasury = &mut world.countries.treasury.treasuries[ci];
-    if treasury.gdp_rm <= 0.0 {
-        treasury.gdp_rm = target_gdp_rm;
-    } else if target_gdp_rm < treasury.gdp_rm {
-        // The historical opening GDP is calibrated from country profiles, while the
-        // runtime target is an abstract value-added estimate. Do not let that lower
-        // model target pull every country into the same artificial opening recession.
-        treasury.gdp_rm = treasury.gdp_rm.max(0.0);
-    } else {
-        let lower = treasury.gdp_rm * (1.0 - GDP_MAX_WEEKLY_CHANGE);
-        let upper = treasury.gdp_rm * (1.0 + GDP_MAX_WEEKLY_CHANGE);
-        let ema_target = treasury.gdp_rm + (target_gdp_rm - treasury.gdp_rm) * GDP_WEEKLY_EMA;
-        treasury.gdp_rm = ema_target.clamp(lower, upper).max(0.0);
-    }
+    treasury.gdp_breakdown.building_primary_rm = building_primary_rm * 365.0;
+    treasury.gdp_breakdown.building_secondary_rm = building_secondary_rm * 365.0;
+    treasury.gdp_breakdown.building_tertiary_rm = building_tertiary_rm * 365.0;
+    treasury.gdp_breakdown.pop_income_rm = pop_income_rm * 365.0;
+    treasury.gdp_breakdown.pop_consumption_rm = pop_consumption_rm * 365.0;
+    treasury.gdp_breakdown.government_services_rm = government_spending_rm.max(0.0) * 365.0;
+    treasury.gdp_breakdown.military_procurement_rm = military_procurement_rm.max(0.0) * 365.0;
+    treasury.gdp_breakdown.net_exports_rm = net_exports_rm * 365.0;
+    treasury.gdp_breakdown.colonial_value_added_rm =
+        colonial_building_value_added_rm.max(0.0) * 365.0;
+
+    treasury.gdp_rm = treasury.gdp_breakdown.runtime_total_rm();
     treasury.gdp_gbp = treasury.gdp_rm / rm_per_gbp as f64;
-    let total_component = (domestic_target_component_rm + colonial_target_component_rm).max(0.0);
-    if total_component > 0.0 {
-        let domestic_share =
-            (domestic_target_component_rm.max(0.0) / total_component).clamp(0.0, 1.0);
-        let colonial_share =
-            (colonial_target_component_rm.max(0.0) / total_component).clamp(0.0, 1.0);
-        treasury.domestic_gdp_rm = treasury.gdp_rm * domestic_share;
-        treasury.colonial_gdp_rm = treasury.gdp_rm * colonial_share;
-    } else {
-        treasury.domestic_gdp_rm = treasury.gdp_rm;
-        treasury.colonial_gdp_rm = 0.0;
-    }
+    treasury.colonial_gdp_rm = treasury.gdp_breakdown.colonial_value_added_rm;
+    treasury.domestic_gdp_rm = (treasury.gdp_rm - treasury.colonial_gdp_rm).max(0.0);
     treasury.colonial_extracted_value_rm = treasury.colonial_gdp_rm * 0.35;
     treasury.domestic_gdp_gbp = treasury.domestic_gdp_rm / rm_per_gbp as f64;
     treasury.colonial_gdp_gbp = treasury.colonial_gdp_rm / rm_per_gbp as f64;
     treasury.colonial_extracted_value_gbp =
         treasury.colonial_extracted_value_rm / rm_per_gbp as f64;
 
-    if day <= GDP_BASELINE_STABILIZATION_DAYS {
-        treasury.gdp_last_year_gbp = treasury.gdp_gbp;
-        treasury.gdp_growth_yoy = 0.0;
-    } else if treasury.gdp_last_year_gbp <= 0.0 {
+    if treasury.gdp_last_year_gbp <= 0.0 {
         treasury.gdp_last_year_gbp = treasury.gdp_gbp;
         treasury.gdp_growth_yoy = 0.0;
     } else {
         treasury.gdp_growth_yoy = (((treasury.gdp_gbp / treasury.gdp_last_year_gbp) - 1.0) * 100.0)
             .clamp(-15.0, 15.0) as f32;
+    }
+    if treasury.gdp_breakdown.historical_validation_gbp > 0.0 {
+        treasury.gdp_breakdown.historical_validation_error_ratio = (treasury.gdp_gbp
+            - treasury.gdp_breakdown.historical_validation_gbp)
+            / treasury.gdp_breakdown.historical_validation_gbp;
     }
     if day > 0 && day % 365 == 0 {
         treasury.gdp_last_year_gbp = treasury.gdp_gbp;

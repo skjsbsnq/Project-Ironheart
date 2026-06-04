@@ -16,6 +16,7 @@ pub mod law_modifiers;
 pub mod market_balance;
 pub mod market_tick;
 pub mod planned_tick;
+pub mod production_chain;
 pub mod stockpile;
 pub mod v6_events;
 pub mod valuation;
@@ -42,6 +43,9 @@ pub struct BuildOrder {
     pub funding_source: ConstructionFundingSource,
     pub owner_on_completion: BuildingOwner,
     pub reserved_funds_rm: f64,
+    pub priority: i16,
+    pub weight: f32,
+    pub paused: bool,
 }
 
 impl BuildOrder {
@@ -53,6 +57,9 @@ impl BuildOrder {
             funding_source: ConstructionFundingSource::Government,
             owner_on_completion: BuildingOwner::State,
             reserved_funds_rm: 0.0,
+            priority: 0,
+            weight: 1.0,
+            paused: false,
         }
     }
 
@@ -72,9 +79,24 @@ impl BuildOrder {
         self.reserved_funds_rm = reserved_funds_rm.max(0.0);
         self
     }
+
+    pub fn with_priority(mut self, priority: i16) -> Self {
+        self.priority = priority;
+        self
+    }
+
+    pub fn with_weight(mut self, weight: f32) -> Self {
+        self.weight = weight.max(0.1);
+        self
+    }
+
+    pub fn paused(mut self, paused: bool) -> Self {
+        self.paused = paused;
+        self
+    }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ConstructionFundingSource {
     Government,
     Mefo,
@@ -92,7 +114,63 @@ pub struct MaterialNeed {
     pub consumed: f32,
 }
 
-/// 队列中的一项（带运行时进度）
+/// 建造队列的每日产能分配汇总。
+#[derive(Debug, Clone)]
+pub struct ConstructionCapacity {
+    pub total_cp: f32,
+    pub allocated_cp: f32,
+    pub idle_cp: f32,
+    pub blocked_cp: f32,
+}
+
+impl Default for ConstructionCapacity {
+    fn default() -> Self {
+        Self {
+            total_cp: 0.0,
+            allocated_cp: 0.0,
+            idle_cp: 0.0,
+            blocked_cp: 0.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ConstructionProjectRuntime {
+    pub priority: i16,
+    pub weight: f32,
+    pub paused: bool,
+    pub allocated_cp: f32,
+    pub effective_cp: f32,
+    pub blocked_cp: f32,
+    pub fund_ratio: f32,
+    pub material_ratio: f32,
+    pub labor_ratio: f32,
+    pub engineering_ratio: f32,
+    pub infrastructure_ratio: f32,
+    pub bottleneck: String,
+    pub estimated_days: Option<u32>,
+}
+
+impl Default for ConstructionProjectRuntime {
+    fn default() -> Self {
+        Self {
+            priority: 0,
+            weight: 1.0,
+            paused: false,
+            allocated_cp: 0.0,
+            effective_cp: 0.0,
+            blocked_cp: 0.0,
+            fund_ratio: 1.0,
+            material_ratio: 1.0,
+            labor_ratio: 1.0,
+            engineering_ratio: 1.0,
+            infrastructure_ratio: 1.0,
+            bottleneck: "none".to_owned(),
+            estimated_days: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ConstructionItem {
     pub building_key: String,
@@ -106,6 +184,10 @@ pub struct ConstructionItem {
     pub paid_funds_rm: f64,
     pub budget_needed_rm: f64,
     pub material_needs: Vec<MaterialNeed>,
+    pub priority: i16,
+    pub weight: f32,
+    pub paused: bool,
+    pub runtime: ConstructionProjectRuntime,
 }
 
 impl ConstructionItem {
@@ -122,6 +204,15 @@ impl ConstructionItem {
             paid_funds_rm: 0.0,
             budget_needed_rm: 0.0,
             material_needs: Vec::new(),
+            priority: order.priority,
+            weight: order.weight.max(0.1),
+            paused: order.paused,
+            runtime: ConstructionProjectRuntime {
+                priority: order.priority,
+                weight: order.weight.max(0.1),
+                paused: order.paused,
+                ..ConstructionProjectRuntime::default()
+            },
         }
     }
 
@@ -167,6 +258,7 @@ pub struct ConstructionQueue {
     pub items: Vec<ConstructionItem>,
     pub total_completed: u32,
     pub cancelled_sunk_cost_rm: f64,
+    pub capacity: ConstructionCapacity,
 }
 
 impl ConstructionQueue {
@@ -779,12 +871,7 @@ fn private_investment_tick(
     let sid = candidate.state;
     let building_def = db.buildings.iter().find(|def| def.id == building_id);
     let project_budget = building_def
-        .map(|def| {
-            construction_tick::construction_budget(construction_tick::construction_cost(
-                def.max_level,
-            )) as f64
-                * 0.3
-        })
+        .map(|def| def.construction_recipe.funds_rm * 0.3)
         .unwrap_or(250_000_000.0);
 
     if project_budget > pool_balance {

@@ -25,6 +25,7 @@ pub struct TradeRouteEntry {
     pub is_blockaded: bool,
     pub historical: bool,
     pub partner_tag: String,
+    pub partner_name: String,
     pub affected: Vec<String>,
 }
 
@@ -225,9 +226,9 @@ impl TradePanel {
                             for route in &data.routes {
                                 ui.label(localized_trade_name(&route.good_id, &route.good_name));
                                 let route_label = if route.historical {
-                                    format!("{}：{} · 历史", route.kind, route.partner_tag)
+                                    format!("{}：{} · 历史", route.kind, route.partner_name)
                                 } else {
-                                    format!("{}：{}", route.kind, route.partner_tag)
+                                    format!("{}：{}", route.kind, route.partner_name)
                                 };
                                 ui.label(route_label);
                                 ui.label(format!("{:.1}", route.throughput));
@@ -479,7 +480,7 @@ fn v9_trade_routes(ui: &mut egui::Ui, rect: egui::Rect, data: &TradePanelData, c
                         Align2::LEFT_TOP,
                         format!(
                             "{} -> {}  {:.1}/d",
-                            route.kind, route.partner_tag, route.throughput
+                            route.kind, route.partner_name, route.throughput
                         ),
                         TextRole::Body.font_id(),
                         palette::PARCHMENT_DIM,

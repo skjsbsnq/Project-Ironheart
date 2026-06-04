@@ -20,7 +20,9 @@ pub struct ProvinceTacticalInfo {
     pub terrain: String,
     pub coastal: bool,
     pub owner_tag: String,
+    pub owner_name: String,
     pub controller_tag: String,
+    pub controller_name: String,
     pub state_name: String,
     pub supply: f32,
     pub victory_points: u8,
@@ -32,7 +34,9 @@ pub struct ProvinceTacticalInfo {
 pub struct StateEconomicInfo {
     pub state_name: String,
     pub owner_tag: String,
+    pub owner_name: String,
     pub controller_tag: String,
+    pub controller_name: String,
     pub population: u64,
     pub state_category: String,
     pub infrastructure: u8,
@@ -192,11 +196,11 @@ impl ProvinceInfoCard {
                                 .spacing([18.0, 4.0])
                                 .striped(true)
                                 .show(ui, |ui| {
-                                    key_value(ui, tr("province"), format!("#{} {}", data.province.province_id, data.province.province_name));
+                                    key_value(ui, tr("province"), &data.province.province_name);
                                     key_value(ui, tr("belongs_to_state"), &data.province.state_name);
-                                    key_value(ui, tr("owner"), &data.province.owner_tag);
+                                    key_value(ui, tr("owner"), &data.province.owner_name);
                                     if data.province.owner_tag != data.province.controller_tag {
-                                        key_value(ui, tr("controller"), &data.province.controller_tag);
+                                        key_value(ui, tr("controller"), &data.province.controller_name);
                                     }
                                     key_value(ui, tr("province_kind"), format!("{} / {}", data.province.province_type, data.province.terrain));
                                     key_value(ui, tr("supply"), format!("{:.0}", data.province.supply));
@@ -228,9 +232,9 @@ impl ProvinceInfoCard {
                                 .striped(true)
                                 .show(ui, |ui| {
                                     key_value(ui, "州", &data.state.state_name);
-                                    key_value(ui, tr("owner"), &data.state.owner_tag);
+                                    key_value(ui, tr("owner"), &data.state.owner_name);
                                     if data.state.owner_tag != data.state.controller_tag {
-                                        key_value(ui, tr("controller"), &data.state.controller_tag);
+                                        key_value(ui, tr("controller"), &data.state.controller_name);
                                     }
                                     key_value(ui, "人口", format_population(data.state.population));
                                     key_value(ui, tr("state_category_label"), &data.state.state_category);
@@ -337,18 +341,11 @@ fn v9_province_tactical(ui: &mut egui::Ui, data: &ProvinceInfoData) {
             .spacing([18.0, spacing::S2])
             .striped(true)
             .show(ui, |ui| {
-                v9_key_value(
-                    ui,
-                    tr("province"),
-                    format!(
-                        "#{} {}",
-                        data.province.province_id, data.province.province_name
-                    ),
-                );
+                v9_key_value(ui, tr("province"), &data.province.province_name);
                 v9_key_value(ui, tr("belongs_to_state"), &data.province.state_name);
-                v9_key_value(ui, tr("owner"), &data.province.owner_tag);
+                v9_key_value(ui, tr("owner"), &data.province.owner_name);
                 if data.province.owner_tag != data.province.controller_tag {
-                    v9_key_value(ui, tr("controller"), &data.province.controller_tag);
+                    v9_key_value(ui, tr("controller"), &data.province.controller_name);
                 }
                 v9_key_value(
                     ui,
@@ -402,9 +399,9 @@ fn v9_province_state(ui: &mut egui::Ui, data: &ProvinceInfoData) {
             .striped(true)
             .show(ui, |ui| {
                 v9_key_value(ui, "州", &data.state.state_name);
-                v9_key_value(ui, tr("owner"), &data.state.owner_tag);
+                v9_key_value(ui, tr("owner"), &data.state.owner_name);
                 if data.state.owner_tag != data.state.controller_tag {
-                    v9_key_value(ui, tr("controller"), &data.state.controller_tag);
+                    v9_key_value(ui, tr("controller"), &data.state.controller_name);
                 }
                 v9_key_value(ui, "人口", format_population(data.state.population));
                 v9_key_value(ui, tr("state_category_label"), &data.state.state_category);

@@ -33,6 +33,7 @@ pub enum SpeedCommand {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TopBarData {
     pub country_tag: String,
+    pub country_name: String,
     pub ruling_party: String,
     pub political_power: f32,
     pub stability: f32,
@@ -255,7 +256,7 @@ impl TopBar {
                 painter.text(
                     flag_inner.center(),
                     Align2::CENTER_CENTER,
-                    &data.country_tag,
+                    &data.country_name,
                     TextRole::Heading.font_id(),
                     muted_value_color(),
                 );
@@ -275,7 +276,7 @@ impl TopBar {
             Stroke::new(1.0, translucent(palette::BRASS_DARK, 70)),
             StrokeKind::Inside,
         );
-        resp.on_hover_text(format!("{} {}", data.country_tag, data.ruling_party));
+        resp.on_hover_text(format!("{} {}", data.country_name, data.ruling_party));
     }
 
     fn stat_tile_at(ui: &mut Ui, rect: Rect, idx: usize, stat: &StatTile) {

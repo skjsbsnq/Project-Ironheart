@@ -120,7 +120,9 @@ pub enum PeaceSide {
 #[derive(Clone)]
 pub struct PeaceWargoalEntry {
     pub claimant_tag: String,
+    pub claimant_name: String,
     pub target_tag: String,
+    pub target_name: String,
     pub kind: String,
     pub target_state: Option<u16>,
 }
@@ -1293,10 +1295,7 @@ fn render_wars(ui: &mut egui::Ui, data: &DiplomacyData, cmds: &mut Vec<Diplomacy
                                 ui.add(
                                     egui::Label::new(format!(
                                         "- {} 将执行 {} 于 {}{}",
-                                        tr(&goal.claimant_tag),
-                                        goal.kind,
-                                        tr(&goal.target_tag),
-                                        state
+                                        goal.claimant_name, goal.kind, goal.target_name, state
                                     ))
                                     .wrap(),
                                 );

@@ -333,13 +333,18 @@ impl App {
                         &resolved.primary_attacker_tag,
                     ),
                 };
+                let name_resolver = hoi4_app::ui_data::names::DisplayNameResolver::new(None);
+                let winner_name = name_resolver.country_name(winner_tag, winner_tag);
+                let loser_name = name_resolver.country_name(loser_tag, loser_tag);
                 let mut results = Vec::new();
                 if let Some(po) = &resolved.peace_outcome {
                     if po.annexed_countries > 0 {
                         results.push(hoi4_ui::surrender_notification::SurrenderResultEntry {
                             kind: hoi4_ui::surrender_notification::SurrenderResultKind::Annexed,
                             target_tag: loser_tag.clone(),
+                            target_name: loser_name.clone(),
                             winner_tag: winner_tag.clone(),
+                            winner_name: winner_name.clone(),
                             detail: format!("{} 吞并 {}", winner_tag, loser_tag),
                         });
                     }
@@ -347,7 +352,9 @@ impl App {
                         results.push(hoi4_ui::surrender_notification::SurrenderResultEntry {
                             kind: hoi4_ui::surrender_notification::SurrenderResultKind::Puppeted,
                             target_tag: loser_tag.clone(),
+                            target_name: loser_name.clone(),
                             winner_tag: winner_tag.clone(),
+                            winner_name: winner_name.clone(),
                             detail: format!("{} 傀儡化 {}", winner_tag, loser_tag),
                         });
                     }
@@ -355,7 +362,9 @@ impl App {
                         results.push(hoi4_ui::surrender_notification::SurrenderResultEntry {
                             kind: hoi4_ui::surrender_notification::SurrenderResultKind::StateTransferred,
                             target_tag: loser_tag.clone(),
+                            target_name: loser_name.clone(),
                             winner_tag: winner_tag.clone(),
+                            winner_name: winner_name.clone(),
                             detail: format!("{} 占领 {} 州", winner_tag, po.states_transferred),
                         });
                     }
@@ -363,7 +372,9 @@ impl App {
                         results.push(hoi4_ui::surrender_notification::SurrenderResultEntry {
                             kind: hoi4_ui::surrender_notification::SurrenderResultKind::GovernmentToppled,
                             target_tag: loser_tag.clone(),
+                            target_name: loser_name.clone(),
                             winner_tag: winner_tag.clone(),
+                            winner_name: winner_name.clone(),
                             detail: format!("{} 推翻 {} 政府", winner_tag, loser_tag),
                         });
                     }
@@ -372,14 +383,18 @@ impl App {
                     results.push(hoi4_ui::surrender_notification::SurrenderResultEntry {
                         kind: hoi4_ui::surrender_notification::SurrenderResultKind::WhitePeace,
                         target_tag: loser_tag.clone(),
+                        target_name: loser_name.clone(),
                         winner_tag: winner_tag.clone(),
+                        winner_name: winner_name.clone(),
                         detail: format!("{} 与 {} 白和", winner_tag, loser_tag),
                     });
                 }
                 self.pending_surrender_notifications.push(
                     hoi4_ui::surrender_notification::SurrenderNotification {
                         target_tag: loser_tag.clone(),
+                        target_name: loser_name,
                         winner_tag: winner_tag.clone(),
+                        winner_name,
                         kind: hoi4_ui::surrender_notification::SurrenderKind::AutoPeaceConference,
                         results,
                     },
@@ -389,12 +404,16 @@ impl App {
                 self.pending_surrender_notifications.push(
                     hoi4_ui::surrender_notification::SurrenderNotification {
                         target_tag: String::new(),
+                        target_name: String::new(),
                         winner_tag: String::new(),
+                        winner_name: String::new(),
                         kind: hoi4_ui::surrender_notification::SurrenderKind::EmptyWarCleanup,
                         results: vec![hoi4_ui::surrender_notification::SurrenderResultEntry {
                             kind: hoi4_ui::surrender_notification::SurrenderResultKind::WarRemoved,
                             target_tag: String::new(),
+                            target_name: String::new(),
                             winner_tag: String::new(),
+                            winner_name: String::new(),
                             detail: format!(
                                 "清理了 {} 场已结束的战争",
                                 content_events.peace_resolution.empty_wars_removed

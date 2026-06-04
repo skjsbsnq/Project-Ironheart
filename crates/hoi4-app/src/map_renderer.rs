@@ -50,6 +50,7 @@ pub enum MapRenderPass {
     Terrain,
     BorderFirst,
     River,
+    WaterRefraction,
     MapLayers,
     Water,
     BorderSecond,
@@ -70,13 +71,14 @@ pub enum MapRenderPass {
 }
 
 impl MapRenderPass {
-    pub const PHASE1_ORDER: [Self; 23] = [
+    pub const PHASE1_ORDER: [Self; 24] = [
         Self::ShadowCaster,
         Self::ProjectedFowShadow,
         Self::Sky,
         Self::Terrain,
         Self::BorderFirst,
         Self::River,
+        Self::WaterRefraction,
         Self::MapLayers,
         Self::Water,
         Self::BorderSecond,
@@ -104,6 +106,7 @@ impl MapRenderPass {
             Self::Terrain => "3d_terrain",
             Self::BorderFirst => "3d_border_first",
             Self::River => "3d_river",
+            Self::WaterRefraction => "water_refraction",
             Self::MapLayers => "3d_map_layers",
             Self::Water => "3d_water",
             Self::BorderSecond => "3d_border_second",
@@ -132,6 +135,7 @@ impl MapRenderPass {
             Self::Terrain => mask.terrain,
             Self::BorderFirst | Self::BorderSecond => mask.borders,
             Self::River => mask.river,
+            Self::WaterRefraction => mask.water,
             Self::MapLayers => mask.terrain,
             Self::Water => mask.water,
             Self::TradeRoutes | Self::Straits => mask.static_decals || mask.overlays,
@@ -183,6 +187,7 @@ impl MapRenderPass {
         let controls = preset.controls();
         match self {
             Self::Postprocess => controls.postprocess_chain,
+            Self::WaterRefraction => preset.water_refraction_enabled(),
             _ => true,
         }
     }
@@ -213,6 +218,7 @@ pub struct MapPassDrawSet {
     pub terrain: bool,
     pub border_first: bool,
     pub river: bool,
+    pub water_refraction: bool,
     pub map_layers: bool,
     pub water: bool,
     pub border_second: bool,
@@ -795,6 +801,7 @@ impl MapPassDrawSet {
                 self.borders = self.border_first || self.border_second;
             }
             MapRenderPass::River => self.river = enabled,
+            MapRenderPass::WaterRefraction => self.water_refraction = enabled,
             MapRenderPass::MapLayers => self.map_layers = enabled,
             MapRenderPass::Water => self.water = enabled,
             MapRenderPass::BorderSecond => {
@@ -1114,6 +1121,7 @@ mod tests {
                 "3d_terrain",
                 "3d_border_first",
                 "3d_river",
+                "water_refraction",
                 "3d_map_layers",
                 "3d_water",
                 "3d_border_second",
@@ -1162,6 +1170,10 @@ mod tests {
             .unwrap();
         let water = names.iter().position(|name| *name == "3d_water").unwrap();
         let river = names.iter().position(|name| *name == "3d_river").unwrap();
+        let water_refraction = names
+            .iter()
+            .position(|name| *name == "water_refraction")
+            .unwrap();
         let map_layers = names
             .iter()
             .position(|name| *name == "3d_map_layers")
@@ -1178,6 +1190,8 @@ mod tests {
         assert!(projected_fow_shadow < terrain);
         assert!(terrain < border_first);
         assert!(border_first < river);
+        assert!(river < water_refraction);
+        assert!(water_refraction < water);
         assert!(river < map_layers);
         assert!(map_layers < water);
         assert!(water < border_second);

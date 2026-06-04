@@ -49,6 +49,7 @@ pub use v7_history_loader::{
     HeadOfState1936Def, Historical1936Database, HistoricalCountryEconomyDef, HistoricalDataQuality,
     HistoricalMilitaryProfileDef, HistoricalTradeProfileDef, InitialLawSet,
     MilitaryEquipmentDemandDef, ResourceDepositDef, SectorShares, StateIntegrationDef,
-    StatePopulation1936Def, StateResourceDepositDef, TradeRouteKindDef, WorkforceProfileDef,
+    StatePopulation1936Def, StatePopulationProfile1936, StateResourceDepositDef, TradeRouteKindDef,
+    WorkforceProfileDef,
 };
 pub use validate::{validate_focus_tree, ValidationError};

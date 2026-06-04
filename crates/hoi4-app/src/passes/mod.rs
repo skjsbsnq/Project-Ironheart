@@ -60,6 +60,7 @@ pub mod terrain;
 pub mod traderoute;
 pub mod trees_full;
 pub mod water;
+pub mod water_refraction;
 
 pub use blit::SimpleBlitPass;
 pub use border::{BorderDebugView, BorderParams, BorderPass, BorderPassInputs};
@@ -88,6 +89,7 @@ pub use terrain::{
 pub use traderoute::TradeRoutePass;
 pub use trees_full::{TreeFullParams, TreeFullPass, TreeFullPassInputs};
 pub use water::{WaterDebugView, WaterParams, WaterPass, WaterPassInputs};
+pub use water_refraction::{WaterRefractionPass, WaterRefractionTarget};
 
 /// HDR 主 RT 的 wgpu 格式。统一 `Rgba16Float`：放得下任意正向高光值，
 /// 后处理链按 ACES tonemap 收回 LDR。

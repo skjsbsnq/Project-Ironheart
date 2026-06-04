@@ -7,8 +7,6 @@
 use hoi4_content::V6Database;
 use hoi4_state::{CountryId, World};
 
-const DEFAULT_BUILD_COST: f32 = 7_200.0;
-
 pub fn update(world: &mut World, db: &V6Database, ci: usize) {
     if ci >= world.countries.count {
         return;
@@ -27,13 +25,16 @@ pub fn update(world: &mut World, db: &V6Database, ci: usize) {
             state_idx < world.states.count && world.states.owners[state_idx] == country
         })
         .map(|(idx, building)| {
-            let max_level = db
+            let building_def = db
                 .buildings
                 .iter()
-                .find(|def| def.id == building.building_def_id)
+                .find(|def| def.id == building.building_def_id);
+            let max_level = building_def
                 .map(|def| def.max_level)
                 .unwrap_or(building.level);
-            let cp_cost = construction_cost(max_level);
+            let cp_cost = building_def
+                .map(|def| def.construction_recipe.cp_cost)
+                .unwrap_or(building.cp_cost);
             let val = super::valuation::compute_building_valuation(building, world, db, ci);
             (idx, val, cp_cost, max_level)
         })
@@ -52,8 +53,4 @@ pub fn update(world: &mut World, db: &V6Database, ci: usize) {
             building.max_level = max_level;
         }
     }
-}
-
-fn construction_cost(max_level: u8) -> f32 {
-    DEFAULT_BUILD_COST * (1.0 + max_level as f32 * 0.02)
 }

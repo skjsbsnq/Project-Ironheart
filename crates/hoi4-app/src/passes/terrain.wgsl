@@ -904,30 +904,32 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
 
     } else if (terrain_owns_water_color()) {
         let depth_ratio = clamp((SEA_LEVEL - real_h) / SEA_LEVEL, 0.0, 1.0);
-        let shallow_color = vec3<f32>(0.30, 0.55, 0.62);
-        let deep_color = vec3<f32>(0.05, 0.18, 0.32);
-        color = mix(shallow_color, deep_color, pow(depth_ratio, 0.6));
+        let deep = smoothstep(0.18, 0.92, depth_ratio);
+        let shallow_color = vec3<f32>(0.18, 0.42, 0.55);
+        let shelf_color = vec3<f32>(0.075, 0.22, 0.36);
+        let deep_color = vec3<f32>(0.025, 0.085, 0.18);
+        color = mix(mix(shallow_color, shelf_color, smoothstep(0.0, 0.42, depth_ratio)), deep_color, deep);
 
         surface_normal = water_surface(frag.world_pos, frame.global_time);
-        let wave_lo = fbm2d(frag.world_pos.xz * 1.5 + vec2<f32>(frame.global_time * 0.30, frame.global_time * 0.10));
-        let wave_hi = fbm2d(frag.world_pos.xz * 4.0 + vec2<f32>(frame.global_time * 0.55, -frame.global_time * 0.20));
-        let ripple = wave_lo * 0.65 + wave_hi * 0.35;
-        color = color * (0.88 + 0.10 * ripple);
+        let wave_lo = fbm2d(frag.world_pos.xz * 0.95 + vec2<f32>(frame.global_time * 0.18, frame.global_time * 0.06));
+        let wave_hi = fbm2d(frag.world_pos.xz * 2.2 + vec2<f32>(frame.global_time * 0.30, -frame.global_time * 0.12));
+        let ripple = wave_lo * 0.72 + wave_hi * 0.28;
+        color = color * (0.94 + 0.045 * ripple);
 
         let cdist_coast = coast_dist_px(frag.map_uv);
-        let foam = clamp(1.0 - cdist_coast / 0.75, 0.0, 1.0);
-        let foam_n = vnoise2d(frag.world_pos.xz * 12.0 + vec2<f32>(frame.global_time * 0.4, 0.0));
-        let foam_alpha = foam * smoothstep(0.4, 1.0, foam_n + foam);
-        color = mix(color, vec3<f32>(0.74, 0.86, 0.92), foam_alpha * 0.12);
+        let foam = clamp(1.0 - cdist_coast / 1.20, 0.0, 1.0) * (1.0 - deep * 0.75);
+        let foam_n = vnoise2d(frag.world_pos.xz * 7.0 + vec2<f32>(frame.global_time * 0.25, 0.0));
+        let foam_alpha = foam * smoothstep(0.50, 1.05, foam_n + foam);
+        color = mix(color, vec3<f32>(0.70, 0.84, 0.90), foam_alpha * 0.08);
     } else {
         // Final-quality frames let WaterPass own visible water. Terrain still
         // writes depth. Keep the hidden fallback close to the water material so
         // tiny coast coverage gaps cannot show as black seams.
         let depth_ratio = clamp((SEA_LEVEL - real_h) / SEA_LEVEL, 0.0, 1.0);
-        let shallow_color = vec3<f32>(0.14, 0.34, 0.50);
-        let deep_color = vec3<f32>(0.035, 0.11, 0.24);
-        color = mix(shallow_color, deep_color, pow(depth_ratio, 0.55));
-        color = mix(color, cmap, 0.10);
+        let shallow_color = vec3<f32>(0.12, 0.32, 0.47);
+        let shelf_color = vec3<f32>(0.060, 0.20, 0.34);
+        let deep_color = vec3<f32>(0.025, 0.085, 0.18);
+        color = mix(mix(shallow_color, shelf_color, smoothstep(0.0, 0.45, depth_ratio)), deep_color, smoothstep(0.25, 0.95, depth_ratio));
     }
 
     let globe_n = calc_globe_normal(frag.map_px, frame.day_night_hour_sun_dir.x);

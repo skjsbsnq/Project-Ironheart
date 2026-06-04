@@ -7,6 +7,14 @@ use crate::market::NationalMarket;
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct BudgetBreakdown {
     pub income_taxes_rm: f64,
+    #[serde(default)]
+    pub income_pop_taxes_rm: f64,
+    #[serde(default)]
+    pub income_consumption_taxes_rm: f64,
+    #[serde(default)]
+    pub income_corporate_taxes_rm: f64,
+    #[serde(default)]
+    pub income_trade_tariffs_rm: f64,
     pub income_state_profit_rm: f64,
     pub income_domestic_bonds_rm: f64,
     pub income_other_rm: f64,
@@ -36,9 +44,47 @@ pub struct FinancingBreakdown {
     pub gold_sold_rm: f64,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct GdpBreakdown {
+    pub building_primary_rm: f64,
+    pub building_secondary_rm: f64,
+    pub building_tertiary_rm: f64,
+    pub pop_income_rm: f64,
+    pub pop_consumption_rm: f64,
+    pub government_services_rm: f64,
+    pub military_procurement_rm: f64,
+    pub net_exports_rm: f64,
+    pub colonial_value_added_rm: f64,
+    pub historical_validation_gbp: f64,
+    pub historical_validation_error_ratio: f64,
+}
+
+impl GdpBreakdown {
+    pub fn building_value_added_rm(&self) -> f64 {
+        self.building_primary_rm + self.building_secondary_rm + self.building_tertiary_rm
+    }
+
+    pub fn runtime_total_rm(&self) -> f64 {
+        (self.building_value_added_rm()
+            + self.pop_consumption_rm
+            + self.government_services_rm
+            + self.military_procurement_rm
+            + self.net_exports_rm
+            + self.colonial_value_added_rm)
+            .max(0.0)
+    }
+}
+
 impl BudgetBreakdown {
     pub fn operating_income_rm(&self) -> f64 {
         self.income_taxes_rm + self.income_state_profit_rm + self.income_other_rm
+    }
+
+    pub fn tax_source_total_rm(&self) -> f64 {
+        self.income_pop_taxes_rm
+            + self.income_consumption_taxes_rm
+            + self.income_corporate_taxes_rm
+            + self.income_trade_tariffs_rm
     }
 
     pub fn total_income_rm(&self) -> f64 {
@@ -170,6 +216,8 @@ pub struct Treasury {
     pub gdp_last_year_gbp: f64,
     #[serde(default)]
     pub gdp_growth_yoy: f32,
+    #[serde(default)]
+    pub gdp_breakdown: GdpBreakdown,
     /// Effective law-derived tax rates: income, consumption, corporate.
     pub tax_rates: [f32; 3],
 }
@@ -208,6 +256,7 @@ impl Default for Treasury {
             colonial_extracted_value_rm: 0.0,
             gdp_last_year_gbp: 0.0,
             gdp_growth_yoy: 0.0,
+            gdp_breakdown: GdpBreakdown::default(),
             tax_rates: [0.20, 0.10, 0.20],
         }
     }

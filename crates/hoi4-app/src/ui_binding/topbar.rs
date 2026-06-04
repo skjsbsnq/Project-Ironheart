@@ -19,6 +19,7 @@ pub fn build_data(app: &App) -> hoi4_ui::topbar::TopBarData {
         .cloned()
         .unwrap_or_default();
     hoi4_ui::topbar::TopBarData {
+        country_name: app.country_display_name(player_cid),
         country_tag,
         ruling_party,
         political_power: app

@@ -127,6 +127,8 @@ pub(crate) fn render_map_frame(
             render_river_pass(s, &mut pass, map_draw, &counts, &vert_counts);
             drop(pass);
 
+            render_water_refraction_pass(s, enc, map_draw);
+
             let mut pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("3d_to_hdr_post_river"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -207,6 +209,32 @@ pub(crate) fn render_map_frame(
             "simple_blit"
         },
     }
+}
+
+fn render_water_refraction_pass(
+    s: &mut RenderState,
+    enc: &mut wgpu::CommandEncoder,
+    map_draw: &crate::map_renderer::MapPassDrawSet,
+) {
+    if !map_draw.water_refraction || !map_draw.water || !s.water_pass.any_loaded {
+        return;
+    }
+
+    let pass_started = Instant::now();
+    let token = s
+        .gpu_profiler
+        .as_mut()
+        .and_then(|profiler| profiler.begin_encoder_span(enc, "water_refraction"));
+    s.water_refraction_pass
+        .render(&s.queue, enc, &s.water_refraction_target.view);
+    if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), token) {
+        profiler.end_encoder_span(enc, token);
+    }
+    s.pass_registry.record_cpu_ms(
+        "water_refraction",
+        pass_started.elapsed().as_secs_f32() * 1000.0,
+    );
+    s.pass_registry.record_draw_calls("water_refraction", 1);
 }
 
 fn render_3d_pre_river_passes<'pass>(
@@ -651,6 +679,8 @@ fn record_map_pass_resources(s: &mut RenderState, postprocess_full: bool) {
     );
     s.pass_registry
         .record_texture_memory_bytes("3d_water", runtime_target_bytes);
+    s.pass_registry
+        .record_texture_memory_bytes("water_refraction", s.water_refraction_target.memory_bytes());
     s.pass_registry.record_fallback_count(
         "3d_water",
         s.water_pass.binding_audit.fallback_count() as u32,

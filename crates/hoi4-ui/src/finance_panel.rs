@@ -19,6 +19,10 @@ use components::{
 #[derive(Debug, Clone, Default)]
 pub struct BudgetBreakdownData {
     pub income_taxes_rm: f64,
+    pub income_pop_taxes_rm: f64,
+    pub income_consumption_taxes_rm: f64,
+    pub income_corporate_taxes_rm: f64,
+    pub income_trade_tariffs_rm: f64,
     pub income_state_profit_rm: f64,
     pub income_domestic_bonds_rm: f64,
     pub income_other_rm: f64,
@@ -43,6 +47,27 @@ pub struct FinancingBreakdownData {
     pub domestic_bond_issued_rm: f64,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct GdpBreakdownData {
+    pub building_primary_rm: f64,
+    pub building_secondary_rm: f64,
+    pub building_tertiary_rm: f64,
+    pub pop_income_rm: f64,
+    pub pop_consumption_rm: f64,
+    pub government_services_rm: f64,
+    pub military_procurement_rm: f64,
+    pub net_exports_rm: f64,
+    pub colonial_value_added_rm: f64,
+    pub historical_validation_gbp: f64,
+    pub historical_validation_error_ratio: f64,
+}
+
+impl GdpBreakdownData {
+    pub fn building_value_added_rm(&self) -> f64 {
+        self.building_primary_rm + self.building_secondary_rm + self.building_tertiary_rm
+    }
+}
+
 impl BudgetBreakdownData {
     pub fn operating_income_rm(&self) -> f64 {
         self.income_taxes_rm + self.income_state_profit_rm + self.income_other_rm
@@ -50,6 +75,13 @@ impl BudgetBreakdownData {
 
     pub fn total_income_rm(&self) -> f64 {
         self.operating_income_rm() + self.income_domestic_bonds_rm
+    }
+
+    pub fn tax_source_total_rm(&self) -> f64 {
+        self.income_pop_taxes_rm
+            + self.income_consumption_taxes_rm
+            + self.income_corporate_taxes_rm
+            + self.income_trade_tariffs_rm
     }
 
     pub fn total_expense_rm(&self) -> f64 {
@@ -68,6 +100,117 @@ impl BudgetBreakdownData {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct FiscalRevenueBreakdownData {
+    pub pop_income_taxes_rm: f64,
+    pub consumption_taxes_rm: f64,
+    pub corporate_taxes_rm: f64,
+    pub trade_tariffs_rm: f64,
+    pub state_profit_rm: f64,
+    pub financing_rm: f64,
+    pub other_rm: f64,
+}
+
+impl FiscalRevenueBreakdownData {
+    pub fn operating_total_rm(&self) -> f64 {
+        self.pop_income_taxes_rm
+            + self.consumption_taxes_rm
+            + self.corporate_taxes_rm
+            + self.trade_tariffs_rm
+            + self.state_profit_rm
+            + self.other_rm
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FiscalExpenseBreakdownData {
+    pub military_rm: f64,
+    pub construction_rm: f64,
+    pub welfare_rm: f64,
+    pub administration_rm: f64,
+    pub interest_rm: f64,
+    pub foreign_exchange_rm: f64,
+    pub research_rm: f64,
+    pub other_rm: f64,
+}
+
+impl FiscalExpenseBreakdownData {
+    pub fn total_rm(&self) -> f64 {
+        self.military_rm
+            + self.construction_rm
+            + self.welfare_rm
+            + self.administration_rm
+            + self.interest_rm
+            + self.foreign_exchange_rm
+            + self.research_rm
+            + self.other_rm
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ConstructionFundingTraceData {
+    pub government_rm: f64,
+    pub mefo_rm: f64,
+    pub private_pool_rm: f64,
+    pub cartel_pool_rm: f64,
+    pub overlord_investment_rm: f64,
+    pub foreign_investment_rm: f64,
+    pub paid_rm: f64,
+    pub remaining_rm: f64,
+    pub active_projects: usize,
+}
+
+impl ConstructionFundingTraceData {
+    pub fn total_budget_rm(&self) -> f64 {
+        self.government_rm
+            + self.mefo_rm
+            + self.private_pool_rm
+            + self.cartel_pool_rm
+            + self.overlord_investment_rm
+            + self.foreign_investment_rm
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InvestmentPoolData {
+    pub total_rm: f64,
+    pub private_rm: f64,
+    pub cartel_rm: f64,
+    pub state_development_bank_rm: f64,
+    pub colonial_extraction_rm: f64,
+    pub foreign_capital_rm: f64,
+    pub income_rm: f64,
+    pub spent_rm: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EconomySectorBuildingEntry {
+    pub sector_id: String,
+    pub sector_name: String,
+    pub building_name: String,
+    pub level: u8,
+    pub employed: u32,
+    pub demand: u32,
+    pub employment_rate: f32,
+    pub value_added_rm: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EconomyEmploymentEntry {
+    pub label: String,
+    pub employed: u32,
+    pub demand: u32,
+    pub employment_rate: f32,
+    pub value_added_rm: f64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct EconomyDiagnosticEntry {
+    pub source: String,
+    pub status: String,
+    pub detail: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct FinancePanelData {
     pub cash_rm: f64,
@@ -77,6 +220,10 @@ pub struct FinancePanelData {
     pub daily_expense_rm: f64,
     pub budget_breakdown: BudgetBreakdownData,
     pub financing_breakdown: FinancingBreakdownData,
+    pub fiscal_revenue: FiscalRevenueBreakdownData,
+    pub fiscal_expense: FiscalExpenseBreakdownData,
+    pub construction_funding: ConstructionFundingTraceData,
+    pub investment_pool: InvestmentPoolData,
     pub operating_income_rm: f64,
     pub operating_expense_rm: f64,
     pub original_deficit_rm: f64,
@@ -97,10 +244,30 @@ pub struct FinancePanelData {
     pub colonial_gdp_gbp: f64,
     pub colonial_extracted_value_rm: f64,
     pub colonial_extracted_value_gbp: f64,
+    pub gdp_breakdown: GdpBreakdownData,
+    pub sector_buildings: Vec<EconomySectorBuildingEntry>,
+    pub employment_rows: Vec<EconomyEmploymentEntry>,
+    pub diagnostics: Vec<EconomyDiagnosticEntry>,
     pub exchange_rate_rm_per_gbp: f32,
     pub can_print_mefo: bool,
     pub can_issue_foreign_bond: bool,
     pub is_foreign_exchange_control: bool,
+}
+
+pub const ECONOMY_V9_SECONDARY_TABS: [(&str, &str); 9] = [
+    ("overview", "总览"),
+    ("gdp", "GDP"),
+    ("primary", "一产"),
+    ("secondary", "二产"),
+    ("tertiary", "三产"),
+    ("employment", "就业"),
+    ("investment", "投资"),
+    ("trade", "贸易影响"),
+    ("diagnostics", "诊断"),
+];
+
+pub fn economy_v9_secondary_tabs() -> &'static [(&'static str, &'static str)] {
+    &ECONOMY_V9_SECONDARY_TABS
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -177,11 +344,15 @@ impl FinancePanel {
 // ─── Hero Treasury 头部 ─────────────────────────────────────────
 
 fn v9_show_finance(ctx: &egui::Context, data: &FinancePanelData) -> (bool, Vec<FinanceCommand>) {
-    use crate::v9::composites::panel_shell::{
-        draw_summary_tiles, draw_tab_strip, PanelClass, PanelShell,
-    };
+    use crate::v9::composites::panel_shell::{draw_summary_tiles, PanelClass, PanelShell};
+    use crate::v9::primitives::{TabBar, TabItem};
     use crate::v9::tokens::palette;
 
+    let tab_id = egui::Id::new("finance_panel_v9_secondary_tab");
+    let persisted_tab = ctx
+        .data_mut(|d| d.get_persisted::<String>(tab_id))
+        .unwrap_or_else(|| "overview".to_owned());
+    let mut active_tab = economy_v9_normalize_tab_id(&persisted_tab);
     let daily_balance = data.daily_income_rm - data.daily_expense_rm;
     let debt_ratio = if data.gdp_rm > 0.0 {
         (data.public_debt_rm + data.mefo_debt_rm) / data.gdp_rm
@@ -245,16 +416,58 @@ fn v9_show_finance(ctx: &egui::Context, data: &FinancePanelData) -> (bool, Vec<F
                     ),
                 ],
             );
-            draw_tab_strip(ui, layout.tabs, "指标卡 / 收支表 / 操作", accent);
+            let tab_items: Vec<_> = ECONOMY_V9_SECONDARY_TABS
+                .iter()
+                .map(|(id, label)| TabItem::new(*id, *label))
+                .collect();
+            TabBar::show_at(ui, layout.tabs, &tab_items, &mut active_tab);
             let mut cmds = Vec::new();
-            v9_finance_body(ui, layout.body, data, debt_ratio, mefo_ratio, &mut cmds);
+            v9_finance_body(
+                ui,
+                layout.body,
+                active_tab,
+                data,
+                debt_ratio,
+                mefo_ratio,
+                &mut cmds,
+            );
             cmds
         });
 
+    ctx.data_mut(|d| d.insert_persisted(tab_id, active_tab.to_owned()));
     (close, output.unwrap_or_default())
 }
 
+fn economy_v9_normalize_tab_id(value: &str) -> &'static str {
+    ECONOMY_V9_SECONDARY_TABS
+        .iter()
+        .find(|(id, _)| *id == value)
+        .map(|(id, _)| *id)
+        .unwrap_or("overview")
+}
+
 fn v9_finance_body(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    active_tab: &str,
+    data: &FinancePanelData,
+    debt_ratio: f64,
+    mefo_ratio: f64,
+    cmds: &mut Vec<FinanceCommand>,
+) {
+    match active_tab {
+        "overview" => v9_finance_overview_body(ui, rect, data, debt_ratio, mefo_ratio, cmds),
+        "gdp" => v9_finance_gdp_panel(ui, rect, data),
+        "primary" | "secondary" | "tertiary" => v9_finance_sector_panel(ui, rect, data, active_tab),
+        "employment" => v9_finance_employment_panel(ui, rect, data),
+        "investment" => v9_finance_investment_body(ui, rect, data),
+        "trade" => v9_finance_trade_panel(ui, rect, data),
+        "diagnostics" => v9_finance_diagnostics_panel(ui, rect, data),
+        _ => v9_finance_overview_body(ui, rect, data, debt_ratio, mefo_ratio, cmds),
+    }
+}
+
+fn v9_finance_overview_body(
     ui: &mut egui::Ui,
     rect: egui::Rect,
     data: &FinancePanelData,
@@ -267,10 +480,10 @@ fn v9_finance_body(
 
     ui.allocate_ui_at_rect(rect, |ui| {
         let grid = GridLayout::new(
-            vec![Track::Fr(1.0)],
-            vec![Track::Fr(0.34), Track::Fr(0.42), Track::Fr(0.24)],
+            vec![Track::Fr(0.34), Track::Fr(0.36), Track::Fr(0.30)],
+            vec![Track::Fr(0.48), Track::Fr(0.52)],
         )
-        .with_gutter(spacing::S5, 0.0);
+        .with_gutter(spacing::S5, spacing::S5);
         let cells = grid.measure(rect);
         v9_finance_tile_grid(
             ui,
@@ -279,9 +492,398 @@ fn v9_finance_body(
             debt_ratio,
             mefo_ratio,
         );
-        v9_finance_budget_table(ui, GridLayout::cell(&cells, 0, 1), data);
-        v9_finance_action_panel(ui, GridLayout::cell(&cells, 0, 2), data, mefo_ratio, cmds);
+        v9_finance_budget_table(ui, GridLayout::span(&cells, 0, 1, 2, 1), data);
+        v9_finance_construction_panel(ui, GridLayout::cell(&cells, 1, 0), data);
+        v9_finance_investment_pool_panel(ui, GridLayout::cell(&cells, 2, 0), data);
+        v9_finance_action_panel(ui, GridLayout::cell(&cells, 2, 1), data, mefo_ratio, cmds);
     });
+}
+
+fn v9_finance_investment_body(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
+    use crate::v9::layout::{GridLayout, Track};
+    use crate::v9::tokens::spacing;
+
+    ui.allocate_ui_at_rect(rect, |ui| {
+        let grid = GridLayout::new(vec![Track::Fr(0.50), Track::Fr(0.50)], vec![Track::Fr(1.0)])
+            .with_gutter(spacing::S5, spacing::S5);
+        let cells = grid.measure(rect);
+        v9_finance_investment_pool_panel(ui, GridLayout::cell(&cells, 0, 0), data);
+        v9_finance_construction_panel(ui, GridLayout::cell(&cells, 1, 0), data);
+    });
+}
+
+fn v9_finance_gdp_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
+    use crate::v9::primitives::{Card, DataTable, TableColumn};
+    use crate::v9::tokens::{palette, TextRole};
+    use egui::{Align2, Pos2, Rect};
+
+    let inner = Card::new().as_panel().show_at(ui, rect);
+    ui.painter().text(
+        inner.left_top(),
+        Align2::LEFT_TOP,
+        "GDP 构成",
+        TextRole::Heading.font_id(),
+        palette::BRASS_BRIGHT,
+    );
+
+    let rows = vec![
+        gdp_row(
+            "一产建筑",
+            data.gdp_breakdown.building_primary_rm,
+            data.gdp_rm,
+            palette::GOOD,
+        ),
+        gdp_row(
+            "二产建筑",
+            data.gdp_breakdown.building_secondary_rm,
+            data.gdp_rm,
+            palette::GOLD,
+        ),
+        gdp_row(
+            "三产建筑",
+            data.gdp_breakdown.building_tertiary_rm,
+            data.gdp_rm,
+            palette::INFO,
+        ),
+        gdp_row(
+            "POP 收入",
+            data.gdp_breakdown.pop_income_rm,
+            data.gdp_rm,
+            palette::PARCHMENT,
+        ),
+        gdp_row(
+            "POP 消费",
+            data.gdp_breakdown.pop_consumption_rm,
+            data.gdp_rm,
+            palette::PARCHMENT_DIM,
+        ),
+        gdp_row(
+            "政府服务",
+            data.gdp_breakdown.government_services_rm,
+            data.gdp_rm,
+            palette::GOLD,
+        ),
+        gdp_row(
+            "军工采购",
+            data.gdp_breakdown.military_procurement_rm,
+            data.gdp_rm,
+            palette::WARN,
+        ),
+        gdp_row(
+            "净出口",
+            data.gdp_breakdown.net_exports_rm,
+            data.gdp_rm,
+            palette::INFO,
+        ),
+        gdp_row(
+            "殖民增加值",
+            data.gdp_breakdown.colonial_value_added_rm,
+            data.gdp_rm,
+            palette::WARN,
+        ),
+        gdp_row("国内 GDP", data.domestic_gdp_rm, data.gdp_rm, palette::GOOD),
+        gdp_row("殖民 GDP", data.colonial_gdp_rm, data.gdp_rm, palette::WARN),
+        gdp_row("总 GDP", data.gdp_rm, data.gdp_rm, palette::GOLD),
+    ];
+    DataTable::new(
+        vec![
+            TableColumn::new("项目", 1.4),
+            TableColumn::new("RM", 0.8).right(),
+            TableColumn::new("占 GDP", 0.7).right(),
+        ],
+        rows,
+    )
+    .row_height(24.0)
+    .show_at(
+        ui,
+        Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 34.0),
+            inner.right_bottom(),
+        ),
+    );
+}
+
+fn gdp_row(
+    label: &str,
+    amount: f64,
+    total_gdp_rm: f64,
+    color: Color32,
+) -> crate::v9::primitives::TableRow {
+    use crate::v9::primitives::{TableCell, TableRow};
+    let percent = if total_gdp_rm > 0.0 {
+        format!("{:.1}%", amount / total_gdp_rm * 100.0)
+    } else {
+        "-".to_owned()
+    };
+
+    TableRow::new(vec![
+        TableCell::strong(label),
+        TableCell::colored(format_million(amount), color).right(),
+        TableCell::new(percent).right(),
+    ])
+    .accent(color)
+}
+
+fn v9_finance_sector_panel(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &FinancePanelData,
+    sector_id: &str,
+) {
+    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
+    use crate::v9::tokens::{palette, TextRole};
+    use egui::{Align2, Pos2, Rect};
+
+    let title = ECONOMY_V9_SECONDARY_TABS
+        .iter()
+        .find(|(id, _)| *id == sector_id)
+        .map(|(_, label)| format!("{}建筑", label))
+        .unwrap_or_else(|| "部门建筑".to_owned());
+    let inner = Card::new().as_panel().show_at(ui, rect);
+    ui.painter().text(
+        inner.left_top(),
+        Align2::LEFT_TOP,
+        title,
+        TextRole::Heading.font_id(),
+        palette::BRASS_BRIGHT,
+    );
+    let rows: Vec<_> = data
+        .sector_buildings
+        .iter()
+        .filter(|row| row.sector_id == sector_id)
+        .map(|row| {
+            TableRow::new(vec![
+                TableCell::strong(row.building_name.as_str()),
+                TableCell::new(row.level.to_string()).right(),
+                TableCell::new(format!("{}/{}", row.employed, row.demand)).right(),
+                TableCell::colored(
+                    format!("{:.1}%", row.employment_rate * 100.0),
+                    employment_rate_color(row.employment_rate),
+                )
+                .right(),
+                TableCell::colored(format_million(row.value_added_rm), palette::GOLD).right(),
+            ])
+            .accent(employment_rate_color(row.employment_rate))
+        })
+        .collect();
+    let rows = if rows.is_empty() {
+        vec![TableRow::new(vec![
+            TableCell::strong("暂无建筑"),
+            TableCell::new("-").right(),
+            TableCell::new("-").right(),
+            TableCell::new("-").right(),
+            TableCell::new("-").right(),
+        ])]
+    } else {
+        rows
+    };
+    DataTable::new(
+        vec![
+            TableColumn::new("建筑", 1.5),
+            TableColumn::new("等级", 0.45).right(),
+            TableColumn::new("就业", 0.8).right(),
+            TableColumn::new("填充", 0.65).right(),
+            TableColumn::new("增加值", 0.8).right(),
+        ],
+        rows,
+    )
+    .row_height(24.0)
+    .show_at(
+        ui,
+        Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 34.0),
+            inner.right_bottom(),
+        ),
+    );
+}
+
+fn v9_finance_employment_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
+    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
+    use crate::v9::tokens::{palette, TextRole};
+    use egui::{Align2, Pos2, Rect};
+
+    let inner = Card::new().as_panel().show_at(ui, rect);
+    ui.painter().text(
+        inner.left_top(),
+        Align2::LEFT_TOP,
+        "就业",
+        TextRole::Heading.font_id(),
+        palette::BRASS_BRIGHT,
+    );
+    let rows = data
+        .employment_rows
+        .iter()
+        .map(|row| {
+            TableRow::new(vec![
+                TableCell::strong(row.label.as_str()),
+                TableCell::new(row.employed.to_string()).right(),
+                TableCell::new(row.demand.to_string()).right(),
+                TableCell::colored(
+                    format!("{:.1}%", row.employment_rate * 100.0),
+                    employment_rate_color(row.employment_rate),
+                )
+                .right(),
+                TableCell::colored(format_million(row.value_added_rm), palette::GOLD).right(),
+            ])
+            .accent(employment_rate_color(row.employment_rate))
+        })
+        .collect();
+    DataTable::new(
+        vec![
+            TableColumn::new("范围", 1.1),
+            TableColumn::new("就业", 0.8).right(),
+            TableColumn::new("需求", 0.8).right(),
+            TableColumn::new("填充", 0.7).right(),
+            TableColumn::new("增加值", 0.8).right(),
+        ],
+        rows,
+    )
+    .row_height(26.0)
+    .show_at(
+        ui,
+        Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 34.0),
+            inner.right_bottom(),
+        ),
+    );
+}
+
+fn v9_finance_trade_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
+    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
+    use crate::v9::tokens::{palette, TextRole};
+    use egui::{Align2, Pos2, Rect};
+
+    let inner = Card::new().as_panel().show_at(ui, rect);
+    ui.painter().text(
+        inner.left_top(),
+        Align2::LEFT_TOP,
+        "贸易影响",
+        TextRole::Heading.font_id(),
+        palette::BRASS_BRIGHT,
+    );
+    let rows = vec![
+        v9_finance_value_row(
+            "净出口 GDP",
+            data.gdp_breakdown.net_exports_rm,
+            palette::INFO,
+        ),
+        v9_finance_value_row(
+            "贸易关税",
+            data.fiscal_revenue.trade_tariffs_rm,
+            palette::GOOD,
+        ),
+        v9_finance_value_row(
+            "外汇支出",
+            data.fiscal_expense.foreign_exchange_rm,
+            palette::WARN,
+        ),
+        v9_finance_value_row("GBP 储备", data.reserve_gbp, palette::INFO),
+        TableRow::new(vec![
+            TableCell::strong("汇率"),
+            TableCell::colored(
+                format!("{:.2} RM/GBP", data.exchange_rate_rm_per_gbp),
+                palette::GOLD,
+            )
+            .right(),
+        ]),
+        TableRow::new(vec![
+            TableCell::strong("外汇管制"),
+            TableCell::colored(
+                if data.is_foreign_exchange_control {
+                    "启用"
+                } else {
+                    "未启用"
+                },
+                if data.is_foreign_exchange_control {
+                    palette::WARN
+                } else {
+                    palette::GOOD
+                },
+            )
+            .right(),
+        ]),
+    ];
+    DataTable::new(
+        vec![
+            TableColumn::new("项目", 1.2),
+            TableColumn::new("数值", 0.9).right(),
+        ],
+        rows,
+    )
+    .row_height(28.0)
+    .show_at(
+        ui,
+        Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 34.0),
+            inner.right_bottom(),
+        ),
+    );
+}
+
+fn v9_finance_diagnostics_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
+    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn};
+    use crate::v9::tokens::{palette, TextRole};
+    use egui::{Align2, Pos2, Rect};
+
+    let inner = Card::new().as_panel().show_at(ui, rect);
+    ui.painter().text(
+        inner.left_top(),
+        Align2::LEFT_TOP,
+        "诊断",
+        TextRole::Heading.font_id(),
+        palette::BRASS_BRIGHT,
+    );
+    let rows = data
+        .diagnostics
+        .iter()
+        .map(|row| {
+            let color = diagnostic_status_color(&row.status);
+            crate::v9::primitives::TableRow::new(vec![
+                TableCell::strong(row.source.as_str()),
+                TableCell::colored(row.status.as_str(), color).center(),
+                TableCell::new(row.detail.as_str()),
+            ])
+            .accent(color)
+        })
+        .collect();
+    DataTable::new(
+        vec![
+            TableColumn::new("来源", 0.9),
+            TableColumn::new("状态", 0.55).center(),
+            TableColumn::new("明细", 1.6),
+        ],
+        rows,
+    )
+    .row_height(26.0)
+    .show_at(
+        ui,
+        Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 34.0),
+            inner.right_bottom(),
+        ),
+    );
+}
+
+fn employment_rate_color(rate: f32) -> Color32 {
+    use crate::v9::tokens::palette;
+
+    if rate >= 0.92 {
+        palette::GOOD
+    } else if rate >= 0.75 {
+        palette::WARN
+    } else {
+        palette::BAD
+    }
+}
+
+fn diagnostic_status_color(status: &str) -> Color32 {
+    use crate::v9::tokens::palette;
+
+    match status {
+        "正常" | "可用" => palette::GOOD,
+        "关注" | "排队" => palette::WARN,
+        _ => palette::BAD,
+    }
 }
 
 fn v9_finance_tile_grid(
@@ -440,25 +1042,19 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
     );
 
     let mut rows = Vec::new();
-    let income_items: [(&str, f64); 4] = [
-        (
-            tr("v6_budget_income_taxes"),
-            data.budget_breakdown.income_taxes_rm,
-        ),
+    let revenue_items: [(&str, f64); 7] = [
+        ("POP所得税", data.fiscal_revenue.pop_income_taxes_rm),
+        ("消费税", data.fiscal_revenue.consumption_taxes_rm),
+        ("企业税", data.fiscal_revenue.corporate_taxes_rm),
+        ("贸易关税", data.fiscal_revenue.trade_tariffs_rm),
         (
             tr("v6_budget_income_state_profit"),
-            data.budget_breakdown.income_state_profit_rm,
+            data.fiscal_revenue.state_profit_rm,
         ),
-        (
-            tr("v6_budget_income_domestic_bonds"),
-            data.budget_breakdown.income_domestic_bonds_rm,
-        ),
-        (
-            tr("v6_budget_income_other"),
-            data.budget_breakdown.income_other_rm,
-        ),
+        ("融资流入", data.fiscal_revenue.financing_rm),
+        (tr("v6_budget_income_other"), data.fiscal_revenue.other_rm),
     ];
-    for (label, amount) in income_items {
+    for (label, amount) in revenue_items {
         rows.push(
             TableRow::new(vec![
                 TableCell::colored("收入", palette::GOOD),
@@ -469,52 +1065,15 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
         );
     }
 
-    let expense_items: [(&str, f64); 12] = [
-        (
-            tr("v6_budget_expense_state_payroll"),
-            data.budget_breakdown.expense_state_payroll_rm,
-        ),
-        (
-            tr("v6_budget_expense_military_wages"),
-            data.budget_breakdown.expense_military_wages_rm,
-        ),
-        (
-            tr("v6_budget_expense_military_procurement"),
-            data.budget_breakdown.expense_military_procurement_rm,
-        ),
-        (
-            tr("v6_budget_expense_military_maintenance"),
-            data.budget_breakdown.expense_military_maintenance_rm,
-        ),
-        (
-            tr("v6_budget_expense_construction_goods"),
-            data.budget_breakdown.expense_construction_goods_rm,
-        ),
-        (
-            tr("v6_budget_expense_construction_wages"),
-            data.budget_breakdown.expense_construction_wages_rm,
-        ),
-        (
-            tr("v6_budget_expense_welfare"),
-            data.budget_breakdown.expense_welfare_rm,
-        ),
-        (
-            tr("v6_budget_expense_debt_interest"),
-            data.budget_breakdown.expense_debt_interest_rm,
-        ),
-        (
-            tr("v6_budget_expense_forex"),
-            data.budget_breakdown.expense_foreign_currency_rm,
-        ),
-        (
-            tr("v6_budget_expense_mefo_forced"),
-            data.budget_breakdown.expense_mefo_forced_payment_rm,
-        ),
-        ("科研", data.budget_breakdown.expense_research_rm),
-        (
-            tr("v6_budget_expense_other"),
-            data.budget_breakdown.expense_other_rm,
-        ),
+    let expense_items: [(&str, f64); 8] = [
+        ("军费", data.fiscal_expense.military_rm),
+        ("建设", data.fiscal_expense.construction_rm),
+        ("福利", data.fiscal_expense.welfare_rm),
+        ("行政", data.fiscal_expense.administration_rm),
+        ("利息", data.fiscal_expense.interest_rm),
+        ("外汇", data.fiscal_expense.foreign_exchange_rm),
+        ("科研", data.fiscal_expense.research_rm),
+        ("其他", data.fiscal_expense.other_rm),
     ];
     for (label, amount) in expense_items {
         rows.push(
@@ -552,7 +1111,7 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
         ],
         rows,
     )
-    .row_height(27.0)
+    .row_height(22.0)
     .show_at(
         ui,
         Rect::from_min_max(
@@ -560,6 +1119,142 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
             inner.right_bottom(),
         ),
     );
+}
+
+fn v9_finance_construction_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
+    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
+    use crate::v9::tokens::{palette, TextRole};
+    use egui::{Align2, Pos2, Rect};
+
+    let inner = Card::new().as_panel().show_at(ui, rect);
+    ui.painter().text(
+        inner.left_top(),
+        Align2::LEFT_TOP,
+        "建造资金路径",
+        TextRole::Heading.font_id(),
+        palette::BRASS_BRIGHT,
+    );
+
+    let rows = vec![
+        v9_finance_value_row(
+            "政府预算",
+            data.construction_funding.government_rm,
+            palette::GOLD,
+        ),
+        v9_finance_value_row("MEFO", data.construction_funding.mefo_rm, palette::WARN),
+        v9_finance_value_row(
+            "私人投资池",
+            data.construction_funding.private_pool_rm,
+            palette::GOOD,
+        ),
+        v9_finance_value_row(
+            "卡特尔池",
+            data.construction_funding.cartel_pool_rm,
+            palette::INFO,
+        ),
+        v9_finance_value_row(
+            "宗主投资",
+            data.construction_funding.overlord_investment_rm,
+            palette::PARCHMENT_DIM,
+        ),
+        v9_finance_value_row(
+            "外国投资",
+            data.construction_funding.foreign_investment_rm,
+            palette::INFO,
+        ),
+        v9_finance_value_row("已支付", data.construction_funding.paid_rm, palette::GOOD),
+        v9_finance_value_row(
+            "待支付",
+            data.construction_funding.remaining_rm,
+            palette::WARN,
+        ),
+        TableRow::new(vec![
+            TableCell::strong("项目数"),
+            TableCell::new(data.construction_funding.active_projects.to_string()).right(),
+        ]),
+    ];
+    DataTable::new(
+        vec![
+            TableColumn::new("来源", 1.2),
+            TableColumn::new("RM", 0.8).right(),
+        ],
+        rows,
+    )
+    .row_height(20.0)
+    .show_at(
+        ui,
+        Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 34.0),
+            inner.right_bottom(),
+        ),
+    );
+}
+
+fn v9_finance_investment_pool_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
+    use crate::v9::primitives::{Card, DataTable, TableColumn};
+    use crate::v9::tokens::{palette, TextRole};
+    use egui::{Align2, Pos2, Rect};
+
+    let inner = Card::new().as_panel().show_at(ui, rect);
+    ui.painter().text(
+        inner.left_top(),
+        Align2::LEFT_TOP,
+        "投资池",
+        TextRole::Heading.font_id(),
+        palette::BRASS_BRIGHT,
+    );
+
+    let rows = vec![
+        v9_finance_value_row("私人", data.investment_pool.private_rm, palette::GOOD),
+        v9_finance_value_row("卡特尔", data.investment_pool.cartel_rm, palette::INFO),
+        v9_finance_value_row(
+            "国家开发银行",
+            data.investment_pool.state_development_bank_rm,
+            palette::GOLD,
+        ),
+        v9_finance_value_row(
+            "殖民抽取",
+            data.investment_pool.colonial_extraction_rm,
+            palette::WARN,
+        ),
+        v9_finance_value_row(
+            "外国资本",
+            data.investment_pool.foreign_capital_rm,
+            palette::INFO,
+        ),
+        v9_finance_value_row("本日流入", data.investment_pool.income_rm, palette::GOOD),
+        v9_finance_value_row("本日支出", data.investment_pool.spent_rm, palette::BAD),
+        v9_finance_value_row("合计", data.investment_pool.total_rm, palette::GOLD),
+    ];
+    DataTable::new(
+        vec![
+            TableColumn::new("账户", 1.2),
+            TableColumn::new("RM", 0.8).right(),
+        ],
+        rows,
+    )
+    .row_height(18.0)
+    .show_at(
+        ui,
+        Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 34.0),
+            inner.right_bottom(),
+        ),
+    );
+}
+
+fn v9_finance_value_row(
+    label: &str,
+    amount: f64,
+    color: Color32,
+) -> crate::v9::primitives::TableRow {
+    use crate::v9::primitives::{TableCell, TableRow};
+
+    TableRow::new(vec![
+        TableCell::strong(label),
+        TableCell::colored(format_million(amount), color).right(),
+    ])
+    .accent(color)
 }
 
 fn v9_finance_action_panel(
@@ -1036,70 +1731,27 @@ fn render_budget_tab(ui: &mut egui::Ui, data: &FinancePanelData) {
     });
 
     components::section_card(ui, "收支明细", |ui| {
-        let income_items: [(&str, f64); 4] = [
-            (
-                tr("v6_budget_income_taxes"),
-                data.budget_breakdown.income_taxes_rm,
-            ),
+        let income_items: [(&str, f64); 7] = [
+            ("POP所得税", data.fiscal_revenue.pop_income_taxes_rm),
+            ("消费税", data.fiscal_revenue.consumption_taxes_rm),
+            ("企业税", data.fiscal_revenue.corporate_taxes_rm),
+            ("贸易关税", data.fiscal_revenue.trade_tariffs_rm),
             (
                 tr("v6_budget_income_state_profit"),
-                data.budget_breakdown.income_state_profit_rm,
+                data.fiscal_revenue.state_profit_rm,
             ),
-            (
-                tr("v6_budget_income_domestic_bonds"),
-                data.budget_breakdown.income_domestic_bonds_rm,
-            ),
-            (
-                tr("v6_budget_income_other"),
-                data.budget_breakdown.income_other_rm,
-            ),
+            ("融资流入", data.fiscal_revenue.financing_rm),
+            (tr("v6_budget_income_other"), data.fiscal_revenue.other_rm),
         ];
-        let expense_items: [(&str, f64); 12] = [
-            (
-                tr("v6_budget_expense_state_payroll"),
-                data.budget_breakdown.expense_state_payroll_rm,
-            ),
-            (
-                tr("v6_budget_expense_military_wages"),
-                data.budget_breakdown.expense_military_wages_rm,
-            ),
-            (
-                tr("v6_budget_expense_military_procurement"),
-                data.budget_breakdown.expense_military_procurement_rm,
-            ),
-            (
-                tr("v6_budget_expense_military_maintenance"),
-                data.budget_breakdown.expense_military_maintenance_rm,
-            ),
-            (
-                tr("v6_budget_expense_construction_goods"),
-                data.budget_breakdown.expense_construction_goods_rm,
-            ),
-            (
-                tr("v6_budget_expense_construction_wages"),
-                data.budget_breakdown.expense_construction_wages_rm,
-            ),
-            (
-                tr("v6_budget_expense_welfare"),
-                data.budget_breakdown.expense_welfare_rm,
-            ),
-            (
-                tr("v6_budget_expense_debt_interest"),
-                data.budget_breakdown.expense_debt_interest_rm,
-            ),
-            (
-                tr("v6_budget_expense_forex"),
-                data.budget_breakdown.expense_foreign_currency_rm,
-            ),
-            (
-                tr("v6_budget_expense_mefo_forced"),
-                data.budget_breakdown.expense_mefo_forced_payment_rm,
-            ),
-            ("研究经费", data.budget_breakdown.expense_research_rm),
-            (
-                tr("v6_budget_expense_other"),
-                data.budget_breakdown.expense_other_rm,
-            ),
+        let expense_items: [(&str, f64); 8] = [
+            ("军费", data.fiscal_expense.military_rm),
+            ("建设", data.fiscal_expense.construction_rm),
+            ("福利", data.fiscal_expense.welfare_rm),
+            ("行政", data.fiscal_expense.administration_rm),
+            ("利息", data.fiscal_expense.interest_rm),
+            ("外汇", data.fiscal_expense.foreign_exchange_rm),
+            ("研究经费", data.fiscal_expense.research_rm),
+            ("其他", data.fiscal_expense.other_rm),
         ];
 
         ui.columns(2, |c| {
@@ -1114,7 +1766,8 @@ fn render_budget_tab(ui: &mut egui::Ui, data: &FinancePanelData) {
                 components::zebra_row(&mut c[0], idx, label, format_million(*amount), GOOD);
             }
             c[0].add_space(3.0);
-            let income_sum = data.budget_breakdown.total_income_rm();
+            let income_sum =
+                data.fiscal_revenue.operating_total_rm() + data.fiscal_revenue.financing_rm;
             let income_ok = (income_sum - data.daily_income_rm).abs()
                 <= data.daily_income_rm.abs().max(1.0) * 0.001;
             components::total_row(
@@ -1135,7 +1788,7 @@ fn render_budget_tab(ui: &mut egui::Ui, data: &FinancePanelData) {
                 components::zebra_row(&mut c[1], idx, label, format_million(*amount), BAD);
             }
             c[1].add_space(3.0);
-            let expense_sum = data.budget_breakdown.total_expense_rm();
+            let expense_sum = data.fiscal_expense.total_rm();
             let expense_ok = (expense_sum - data.daily_expense_rm).abs()
                 <= data.daily_expense_rm.abs().max(1.0) * 0.001;
             components::total_row(
@@ -1145,6 +1798,126 @@ fn render_budget_tab(ui: &mut egui::Ui, data: &FinancePanelData) {
                 expense_ok,
             );
         });
+    });
+
+    components::section_card(ui, "建造资金路径", |ui| {
+        ui.columns(3, |c| {
+            components::metric_tile(
+                &mut c[0],
+                "预算合计",
+                format_million(data.construction_funding.total_budget_rm()),
+                GOLD,
+            );
+            components::metric_tile(
+                &mut c[1],
+                "已支付",
+                format_million(data.construction_funding.paid_rm),
+                GOOD,
+            );
+            components::metric_tile(
+                &mut c[2],
+                "项目数",
+                data.construction_funding.active_projects.to_string(),
+                PARCHMENT,
+            );
+        });
+        ui.add_space(4.0);
+        components::kv_row(
+            ui,
+            "政府预算",
+            format_million(data.construction_funding.government_rm),
+            GOLD,
+        );
+        components::kv_row(
+            ui,
+            "MEFO",
+            format_million(data.construction_funding.mefo_rm),
+            WARN,
+        );
+        components::kv_row(
+            ui,
+            "私人投资池",
+            format_million(data.construction_funding.private_pool_rm),
+            GOOD,
+        );
+        components::kv_row(
+            ui,
+            "卡特尔池",
+            format_million(data.construction_funding.cartel_pool_rm),
+            BLUE,
+        );
+        components::kv_row(
+            ui,
+            "宗主投资",
+            format_million(data.construction_funding.overlord_investment_rm),
+            MUTED,
+        );
+        components::kv_row(
+            ui,
+            "外国投资",
+            format_million(data.construction_funding.foreign_investment_rm),
+            BLUE,
+        );
+        components::kv_row(
+            ui,
+            "待支付",
+            format_million(data.construction_funding.remaining_rm),
+            WARN,
+        );
+    });
+
+    components::section_card(ui, "投资池", |ui| {
+        ui.columns(3, |c| {
+            components::metric_tile(
+                &mut c[0],
+                "余额",
+                format_million(data.investment_pool.total_rm),
+                GOLD,
+            );
+            components::metric_tile(
+                &mut c[1],
+                "本日流入",
+                format_million(data.investment_pool.income_rm),
+                GOOD,
+            );
+            components::metric_tile(
+                &mut c[2],
+                "本日支出",
+                format_million(data.investment_pool.spent_rm),
+                BAD,
+            );
+        });
+        ui.add_space(4.0);
+        components::kv_row(
+            ui,
+            "私人",
+            format_million(data.investment_pool.private_rm),
+            GOOD,
+        );
+        components::kv_row(
+            ui,
+            "卡特尔",
+            format_million(data.investment_pool.cartel_rm),
+            BLUE,
+        );
+        components::kv_row(
+            ui,
+            "国家开发银行",
+            format_million(data.investment_pool.state_development_bank_rm),
+            GOLD,
+        );
+        components::kv_row(
+            ui,
+            "殖民抽取",
+            format_million(data.investment_pool.colonial_extraction_rm),
+            WARN,
+        );
+        components::kv_row(
+            ui,
+            "外国资本",
+            format_million(data.investment_pool.foreign_capital_rm),
+            BLUE,
+        );
     });
 }
 
@@ -1325,6 +2098,68 @@ fn render_exchange_tab(ui: &mut egui::Ui, data: &FinancePanelData) {
             ),
             GOLD,
         );
+        components::kv_row(
+            ui,
+            "建筑增加值",
+            format!(
+                "{} RM（第一 {} / 第二 {} / 第三 {}）",
+                format_million(data.gdp_breakdown.building_value_added_rm()),
+                format_million(data.gdp_breakdown.building_primary_rm),
+                format_million(data.gdp_breakdown.building_secondary_rm),
+                format_million(data.gdp_breakdown.building_tertiary_rm)
+            ),
+            GOOD,
+        );
+        components::kv_row(
+            ui,
+            "POP 收入 / 消费",
+            format!(
+                "{} RM  /  {} RM",
+                format_million(data.gdp_breakdown.pop_income_rm),
+                format_million(data.gdp_breakdown.pop_consumption_rm)
+            ),
+            BLUE,
+        );
+        components::kv_row(
+            ui,
+            "政府服务",
+            format!(
+                "{} RM",
+                format_million(data.gdp_breakdown.government_services_rm)
+            ),
+            PARCHMENT,
+        );
+        components::kv_row(
+            ui,
+            "军工采购",
+            format!(
+                "{} RM",
+                format_million(data.gdp_breakdown.military_procurement_rm)
+            ),
+            WARN,
+        );
+        components::kv_row(
+            ui,
+            "净出口",
+            format!("{} RM", signed_million(data.gdp_breakdown.net_exports_rm)),
+            if data.gdp_breakdown.net_exports_rm >= 0.0 {
+                GOOD
+            } else {
+                BAD
+            },
+        );
+        if data.gdp_breakdown.historical_validation_gbp > 0.0 {
+            components::kv_row(
+                ui,
+                "历史校验",
+                format!(
+                    "£ {} / 误差 {:+.1}%",
+                    format_million(data.gdp_breakdown.historical_validation_gbp),
+                    data.gdp_breakdown.historical_validation_error_ratio * 100.0
+                ),
+                MUTED,
+            );
+        }
     });
 }
 
@@ -1567,8 +2402,61 @@ mod tests {
             gold_kg: 700_000.0,
             daily_income_rm: 50_000_000.0,
             daily_expense_rm: 45_000_000.0,
-            budget_breakdown: BudgetBreakdownData::default(),
-            financing_breakdown: FinancingBreakdownData::default(),
+            budget_breakdown: BudgetBreakdownData {
+                income_taxes_rm: 22_000_000.0,
+                income_pop_taxes_rm: 9_000_000.0,
+                income_consumption_taxes_rm: 6_000_000.0,
+                income_corporate_taxes_rm: 5_000_000.0,
+                income_trade_tariffs_rm: 2_000_000.0,
+                expense_construction_goods_rm: 8_000_000.0,
+                expense_construction_wages_rm: 4_000_000.0,
+                expense_debt_interest_rm: 1_500_000.0,
+                ..Default::default()
+            },
+            financing_breakdown: FinancingBreakdownData {
+                mefo_issued_rm: 3_000_000.0,
+                mefo_interest_capitalized_rm: 500_000.0,
+                domestic_bond_issued_rm: 4_000_000.0,
+            },
+            fiscal_revenue: FiscalRevenueBreakdownData {
+                pop_income_taxes_rm: 9_000_000.0,
+                consumption_taxes_rm: 6_000_000.0,
+                corporate_taxes_rm: 5_000_000.0,
+                trade_tariffs_rm: 2_000_000.0,
+                state_profit_rm: 10_000_000.0,
+                financing_rm: 8_000_000.0,
+                other_rm: 10_000_000.0,
+            },
+            fiscal_expense: FiscalExpenseBreakdownData {
+                military_rm: 18_000_000.0,
+                construction_rm: 12_000_000.0,
+                welfare_rm: 4_000_000.0,
+                administration_rm: 5_000_000.0,
+                interest_rm: 2_000_000.0,
+                foreign_exchange_rm: 1_000_000.0,
+                research_rm: 2_000_000.0,
+                other_rm: 1_000_000.0,
+            },
+            construction_funding: ConstructionFundingTraceData {
+                government_rm: 15_000_000.0,
+                mefo_rm: 5_000_000.0,
+                private_pool_rm: 6_000_000.0,
+                foreign_investment_rm: 4_000_000.0,
+                paid_rm: 9_000_000.0,
+                remaining_rm: 21_000_000.0,
+                active_projects: 3,
+                ..Default::default()
+            },
+            investment_pool: InvestmentPoolData {
+                total_rm: 30_000_000.0,
+                private_rm: 18_000_000.0,
+                cartel_rm: 3_000_000.0,
+                state_development_bank_rm: 4_000_000.0,
+                colonial_extraction_rm: 2_000_000.0,
+                foreign_capital_rm: 3_000_000.0,
+                income_rm: 2_500_000.0,
+                spent_rm: 1_000_000.0,
+            },
             operating_income_rm: 40_000_000.0,
             operating_expense_rm: 45_000_000.0,
             original_deficit_rm: 5_000_000.0,
@@ -1589,6 +2477,69 @@ mod tests {
             colonial_gdp_gbp: 1_040_000_000.0,
             colonial_extracted_value_rm: 4_550_000_000.0,
             colonial_extracted_value_gbp: 364_000_000.0,
+            gdp_breakdown: GdpBreakdownData {
+                building_primary_rm: 8_000_000_000.0,
+                building_secondary_rm: 30_000_000_000.0,
+                building_tertiary_rm: 18_000_000_000.0,
+                pop_income_rm: 42_000_000_000.0,
+                pop_consumption_rm: 12_000_000_000.0,
+                government_services_rm: 5_000_000_000.0,
+                military_procurement_rm: 2_000_000_000.0,
+                net_exports_rm: -1_000_000_000.0,
+                colonial_value_added_rm: 13_000_000_000.0,
+                historical_validation_gbp: 6_500_000_000.0,
+                historical_validation_error_ratio: 0.02,
+            },
+            sector_buildings: vec![
+                EconomySectorBuildingEntry {
+                    sector_id: "primary".into(),
+                    sector_name: "一产".into(),
+                    building_name: "煤矿".into(),
+                    level: 3,
+                    employed: 900,
+                    demand: 1_000,
+                    employment_rate: 0.9,
+                    value_added_rm: 8_000_000_000.0,
+                },
+                EconomySectorBuildingEntry {
+                    sector_id: "secondary".into(),
+                    sector_name: "二产".into(),
+                    building_name: "钢铁厂".into(),
+                    level: 5,
+                    employed: 1_800,
+                    demand: 2_000,
+                    employment_rate: 0.9,
+                    value_added_rm: 30_000_000_000.0,
+                },
+            ],
+            employment_rows: vec![
+                EconomyEmploymentEntry {
+                    label: "一产".into(),
+                    employed: 900,
+                    demand: 1_000,
+                    employment_rate: 0.9,
+                    value_added_rm: 8_000_000_000.0,
+                },
+                EconomyEmploymentEntry {
+                    label: "二产".into(),
+                    employed: 1_800,
+                    demand: 2_000,
+                    employment_rate: 0.9,
+                    value_added_rm: 30_000_000_000.0,
+                },
+                EconomyEmploymentEntry {
+                    label: "全部建筑".into(),
+                    employed: 2_700,
+                    demand: 3_000,
+                    employment_rate: 0.9,
+                    value_added_rm: 38_000_000_000.0,
+                },
+            ],
+            diagnostics: vec![EconomyDiagnosticEntry {
+                source: "财政现金流".into(),
+                status: "正常".into(),
+                detail: "日净额 +5.0M".into(),
+            }],
             exchange_rate_rm_per_gbp: 12.5,
             can_print_mefo: true,
             can_issue_foreign_bond: true,
@@ -1596,6 +2547,37 @@ mod tests {
         };
         assert_eq!(d.credit_rating, "AAA");
         assert!(d.can_print_mefo);
+        assert_eq!(d.gdp_breakdown.building_value_added_rm(), 56_000_000_000.0);
+        assert_eq!(d.budget_breakdown.tax_source_total_rm(), 22_000_000.0);
+        assert_eq!(d.fiscal_revenue.operating_total_rm(), 42_000_000.0);
+        assert_eq!(d.fiscal_expense.total_rm(), 45_000_000.0);
+        assert_eq!(d.construction_funding.total_budget_rm(), 30_000_000.0);
+        assert_eq!(d.investment_pool.foreign_capital_rm, 3_000_000.0);
+        assert_eq!(d.sector_buildings.len(), 2);
+        assert_eq!(d.employment_rows[2].label, "全部建筑");
+        assert_eq!(d.diagnostics[0].source, "财政现金流");
+    }
+
+    #[test]
+    fn economy_v9_secondary_tabs_cover_required_panels() {
+        let ids: Vec<_> = economy_v9_secondary_tabs()
+            .iter()
+            .map(|(id, _)| *id)
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                "overview",
+                "gdp",
+                "primary",
+                "secondary",
+                "tertiary",
+                "employment",
+                "investment",
+                "trade",
+                "diagnostics"
+            ]
+        );
     }
 
     #[test]

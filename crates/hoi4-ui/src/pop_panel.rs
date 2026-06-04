@@ -101,6 +101,18 @@ pub struct PopStateEntry {
 }
 
 #[derive(Debug, Clone)]
+pub struct PopBuildingEmploymentEntry {
+    pub building_name: String,
+    pub state_name: String,
+    pub level: u8,
+    pub employed: u32,
+    pub demand: u32,
+    pub employment_rate: f32,
+    pub qualification_rate: f32,
+    pub skill_gap_label: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct PopPanelData {
     pub total_population: u64,
     pub workforce: u64,
@@ -125,6 +137,7 @@ pub struct PopPanelData {
     pub soldier_pool: u64,
     pub classes: Vec<PopClassEntry>,
     pub states: Vec<PopStateEntry>,
+    pub building_employment: Vec<PopBuildingEmploymentEntry>,
     pub needs: Vec<PopNeedEntry>,
     pub political_pressures: Vec<PopPoliticalPressureEntry>,
     pub alerts: Vec<String>,
@@ -251,11 +264,11 @@ impl PopPanel {
                     ui.colored_label(
                         Color32::from_rgb(0xc0, 0x80, 0x40),
                         format!(
-                            "⚠ {} 个州无人口数据（ID: {}）",
+                            "⚠ {} 个州无人口数据（{}）",
                             zero_pop_states.len(),
                             zero_pop_states
                                 .iter()
-                                .map(|s| s.state_id.to_string())
+                                .map(|s| s.state_name.as_str())
                                 .collect::<Vec<_>>()
                                 .join(", ")
                         ),
@@ -573,7 +586,7 @@ fn v9_pop_body(
                 .with_gutter(0.0, spacing::S5);
         let left_cells = left_grid.measure(GridLayout::cell(&cells, 0, 0));
         v9_pop_class_table(ui, GridLayout::cell(&left_cells, 0, 0), data);
-        v9_pop_pressure_table(ui, GridLayout::cell(&left_cells, 1, 0), data);
+        v9_pop_building_employment_table(ui, GridLayout::cell(&left_cells, 1, 0), data);
 
         let right_grid =
             GridLayout::new(vec![Track::Fr(0.62), Track::Fr(0.38)], vec![Track::Fr(1.0)])
@@ -672,6 +685,87 @@ fn v9_pop_class_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PopPanelData) 
     );
 }
 
+fn v9_pop_building_employment_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PopPanelData) {
+    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
+    use crate::v9::tokens::{palette, TextRole};
+    use egui::{Align2, Pos2, Rect};
+
+    let inner = Card::new().as_panel().show_at(ui, rect);
+    ui.painter().text(
+        inner.left_top(),
+        Align2::LEFT_TOP,
+        "建筑就业",
+        TextRole::Heading.font_id(),
+        palette::BRASS_BRIGHT,
+    );
+
+    if data.building_employment.is_empty() {
+        crate::v9::composites::panel_shell::draw_empty_state(
+            ui,
+            Rect::from_min_max(
+                Pos2::new(inner.left(), inner.top() + 34.0),
+                inner.right_bottom(),
+            ),
+            "暂无就业建筑",
+            "当前国家没有可统计的建筑岗位。",
+        );
+        return;
+    }
+
+    let rows: Vec<TableRow> = data
+        .building_employment
+        .iter()
+        .take(10)
+        .map(|row| {
+            let accent = if row.employment_rate < 0.50 || row.qualification_rate < 0.50 {
+                palette::BAD
+            } else if row.employment_rate < 0.85 || row.qualification_rate < 0.85 {
+                palette::WARN
+            } else {
+                palette::GOOD
+            };
+            TableRow::new(vec![
+                TableCell::strong(row.building_name.as_str()),
+                TableCell::new(row.state_name.as_str()),
+                TableCell::new(row.level.to_string()).right(),
+                TableCell::new(v9_count(row.employed as u64)).right(),
+                TableCell::new(v9_count(row.demand as u64)).right(),
+                TableCell::colored(v9_percent(row.employment_rate), accent).right(),
+                TableCell::colored(
+                    v9_percent(row.qualification_rate),
+                    v9_good_percent_color(row.qualification_rate),
+                )
+                .right(),
+                TableCell::new(row.skill_gap_label.as_str()),
+            ])
+            .accent(accent)
+        })
+        .collect();
+
+    DataTable::new(
+        vec![
+            TableColumn::new("建筑", 0.92),
+            TableColumn::new("州", 0.78),
+            TableColumn::new("级", 0.34).right(),
+            TableColumn::new("就业", 0.55).right(),
+            TableColumn::new("需求", 0.55).right(),
+            TableColumn::new("率", 0.42).right(),
+            TableColumn::new("资质", 0.48).right(),
+            TableColumn::new("瓶颈", 0.70),
+        ],
+        rows,
+    )
+    .row_height(27.0)
+    .show_at(
+        ui,
+        Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 34.0),
+            inner.right_bottom(),
+        ),
+    );
+}
+
+#[allow(dead_code)]
 fn v9_pop_pressure_table(ui: &mut egui::Ui, rect: egui::Rect, data: &PopPanelData) {
     use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
     use crate::v9::tokens::{palette, TextRole};

@@ -8,8 +8,8 @@ use super::building_tick_common::compute_qualification_ratio;
 use super::building_tick_common::{
     active_available_pms, compute_employment_ratio, compute_input_fulfillment_ratio,
     compute_qualification_ratio_from_totals, country_building_indices, country_pop_indices,
-    good_is_unlocked, state_owned_by_parts as state_is_owned_by_parts,
-    state_owned_by_world as state_is_owned_by,
+    good_is_unlocked, pop_group_qualifies_for_class_job,
+    state_owned_by_parts as state_is_owned_by_parts, state_owned_by_world as state_is_owned_by,
 };
 use super::econ_system_tick::EconomicSystemTick;
 use super::finance_tick;
@@ -383,6 +383,7 @@ fn step_pop_employment(world: &mut World, db: &V6Database, ci: usize) {
                         pg.class == pop_class
                             && pg.state == building_state
                             && pg.employed_at.is_none()
+                            && pop_group_qualifies_for_class_job(pg, pop_class, &pms)
                     })
                     .map(|pg| pg.size)
                     .sum();
@@ -396,6 +397,7 @@ fn step_pop_employment(world: &mut World, db: &V6Database, ci: usize) {
                             pg.class == pop_class
                                 && state_is_owned_by(world, pg.state, country_id)
                                 && pg.employed_at.is_none()
+                                && pop_group_qualifies_for_class_job(pg, pop_class, &pms)
                         })
                         .map(|pg| pg.size)
                         .sum()
@@ -411,6 +413,10 @@ fn step_pop_employment(world: &mut World, db: &V6Database, ci: usize) {
                     }
                     let pg = &world.countries.pops.groups[pop_idx];
                     if pg.class != pop_class || pg.employed_at.is_some() {
+                        pop_idx += 1;
+                        continue;
+                    }
+                    if !pop_group_qualifies_for_class_job(pg, pop_class, &pms) {
                         pop_idx += 1;
                         continue;
                     }
@@ -1595,6 +1601,153 @@ mod tests {
         assert!(low_ratio < high_ratio, "low={low_ratio} high={high_ratio}");
         assert!(low_ratio <= 0.35 + f32::EPSILON, "low={low_ratio}");
         assert!((high_ratio - 1.0).abs() < 0.01, "high={high_ratio}");
+    }
+
+    #[test]
+    fn high_skill_jobs_skip_unqualified_pop_groups() {
+        let mut world = empty_world();
+        world
+            .countries
+            .buildings_v6
+            .buildings
+            .push(hoi4_state::Building {
+                kind: BuildingKind::Industrial,
+                building_def_id: "advanced_plant".to_owned(),
+                state: hoi4_state::StateId(0),
+                level: 1,
+                active_pm: "advanced_plant_default".to_owned(),
+                employment: [0; 6],
+                owner: BuildingOwner::Private,
+                requires_law: None,
+                built_progress: 1.0,
+                ..hoi4_state::Building::runtime_defaults()
+            });
+        world.countries.pops.groups.push(hoi4_state::PopGroup {
+            class: PopClass::Worker,
+            state: hoi4_state::StateId(0),
+            size: 100,
+            employed_at: None,
+            wage_rm: 0.0,
+            tax_burden: 0.0,
+            income_rm: 0.0,
+            tax_paid_rm: 0.0,
+            disposable_income_rm: 0.0,
+            basic_consumption_budget: 0.0,
+            satisfaction_law_modifier: 0.0,
+            loyalty_coefficient: 1.0,
+            loyalty_decay_mult: 1.0,
+            satisfaction: 0.5,
+            political_loyalty: 0.0,
+            literacy: 0.20,
+            skilled_ratio: 0.05,
+            standard_of_living: 0.5,
+            needs_fulfillment: 1.0,
+            essential_needs_fulfillment: 1.0,
+            normal_needs_fulfillment: 1.0,
+            luxury_needs_fulfillment: 1.0,
+            radicalism: 0.0,
+        });
+        let mut db = V6Database::default();
+        db.production_methods.push(ProductionMethodDef {
+            id: "advanced_plant_default".to_owned(),
+            name: "Advanced Plant".to_owned(),
+            building_id: "advanced_plant".to_owned(),
+            group: "base".to_owned(),
+            group_name: "Base".to_owned(),
+            input_good_ids: vec![],
+            input_good_amounts: vec![],
+            output_good_ids: vec![],
+            output_good_amounts: vec![],
+            employment_demand: [0, 100, 0, 0, 0, 0],
+            unlocked_by: None,
+            required_law: None,
+            throughput_modifier: 1.0,
+            automation_modifier: 1.0,
+            required_literacy: 0.60,
+            required_skilled_ratio: 0.40,
+            equipment_output: None,
+        });
+
+        step_pop_employment(&mut world, &db, 0);
+        assert_eq!(world.countries.buildings_v6.buildings[0].employment[1], 0);
+        assert!(world
+            .countries
+            .pops
+            .groups
+            .iter()
+            .all(|pg| pg.employed_at.is_none()));
+
+        world.countries.pops.groups[0].literacy = 0.80;
+        world.countries.pops.groups[0].skilled_ratio = 0.50;
+        step_pop_employment(&mut world, &db, 0);
+
+        assert_eq!(world.countries.buildings_v6.buildings[0].employment[1], 50);
+        assert!(world
+            .countries
+            .pops
+            .groups
+            .iter()
+            .any(|pg| pg.employed_at == Some(hoi4_state::BuildingId(0))));
+    }
+
+    #[test]
+    fn shortage_clearing_reduces_pop_satisfaction() {
+        let mut world = empty_world();
+        world.countries.pops.groups.push(hoi4_state::PopGroup {
+            class: PopClass::Worker,
+            state: hoi4_state::StateId(0),
+            size: 100,
+            employed_at: None,
+            wage_rm: 0.0,
+            tax_burden: 0.0,
+            income_rm: 0.0,
+            tax_paid_rm: 0.0,
+            disposable_income_rm: 0.0,
+            basic_consumption_budget: 0.0,
+            satisfaction_law_modifier: 0.0,
+            loyalty_coefficient: 1.0,
+            loyalty_decay_mult: 1.0,
+            satisfaction: 0.8,
+            political_loyalty: 0.0,
+            literacy: 0.55,
+            skilled_ratio: 0.18,
+            standard_of_living: 0.5,
+            needs_fulfillment: 1.0,
+            essential_needs_fulfillment: 1.0,
+            normal_needs_fulfillment: 1.0,
+            luxury_needs_fulfillment: 1.0,
+            radicalism: 0.0,
+        });
+        world.countries.market.markets[0]
+            .clearing_sheet
+            .results
+            .insert(
+                "grain".to_owned(),
+                hoi4_state::market::GoodClearingResult {
+                    total_fulfilled: 0.0,
+                    total_unmet: 100.0,
+                    shortage_ratio: 1.0,
+                    ..Default::default()
+                },
+            );
+        let mut db = V6Database::default();
+        db.pop_needs.push(hoi4_content::PopClassNeedsDef {
+            class: PopClass::Worker,
+            needs: vec![hoi4_content::PopNeedEntryDef {
+                good_id: "grain".to_owned(),
+                tier: hoi4_content::PopNeedTierDef::Essential,
+                amount_per_million: 1.0,
+            }],
+        });
+
+        step_pop_satisfaction_from_clearing(&mut world, &db, 0);
+
+        let worker = &world.countries.pops.groups[0];
+        assert_eq!(worker.essential_needs_fulfillment, 0.0);
+        assert!(
+            worker.satisfaction < 0.8,
+            "satisfaction should move down when essential goods are unmet"
+        );
     }
 
     #[test]

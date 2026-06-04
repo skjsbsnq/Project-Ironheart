@@ -5,6 +5,7 @@ use crate::passes::PassRegistry;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MapQualityPreset {
     LowEnd,
+    Balanced,
     High,
     Ultra,
 }
@@ -16,11 +17,12 @@ impl Default for MapQualityPreset {
 }
 
 impl MapQualityPreset {
-    pub const ALL: [Self; 3] = [Self::LowEnd, Self::High, Self::Ultra];
+    pub const ALL: [Self; 4] = [Self::LowEnd, Self::Balanced, Self::High, Self::Ultra];
 
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::LowEnd => "low_end",
+            Self::Balanced => "balanced",
             Self::High => "high",
             Self::Ultra => "ultra",
         }
@@ -44,6 +46,17 @@ impl MapQualityPreset {
                 label_density: 0.62,
                 postprocess_chain: false,
                 point_lights: false,
+                runtime_target_scale: 0.50,
+                object_lod_bias: 1,
+            },
+            Self::Balanced => MapQualityControls {
+                terrain_lod_density: 0.78,
+                tree_density: 0.62,
+                particle_density: 0.52,
+                border_detail: 0.78,
+                label_density: 0.76,
+                postprocess_chain: true,
+                point_lights: true,
                 runtime_target_scale: 0.50,
                 object_lod_bias: 1,
             },
@@ -72,6 +85,30 @@ impl MapQualityPreset {
         }
     }
 
+    pub const fn water_refraction_enabled(self) -> bool {
+        !matches!(self, Self::LowEnd)
+    }
+
+    pub const fn water_refraction_scale(self) -> f32 {
+        match self {
+            Self::LowEnd => 0.0,
+            Self::Balanced => 0.5,
+            Self::High | Self::Ultra => 1.0,
+        }
+    }
+
+    pub const fn water_refraction_label(self) -> &'static str {
+        match self {
+            Self::LowEnd => "off",
+            Self::Balanced => "halfres",
+            Self::High | Self::Ultra => "fullres",
+        }
+    }
+
+    pub const fn water_high_gfx(self) -> bool {
+        !matches!(self, Self::LowEnd)
+    }
+
     pub const fn budget(self) -> MapPerformanceBudget {
         match self {
             Self::LowEnd => MapPerformanceBudget {
@@ -81,6 +118,14 @@ impl MapQualityPreset {
                 cpu_prepare_ms: 5.0,
                 draw_calls: 72,
                 texture_memory_mb: 384,
+            },
+            Self::Balanced => MapPerformanceBudget {
+                frame_1080p_ms: 20.0,
+                frame_1440p_ms: 27.8,
+                pass_gpu_ms: 18.0,
+                cpu_prepare_ms: 4.5,
+                draw_calls: 84,
+                texture_memory_mb: 448,
             },
             Self::High => MapPerformanceBudget {
                 frame_1080p_ms: 16.7,
@@ -578,7 +623,8 @@ mod tests {
         assert!(high.tree_density <= ultra.tree_density);
         assert!(high.particle_density <= ultra.particle_density);
         assert!(!low.point_lights);
-        assert!(MapQualityPreset::LowEnd.next() == MapQualityPreset::High);
+        assert!(MapQualityPreset::LowEnd.next() == MapQualityPreset::Balanced);
+        assert!(MapQualityPreset::Balanced.next() == MapQualityPreset::High);
         assert!(MapQualityPreset::High.next() == MapQualityPreset::Ultra);
         assert!(MapQualityPreset::Ultra.next() == MapQualityPreset::LowEnd);
     }
@@ -588,8 +634,11 @@ mod tests {
         let high = MapQualityPreset::High.budget();
         let ultra = MapQualityPreset::Ultra.budget();
         let low = MapQualityPreset::LowEnd.budget();
+        let balanced = MapQualityPreset::Balanced.budget();
         assert!(high.frame_target_ms(2560, 1440) > high.frame_target_ms(1920, 1080));
+        assert!(balanced.draw_calls > low.draw_calls);
         assert!(high.draw_calls > low.draw_calls);
+        assert!(high.texture_memory_mb > balanced.texture_memory_mb);
         assert!(ultra.draw_calls > high.draw_calls);
         assert!(ultra.texture_memory_mb > high.texture_memory_mb);
     }

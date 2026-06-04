@@ -206,6 +206,7 @@ pub fn step_trade_matching(world: &mut World, db: &V6Database, ci: usize) {
         treasury.reserve_gbp -= cost_gbp;
         treasury.daily_trade_balance_gbp -= cost_gbp;
         treasury.reserve_gbp += tariff_income_gbp;
+        treasury.daily_budget.income_trade_tariffs_rm += tariff_income_gbp * rm_per_gbp as f64;
         remaining_reserve_gbp = (remaining_reserve_gbp - cost_gbp + tariff_income_gbp).max(0.0);
         if !exporter.is_none() {
             let exporter_idx = exporter.0 as usize;
@@ -1302,7 +1303,10 @@ fn apply_satisfaction_penalty(world: &mut World, ci: usize, penalty: f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hoi4_content::v6_loader::{PopModifiers, TradeDef};
+    use hoi4_data::{Color, Country, CountryTag, GameData, State};
     use hoi4_state::TradeStore;
+    use std::sync::Arc;
 
     #[test]
     fn blockade_zeros_throughput() {
@@ -1342,6 +1346,156 @@ mod tests {
         assert_eq!(id, 0);
         assert_eq!(store.agreements.len(), 1);
         assert_eq!(store.agreements[0].good_id, "rubber");
+    }
+
+    #[test]
+    fn import_tariff_records_fiscal_revenue_source() {
+        let map = Arc::new(hoi4_map::GameMap {
+            definitions: vec![
+                None,
+                Some(hoi4_map::ProvinceDefinition {
+                    id: 1,
+                    r: 1,
+                    g: 0,
+                    b: 0,
+                    province_type: hoi4_map::ProvinceType::Land,
+                    coastal: true,
+                    terrain: "plains".to_owned(),
+                    continent: 1,
+                }),
+                Some(hoi4_map::ProvinceDefinition {
+                    id: 2,
+                    r: 2,
+                    g: 0,
+                    b: 0,
+                    province_type: hoi4_map::ProvinceType::Land,
+                    coastal: true,
+                    terrain: "plains".to_owned(),
+                    continent: 1,
+                }),
+            ],
+            rgb_to_id: std::collections::HashMap::new(),
+            province_map: hoi4_map::ProvinceMap {
+                width: 1,
+                height: 1,
+                pixels: vec![0],
+            },
+            adjacencies: vec![],
+            special_adjacencies: vec![],
+            heightmap: hoi4_map::Heightmap {
+                width: 1,
+                height: 1,
+                pixels: vec![0],
+            },
+            terrain_bmp: hoi4_map::TerrainBitmap {
+                width: 1,
+                height: 1,
+                pixels: vec![0],
+                palette: [[0; 3]; 256],
+            },
+            terrain_catalog: hoi4_map::TerrainCatalog::default(),
+            tree_definition_bmp: None,
+            tree_indices: std::collections::HashSet::new(),
+        });
+        let mut data = GameData::default();
+        let importer_tag = CountryTag::new("AAA");
+        let exporter_tag = CountryTag::new("BBB");
+        data.countries.insert(
+            importer_tag.clone(),
+            Country {
+                tag: importer_tag.clone(),
+                color: Color {
+                    r: 20,
+                    g: 20,
+                    b: 80,
+                },
+                graphical_culture: "western_european_gfx".to_owned(),
+                capital: 1,
+                ruling_party: "democratic".to_owned(),
+                technologies: Vec::new(),
+            },
+        );
+        data.countries.insert(
+            exporter_tag.clone(),
+            Country {
+                tag: exporter_tag.clone(),
+                color: Color {
+                    r: 80,
+                    g: 20,
+                    b: 20,
+                },
+                graphical_culture: "western_european_gfx".to_owned(),
+                capital: 2,
+                ruling_party: "democratic".to_owned(),
+                technologies: Vec::new(),
+            },
+        );
+        data.states.push(State {
+            id: 1,
+            name: "Importer".to_owned(),
+            owner: importer_tag.clone(),
+            cores: vec![importer_tag],
+            provinces: vec![1],
+            category: "metropolis".to_owned(),
+            infrastructure: 5,
+            manpower: 100_000,
+            victory_points: Vec::new(),
+            resources: Vec::new(),
+        });
+        data.states.push(State {
+            id: 2,
+            name: "Exporter".to_owned(),
+            owner: exporter_tag.clone(),
+            cores: vec![exporter_tag],
+            provinces: vec![2],
+            category: "metropolis".to_owned(),
+            infrastructure: 5,
+            manpower: 100_000,
+            victory_points: Vec::new(),
+            resources: Vec::new(),
+        });
+        let mut world = World::new(map, Arc::new(data));
+        world.countries.treasury.treasuries[0].reserve_gbp = 100.0;
+        world.countries.treasury.exchange_rates[0].rm_per_gbp = 10.0;
+        world.countries.market.markets[0]
+            .demand
+            .insert("oil".to_owned(), 10.0);
+        world.countries.market.markets[0]
+            .price
+            .insert("oil".to_owned(), 10.0);
+        let mut db = V6Database::default();
+        db.trade_laws.push(TradeDef {
+            id: "free_trade".to_owned(),
+            name: "Free Trade".to_owned(),
+            pp_cost: 0,
+            cooldown_days: 0,
+            import_tariff_rate: 0.25,
+            export_tariff_rate: 0.0,
+            import_efficiency: 1.0,
+            export_efficiency: 0.0,
+            foreign_exchange_control: false,
+            trade_law_modifier: 0.0,
+            pop_modifiers: PopModifiers {
+                satisfaction: 0.0,
+                loyalty_coefficient: 0.0,
+            },
+        });
+
+        step_trade_matching(&mut world, &db, 0);
+
+        let treasury = &world.countries.treasury.treasuries[0];
+        assert!(
+            treasury.daily_budget.income_trade_tariffs_rm > 0.0,
+            "import tariffs should be attributed as trade-source fiscal revenue"
+        );
+        assert_eq!(
+            treasury.daily_budget.income_trade_tariffs_rm,
+            treasury.daily_budget.tax_source_total_rm()
+        );
+        assert_eq!(
+            treasury.daily_income_rm, 0.0,
+            "FX tariff attribution should not mint RM cash income"
+        );
     }
 
     #[test]

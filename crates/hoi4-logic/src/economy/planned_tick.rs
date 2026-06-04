@@ -7,7 +7,8 @@ use hoi4_state::{BuildingKind, LawCategory, PopClass, World};
 use super::building_tick_common::{
     active_available_pms, compute_employment_ratio, compute_input_fulfillment_ratio,
     compute_qualification_ratio_from_totals, country_building_indices, country_pop_indices,
-    good_is_unlocked, state_owned_by_parts, state_owned_by_world,
+    good_is_unlocked, pop_group_qualifies_for_class_job, state_owned_by_parts,
+    state_owned_by_world,
 };
 use super::econ_system_tick::EconomicSystemTick;
 use super::finance_tick;
@@ -434,6 +435,7 @@ fn step_pop_employment(world: &mut World, db: &V6Database, ci: usize) {
                         pg.class == pop_class
                             && pg.state == building_state
                             && pg.employed_at.is_none()
+                            && pop_group_qualifies_for_class_job(pg, pop_class, &pms)
                     })
                     .map(|pg| pg.size)
                     .sum();
@@ -447,6 +449,7 @@ fn step_pop_employment(world: &mut World, db: &V6Database, ci: usize) {
                             pg.class == pop_class
                                 && state_owned_by_world(world, pg.state, country_id)
                                 && pg.employed_at.is_none()
+                                && pop_group_qualifies_for_class_job(pg, pop_class, &pms)
                         })
                         .map(|pg| pg.size)
                         .sum()
@@ -462,6 +465,10 @@ fn step_pop_employment(world: &mut World, db: &V6Database, ci: usize) {
                     }
                     let pg = &world.countries.pops.groups[pop_idx];
                     if pg.class != pop_class || pg.employed_at.is_some() {
+                        pop_idx += 1;
+                        continue;
+                    }
+                    if !pop_group_qualifies_for_class_job(pg, pop_class, &pms) {
                         pop_idx += 1;
                         continue;
                     }

@@ -34,6 +34,9 @@ pub enum GoodCategoryDef {
 pub struct BuildingDef {
     pub id: String,
     pub name: String,
+    pub description: String,
+    pub economic_sector: EconomicSectorDef,
+    pub gameplay_class: BuildingGameplayClassDef,
     pub kind: BuildingKindDef,
     pub max_level: u8,
     pub owner_default: OwnerDef,
@@ -44,6 +47,8 @@ pub struct BuildingDef {
     #[serde(default)]
     pub state_limit_kind: Option<String>,
     pub requires_law: Option<(LawCategoryDef, String)>,
+    pub employment_profile: BuildingEmploymentProfileDef,
+    pub construction_recipe: ConstructionRecipeDef,
 }
 
 fn default_true() -> bool {
@@ -60,6 +65,63 @@ pub enum BuildingKindDef {
     Military,
     Infrastructure,
     MilitaryBase,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+pub enum EconomicSectorDef {
+    Primary,
+    Secondary,
+    Tertiary,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+pub enum BuildingGameplayClassDef {
+    Resource,
+    Industrial,
+    Agriculture,
+    ConsumerGoods,
+    Service,
+    Military,
+    Infrastructure,
+    MilitaryBase,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+pub struct BuildingEmploymentProfileDef {
+    pub peasants: u32,
+    pub workers: u32,
+    pub clerks: u32,
+    pub capitalists: u32,
+    pub aristocrats: u32,
+    pub soldiers: u32,
+}
+
+impl BuildingEmploymentProfileDef {
+    pub fn total(&self) -> u32 {
+        self.peasants
+            .saturating_add(self.workers)
+            .saturating_add(self.clerks)
+            .saturating_add(self.capitalists)
+            .saturating_add(self.aristocrats)
+            .saturating_add(self.soldiers)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ConstructionRecipeDef {
+    pub cp_cost: f32,
+    pub funds_rm: f64,
+    pub materials: Vec<ConstructionMaterialDef>,
+    pub labor: u32,
+    pub engineering: u32,
+    #[serde(default)]
+    pub regional_restrictions: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ConstructionMaterialDef {
+    pub good_id: String,
+    pub amount: f32,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize)]
@@ -793,6 +855,7 @@ fn map_law_category(def: LawCategoryDef) -> LawCategory {
 /// - 璁剧疆 GER 鍒濆寤虹瓚
 pub fn inject_v6_into_world(world: &mut World, db: &V6Database) {
     let n = world.countries.count;
+    world.countries.trade.ensure_capacity(world.states.count);
 
     // 鍒濆鍖栧競鍦猴細涓烘瘡涓浗瀹惰瀹氭墍鏈夊晢鍝佺殑鍒濆 price = base_price_rm
     for ci in 0..n {
@@ -826,10 +889,13 @@ pub fn inject_v6_into_world(world: &mut World, db: &V6Database) {
         calibrate_building_employment_to_population(world, country, db);
         seed_initial_building_employment(world, country, db, profile.unemployment);
         seed_initial_market_stockpiles(world, country, db);
-        apply_historical_gdp_from_buildings(world, country, profile, db);
+        record_historical_gdp_validation(world, country, profile, db);
     }
     // Fallback: inject algorithmic POPs for countries not covered by historical profiles
     inject_algorithmic_pops_for_remaining_countries(world, db);
+    // Fallback: every country with owned 1936 states needs a minimum usable V6 economy.
+    inject_baseline_buildings_for_remaining_countries(world, db);
+    apply_fallback_finance_for_remaining_countries(world, db);
 
     inject_historical_trade_routes(world, db);
     inject_historical_autonomy(world);
@@ -1319,24 +1385,31 @@ fn apply_historical_finance(
 ) {
     let ci = country.0 as usize;
     let rm_per_gbp = world.countries.treasury.exchange_rates[ci].rm_per_gbp as f64;
+    let finance_scale_gbp = profile_finance_scale_gbp(profile);
     let treasury = &mut world.countries.treasury.treasuries[ci];
     treasury.gdp_gbp = 0.0;
     treasury.gdp_rm = 0.0;
-    treasury.gdp_last_year_gbp = profile.gdp_1936_gbp;
+    treasury.domestic_gdp_gbp = 0.0;
+    treasury.domestic_gdp_rm = 0.0;
+    treasury.colonial_gdp_gbp = 0.0;
+    treasury.colonial_gdp_rm = 0.0;
+    treasury.gdp_last_year_gbp = 0.0;
     treasury.gdp_growth_yoy = 0.0;
+    treasury.gdp_breakdown.historical_validation_gbp = profile.gdp_1936_gbp;
+    treasury.gdp_breakdown.historical_validation_error_ratio = 0.0;
     treasury.reserve_gbp = profile.foreign_exchange_reserve_gbp;
     treasury.public_debt_gbp = profile.public_debt_gbp;
     treasury.public_debt_rm = profile.public_debt_gbp * rm_per_gbp;
     treasury.gold_kg = (profile.gold_reserve_gbp / 1_000.0).max(0.0);
-    treasury.cash_rm = (profile.gdp_1936_gbp * rm_per_gbp * 0.02).max(1_000_000.0);
-    let debt_ratio = if profile.gdp_1936_gbp > 0.0 {
-        profile.public_debt_gbp / profile.gdp_1936_gbp
+    treasury.cash_rm = (finance_scale_gbp * rm_per_gbp * 0.02).max(1_000_000.0);
+    let debt_ratio = if finance_scale_gbp > 0.0 {
+        profile.public_debt_gbp / finance_scale_gbp
     } else {
         0.0
     };
     treasury.credit_rating = hoi4_state::CreditRating::from_debt_ratio(debt_ratio);
     let initial_private_pool =
-        profile.gdp_1936_gbp * rm_per_gbp * profile.construction_capacity_index as f64 / 20_000.0;
+        finance_scale_gbp * rm_per_gbp * profile.construction_capacity_index as f64 / 20_000.0;
     world.countries.private_investment_pool_rm[ci] = initial_private_pool;
     if let Some(account) = world
         .countries
@@ -1346,7 +1419,17 @@ fn apply_historical_finance(
     }
 }
 
-fn apply_historical_gdp_from_buildings(
+fn profile_finance_scale_gbp(profile: &HistoricalCountryEconomyDef) -> f64 {
+    let population = profile.population as f64;
+    let productivity_per_capita = 80.0
+        + profile.urbanization.clamp(0.0, 1.0) as f64 * 120.0
+        + profile.literacy.clamp(0.0, 1.0) as f64 * 80.0;
+    let capacity_value = profile.industrial_capacity_index.max(0.0) as f64 * 250_000_000.0
+        + profile.construction_capacity_index.max(0.0) as f64 * 100_000_000.0;
+    (population * productivity_per_capita + capacity_value).max(50_000_000.0)
+}
+
+fn record_historical_gdp_validation(
     world: &mut World,
     country: CountryId,
     profile: &HistoricalCountryEconomyDef,
@@ -1355,26 +1438,52 @@ fn apply_historical_gdp_from_buildings(
     let ci = country.0 as usize;
     let rm_per_gbp = world.countries.treasury.exchange_rates[ci].rm_per_gbp as f64;
     let raw_building_gdp = estimate_annual_building_value_gbp(world, country, db, rm_per_gbp);
-    if raw_building_gdp <= 0.0 || profile.gdp_1936_gbp <= 0.0 {
+    if profile.gdp_1936_gbp <= 0.0 {
         return;
     }
-
-    // Initial V7 GDP is anchored by generated buildings, then calibrated to the
-    // historical profile that produced those buildings.
-    let calibration = profile.gdp_1936_gbp / raw_building_gdp;
-    let calibrated_gdp_gbp = raw_building_gdp * calibration;
     let treasury = &mut world.countries.treasury.treasuries[ci];
-    treasury.gdp_gbp = calibrated_gdp_gbp;
-    treasury.gdp_rm = calibrated_gdp_gbp * rm_per_gbp;
-    treasury.domestic_gdp_gbp = calibrated_gdp_gbp;
-    treasury.domestic_gdp_rm = treasury.gdp_rm;
-    treasury.colonial_gdp_gbp = 0.0;
-    treasury.colonial_gdp_rm = 0.0;
-    treasury.colonial_extracted_value_gbp = 0.0;
-    treasury.colonial_extracted_value_rm = 0.0;
-    treasury.gdp_last_year_gbp = calibrated_gdp_gbp;
-    treasury.gdp_growth_yoy = 0.0;
-    treasury.update_credit_rating(rm_per_gbp as f32);
+    treasury.gdp_breakdown.historical_validation_gbp = profile.gdp_1936_gbp;
+    treasury.gdp_breakdown.historical_validation_error_ratio =
+        (raw_building_gdp - profile.gdp_1936_gbp) / profile.gdp_1936_gbp;
+}
+
+fn apply_fallback_finance_for_remaining_countries(world: &mut World, db: &V6Database) {
+    let profile_tags: std::collections::HashSet<&str> = db
+        .historical_countries
+        .iter()
+        .map(|profile| profile.tag.as_str())
+        .collect();
+
+    for ci in 0..world.countries.count {
+        let country = CountryId(ci as u16);
+        if country.is_none() {
+            continue;
+        }
+        let Some(tag) = world.countries.tags.get(ci).map(|tag| tag.as_str()) else {
+            continue;
+        };
+        if profile_tags.contains(tag) || !country_has_owned_state(world, country) {
+            continue;
+        }
+        let rm_per_gbp = world.countries.treasury.exchange_rates[ci].rm_per_gbp as f64;
+        let treasury = &mut world.countries.treasury.treasuries[ci];
+        if treasury.cash_rm <= 0.0 {
+            treasury.cash_rm = 2_500_000.0_f64.mul_add(rm_per_gbp, 250_000.0);
+        }
+        world.countries.private_investment_pool_rm[ci] =
+            world.countries.private_investment_pool_rm[ci].max(5_000_000.0);
+        if let Some(account) = world
+            .countries
+            .investment_account_mut(country, hoi4_state::InvestmentAccountKind::Private)
+        {
+            account.balance_rm = account.balance_rm.max(5_000_000.0);
+        }
+        world.countries.treasury.treasuries[ci].update_credit_rating(rm_per_gbp as f32);
+    }
+}
+
+fn country_has_owned_state(world: &World, country: CountryId) -> bool {
+    (0..world.states.count).any(|si| world.states.owners[si] == country)
 }
 
 fn estimate_annual_building_value_gbp(
@@ -1440,7 +1549,6 @@ fn inject_historical_pops(
     db: &V6Database,
 ) {
     let tag = profile.tag.as_str();
-    let domestic_reference = profile_population_is_domestic_reference(tag);
     world.countries.pops.groups.retain(|pg| {
         let si = pg.state.0 as usize;
         si >= world.states.count || world.states.owners[si] != country
@@ -1513,136 +1621,18 @@ fn inject_historical_pops(
         .into_iter()
         .filter(|sid| !profiled_states.contains(&sid.0) && !hand_state_ids.contains(&sid.0))
         .collect();
-    if fallback_states.is_empty() || profile.population == 0 {
-        if profile.population > 0 {
-            scale_country_pops_to_reference(world, country, profile.population, domestic_reference);
-        }
+    if fallback_states.is_empty() {
         return;
     }
-    if fallback_states
-        .iter()
-        .any(|sid| fallback_state_population(world, *sid) > 0)
-    {
-        let (reference_fallback_states, colonial_fallback_states): (Vec<_>, Vec<_>) =
-            fallback_states.into_iter().partition(|sid| {
-                state_counts_towards_profile_reference(world, country, *sid, domestic_reference)
-            });
-        let current_total = country_reference_pop_total(world, country, domestic_reference);
-        let fallback_population = profile.population.saturating_sub(current_total);
-        inject_profile_pops_across_states(
-            world,
-            profile,
-            &reference_fallback_states,
-            fallback_population,
-            tax_rates,
-            loyalty_coefficient,
-            loyalty_decay_mult,
-            base_satisfaction,
-        );
-        inject_profile_fallback_pops_for_states(
-            world,
-            profile,
-            &colonial_fallback_states,
-            tax_rates,
-            loyalty_coefficient,
-            loyalty_decay_mult,
-            base_satisfaction,
-        );
-        scale_country_pops_to_reference(world, country, profile.population, domestic_reference);
-        return;
-    }
-
-    let fallback_population = if profiled_states.is_empty() {
-        let current_total = country_reference_pop_total(world, country, domestic_reference);
-        profile.population.saturating_sub(current_total)
-    } else {
-        fallback_states
-            .iter()
-            .filter(|sid| {
-                state_counts_towards_profile_reference(world, country, **sid, domestic_reference)
-            })
-            .map(|sid| fallback_state_population(world, *sid))
-            .sum()
-    };
-    let reference_fallback_states: Vec<StateId> = fallback_states
-        .iter()
-        .copied()
-        .filter(|sid| {
-            state_counts_towards_profile_reference(world, country, *sid, domestic_reference)
-        })
-        .collect();
-    let colonial_fallback_states: Vec<StateId> = fallback_states
-        .iter()
-        .copied()
-        .filter(|sid| {
-            !state_counts_towards_profile_reference(world, country, *sid, domestic_reference)
-        })
-        .collect();
-    inject_profile_pops_across_states(
-        world,
-        profile,
-        &reference_fallback_states,
-        fallback_population,
-        tax_rates,
-        loyalty_coefficient,
-        loyalty_decay_mult,
-        base_satisfaction,
-    );
     inject_profile_fallback_pops_for_states(
         world,
         profile,
-        &colonial_fallback_states,
+        &fallback_states,
         tax_rates,
         loyalty_coefficient,
         loyalty_decay_mult,
         base_satisfaction,
     );
-    scale_country_pops_to_reference(world, country, profile.population, domestic_reference);
-}
-
-fn profile_population_is_domestic_reference(tag: &str) -> bool {
-    matches!(tag, "ENG" | "FRA" | "ITA" | "JAP")
-}
-
-fn state_counts_towards_profile_reference(
-    world: &World,
-    country: CountryId,
-    state: StateId,
-    domestic_reference: bool,
-) -> bool {
-    if !domestic_reference {
-        return true;
-    }
-    let si = state.0 as usize;
-    if si >= world.states.count || world.states.owners[si] != country {
-        return false;
-    }
-    let status = world.states.integration_status[si];
-    let is_core_state = world.states.cores[si].contains(&country);
-    status.is_domestic()
-        && (status != hoi4_state::StateIntegrationStatus::Metropole || is_core_state)
-}
-
-fn country_reference_pop_total(world: &World, country: CountryId, domestic_reference: bool) -> u32 {
-    world
-        .countries
-        .pops
-        .groups
-        .iter()
-        .filter(|pg| {
-            let si = pg.state.0 as usize;
-            si < world.states.count
-                && world.states.owners[si] == country
-                && state_counts_towards_profile_reference(
-                    world,
-                    country,
-                    pg.state,
-                    domestic_reference,
-                )
-        })
-        .map(|pg| pg.size as u64)
-        .sum::<u64>()
-        .min(u32::MAX as u64) as u32
 }
 
 fn inject_profile_fallback_pops_for_states(
@@ -1671,50 +1661,6 @@ fn inject_profile_fallback_pops_for_states(
             loyalty_decay_mult,
             base_satisfaction,
         );
-    }
-}
-
-fn scale_country_pops_to_reference(
-    world: &mut World,
-    country: CountryId,
-    reference_population: u32,
-    domestic_reference: bool,
-) {
-    let reference_states: Vec<bool> = (0..world.states.count)
-        .map(|si| {
-            state_counts_towards_profile_reference(
-                world,
-                country,
-                StateId(si as u16),
-                domestic_reference,
-            )
-        })
-        .collect();
-    let current_total: u32 = world
-        .countries
-        .pops
-        .groups
-        .iter()
-        .filter(|pg| {
-            let si = pg.state.0 as usize;
-            si < world.states.count
-                && world.states.owners[si] == country
-                && reference_states.get(si).copied().unwrap_or(false)
-        })
-        .map(|pg| pg.size)
-        .sum();
-    if current_total == 0 {
-        return;
-    }
-    let scale = reference_population as f64 / current_total as f64;
-    for pg in &mut world.countries.pops.groups {
-        let si = pg.state.0 as usize;
-        if si < world.states.count
-            && world.states.owners[si] == country
-            && reference_states.get(si).copied().unwrap_or(false)
-        {
-            pg.size = ((pg.size as f64 * scale).round() as u32).max(1);
-        }
     }
 }
 
@@ -1817,56 +1763,6 @@ fn inject_state_profile_pops(
         loyalty_decay_mult,
         base_satisfaction,
     );
-}
-
-fn inject_profile_pops_across_states(
-    world: &mut World,
-    profile: &HistoricalCountryEconomyDef,
-    state_ids: &[StateId],
-    total_population: u32,
-    tax_rates: [f32; 3],
-    loyalty_coefficient: f32,
-    loyalty_decay_mult: f32,
-    base_satisfaction: f32,
-) {
-    if total_population == 0 || state_ids.is_empty() {
-        return;
-    }
-    let total_weight: u64 = state_ids
-        .iter()
-        .map(|sid| {
-            let si = sid.0 as usize;
-            (world.states.manpower_pool[si] as u64)
-                .saturating_add(world.states.infrastructure[si] as u64 * 250_000)
-                .max(1)
-        })
-        .sum();
-    let mut remaining_population = total_population;
-    for (idx, sid) in state_ids.iter().enumerate() {
-        let si = sid.0 as usize;
-        let state_population = if idx + 1 == state_ids.len() {
-            remaining_population
-        } else {
-            let weight = (world.states.manpower_pool[si] as u64)
-                .saturating_add(world.states.infrastructure[si] as u64 * 250_000)
-                .max(1);
-            ((total_population as u64 * weight) / total_weight).min(remaining_population as u64)
-                as u32
-        };
-        remaining_population = remaining_population.saturating_sub(state_population);
-        inject_generated_state_pops(
-            world,
-            *sid,
-            profile,
-            state_population,
-            None,
-            None,
-            tax_rates,
-            loyalty_coefficient,
-            loyalty_decay_mult,
-            base_satisfaction,
-        );
-    }
 }
 
 fn inject_generated_state_pops(
@@ -2006,9 +1902,8 @@ fn inject_algorithmic_pops_for_remaining_countries(world: &mut World, db: &V6Dat
         if profile_tags.contains(tag_str) {
             continue;
         }
-        let mut tag_profile = None;
+        let mut inserted_hand_pops = false;
         if let Some(hand_pops) = db.initial_pops.get(tag_str) {
-            let mut resolved = 0u32;
             for hg in &hand_pops.groups {
                 let Some(internal_sid) = resolve_game_state_id(world, hg.state_id) else {
                     continue;
@@ -2051,33 +1946,10 @@ fn inject_algorithmic_pops_for_remaining_countries(world: &mut World, db: &V6Dat
                     luxury_needs_fulfillment: 1.0,
                     radicalism: 0.0,
                 });
-                resolved += hg.size;
+                inserted_hand_pops = true;
             }
-            tag_profile = Some((resolved, hand_pops.total_population));
         }
-        if let Some((hand_total, profile_total)) = tag_profile {
-            if hand_total >= profile_total as u32 {
-                continue;
-            }
-            let remaining = profile_total as u32 - hand_total;
-            let hand_state_ids: std::collections::HashSet<u16> = db
-                .initial_pops
-                .get(tag_str)
-                .map(|hand_pops| {
-                    hand_pops
-                        .groups
-                        .iter()
-                        .filter_map(|hg| resolve_game_state_id(world, hg.state_id).map(|sid| sid.0))
-                        .collect()
-                })
-                .unwrap_or_default();
-            let algo_states: Vec<StateId> = owned_states_by_weight(world, country)
-                .into_iter()
-                .filter(|sid| !hand_state_ids.contains(&sid.0))
-                .collect();
-            if !algo_states.is_empty() {
-                inject_simple_pops_across_states(world, country, &algo_states, remaining);
-            }
+        if inserted_hand_pops {
             continue;
         }
         let estimated_pop = state_ids
@@ -2618,14 +2490,15 @@ fn initial_political_loyalty(
 }
 
 fn building_targets(profile: &HistoricalCountryEconomyDef) -> Vec<(&'static str, u16)> {
-    let gdp_units = (profile.gdp_1936_gbp / 1_000_000_000.0).max(1.0) as f32;
+    let modern_units = profile_modern_capacity_units(profile);
+    let primary_units = profile_primary_capacity_units(profile);
     let shares = &profile.sector_shares;
-    let agriculture = target_levels(gdp_units, shares.agriculture, 1.3, 1);
-    let heavy = target_levels(gdp_units, shares.heavy_industry, 1.25, 1);
-    let light = target_levels(gdp_units, shares.light_industry, 1.05, 1);
-    let services = target_levels(gdp_units, shares.services, 0.65, 1);
-    let government = target_levels(gdp_units, shares.government, 0.45, 1);
-    let military = target_levels(gdp_units, shares.military_industry, 1.4, 1);
+    let agriculture = target_levels(primary_units, shares.agriculture, 1.3, 1);
+    let heavy = target_levels(modern_units, shares.heavy_industry, 1.25, 1);
+    let light = target_levels(modern_units, shares.light_industry, 1.05, 1);
+    let services = target_levels(modern_units, shares.services, 0.65, 1);
+    let government = target_levels(modern_units, shares.government, 0.45, 1);
+    let military = target_levels(modern_units, shares.military_industry, 1.4, 1);
     let construction = ((profile.construction_capacity_index / 12.0).round() as u16).clamp(1, 10);
     let railway = ((profile.industrial_capacity_index / 7.5).round() as u16).clamp(1, 18);
 
@@ -2787,8 +2660,25 @@ fn add_1936_industry_calibration_targets(tag: &str, targets: &mut Vec<(&'static 
     targets.extend(generic);
 }
 
-fn target_levels(gdp_units: f32, share: f32, multiplier: f32, min: u16) -> u16 {
-    ((gdp_units * share * multiplier).round() as u16).max(min)
+fn profile_modern_capacity_units(profile: &HistoricalCountryEconomyDef) -> f32 {
+    let population_units = profile.population as f32 / 10_000_000.0;
+    let human_capital = (profile.urbanization.clamp(0.0, 1.0) * 0.6
+        + profile.literacy.clamp(0.0, 1.0) * 0.4)
+        .max(0.05);
+    (profile.industrial_capacity_index.max(0.0)
+        + profile.construction_capacity_index.max(0.0) * 0.35
+        + population_units * human_capital)
+        .max(1.0)
+}
+
+fn profile_primary_capacity_units(profile: &HistoricalCountryEconomyDef) -> f32 {
+    let population_units = profile.population as f32 / 10_000_000.0;
+    let rural_weight = (1.0 - profile.urbanization.clamp(0.0, 1.0) * 0.55).max(0.25);
+    (population_units * rural_weight + profile.industrial_capacity_index.max(0.0) * 0.08).max(1.0)
+}
+
+fn target_levels(capacity_units: f32, share: f32, multiplier: f32, min: u16) -> u16 {
+    ((capacity_units * share * multiplier).round() as u16).max(min)
 }
 
 fn allocate_resource_buildings(
@@ -2799,7 +2689,7 @@ fn allocate_resource_buildings(
 ) {
     let country = CountryId(ci as u16);
     let mining_budget = target_levels(
-        (profile.gdp_1936_gbp / 1_000_000_000.0).max(1.0) as f32,
+        profile_primary_capacity_units(profile),
         profile.sector_shares.mining,
         4.0,
         1,
@@ -3149,7 +3039,6 @@ fn inject_ger_buildings_from_vanilla(world: &mut World, country: CountryId, db: 
     }
 }
 
-#[allow(dead_code)]
 fn inject_baseline_buildings_for_remaining_countries(world: &mut World, db: &V6Database) {
     let mut has_v6_building = vec![false; world.countries.count];
     for building in &world.countries.buildings_v6.buildings {
@@ -3957,7 +3846,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known Phase 9 baseline: historical POP calibration is not yet reconciled"]
     fn p10_batch_de_missing_state_pops_are_state_fallback_not_country_topoff() {
         let mut world = h2_test_world();
         let mut db = V6Database::load();
@@ -4194,6 +4082,229 @@ mod tests {
                 b.id
             );
         }
+    }
+
+    #[test]
+    fn g07_all_buildings_have_sector_gameplay_names_and_employment() {
+        let db = V6Database::load();
+        assert_eq!(
+            db.buildings.len(),
+            42,
+            "G07 should cover the full V6 building catalog"
+        );
+
+        for building in &db.buildings {
+            assert!(
+                has_cjk(&building.name),
+                "{} should have a Chinese display name",
+                building.id
+            );
+            assert!(
+                has_cjk(&building.description),
+                "{} should have a Chinese description",
+                building.id
+            );
+            assert!(
+                !has_mojibake(&building.name) && !has_mojibake(&building.description),
+                "{} should not contain mojibake in name/description",
+                building.id
+            );
+            assert!(
+                building.employment_profile.total() > 0,
+                "{} should have a nonzero building employment profile",
+                building.id
+            );
+            assert!(
+                building_gameplay_matches_kind(building.gameplay_class, building.kind),
+                "{} gameplay_class should preserve the runtime gameplay kind",
+                building.id
+            );
+            match building.economic_sector {
+                EconomicSectorDef::Primary
+                | EconomicSectorDef::Secondary
+                | EconomicSectorDef::Tertiary => {}
+            }
+        }
+    }
+
+    #[test]
+    fn g08_all_buildings_have_construction_recipes() {
+        let db = V6Database::load();
+        let known_goods: std::collections::HashSet<&str> =
+            db.goods.iter().map(|good| good.id.as_str()).collect();
+        let mut recipe_signatures = std::collections::HashSet::new();
+
+        assert_eq!(
+            db.buildings.len(),
+            42,
+            "G08 should cover the full V6 building catalog"
+        );
+
+        for building in &db.buildings {
+            let recipe = &building.construction_recipe;
+            assert!(
+                recipe.cp_cost > 0.0,
+                "{} should have nonzero construction CP",
+                building.id
+            );
+            assert!(
+                recipe.funds_rm > 0.0,
+                "{} should have nonzero construction funds",
+                building.id
+            );
+            assert!(
+                recipe.labor > 0,
+                "{} should have nonzero construction labor",
+                building.id
+            );
+            assert!(
+                recipe.engineering > 0,
+                "{} should have nonzero engineering need",
+                building.id
+            );
+            assert!(
+                !recipe.materials.is_empty(),
+                "{} should declare construction materials",
+                building.id
+            );
+            for material in &recipe.materials {
+                assert!(
+                    material.amount > 0.0,
+                    "{} material '{}' should have positive amount",
+                    building.id,
+                    material.good_id
+                );
+                assert!(
+                    known_goods.contains(material.good_id.as_str()),
+                    "{} construction material '{}' should reference a known good",
+                    building.id,
+                    material.good_id
+                );
+            }
+            if let Some(limit) = &building.state_limit_kind {
+                assert!(
+                    recipe
+                        .regional_restrictions
+                        .iter()
+                        .any(|restriction| restriction == limit),
+                    "{} recipe should expose state limit '{}' as a regional restriction",
+                    building.id,
+                    limit
+                );
+            }
+            recipe_signatures.insert(construction_recipe_signature(recipe));
+        }
+
+        assert!(
+            recipe_signatures.len() >= 30,
+            "G08 construction materials should be building-specific, not one generic recipe"
+        );
+
+        let farm = building_recipe(&db, "grain_farm");
+        let port = building_recipe(&db, "port");
+        assert_ne!(
+            construction_recipe_signature(farm),
+            construction_recipe_signature(port),
+            "farm_and_port_recipes_differ = true"
+        );
+        assert!(
+            !port
+                .materials
+                .iter()
+                .any(|material| material.good_id == "grain"),
+            "port recipe should not reuse the farm material profile"
+        );
+
+        let arms = building_recipe(&db, "arms_industry");
+        let civilian_factory = building_recipe(&db, "steel_mill");
+        assert_ne!(
+            construction_recipe_signature(arms),
+            construction_recipe_signature(civilian_factory),
+            "military_factory_recipe_distinct = true"
+        );
+        assert!(
+            arms.materials
+                .iter()
+                .any(|material| material.good_id == "small_arms_parts")
+                || arms
+                    .materials
+                    .iter()
+                    .any(|material| material.good_id == "ammunition"),
+            "arms_industry should require military-specific construction materials"
+        );
+    }
+
+    fn building_recipe<'a>(db: &'a V6Database, building_id: &str) -> &'a ConstructionRecipeDef {
+        &db.buildings
+            .iter()
+            .find(|building| building.id == building_id)
+            .unwrap_or_else(|| panic!("missing building {building_id}"))
+            .construction_recipe
+    }
+
+    fn construction_recipe_signature(recipe: &ConstructionRecipeDef) -> String {
+        let mut materials: Vec<String> = recipe
+            .materials
+            .iter()
+            .map(|material| format!("{}:{:.1}", material.good_id, material.amount))
+            .collect();
+        materials.sort();
+        let mut regions = recipe.regional_restrictions.clone();
+        regions.sort();
+        format!(
+            "cp:{:.1}|rm:{:.1}|labor:{}|eng:{}|mat:{}|reg:{}",
+            recipe.cp_cost,
+            recipe.funds_rm,
+            recipe.labor,
+            recipe.engineering,
+            materials.join(","),
+            regions.join(",")
+        )
+    }
+
+    fn has_cjk(text: &str) -> bool {
+        text.chars()
+            .any(|ch| ('\u{4e00}'..='\u{9fff}').contains(&ch))
+    }
+
+    fn has_mojibake(text: &str) -> bool {
+        ["�", "鐢", "绋", "鏂", "鈺", "€", "???"]
+            .iter()
+            .any(|pattern| text.contains(pattern))
+    }
+
+    fn building_gameplay_matches_kind(
+        gameplay_class: BuildingGameplayClassDef,
+        kind: BuildingKindDef,
+    ) -> bool {
+        matches!(
+            (gameplay_class, kind),
+            (
+                BuildingGameplayClassDef::Resource,
+                BuildingKindDef::Resource
+            ) | (
+                BuildingGameplayClassDef::Industrial,
+                BuildingKindDef::Industrial
+            ) | (
+                BuildingGameplayClassDef::Agriculture,
+                BuildingKindDef::Agriculture
+            ) | (
+                BuildingGameplayClassDef::ConsumerGoods,
+                BuildingKindDef::ConsumerGoods
+            ) | (BuildingGameplayClassDef::Service, BuildingKindDef::Service)
+                | (
+                    BuildingGameplayClassDef::Military,
+                    BuildingKindDef::Military
+                )
+                | (
+                    BuildingGameplayClassDef::Infrastructure,
+                    BuildingKindDef::Infrastructure
+                )
+                | (
+                    BuildingGameplayClassDef::MilitaryBase,
+                    BuildingKindDef::MilitaryBase
+                )
+        )
     }
 
     #[test]
@@ -4462,6 +4573,193 @@ mod tests {
         )
     }
 
+    fn g04_existing_country_tags() -> &'static [&'static str] {
+        &[
+            "AFA", "AFG", "ALB", "ARG", "AST", "AUS", "BEL", "BHU", "BOL", "BRA", "BRM", "BUL",
+            "CAN", "CHI", "CHL", "COL", "COS", "CUB", "CZE", "DEN", "DOM", "ECU", "ELS", "ENG",
+            "EST", "ETH", "FIN", "FRA", "GDC", "GER", "GRE", "GUA", "GXC", "HAI", "HBC", "HOL",
+            "HON", "HUN", "ICE", "INS", "IRE", "IRQ", "ITA", "JAP", "JOR", "KUW", "LAT", "LEB",
+            "LIB", "LIT", "LUX", "MAL", "MAN", "MEN", "MEX", "MON", "NEP", "NIC", "NOR", "NZL",
+            "OMA", "PAL", "PAN", "PAR", "PER", "PHI", "POL", "POR", "PRC", "PRU", "RAJ", "ROM",
+            "SAF", "SAU", "SHX", "SIA", "SIC", "SIK", "SND", "SOV", "SPR", "SWE", "SWI", "SYR",
+            "TAN", "TIB", "TUR", "URG", "USA", "VEN", "XAJ", "XSM", "YEM", "YUG", "YUN",
+        ]
+    }
+
+    fn g06_minimum_economy_world() -> hoi4_state::World {
+        let tags = g04_existing_country_tags();
+        let mut data = hoi4_data::GameData::default();
+        let mut province_id = 1u16;
+        for (idx, tag_str) in tags.iter().enumerate() {
+            let tag = hoi4_data::CountryTag::new(tag_str);
+            let state_id = 10_000 + idx as u16;
+            data.countries.insert(
+                tag.clone(),
+                hoi4_data::Country {
+                    tag: tag.clone(),
+                    color: hoi4_data::Color {
+                        r: (idx as u8).wrapping_mul(37),
+                        g: 96,
+                        b: 144,
+                    },
+                    graphical_culture: "western_european_gfx".to_owned(),
+                    capital: state_id,
+                    ruling_party: "neutrality".to_owned(),
+                    technologies: Vec::new(),
+                },
+            );
+            data.states.push(hoi4_data::State {
+                id: state_id,
+                name: format!("{tag_str} Minimum Economy State"),
+                manpower: 900_000 + idx as u64 * 11_000,
+                owner: tag.clone(),
+                cores: vec![tag],
+                provinces: vec![province_id],
+                category: "rural".to_owned(),
+                infrastructure: 2 + (idx % 4) as u8,
+                victory_points: vec![],
+                resources: vec![],
+            });
+            province_id += 1;
+        }
+        hoi4_state::World::new(h2_test_map(province_id), std::sync::Arc::new(data))
+    }
+
+    fn game_state_id(world: &World, state: StateId) -> u16 {
+        world
+            .state_id_lookup
+            .iter()
+            .find_map(|(game_id, sid)| (*sid == state).then_some(*game_id))
+            .unwrap_or(state.0)
+    }
+
+    fn expected_state_population(world: &World, db: &V6Database, state: StateId) -> u64 {
+        let game_id = game_state_id(world, state);
+        db.state_populations
+            .iter()
+            .find(|entry| entry.state_id == game_id)
+            .map(|entry| entry.population as u64)
+            .unwrap_or_else(|| fallback_state_population(world, state) as u64)
+    }
+
+    fn expected_owned_state_population(world: &World, db: &V6Database, country: CountryId) -> u64 {
+        (0..world.states.count)
+            .filter(|&si| world.states.owners[si] == country)
+            .map(|si| expected_state_population(world, db, StateId(si as u16)))
+            .sum()
+    }
+
+    fn expected_owned_state_population_by_status(
+        world: &World,
+        db: &V6Database,
+        country: CountryId,
+        domestic: bool,
+    ) -> u64 {
+        (0..world.states.count)
+            .filter(|&si| world.states.owners[si] == country)
+            .filter(|&si| {
+                let status = world.states.integration_status[si];
+                let is_core_state = world.states.cores[si].contains(&country);
+                let is_domestic = match status {
+                    hoi4_state::StateIntegrationStatus::Metropole if !is_core_state => false,
+                    status if status.is_domestic() => true,
+                    status if status.is_colonial_or_occupied() => false,
+                    _ => true,
+                };
+                is_domestic == domestic
+            })
+            .map(|si| expected_state_population(world, db, StateId(si as u16)))
+            .sum()
+    }
+
+    #[test]
+    fn g06_all_existing_countries_receive_minimum_economy() {
+        let mut world = g06_minimum_economy_world();
+        let db = V6Database::load();
+        let authored_profiles: std::collections::HashSet<&str> = db
+            .historical_countries
+            .iter()
+            .map(|profile| profile.tag.as_str())
+            .collect();
+
+        inject_v6_into_world(&mut world, &db);
+
+        let mut fallback_profile_count = 0usize;
+        let mut missing = Vec::new();
+        for tag in g04_existing_country_tags() {
+            let country = world.country(tag).unwrap_or_else(|| panic!("{tag} exists"));
+            let ci = country.0 as usize;
+            let state_ids: Vec<StateId> = (0..world.states.count)
+                .filter(|&si| world.states.owners[si] == country)
+                .map(|si| StateId(si as u16))
+                .collect();
+            assert!(!state_ids.is_empty(), "{tag} has owned state");
+
+            let pop_total: u64 = world
+                .countries
+                .pops
+                .groups
+                .iter()
+                .filter(|pg| state_ids.contains(&pg.state))
+                .map(|pg| pg.size as u64)
+                .sum();
+            let building_levels = country_total_building_levels(&world, country);
+            let fallback_building_levels = country_building_levels(
+                &world,
+                country,
+                &["grain_farm", "steel_mill", "textile_mill", "railway"],
+            );
+            let treasury = &world.countries.treasury.treasuries[ci];
+            let market = &world.countries.market.markets[ci];
+            let law_set = &world.countries.law_store.law_sets[ci];
+
+            let has_minimum = pop_total > 0
+                && building_levels > 0
+                && treasury.cash_rm > 0.0
+                && db
+                    .goods
+                    .iter()
+                    .all(|good| market.price.contains_key(&good.id))
+                && !law_set.0[LawCategory::Economy.index()].current.is_empty()
+                && !law_set.0[LawCategory::Trade.index()].current.is_empty()
+                && world.countries.trade.blockaded_ports.len() >= world.states.count;
+            if !has_minimum {
+                missing.push(format!(
+                    "{tag}(pop={pop_total}, buildings={building_levels}, cash={:.1}, historical_gdp={:.1}, market={}, trade_ports={})",
+                    treasury.cash_rm,
+                    treasury.gdp_breakdown.historical_validation_gbp,
+                    db.goods.iter().all(|good| market.price.contains_key(&good.id)),
+                    world.countries.trade.blockaded_ports.len()
+                ));
+            }
+            if !authored_profiles.contains(tag) {
+                fallback_profile_count += 1;
+                assert!(
+                    fallback_building_levels > 0,
+                    "{tag} fallback should create at least one building"
+                );
+                assert!(
+                    pop_total > 0,
+                    "{tag} fallback should create state-derived POPs"
+                );
+                assert!(
+                    treasury.cash_rm > 0.0,
+                    "{tag} fallback should initialize finance"
+                );
+            }
+        }
+
+        assert!(
+            missing.is_empty(),
+            "countries without minimum economy: {}",
+            missing.join(", ")
+        );
+        assert!(
+            fallback_profile_count > 0,
+            "G06 audit should exercise explicit template fallback countries"
+        );
+    }
+
     #[test]
     fn h2_historical_profiles_generate_initial_buildings() {
         let mut world = h2_test_world();
@@ -4485,18 +4783,7 @@ mod tests {
             assert!(has_building, "{tag} should receive generated V6 buildings");
         }
 
-        let usa = world.country("USA").unwrap().0 as usize;
-        let ger = world.country("GER").unwrap().0 as usize;
-        let sov = world.country("SOV").unwrap().0 as usize;
         let chi = world.country("CHI").unwrap().0 as usize;
-        assert!(
-            world.countries.treasury.treasuries[usa].gdp_gbp
-                > world.countries.treasury.treasuries[ger].gdp_gbp
-        );
-        assert!(
-            world.countries.treasury.treasuries[ger].gdp_gbp
-                >= world.countries.treasury.treasuries[sov].gdp_gbp * 0.9
-        );
 
         let chi_grain: u16 = world
             .countries
@@ -4582,6 +4869,7 @@ mod tests {
 
         let raj = world.country("RAJ").expect("RAJ exists");
         let total = world.country_governed_population(raj);
+        let expected = expected_owned_state_population(&world, &db, raj);
         let reference = db
             .historical_countries
             .iter()
@@ -4589,18 +4877,18 @@ mod tests {
             .expect("RAJ historical profile")
             .population as u64;
 
-        assert!(
-            total <= reference + 5,
-            "RAJ population should stay near historical profile {reference}, got {total}"
+        assert_eq!(
+            total, expected,
+            "RAJ national population should be derived from owned state populations"
         );
-        assert!(
-            total >= reference.saturating_sub(5),
-            "RAJ population should not be underfilled from profile {reference}, got {total}"
+        assert_ne!(
+            total, reference,
+            "RAJ historical country population should be a validation reference, not an injected target"
         );
     }
 
     #[test]
-    fn h2_colonial_empire_profile_caps_metropole_not_colonies() {
+    fn h2_colonial_empire_population_sums_owned_states() {
         let mut world = h2_colonial_empire_population_test_world();
         let db = V6Database::load();
 
@@ -4608,30 +4896,21 @@ mod tests {
 
         let fra = world.country("FRA").expect("FRA exists");
         let breakdown = world.country_population_breakdown(fra);
-        let reference = db
-            .historical_countries
-            .iter()
-            .find(|profile| profile.tag == "FRA")
-            .expect("FRA historical profile")
-            .population as u64;
+        let expected_domestic = expected_owned_state_population_by_status(&world, &db, fra, true);
+        let expected_colonial = expected_owned_state_population_by_status(&world, &db, fra, false);
 
-        assert!(
-            breakdown.domestic <= reference + 5,
-            "FRA domestic population should stay near profile {reference}, got {}",
-            breakdown.domestic
+        assert_eq!(
+            breakdown.domestic, expected_domestic,
+            "FRA domestic population should sum domestic owned states"
         );
-        assert!(
-            breakdown.domestic >= reference.saturating_sub(5),
-            "FRA domestic population should not be underfilled from profile {reference}, got {}",
-            breakdown.domestic
+        assert_eq!(
+            breakdown.colonial, expected_colonial,
+            "FRA colonial population should sum colonial owned states"
         );
-        assert!(
-            breakdown.colonial > 0,
-            "FRA colonial population should remain outside the metropole cap"
-        );
-        assert!(
-            breakdown.governed > reference,
-            "FRA governed population should include metropole plus colonies"
+        assert_eq!(
+            breakdown.governed,
+            expected_domestic + expected_colonial,
+            "FRA governed population should be domestic plus colonial state sums"
         );
     }
 
@@ -4776,7 +5055,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known Phase 9 baseline: historical POP calibration is not yet reconciled"]
     fn h3_historical_profiles_generate_pops_for_all_major_countries() {
         let mut world = h2_test_world();
         let db = V6Database::load();
@@ -4810,24 +5088,21 @@ mod tests {
                         .map(|_| entry.population as u64)
                 })
                 .sum();
-            if state_profile_total > 0 {
-                assert_eq!(
-                    total_pop, state_profile_total,
-                    "{tag} POP total should come from owned state population profiles"
-                );
-            } else {
-                let profile = db
-                    .historical_countries
-                    .iter()
-                    .find(|profile| profile.tag == tag)
-                    .expect("historical profile exists");
-                let ratio = total_pop as f64 / profile.population as f64;
-                assert!(
-                    (ratio - 1.0).abs() < 0.12,
-                    "{tag} POP total {total_pop} should match fallback reference population {}",
-                    profile.population
-                );
-            }
+            let fallback_total: u64 = state_ids
+                .iter()
+                .filter(|sid| {
+                    let game_id = game_state_id(&world, **sid);
+                    !db.state_populations
+                        .iter()
+                        .any(|entry| entry.state_id == game_id)
+                })
+                .map(|sid| fallback_state_population(&world, *sid) as u64)
+                .sum();
+            assert_eq!(
+                total_pop,
+                state_profile_total + fallback_total,
+                "{tag} POP total should be the sum of owned state profiles plus state fallback"
+            );
             for class in [
                 PopClass::Peasant,
                 PopClass::Worker,
@@ -4845,7 +5120,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "known Phase 9 baseline: historical POP calibration is not yet reconciled"]
     fn p3_state_population_profiles_are_pop_source_of_truth() {
         let mut world = h2_test_world();
         let db = V6Database::load();
@@ -4943,6 +5217,20 @@ mod tests {
                 si < world.states.count
                     && world.states.owners[si] == country
                     && ids.contains(&building.building_def_id.as_str())
+            })
+            .map(|building| building.level as u16)
+            .sum()
+    }
+
+    fn country_total_building_levels(world: &World, country: CountryId) -> u16 {
+        world
+            .countries
+            .buildings_v6
+            .buildings
+            .iter()
+            .filter(|building| {
+                let si = building.state.0 as usize;
+                si < world.states.count && world.states.owners[si] == country
             })
             .map(|building| building.level as u16)
             .sum()
@@ -5167,7 +5455,7 @@ mod tests {
     }
 
     #[test]
-    fn h4_initial_gdp_is_calibrated_from_historical_buildings() {
+    fn g13_historical_gdp_is_validation_only() {
         let mut world = h2_test_world();
         let db = V6Database::load();
 
@@ -5181,12 +5469,19 @@ mod tests {
                 .find(|profile| profile.tag == tag)
                 .expect("historical profile exists");
             let treasury = &world.countries.treasury.treasuries[country.0 as usize];
-            let ratio = treasury.gdp_gbp / profile.gdp_1936_gbp;
-            assert!(
-                (ratio - 1.0).abs() < 0.001,
-                "{tag} initial GDP should be calibrated from generated buildings to profile target, got ratio {ratio:.4}"
+            assert_eq!(treasury.gdp_gbp, 0.0, "{tag} runtime GDP starts unset");
+            assert_eq!(treasury.gdp_rm, 0.0, "{tag} runtime GDP RM starts unset");
+            assert_eq!(
+                treasury.gdp_breakdown.historical_validation_gbp, profile.gdp_1936_gbp,
+                "{tag} historical GDP should be retained only as validation target"
             );
-            assert!(treasury.gdp_rm > 0.0, "{tag} GDP RM should be initialized");
+            assert!(
+                treasury
+                    .gdp_breakdown
+                    .historical_validation_error_ratio
+                    .is_finite(),
+                "{tag} validation error should be computed from generated buildings"
+            );
         }
     }
 

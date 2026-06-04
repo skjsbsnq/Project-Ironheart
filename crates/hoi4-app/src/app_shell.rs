@@ -103,6 +103,30 @@ impl ApplicationHandler for App {
                     s.depth_view =
                         make_depth_view(&s.device, s.config.width, s.config.height, s.depth_format);
                     s.hdr_target = HdrTarget::new(&s.device, s.config.width, s.config.height);
+                    let water_target_quality = if self.force_water_pass {
+                        MapQualityPreset::High
+                    } else {
+                        self.map_quality_preset
+                    };
+                    s.water_refraction_target = WaterRefractionTarget::for_quality(
+                        &s.device,
+                        s.hdr_target.width,
+                        s.hdr_target.height,
+                        water_target_quality,
+                    );
+                    s.water_refraction_pass.rebuild_bind_group(
+                        &s.device,
+                        &s.hdr_target.view,
+                        s.hdr_target.width,
+                        s.hdr_target.height,
+                        s.water_refraction_target.width,
+                        s.water_refraction_target.height,
+                    );
+                    s.water_pass.rebuild_refraction_binding(
+                        &s.device,
+                        &s.water_refraction_target.view,
+                        &s.water_refraction_target.sampler,
+                    );
                     s.simple_blit
                         .rebuild_bind_group(&s.device, &s.hdr_target.view);
                     s.post_process.rebuild_targets(
@@ -293,6 +317,32 @@ impl ApplicationHandler for App {
                                 || self.keys_held.contains(&KeyCode::ShiftRight);
                             if shift_held {
                                 self.map_quality_preset = self.map_quality_preset.next();
+                                if let Some(s) = &mut self.state {
+                                    let water_target_quality = if self.force_water_pass {
+                                        MapQualityPreset::High
+                                    } else {
+                                        self.map_quality_preset
+                                    };
+                                    s.water_refraction_target = WaterRefractionTarget::for_quality(
+                                        &s.device,
+                                        s.hdr_target.width,
+                                        s.hdr_target.height,
+                                        water_target_quality,
+                                    );
+                                    s.water_refraction_pass.rebuild_bind_group(
+                                        &s.device,
+                                        &s.hdr_target.view,
+                                        s.hdr_target.width,
+                                        s.hdr_target.height,
+                                        s.water_refraction_target.width,
+                                        s.water_refraction_target.height,
+                                    );
+                                    s.water_pass.rebuild_refraction_binding(
+                                        &s.device,
+                                        &s.water_refraction_target.view,
+                                        &s.water_refraction_target.sampler,
+                                    );
+                                }
                                 debug_commands::log_value(
                                     "map quality preset",
                                     self.map_quality_preset.as_str(),
@@ -392,6 +442,40 @@ impl ApplicationHandler for App {
                         KeyCode::KeyM => {
                             self.map_mode = self.map_mode.next();
                             self.refresh_lut();
+                            changed = true;
+                        }
+                        KeyCode::KeyR => {
+                            self.force_water_pass = !self.force_water_pass;
+                            if let Some(s) = &mut self.state {
+                                let water_target_quality = if self.force_water_pass {
+                                    MapQualityPreset::High
+                                } else {
+                                    self.map_quality_preset
+                                };
+                                s.water_refraction_target = WaterRefractionTarget::for_quality(
+                                    &s.device,
+                                    s.hdr_target.width,
+                                    s.hdr_target.height,
+                                    water_target_quality,
+                                );
+                                s.water_refraction_pass.rebuild_bind_group(
+                                    &s.device,
+                                    &s.hdr_target.view,
+                                    s.hdr_target.width,
+                                    s.hdr_target.height,
+                                    s.water_refraction_target.width,
+                                    s.water_refraction_target.height,
+                                );
+                                s.water_pass.rebuild_refraction_binding(
+                                    &s.device,
+                                    &s.water_refraction_target.view,
+                                    &s.water_refraction_target.sampler,
+                                );
+                            }
+                            debug_commands::log_bool_toggle(
+                                "force WaterPass/refraction",
+                                self.force_water_pass,
+                            );
                             changed = true;
                         }
                         KeyCode::KeyV => {

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use hoi4_content::{ProductionMethodDef, V6Database};
-use hoi4_state::{CountryId, LawCategory, NationalMarket, World};
+use hoi4_state::{CountryId, LawCategory, NationalMarket, PopClass, PopGroup, World};
 
 #[derive(Clone, Copy, Default)]
 pub(crate) struct QualificationTotals {
@@ -179,6 +179,27 @@ pub(crate) fn compute_qualification_ratio_from_total(
         1.0
     };
     literacy_ratio.min(skilled_ratio).clamp(0.35, 1.0)
+}
+
+pub(crate) fn pop_group_qualifies_for_class_job(
+    pg: &PopGroup,
+    class: PopClass,
+    pms: &[&ProductionMethodDef],
+) -> bool {
+    let class_idx = class.index();
+    let required_literacy = pms
+        .iter()
+        .filter(|pm| pm.employment_demand.get(class_idx).copied().unwrap_or(0) > 0)
+        .map(|pm| pm.required_literacy)
+        .fold(0.0_f32, f32::max);
+    let required_skilled_ratio = pms
+        .iter()
+        .filter(|pm| pm.employment_demand.get(class_idx).copied().unwrap_or(0) > 0)
+        .map(|pm| pm.required_skilled_ratio)
+        .fold(0.0_f32, f32::max);
+
+    pg.literacy + f32::EPSILON >= required_literacy
+        && pg.skilled_ratio + f32::EPSILON >= required_skilled_ratio
 }
 
 pub(crate) fn compute_input_fulfillment_ratio(

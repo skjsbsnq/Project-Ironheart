@@ -76,8 +76,11 @@ pub struct GoodEntry {
     pub is_blockaded: bool,
     pub affected_buildings: Vec<GoodFlowSource>,
     pub affected_pop_classes: Vec<GoodFlowSource>,
+    pub affected_demand_buckets: Vec<GoodFlowSource>,
     pub upstream_goods: Vec<String>,
     pub downstream_goods: Vec<String>,
+    pub shortage_reason: String,
+    pub actionable_fixes: Vec<MarketActionEntry>,
     pub paid_rm: f64,
     pub clearing_fulfilled: f32,
     pub clearing_unmet: f32,
@@ -187,6 +190,54 @@ enum MarketPanelTab {
     Actions,
 }
 
+fn market_v9_tab_order() -> [MarketPanelTab; 8] {
+    [
+        MarketPanelTab::Overview,
+        MarketPanelTab::Shortages,
+        MarketPanelTab::Goods,
+        MarketPanelTab::IndustryChain,
+        MarketPanelTab::Trade,
+        MarketPanelTab::MarketBloc,
+        MarketPanelTab::Subjects,
+        MarketPanelTab::Actions,
+    ]
+}
+
+impl MarketPanelTab {
+    fn id(self) -> &'static str {
+        match self {
+            MarketPanelTab::Overview => "overview",
+            MarketPanelTab::Shortages => "shortages",
+            MarketPanelTab::Goods => "goods",
+            MarketPanelTab::IndustryChain => "industry_chain",
+            MarketPanelTab::Trade => "trade",
+            MarketPanelTab::MarketBloc => "market_bloc",
+            MarketPanelTab::Subjects => "subjects",
+            MarketPanelTab::Actions => "actions",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            MarketPanelTab::Overview => "总览",
+            MarketPanelTab::Shortages => "短缺",
+            MarketPanelTab::Goods => "商品",
+            MarketPanelTab::IndustryChain => "产业链",
+            MarketPanelTab::Trade => "进口出口",
+            MarketPanelTab::MarketBloc => "市场圈",
+            MarketPanelTab::Subjects => "殖民/傀儡供给",
+            MarketPanelTab::Actions => "行动建议",
+        }
+    }
+
+    fn from_id(id: &str) -> Self {
+        market_v9_tab_order()
+            .into_iter()
+            .find(|tab| tab.id() == id)
+            .unwrap_or(MarketPanelTab::Overview)
+    }
+}
+
 pub struct MarketPanel;
 
 impl MarketPanel {
@@ -275,11 +326,13 @@ impl MarketPanel {
 }
 
 fn v9_show_market(ctx: &egui::Context, data: &MarketPanelData) -> (bool, Vec<()>) {
-    use crate::v9::composites::panel_shell::{
-        draw_summary_tiles, draw_tab_strip, PanelClass, PanelShell,
-    };
+    use crate::v9::composites::panel_shell::{draw_summary_tiles, PanelClass, PanelShell};
     use crate::v9::tokens::palette;
 
+    let tab_id = egui::Id::new("market_panel_v9_tab");
+    let mut tab = ctx
+        .data_mut(|d| d.get_persisted::<MarketPanelTab>(tab_id))
+        .unwrap_or(MarketPanelTab::Overview);
     let critical_alerts = data
         .alerts
         .iter()
@@ -344,14 +397,61 @@ fn v9_show_market(ctx: &egui::Context, data: &MarketPanelData) -> (bool, Vec<()>
                     ),
                 ],
             );
-            draw_tab_strip(ui, layout.tabs, "商品 / 短缺 / 详情侧栏", accent);
-            v9_market_body(ui, layout.body, data);
+            v9_market_tabs(ui, layout.tabs, &mut tab, data);
+            v9_market_body(ui, layout.body, data, tab);
         });
+    ctx.data_mut(|d| d.insert_persisted(tab_id, tab));
 
     (close, Vec::new())
 }
 
-fn v9_market_body(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanelData) {
+fn v9_market_tabs(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    tab: &mut MarketPanelTab,
+    data: &MarketPanelData,
+) {
+    use crate::v9::primitives::{TabBar, TabItem};
+
+    let shortage_count = data
+        .goods
+        .iter()
+        .filter(|good| shortage_amount(good) > 0.0)
+        .count();
+    let mut active = tab.id();
+    let items: Vec<TabItem> = market_v9_tab_order()
+        .into_iter()
+        .map(|tab| {
+            let item = TabItem::new(tab.id(), tab.label());
+            match tab {
+                MarketPanelTab::Shortages => item.with_badge(shortage_count as u32),
+                MarketPanelTab::Actions => item.with_badge(data.actions.len() as u32),
+                MarketPanelTab::Subjects => item.with_badge(data.subjects.len() as u32),
+                MarketPanelTab::MarketBloc => {
+                    if data.bloc.is_some() {
+                        item.with_badge(1)
+                    } else {
+                        item
+                    }
+                }
+                MarketPanelTab::Overview
+                | MarketPanelTab::Goods
+                | MarketPanelTab::IndustryChain
+                | MarketPanelTab::Trade => item,
+            }
+        })
+        .collect();
+    if let Some(clicked) = TabBar::show_at(ui, rect, &items, &mut active) {
+        *tab = MarketPanelTab::from_id(clicked);
+    }
+}
+
+fn v9_market_body(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &MarketPanelData,
+    tab: MarketPanelTab,
+) {
     use crate::v9::layout::{GridLayout, Track};
     use crate::v9::tokens::spacing;
 
@@ -369,9 +469,99 @@ fn v9_market_body(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanelData) {
                         .unwrap_or(std::cmp::Ordering::Equal)
                 })
         });
-        v9_market_goods_table(ui, GridLayout::cell(&cells, 0, 0), data);
+        match tab {
+            MarketPanelTab::Overview => {
+                v9_market_overview_panel(ui, GridLayout::cell(&cells, 0, 0), data)
+            }
+            MarketPanelTab::Shortages => {
+                v9_market_shortages_panel(ui, GridLayout::cell(&cells, 0, 0), data)
+            }
+            MarketPanelTab::Goods => {
+                v9_market_goods_table(ui, GridLayout::cell(&cells, 0, 0), data)
+            }
+            MarketPanelTab::IndustryChain => {
+                v9_market_chain_panel(ui, GridLayout::cell(&cells, 0, 0), data)
+            }
+            MarketPanelTab::Trade => {
+                v9_market_trade_panel(ui, GridLayout::cell(&cells, 0, 0), data)
+            }
+            MarketPanelTab::MarketBloc => {
+                v9_market_bloc_panel(ui, GridLayout::cell(&cells, 0, 0), data)
+            }
+            MarketPanelTab::Subjects => {
+                v9_market_subjects_panel(ui, GridLayout::cell(&cells, 0, 0), data)
+            }
+            MarketPanelTab::Actions => {
+                v9_market_actions_panel(ui, GridLayout::cell(&cells, 0, 0), data)
+            }
+        }
         v9_market_detail_sidebar(ui, GridLayout::cell(&cells, 0, 1), data, selected);
     });
+}
+
+fn v9_card_scroll_panel(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    title: &str,
+    add_contents: impl FnOnce(&mut egui::Ui),
+) {
+    use crate::v9::primitives::Card;
+    use crate::v9::tokens::{palette, TextRole};
+    use egui::{Align2, Pos2, Rect};
+
+    let inner = Card::new().as_panel().show_at(ui, rect);
+    ui.painter().text(
+        inner.left_top(),
+        Align2::LEFT_TOP,
+        title,
+        TextRole::Heading.font_id(),
+        palette::BRASS_BRIGHT,
+    );
+    let content = Rect::from_min_max(
+        Pos2::new(inner.left(), inner.top() + 34.0),
+        inner.right_bottom(),
+    );
+    ui.allocate_ui_at_rect(content, |ui| {
+        egui::ScrollArea::vertical().show(ui, add_contents);
+    });
+}
+
+fn v9_market_overview_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanelData) {
+    v9_card_scroll_panel(ui, rect, "Overview", |ui| render_overview_tab(ui, data));
+}
+
+fn v9_market_shortages_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanelData) {
+    v9_card_scroll_panel(ui, rect, "Shortages", |ui| {
+        render_shortages_tab(ui, data, "")
+    });
+}
+
+fn v9_market_chain_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanelData) {
+    v9_card_scroll_panel(ui, rect, "Industry Chain", |ui| {
+        render_industry_chain_tab(ui, data, "")
+    });
+}
+
+fn v9_market_trade_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanelData) {
+    v9_card_scroll_panel(ui, rect, "Import / Export", |ui| {
+        render_trade_tab(ui, data, "")
+    });
+}
+
+fn v9_market_bloc_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanelData) {
+    v9_card_scroll_panel(ui, rect, "Market Bloc", |ui| {
+        render_market_bloc_tab(ui, data)
+    });
+}
+
+fn v9_market_subjects_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanelData) {
+    v9_card_scroll_panel(ui, rect, "Subject Supply", |ui| {
+        render_subjects_tab(ui, data)
+    });
+}
+
+fn v9_market_actions_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanelData) {
+    v9_card_scroll_panel(ui, rect, "Actions", |ui| render_actions_tab(ui, data));
 }
 
 fn v9_market_goods_table(ui: &mut egui::Ui, rect: egui::Rect, data: &MarketPanelData) {
@@ -718,6 +908,15 @@ fn good_matches_search(good: &GoodEntry, search: &str) -> bool {
             .affected_pop_classes
             .iter()
             .any(|row| row.name.to_lowercase().contains(&query))
+        || good
+            .affected_demand_buckets
+            .iter()
+            .any(|row| row.name.to_lowercase().contains(&query))
+        || good.shortage_reason.to_lowercase().contains(&query)
+        || good.actionable_fixes.iter().any(|action| {
+            action.title.to_lowercase().contains(&query)
+                || action.description.to_lowercase().contains(&query)
+        })
 }
 
 fn render_overview_tab(ui: &mut egui::Ui, data: &MarketPanelData) {
@@ -864,6 +1063,7 @@ fn render_shortages_tab(ui: &mut egui::Ui, data: &MarketPanelData, search: &str)
                 ui.label(format!("库存 {:.1} 天", good.stockpile_coverage_days));
             });
             render_good_detail(ui, good);
+            render_action_section(ui, "可执行修复", &good.actionable_fixes);
             ui.label(
                 RichText::new(recommendation_for(good))
                     .small()
@@ -935,10 +1135,16 @@ fn render_industry_chain_tab(ui: &mut egui::Ui, data: &MarketPanelData, search: 
             ui.label(format!("上游：{}", display_chain(&good.upstream_goods)));
             ui.label(format!("下游：{}", display_chain(&good.downstream_goods)));
             if shortage_amount(good) > 0.0 {
+                ui.label(
+                    RichText::new(&good.shortage_reason)
+                        .small()
+                        .color(Color32::from_rgb(0xff, 0xc0, 0x60)),
+                );
                 ui.colored_label(
                     Color32::from_rgb(0xff, 0x90, 0x70),
                     recommendation_for(good),
                 );
+                render_action_section(ui, "补缺方案", &good.actionable_fixes);
             }
         });
     }
@@ -1303,6 +1509,18 @@ fn render_good_detail(ui: &mut egui::Ui, good: &GoodEntry) {
         );
     }
 
+    if !good.shortage_reason.is_empty() {
+        ui.label(
+            RichText::new(&good.shortage_reason)
+                .small()
+                .color(if shortage > 0.0 {
+                    Color32::from_rgb(0xff, 0xc0, 0x60)
+                } else {
+                    Color32::LIGHT_GRAY
+                }),
+        );
+    }
+
     if !good.supply_sources.is_empty() {
         ui.label(
             RichText::new("供给来源")
@@ -1350,6 +1568,12 @@ fn render_good_detail(ui: &mut egui::Ui, good: &GoodEntry) {
         &good.government_orders,
         Color32::from_rgb(0xb0, 0x80, 0x50),
     );
+    render_flow_section(
+        ui,
+        "受影响需求桶",
+        &good.affected_demand_buckets,
+        Color32::from_rgb(0xff, 0xc0, 0x60),
+    );
 
     if good.construction_demand > 0.0 {
         ui.label(format!(
@@ -1395,6 +1619,26 @@ fn render_good_detail(ui: &mut egui::Ui, good: &GoodEntry) {
             "受影响 POP",
             &good.affected_pop_classes,
             Color32::from_rgb(0xc0, 0x80, 0x50),
+        );
+    }
+    render_action_section(ui, "可建设解决方案", &good.actionable_fixes);
+}
+
+fn render_action_section(ui: &mut egui::Ui, title: &str, rows: &[MarketActionEntry]) {
+    if rows.is_empty() {
+        return;
+    }
+    ui.label(
+        RichText::new(title)
+            .strong()
+            .color(Color32::from_rgb(0x90, 0xc0, 0x80)),
+    );
+    for action in rows.iter().take(4) {
+        ui.label(RichText::new(&action.title).small().strong());
+        ui.label(
+            RichText::new(&action.description)
+                .small()
+                .color(Color32::LIGHT_GRAY),
         );
     }
 }
@@ -1452,8 +1696,11 @@ mod tests {
             is_blockaded: false,
             affected_buildings: vec![],
             affected_pop_classes: vec![],
+            affected_demand_buckets: vec![],
             upstream_goods: vec![],
             downstream_goods: vec![],
+            shortage_reason: "steel: stable".into(),
+            actionable_fixes: vec![],
             paid_rm: 0.0,
             clearing_fulfilled: 40.0,
             clearing_unmet: 0.0,
@@ -1504,6 +1751,27 @@ mod tests {
     }
 
     #[test]
+    fn market_v9_secondary_tabs_are_complete() {
+        let ids: Vec<&str> = market_v9_tab_order()
+            .into_iter()
+            .map(MarketPanelTab::id)
+            .collect();
+        assert_eq!(
+            ids,
+            vec![
+                "overview",
+                "shortages",
+                "goods",
+                "industry_chain",
+                "trade",
+                "market_bloc",
+                "subjects",
+                "actions",
+            ]
+        );
+    }
+
+    #[test]
     fn market_panel_splits_pop_consumption_demand() {
         let g = GoodEntry {
             id: "grain".into(),
@@ -1535,8 +1803,14 @@ mod tests {
                 name: "Worker".into(),
                 amount: 12.0,
             }],
+            affected_demand_buckets: vec![GoodFlowSource {
+                name: "POP 基础消费".into(),
+                amount: 10.0,
+            }],
             upstream_goods: vec![],
             downstream_goods: vec![],
+            shortage_reason: "grain shortage affects Worker POP".into(),
+            actionable_fixes: vec![],
             paid_rm: 0.0,
             clearing_fulfilled: 10.0,
             clearing_unmet: 10.0,
@@ -1579,8 +1853,19 @@ mod tests {
             is_blockaded: false,
             affected_buildings: vec![],
             affected_pop_classes: vec![],
+            affected_demand_buckets: vec![GoodFlowSource {
+                name: "军工投入".into(),
+                amount: 8.0,
+            }],
             upstream_goods: vec!["steel".into(), "machine_tools".into()],
             downstream_goods: vec!["artillery".into()],
+            shortage_reason: "gun barrels shortage affects military orders".into(),
+            actionable_fixes: vec![MarketActionEntry {
+                title: "建设军工厂".into(),
+                description: "提高火炮部件产能".into(),
+                related_good_id: Some("gun_barrels".into()),
+                priority: 0,
+            }],
             paid_rm: 32.0,
             clearing_fulfilled: 2.0,
             clearing_unmet: 8.0,
@@ -1589,5 +1874,12 @@ mod tests {
         assert!(g.military_order_demand > g.traded);
         assert_eq!(shortage_amount(&g), 8.0);
         assert!(g.paid_rm > 0.0);
+        assert!(g.shortage_reason.contains("military"));
+        assert_eq!(g.affected_demand_buckets[0].name, "军工投入");
+        assert_eq!(
+            g.actionable_fixes[0].related_good_id.as_deref(),
+            Some("gun_barrels")
+        );
+        assert!(good_matches_search(&g, "军工厂"));
     }
 }

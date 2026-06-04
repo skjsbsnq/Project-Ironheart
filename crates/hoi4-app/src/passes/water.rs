@@ -44,6 +44,7 @@ use hoi4_assets::MapResRole;
 use hoi4_paths::PathConfig;
 use wgpu::util::DeviceExt;
 
+use crate::map_perf::MapQualityPreset;
 use crate::passes::HDR_FORMAT;
 use crate::vanilla_resource_views::{
     upload_dds_or_fallback, BindingAudit, BindingAuditEntry, BindingBlockingLevel,
@@ -61,11 +62,13 @@ pub enum WaterDebugView {
     FoamMask = 4,
     IceMask = 5,
     ReflectionContribution = 6,
-    FinalWaterOnly = 7,
+    RefractionTarget = 7,
+    RefractionContribution = 8,
+    FinalWaterOnly = 9,
 }
 
 impl WaterDebugView {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::Off,
         Self::DepthRatio,
         Self::CoastDistance,
@@ -73,6 +76,8 @@ impl WaterDebugView {
         Self::FoamMask,
         Self::IceMask,
         Self::ReflectionContribution,
+        Self::RefractionTarget,
+        Self::RefractionContribution,
         Self::FinalWaterOnly,
     ];
 
@@ -85,6 +90,8 @@ impl WaterDebugView {
             Self::FoamMask => "foam_mask",
             Self::IceMask => "ice_mask",
             Self::ReflectionContribution => "reflection_contribution",
+            Self::RefractionTarget => "refraction_target",
+            Self::RefractionContribution => "refraction_contribution",
             Self::FinalWaterOnly => "final_water_only",
         }
     }
@@ -262,6 +269,14 @@ impl Default for WaterEffectSelector {
 }
 
 impl WaterEffectSelector {
+    pub const fn for_runtime(refraction_available: bool, quality: MapQualityPreset) -> Self {
+        Self {
+            high_graphics_byte_0x18: quality.water_high_gfx(),
+            draw_refractions: refraction_available,
+            refraction_byte_0x15: refraction_available,
+        }
+    }
+
     pub const fn select(self) -> WaterEffectVariant {
         if !self.high_graphics_byte_0x18 {
             WaterEffectVariant::WaterLowGfx
@@ -285,6 +300,35 @@ struct LoadedWaterTexture {
     loaded: bool,
     critical: bool,
     audit: crate::vanilla_resource_views::BindingAuditEntry,
+}
+
+#[derive(Clone)]
+struct WaterGroup2Resources {
+    lean1_view: wgpu::TextureView,
+    lean2_view: wgpu::TextureView,
+    reflection_view: wgpu::TextureView,
+    fow_water_spec_view: wgpu::TextureView,
+    colormap_water_0_view: wgpu::TextureView,
+    colormap_water_1_view: wgpu::TextureView,
+    colormap_water_2_view: wgpu::TextureView,
+    ice_diffuse_view: wgpu::TextureView,
+    ice_noise_0_view: wgpu::TextureView,
+    ice_noise_1_view: wgpu::TextureView,
+    reflection_land_unit_view: wgpu::TextureView,
+    underwater_terrain_view: wgpu::TextureView,
+    projected_shadow_fow_view: wgpu::TextureView,
+    gradient_border_ch1_view: wgpu::TextureView,
+    gradient_border_ch2_view: wgpu::TextureView,
+    gradient_border_ch3_view: wgpu::TextureView,
+    province_secondary_color_view: wgpu::TextureView,
+    fow_view: wgpu::TextureView,
+    light_data_view: wgpu::TextureView,
+    light_index_view: wgpu::TextureView,
+    mud_snow_view: wgpu::TextureView,
+    water_refraction_view: wgpu::TextureView,
+    water_sampler: wgpu::Sampler,
+    water_map_sampler: wgpu::Sampler,
+    water_refraction_sampler: wgpu::Sampler,
 }
 
 // ─── Water uniform（与 wgsl `WaterParams` 字面对齐）─────────────────────────
@@ -322,6 +366,10 @@ pub struct WaterParams {
     /// 当前 water debug view�? = off�?    pub debug_view: u32,
     /// WaterPass 是否拥有最终可见水体颜色；0 �?fragment 直接 discard�?    pub final_water_owner: u32,
     pub effect_variant: u32,
+    pub refraction_available: u32,
+    pub refraction_strength: f32,
+    pub refraction_distort_px: f32,
+    pub refraction_depth_fade: f32,
     /// depth debug scale / coast debug max px / reserved / reserved.
     pub debug_controls: [f32; 4],
 }
@@ -342,12 +390,16 @@ impl Default for WaterParams {
             debug_view: WaterDebugView::Off.as_shader_value(),
             final_water_owner: 1,
             effect_variant: WaterEffectSelector::default().select().as_shader_value(),
+            refraction_available: 0,
+            refraction_strength: 0.42,
+            refraction_distort_px: 5.0,
+            refraction_depth_fade: 0.85,
             debug_controls: [1.0, 24.0, 0.0, 0.0],
         }
     }
 }
 
-const _: () = assert!(std::mem::size_of::<WaterParams>() == 64);
+const _: () = assert!(std::mem::size_of::<WaterParams>() == 80);
 
 // ─── Chunk uniform（与 terrain pass 同款，重复定义避免互�?import）──────────
 
@@ -371,6 +423,8 @@ pub struct WaterPass {
     bgl_g1: wgpu::BindGroupLayout,
     env_sampler: wgpu::Sampler,
     bind_group_g2: wgpu::BindGroup,
+    bgl_g2: wgpu::BindGroupLayout,
+    group2_resources: WaterGroup2Resources,
     params_buffer: wgpu::Buffer,
     /// 共享：water 纹理 + sampler�?    bind_group_g2: wgpu::BindGroup,
     /// `WaterParams` GPU buffer�?    params_buffer: wgpu::Buffer,
@@ -402,6 +456,10 @@ pub struct WaterPassInputs<'a> {
     pub height_scale: f32,
     pub vanilla_resources: &'a VanillaResourceViews,
     pub runtime_targets: &'a VanillaRuntimeTargets,
+    pub water_refraction_view: &'a wgpu::TextureView,
+    pub water_refraction_sampler: &'a wgpu::Sampler,
+    pub refraction_available: bool,
+    pub quality_preset: MapQualityPreset,
 }
 
 impl WaterPass {
@@ -422,12 +480,15 @@ impl WaterPass {
         });
 
         // ── WaterParams uniform ────────────────────────────────────────
-        let selected_effect = WaterEffectSelector::default().select();
+        let selected_effect =
+            WaterEffectSelector::for_runtime(inputs.refraction_available, inputs.quality_preset)
+                .select();
         let params_init = WaterParams {
             world_w: inputs.world_size[0],
             world_d: inputs.world_size[1],
             height_scale: inputs.height_scale,
             effect_variant: selected_effect.as_shader_value(),
+            refraction_available: u32::from(inputs.refraction_available),
             ..WaterParams::default()
         };
         let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -667,122 +728,47 @@ impl WaterPass {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
-            ],
-        });
-        let bind_group_g2 = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("water_bg_g2"),
-            layout: &bgl_g2,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&lean1_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&lean2_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&reflection_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::TextureView(&fow_water_spec_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&colormap_water_0_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&colormap_water_1_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 6,
-                    resource: wgpu::BindingResource::TextureView(&colormap_water_2_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 7,
-                    resource: wgpu::BindingResource::TextureView(&ice_diffuse_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 8,
-                    resource: wgpu::BindingResource::Sampler(&water_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 9,
-                    resource: wgpu::BindingResource::TextureView(&ice_noise_0_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 10,
-                    resource: wgpu::BindingResource::TextureView(&ice_noise_1_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 11,
-                    resource: wgpu::BindingResource::TextureView(&reflection_land_unit_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 12,
-                    resource: wgpu::BindingResource::TextureView(&underwater_terrain_tex.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 13,
-                    resource: wgpu::BindingResource::TextureView(
-                        &inputs.runtime_targets.projected_shadow_fow.view,
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 14,
-                    resource: wgpu::BindingResource::TextureView(
-                        &inputs.runtime_targets.gradient_border.ch1.view,
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 15,
-                    resource: wgpu::BindingResource::TextureView(
-                        &inputs.runtime_targets.gradient_border.ch2.view,
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 16,
-                    resource: wgpu::BindingResource::TextureView(
-                        &inputs.runtime_targets.gradient_border.ch3.view,
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 17,
-                    resource: wgpu::BindingResource::TextureView(
-                        &inputs.runtime_targets.province_secondary_color.view,
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 18,
-                    resource: wgpu::BindingResource::TextureView(&inputs.runtime_targets.fow.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 19,
-                    resource: wgpu::BindingResource::TextureView(
-                        &inputs.runtime_targets.light_data.view,
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 20,
-                    resource: wgpu::BindingResource::TextureView(
-                        &inputs.runtime_targets.light_index.view,
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 21,
-                    resource: wgpu::BindingResource::TextureView(
-                        &inputs.runtime_targets.mud_snow.view,
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 22,
-                    resource: wgpu::BindingResource::Sampler(&water_map_sampler),
+                fragment_tex_entry(23),
+                wgpu::BindGroupLayoutEntry {
+                    binding: 24,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
                 },
             ],
         });
+        let group2_resources = WaterGroup2Resources {
+            lean1_view: lean1_tex.view.clone(),
+            lean2_view: lean2_tex.view.clone(),
+            reflection_view: reflection_tex.view.clone(),
+            fow_water_spec_view: fow_water_spec_tex.view.clone(),
+            colormap_water_0_view: colormap_water_0_tex.view.clone(),
+            colormap_water_1_view: colormap_water_1_tex.view.clone(),
+            colormap_water_2_view: colormap_water_2_tex.view.clone(),
+            ice_diffuse_view: ice_diffuse_tex.view.clone(),
+            ice_noise_0_view: ice_noise_0_tex.view.clone(),
+            ice_noise_1_view: ice_noise_1_tex.view.clone(),
+            reflection_land_unit_view: reflection_land_unit_tex.view.clone(),
+            underwater_terrain_view: underwater_terrain_tex.view.clone(),
+            projected_shadow_fow_view: inputs.runtime_targets.projected_shadow_fow.view.clone(),
+            gradient_border_ch1_view: inputs.runtime_targets.gradient_border.ch1.view.clone(),
+            gradient_border_ch2_view: inputs.runtime_targets.gradient_border.ch2.view.clone(),
+            gradient_border_ch3_view: inputs.runtime_targets.gradient_border.ch3.view.clone(),
+            province_secondary_color_view: inputs
+                .runtime_targets
+                .province_secondary_color
+                .view
+                .clone(),
+            fow_view: inputs.runtime_targets.fow.view.clone(),
+            light_data_view: inputs.runtime_targets.light_data.view.clone(),
+            light_index_view: inputs.runtime_targets.light_index.view.clone(),
+            mud_snow_view: inputs.runtime_targets.mud_snow.view.clone(),
+            water_refraction_view: inputs.water_refraction_view.clone(),
+            water_sampler: water_sampler.clone(),
+            water_map_sampler: water_map_sampler.clone(),
+            water_refraction_sampler: inputs.water_refraction_sampler.clone(),
+        };
+        let bind_group_g2 = make_water_group2_bind_group(device, &bgl_g2, &group2_resources);
 
         // ── pipeline ───────────────────────────────────────────────────
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -856,10 +842,11 @@ impl WaterPass {
             cache: None,
         });
 
-        // Phase 4: WaterPass owns final water only when its material-critical
-        // color + LEAN normal inputs are real. Otherwise terrain remains the
-        // fallback water owner through MapPassDrawSet::terrain_material_ownership.
-        let any_loaded = texture_load_stats.critical_missing == 0;
+        // The pass owns water even when some vanilla textures are substituted
+        // by explicit 1x1 fallbacks. Falling back to terrain water here hides
+        // the runtime refraction path entirely and keeps the old hard seabed
+        // look on installs with partial vanilla assets.
+        let any_loaded = true;
 
         Self {
             pipeline,
@@ -868,6 +855,8 @@ impl WaterPass {
             bgl_g1,
             env_sampler: env_sampler.clone(),
             bind_group_g2,
+            bgl_g2,
+            group2_resources,
             params_buffer,
             chunk_buffers,
             any_loaded,
@@ -886,6 +875,16 @@ impl WaterPass {
     }
 
     /// 每帧更新 `WaterParams`（如调试时改 fresnel_power / time_speed）�?    pub fn update_params(&self, queue: &wgpu::Queue, params: &WaterParams) {
+    pub fn update_runtime_effect(
+        &mut self,
+        refraction_available: bool,
+        quality: MapQualityPreset,
+    ) -> WaterEffectVariant {
+        self.selected_effect =
+            WaterEffectSelector::for_runtime(refraction_available, quality).select();
+        self.selected_effect
+    }
+
     pub fn update_params(&self, queue: &wgpu::Queue, params: &WaterParams) {
         queue.write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(params));
     }
@@ -909,6 +908,18 @@ impl WaterPass {
     }
 
     /// 在已开 render pass 里画。caller 必须�?set_pipeline 自己的状态前�?    /// 复用 [`crate::passes::TerrainPass`] �?instance buffers�?    pub fn render<'a>(
+    pub fn rebuild_refraction_binding(
+        &mut self,
+        device: &wgpu::Device,
+        view: &wgpu::TextureView,
+        sampler: &wgpu::Sampler,
+    ) {
+        self.group2_resources.water_refraction_view = view.clone();
+        self.group2_resources.water_refraction_sampler = sampler.clone();
+        self.bind_group_g2 =
+            make_water_group2_bind_group(device, &self.bgl_g2, &self.group2_resources);
+    }
+
     pub fn render<'a>(
         &'a self,
         pass: &mut wgpu::RenderPass<'a>,
@@ -974,7 +985,84 @@ fn fragment_tex_entry_nonfilter(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
+fn make_water_group2_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    resources: &WaterGroup2Resources,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("water_bg_g2"),
+        layout,
+        entries: &[
+            water_texture_entry(0, &resources.lean1_view),
+            water_texture_entry(1, &resources.lean2_view),
+            water_texture_entry(2, &resources.reflection_view),
+            water_texture_entry(3, &resources.fow_water_spec_view),
+            water_texture_entry(4, &resources.colormap_water_0_view),
+            water_texture_entry(5, &resources.colormap_water_1_view),
+            water_texture_entry(6, &resources.colormap_water_2_view),
+            water_texture_entry(7, &resources.ice_diffuse_view),
+            water_sampler_entry(8, &resources.water_sampler),
+            water_texture_entry(9, &resources.ice_noise_0_view),
+            water_texture_entry(10, &resources.ice_noise_1_view),
+            water_texture_entry(11, &resources.reflection_land_unit_view),
+            water_texture_entry(12, &resources.underwater_terrain_view),
+            water_texture_entry(13, &resources.projected_shadow_fow_view),
+            water_texture_entry(14, &resources.gradient_border_ch1_view),
+            water_texture_entry(15, &resources.gradient_border_ch2_view),
+            water_texture_entry(16, &resources.gradient_border_ch3_view),
+            water_texture_entry(17, &resources.province_secondary_color_view),
+            water_texture_entry(18, &resources.fow_view),
+            water_texture_entry(19, &resources.light_data_view),
+            water_texture_entry(20, &resources.light_index_view),
+            water_texture_entry(21, &resources.mud_snow_view),
+            water_sampler_entry(22, &resources.water_map_sampler),
+            water_texture_entry(23, &resources.water_refraction_view),
+            water_sampler_entry(24, &resources.water_refraction_sampler),
+        ],
+    })
+}
+
+fn water_texture_entry(binding: u32, view: &wgpu::TextureView) -> wgpu::BindGroupEntry<'_> {
+    wgpu::BindGroupEntry {
+        binding,
+        resource: wgpu::BindingResource::TextureView(view),
+    }
+}
+
+fn water_sampler_entry(binding: u32, sampler: &wgpu::Sampler) -> wgpu::BindGroupEntry<'_> {
+    wgpu::BindGroupEntry {
+        binding,
+        resource: wgpu::BindingResource::Sampler(sampler),
+    }
+}
+
 fn water_p5_state_audit_entries(selected_effect: WaterEffectVariant) -> [BindingAuditEntry; 6] {
+    let water_refraction_entry = if selected_effect == WaterEffectVariant::Water {
+        BindingAuditEntry::dynamic_target(
+            "water",
+            "WaterRefraction",
+            "water_refraction_rt",
+            "screen-space refraction target feeds pdxwater:water",
+        )
+        .with_runtime_target_metadata(
+            "pre-water HDR scene copied after river and before water",
+            "Rgba16Float",
+            "full-resolution swapchain-sized",
+            "WaterRefraction_Texture / WaterRefraction_Sampler",
+            "runtime target available for pdxwater:water",
+        )
+    } else {
+        BindingAuditEntry::mock(
+            "water",
+            "WaterRefraction",
+            "water_no_refractions_effect",
+            "Runtime refraction target is unavailable for the selected effect; water falls back to the no-refraction or low-gfx path.",
+            "refraction contribution is explicit fallback and cannot count as full vanilla parity",
+            BindingBlockingLevel::Degraded,
+        )
+    };
+
     [
         BindingAuditEntry::plain_resource(
             "water",
@@ -982,8 +1070,8 @@ fn water_p5_state_audit_entries(selected_effect: WaterEffectVariant) -> [Binding
             selected_effect.effect_name(),
             true,
             false,
-            Some("R12 selector default: high graphics on, Draw.Refractions false, +0x15 false".into()),
-            "water pass variant is selected from graphics/refraction booleans",
+            Some("runtime selector: high graphics + available refraction target selects pdxwater:water".into()),
+            "water pass variant is selected from graphics/refraction availability",
         ),
         BindingAuditEntry::plain_resource(
             "water",
@@ -1012,14 +1100,7 @@ fn water_p5_state_audit_entries(selected_effect: WaterEffectVariant) -> [Binding
             Some("tools/vanilla_trace/state_objects.json; reverse_out/exports/pdxwater_bindings.tsv".into()),
             "water material textures and runtime map targets use distinct address/filter policies",
         ),
-        BindingAuditEntry::mock(
-            "water",
-            "WaterRefraction",
-            "water_no_refractions_effect",
-            "No dedicated pre-water refraction target is produced yet; selector defaults to water_no_refractions and shader does not substitute map-space underwater terrain as screen refraction.",
-            "refraction contribution is explicit fallback and cannot count as full vanilla parity",
-            BindingBlockingLevel::Degraded,
-        ),
+        water_refraction_entry,
         BindingAuditEntry::mock(
             "water",
             "ReflectionCubeMap",
@@ -1231,6 +1312,10 @@ struct WaterParams {
     debug_view: u32,
     final_water_owner: u32,
     effect_variant: u32,
+    refraction_available: u32,
+    refraction_strength: f32,
+    refraction_distort_px: f32,
+    refraction_depth_fade: f32,
     debug_controls: vec4<f32>,
 };
 
@@ -1274,6 +1359,8 @@ struct ChunkUniform {
 @group(2) @binding(20) var light_index_tex: texture_2d<f32>;
 @group(2) @binding(21) var mud_snow_tex: texture_2d<f32>;
 @group(2) @binding(22) var water_map_sampler: sampler;
+@group(2) @binding(23) var water_refraction_tex: texture_2d<f32>;
+@group(2) @binding(24) var water_refraction_sampler: sampler;
 
 const SEA_LEVEL: f32 = 95.0 / 255.0;
 const ID_NONE: u32 = 4294967295u;
@@ -1285,7 +1372,9 @@ const WATER_DEBUG_NORMAL_STRENGTH: u32 = 3u;
 const WATER_DEBUG_FOAM_MASK: u32 = 4u;
 const WATER_DEBUG_ICE_MASK: u32 = 5u;
 const WATER_DEBUG_REFLECTION_CONTRIBUTION: u32 = 6u;
-const WATER_DEBUG_FINAL_WATER_ONLY: u32 = 7u;
+const WATER_DEBUG_REFRACTION_TARGET: u32 = 7u;
+const WATER_DEBUG_REFRACTION_CONTRIBUTION: u32 = 8u;
+const WATER_DEBUG_FINAL_WATER_ONLY: u32 = 9u;
 
 struct VertexInput {
     @builtin(vertex_index) vid: u32,
@@ -1413,12 +1502,46 @@ fn polar_edge_mask(map_uv: vec2<f32>) -> f32 {
     return 0.0;
 }
 
+fn sample_water_colormap_0(map_uv: vec2<f32>, radius_px: f32) -> vec3<f32> {
+    let dim = vec2<f32>(textureDimensions(colormap_water));
+    let px = vec2<f32>(radius_px) / max(dim, vec2<f32>(1.0));
+    return textureSample(colormap_water, water_sampler, map_uv).rgb * 0.52
+        + textureSample(colormap_water, water_sampler, map_uv + vec2<f32>( px.x, 0.0)).rgb * 0.12
+        + textureSample(colormap_water, water_sampler, map_uv + vec2<f32>(-px.x, 0.0)).rgb * 0.12
+        + textureSample(colormap_water, water_sampler, map_uv + vec2<f32>(0.0,  px.y)).rgb * 0.12
+        + textureSample(colormap_water, water_sampler, map_uv + vec2<f32>(0.0, -px.y)).rgb * 0.12;
+}
+
+fn sample_water_colormap_1(map_uv: vec2<f32>, radius_px: f32) -> vec3<f32> {
+    let dim = vec2<f32>(textureDimensions(colormap_water_1));
+    let px = vec2<f32>(radius_px) / max(dim, vec2<f32>(1.0));
+    return textureSample(colormap_water_1, water_sampler, map_uv).rgb * 0.52
+        + textureSample(colormap_water_1, water_sampler, map_uv + vec2<f32>( px.x, 0.0)).rgb * 0.12
+        + textureSample(colormap_water_1, water_sampler, map_uv + vec2<f32>(-px.x, 0.0)).rgb * 0.12
+        + textureSample(colormap_water_1, water_sampler, map_uv + vec2<f32>(0.0,  px.y)).rgb * 0.12
+        + textureSample(colormap_water_1, water_sampler, map_uv + vec2<f32>(0.0, -px.y)).rgb * 0.12;
+}
+
+fn sample_water_colormap_2(map_uv: vec2<f32>, radius_px: f32) -> vec3<f32> {
+    let dim = vec2<f32>(textureDimensions(colormap_water_2));
+    let px = vec2<f32>(radius_px) / max(dim, vec2<f32>(1.0));
+    return textureSample(colormap_water_2, water_sampler, map_uv).rgb * 0.52
+        + textureSample(colormap_water_2, water_sampler, map_uv + vec2<f32>( px.x, 0.0)).rgb * 0.12
+        + textureSample(colormap_water_2, water_sampler, map_uv + vec2<f32>(-px.x, 0.0)).rgb * 0.12
+        + textureSample(colormap_water_2, water_sampler, map_uv + vec2<f32>(0.0,  px.y)).rgb * 0.12
+        + textureSample(colormap_water_2, water_sampler, map_uv + vec2<f32>(0.0, -px.y)).rgb * 0.12;
+}
+
 fn sample_water(map_uv: vec2<f32>, depth_ratio: f32, camera_dist: f32) -> vec3<f32> {
-    let near_color = textureSample(colormap_water, water_sampler, map_uv).rgb;
-    let mid_color = textureSample(colormap_water_1, water_sampler, map_uv).rgb;
-    let far_color = textureSample(colormap_water_2, water_sampler, map_uv).rgb;
+    let deep = smoothstep(0.35, 0.92, depth_ratio);
+    let radius_px = mix(2.0, 9.0, deep);
+    let near_color = sample_water_colormap_0(map_uv, radius_px);
+    let mid_color = sample_water_colormap_1(map_uv, radius_px);
+    let far_color = sample_water_colormap_2(map_uv, radius_px);
     let depth_lod = smoothstep(0.18, 0.90, depth_ratio);
-    let depth_color = mix(mix(near_color, mid_color, depth_lod), far_color, depth_lod * depth_lod * 0.65);
+    let depth_color_raw = mix(mix(near_color, mid_color, depth_lod), far_color, depth_lod * depth_lod * 0.65);
+    let deep_tint = mix(vec3<f32>(0.055, 0.22, 0.36), vec3<f32>(0.025, 0.090, 0.18), depth_lod);
+    let depth_color = mix(depth_color_raw, deep_tint, deep * 0.62);
     if (wparams.effect_variant == 1u) {
         // Without the real WaterRefraction producer, camera-distance water
         // color LOD shifts read as whole-ocean tint changes while zooming. Use
@@ -1428,19 +1551,24 @@ fn sample_water(map_uv: vec2<f32>, depth_ratio: f32, camera_dist: f32) -> vec3<f
     let lod_t = smoothstep(32.0, 180.0, camera_dist);
     let map_color = mix(mix(near_color, mid_color, lod_t), far_color, lod_t * lod_t);
     let underwater = textureSample(underwater_terrain, water_sampler, map_uv * 4.0).rgb;
-    let water_color = mix(depth_color, map_color, 0.35);
-    return mix(water_color, underwater, clamp(depth_ratio * 0.18, 0.0, 0.18));
+    let water_color = mix(depth_color, map_color, 0.18 * (1.0 - deep * 0.75));
+    let shallow_hint = 1.0 - smoothstep(0.16, 0.62, depth_ratio);
+    return mix(water_color, underwater, shallow_hint * 0.035);
 }
 
-fn sample_refraction(map_uv: vec2<f32>, normal: vec3<f32>, depth_ratio: f32) -> vec3<f32> {
-    if (wparams.effect_variant == 1u) {
+fn sample_refraction(map_uv: vec2<f32>, screen_uv: vec2<f32>, normal: vec3<f32>, depth_ratio: f32) -> vec3<f32> {
+    if (wparams.refraction_available == 0u || wparams.effect_variant == 1u) {
         return sample_water(map_uv, depth_ratio, 96.0);
     }
-    let offset = normal.xz * (0.0018 + 0.0026 * (1.0 - depth_ratio));
-    let refracted_uv = map_uv + offset;
-    let water_lod = textureSample(colormap_water_1, water_sampler, refracted_uv).rgb;
-    let under = textureSample(underwater_terrain, water_sampler, refracted_uv * 4.0).rgb;
-    return mix(water_lod, under, 0.35 * depth_ratio);
+    let shallow = 1.0 - smoothstep(0.12, max(wparams.refraction_depth_fade, 0.21), depth_ratio);
+    let distort_px = wparams.refraction_distort_px * (0.35 + shallow * 0.65);
+    let inv_screen = 1.0 / max(frame.screen_size, vec2<f32>(1.0));
+    let offset = normal.xz * distort_px * inv_screen;
+    let refracted_uv = clamp(screen_uv + offset, vec2<f32>(0.0), vec2<f32>(1.0));
+    let refracted = textureSample(water_refraction_tex, water_refraction_sampler, refracted_uv).rgb;
+    let water_lod = sample_water(map_uv, depth_ratio, 96.0);
+    let refraction_weight = clamp(wparams.refraction_strength * shallow * 1.35, 0.0, 0.58);
+    return mix(water_lod, refracted, refraction_weight);
 }
 
 fn probe_coast_distance_px(map_uv: vec2<f32>, texel: vec2<f32>, offset_px: vec2<f32>, current: f32) -> f32 {
@@ -1546,6 +1674,8 @@ struct WaterMaterial {
     foam_mask: f32,
     ice_mask: f32,
     reflection_contribution: f32,
+    refraction_target: vec3<f32>,
+    refraction_contribution: f32,
     alpha: f32,
     selected: bool,
 };
@@ -1574,6 +1704,12 @@ fn water_debug_color(material: WaterMaterial) -> vec3<f32> {
         let t = clamp(material.reflection_contribution, 0.0, 1.0);
         return vec3<f32>(t, t * 0.75, 1.0 - t);
     }
+    if (wparams.debug_view == WATER_DEBUG_REFRACTION_TARGET) {
+        return material.refraction_target;
+    }
+    if (wparams.debug_view == WATER_DEBUG_REFRACTION_CONTRIBUTION) {
+        return vec3<f32>(material.refraction_contribution);
+    }
     if (wparams.debug_view == WATER_DEBUG_FINAL_WATER_ONLY) {
         return material.final_color;
     }
@@ -1601,13 +1737,16 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, screen_uv: vec2<f3
     let env_raw = textureSample(environment_cube, environment_sampler, reflect_dir).rgb * frame.cubemap_intensity;
     let plane_refl = textureSample(reflection_tex, water_sampler, map_uv).rgb;
     let land_unit_refl = textureSample(reflection_land_unit, water_sampler, map_uv).rgb;
-    let refraction = sample_refraction(map_uv, normal, depth_ratio);
+    let refraction = sample_refraction(map_uv, screen_uv, normal, depth_ratio);
     let env = mix(plane_refl, env_raw, 0.22);
     let reflected = mix(env, land_unit_refl, secondary.a * 0.10);
 
     let fresnel_t = pow(1.0 - max(dot(normal, to_camera), 0.0), wparams.fresnel_power);
     let reflection_contribution = clamp(0.04 + fresnel_t * 0.34, 0.0, 0.48);
-    var color = mix(mix(refraction, base, 0.78), reflected, reflection_contribution);
+    let shallow_for_refraction = 1.0 - smoothstep(0.12, max(wparams.refraction_depth_fade, 0.21), depth_ratio);
+    let refraction_contribution = select(0.0, clamp(wparams.refraction_strength * shallow_for_refraction * 1.35, 0.0, 0.58), wparams.refraction_available != 0u && wparams.effect_variant == 2u);
+    var color = mix(refraction, base, 0.58);
+    color = mix(color, reflected, reflection_contribution);
 
     let sun_dir = normalize(frame.day_night_hour_sun_dir.yzw);
     let half_dir = normalize(to_camera + sun_dir);
@@ -1659,6 +1798,8 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, screen_uv: vec2<f3
         foam_alpha,
         ice_result.mask,
         reflection_contribution,
+        textureSample(water_refraction_tex, water_refraction_sampler, clamp(screen_uv, vec2<f32>(0.0), vec2<f32>(1.0))).rgb,
+        refraction_contribution,
         water_alpha,
         selected
     );
@@ -1689,8 +1830,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn water_params_size_is_64() {
-        assert_eq!(std::mem::size_of::<WaterParams>(), 64);
+    fn water_params_size_is_80() {
+        assert_eq!(std::mem::size_of::<WaterParams>(), 80);
     }
 
     #[test]
@@ -1705,6 +1846,10 @@ mod tests {
         assert!(p.height_scale > 0.0);
         assert_eq!(p.debug_view, WaterDebugView::Off.as_shader_value());
         assert_eq!(p.final_water_owner, 1);
+        assert_eq!(p.refraction_available, 0);
+        assert!(p.refraction_strength > 0.0 && p.refraction_strength <= 1.0);
+        assert!(p.refraction_distort_px > 0.0);
+        assert!(p.refraction_depth_fade > 0.0);
         assert!(p.debug_controls[1] > 0.0);
     }
 
@@ -1719,6 +1864,12 @@ mod tests {
         assert_eq!(seen, WaterDebugView::ALL);
         assert_eq!(view, WaterDebugView::Off);
         assert_eq!(WaterDebugView::FoamMask.name(), "foam_mask");
+        assert_eq!(WaterDebugView::RefractionTarget.name(), "refraction_target");
+        assert_eq!(
+            WaterDebugView::RefractionContribution.name(),
+            "refraction_contribution"
+        );
+        assert_eq!(WaterDebugView::FinalWaterOnly.as_shader_value(), 9);
     }
 
     #[test]
@@ -1762,6 +1913,15 @@ mod tests {
     }
 
     #[test]
+    fn water_pass_uses_explicit_texture_fallbacks_instead_of_terrain_water() {
+        let source = include_str!("water.rs");
+        assert!(
+            source.contains("The pass owns water even when some vanilla textures are substituted")
+        );
+        assert!(source.contains("let any_loaded = true;"));
+    }
+
+    #[test]
     fn water_chunk_uniform_size_is_16() {
         assert_eq!(std::mem::size_of::<WaterChunkUniform>(), 16);
     }
@@ -1798,7 +1958,27 @@ mod tests {
     }
 
     #[test]
-    fn water_p5_state_audit_reports_phase_d_state() {
+    fn water_effect_selector_runtime_rules_match_quality_and_target() {
+        assert_eq!(
+            WaterEffectSelector::for_runtime(true, MapQualityPreset::High).select(),
+            WaterEffectVariant::Water
+        );
+        assert_eq!(
+            WaterEffectSelector::for_runtime(true, MapQualityPreset::Ultra).select(),
+            WaterEffectVariant::Water
+        );
+        assert_eq!(
+            WaterEffectSelector::for_runtime(false, MapQualityPreset::High).select(),
+            WaterEffectVariant::WaterNoRefractions
+        );
+        assert_eq!(
+            WaterEffectSelector::for_runtime(true, MapQualityPreset::LowEnd).select(),
+            WaterEffectVariant::WaterLowGfx
+        );
+    }
+
+    #[test]
+    fn water_p5_state_audit_reports_fallback_state() {
         let entries = water_p5_state_audit_entries(WaterEffectSelector::default().select());
         assert_eq!(entries.len(), 6);
 
@@ -1837,7 +2017,30 @@ mod tests {
             .reason
             .as_deref()
             .unwrap_or_default()
-            .contains("does not substitute map-space underwater terrain"));
+            .contains("Runtime refraction target is unavailable"));
+    }
+
+    #[test]
+    fn water_p5_state_audit_reports_runtime_refraction_target() {
+        let entries = water_p5_state_audit_entries(
+            WaterEffectSelector::for_runtime(true, MapQualityPreset::High).select(),
+        );
+        let refraction = entries
+            .iter()
+            .find(|entry| entry.binding == "WaterRefraction")
+            .expect("missing WaterRefraction audit entry");
+
+        assert_eq!(
+            refraction.source_kind,
+            crate::vanilla_resource_views::BindingSourceKind::DynamicTarget
+        );
+        assert_eq!(refraction.source_name, "water_refraction_rt");
+        assert_eq!(refraction.mock_name, None);
+        assert_eq!(refraction.blocking_level, BindingBlockingLevel::None);
+        assert_eq!(
+            refraction.producer_status.as_deref(),
+            Some("runtime_generated")
+        );
     }
 
     #[test]
@@ -1856,9 +2059,18 @@ mod tests {
     #[test]
     fn water_wgsl_uses_effect_variant_alpha_and_no_refraction_fallback() {
         assert!(WATER_WGSL.contains("effect_variant: u32"));
+        assert!(WATER_WGSL.contains("refraction_available: u32"));
         assert!(WATER_WGSL.contains("wparams.effect_variant == 1u"));
         assert!(WATER_WGSL.contains("return depth_color;"));
         assert!(WATER_WGSL.contains("return sample_water(map_uv, depth_ratio, 96.0);"));
+        assert!(WATER_WGSL.contains("water_refraction_tex"));
+        assert!(WATER_WGSL.contains("textureSample(water_refraction_tex"));
+        assert!(WATER_WGSL.contains("WATER_DEBUG_REFRACTION_TARGET"));
+        assert!(WATER_WGSL.contains("WATER_DEBUG_REFRACTION_CONTRIBUTION"));
+        assert!(WATER_WGSL.contains("refraction_target: vec3<f32>"));
+        assert!(WATER_WGSL.contains("refraction_contribution: f32"));
+        assert!(WATER_WGSL.contains("material.refraction_target"));
+        assert!(WATER_WGSL.contains("material.refraction_contribution"));
         assert!(WATER_WGSL.contains("alpha: f32"));
         assert!(WATER_WGSL.contains("return vec4<f32>(color, material.alpha)"));
         assert!(!WATER_WGSL.contains("return vec4<f32>(color, 1.0)"));
@@ -1951,6 +2163,9 @@ mod tests {
             "fow_tex",
             "light_data_tex",
             "light_index_tex",
+            "mud_snow_tex",
+            "water_refraction_tex",
+            "water_refraction_sampler",
         ];
         for n in names {
             assert!(

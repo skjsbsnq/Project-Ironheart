@@ -24,8 +24,10 @@ const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
 pub struct SurrenderNotification {
     /// 投降/被结算方标签（如 "AUS"）
     pub target_tag: String,
+    pub target_name: String,
     /// 胜利方标签（如 "GER"）
     pub winner_tag: String,
+    pub winner_name: String,
     /// 结算类型
     pub kind: SurrenderKind,
     /// 具体结果列表
@@ -56,7 +58,9 @@ pub enum SurrenderResultKind {
 pub struct SurrenderResultEntry {
     pub kind: SurrenderResultKind,
     pub target_tag: String,
+    pub target_name: String,
     pub winner_tag: String,
+    pub winner_name: String,
     pub detail: String,
 }
 
@@ -102,13 +106,13 @@ fn show_surrender_notification_v9(
 
             let header_inner = Card::new().as_panel().show_at(ui, header_rect);
             let summary = if notification.winner_tag.is_empty() {
-                format!("{} {}", tr(&notification.target_tag), tr("surrendered"))
+                format!("{} {}", notification.target_name, tr("surrendered"))
             } else {
                 format!(
                     "{} {} {} {}",
-                    tr(&notification.winner_tag),
+                    notification.winner_name,
                     tr("defeated"),
-                    tr(&notification.target_tag),
+                    notification.target_name,
                     tr("surrender_long")
                 )
             };
@@ -126,8 +130,8 @@ fn show_surrender_notification_v9(
                     "{}: {}  |  {} -> {}",
                     kind_label,
                     notification.results.len(),
-                    notification.target_tag,
-                    notification.winner_tag
+                    notification.target_name,
+                    notification.winner_name
                 ),
                 TextRole::Caption.font_id(),
                 palette::PARCHMENT_DIM,
@@ -178,7 +182,7 @@ fn show_surrender_notification_v9(
                             ui.painter().text(
                                 Pos2::new(row.left() + 96.0, row.center().y),
                                 Align2::LEFT_CENTER,
-                                format!("{} -> {}", entry.target_tag, entry.winner_tag),
+                                format!("{} -> {}", entry.target_name, entry.winner_name),
                                 TextRole::Code.font_id(),
                                 palette::PARCHMENT_DIM,
                             );
@@ -235,7 +239,7 @@ fn surrender_title(
             format!(
                 "{}: {} {}  (+{} {})",
                 kind_label,
-                tr(&notification.target_tag),
+                notification.target_name,
                 tr("surrendered"),
                 queue_remaining,
                 tr("more_events")
@@ -247,7 +251,7 @@ fn surrender_title(
         format!(
             "{}: {} {}",
             kind_label,
-            tr(&notification.target_tag),
+            notification.target_name,
             tr("surrendered")
         )
     }
@@ -312,7 +316,7 @@ pub fn show_surrender_notification(
             format!(
                 "{}: {} {}  (+{} {})",
                 kind_label,
-                tr(&notification.target_tag),
+                notification.target_name,
                 tr("surrendered"),
                 queue_remaining,
                 tr("more_events")
@@ -325,7 +329,7 @@ pub fn show_surrender_notification(
             format!(
                 "{}: {} {}",
                 kind_label,
-                tr(&notification.target_tag),
+                notification.target_name,
                 tr("surrendered")
             )
         }
@@ -357,7 +361,7 @@ pub fn show_surrender_notification(
                             ui.label(
                                 RichText::new(format!(
                                     "{} {}",
-                                    tr(&notification.target_tag),
+                                    notification.target_name,
                                     tr("surrendered")
                                 ))
                                 .strong()
@@ -367,9 +371,9 @@ pub fn show_surrender_notification(
                             ui.label(
                                 RichText::new(format!(
                                     "{} {} {} {}",
-                                    tr(&notification.winner_tag),
+                                    notification.winner_name,
                                     tr("defeated"),
-                                    tr(&notification.target_tag),
+                                    notification.target_name,
                                     tr("surrender_long")
                                 ))
                                 .strong()

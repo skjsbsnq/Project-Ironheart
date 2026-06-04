@@ -132,6 +132,8 @@ pub(crate) struct RenderState {
     pub(crate) province_name_pass: Option<passes::ProvinceNamePass>,
     // 閳光偓閳光偓閳光偓 Phase 3.12.1 閸忣剙鍙″〒鍙夌厠閸╄櫣顢呯拋鐐煢 閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓閳光偓
     pub(crate) hdr_target: HdrTarget,
+    pub(crate) water_refraction_target: passes::WaterRefractionTarget,
+    pub(crate) water_refraction_pass: passes::WaterRefractionPass,
     pub(crate) global_uniform_buf: GlobalUniformBuffer,
     pub(crate) simple_blit: SimpleBlitPass,
     pub(crate) post_process: PostProcessChain,

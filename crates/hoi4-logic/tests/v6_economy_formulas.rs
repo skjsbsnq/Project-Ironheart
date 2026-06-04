@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use hoi4_content::v6_loader::{
-    BuildingDef, BuildingKindDef, CivilRightsDef, ConscriptionDef, EconomyDef, EquipmentOutputDef,
-    GoodCategoryDef, GoodDef, InformationControlDef, MefoDef, OwnerDef, PopClassNeedsDef,
-    PopModifiers, PopNeedEntryDef, PopNeedTierDef, ProductionMethodDef, PyatiletkaDef,
-    PyatiletkaTargetDef, TaxationDef, TradeDef, V6Database, V6EventDef, V6EventOption,
+    BuildingDef, BuildingEmploymentProfileDef, BuildingGameplayClassDef, BuildingKindDef,
+    CivilRightsDef, ConscriptionDef, ConstructionMaterialDef, ConstructionRecipeDef,
+    EconomicSectorDef, EconomyDef, EquipmentOutputDef, GoodCategoryDef, GoodDef,
+    InformationControlDef, MefoDef, OwnerDef, PopClassNeedsDef, PopModifiers, PopNeedEntryDef,
+    PopNeedTierDef, ProductionMethodDef, PyatiletkaDef, PyatiletkaTargetDef, TaxationDef, TradeDef,
+    V6Database, V6EventDef, V6EventOption,
 };
 use hoi4_content::{ResourceDepositDef, StateResourceDepositDef};
 use hoi4_data::{Color, Country, CountryTag, DivisionTemplate, GameData, State, SubunitDef};
@@ -120,6 +122,20 @@ fn test_pm(id: &str, name: &str, building_id: &str) -> ProductionMethodDef {
     }
 }
 
+fn test_construction_recipe(good_id: &str) -> ConstructionRecipeDef {
+    ConstructionRecipeDef {
+        cp_cost: 1_000.0,
+        funds_rm: 50_000_000.0,
+        materials: vec![ConstructionMaterialDef {
+            good_id: good_id.to_owned(),
+            amount: 20.0,
+        }],
+        labor: 10,
+        engineering: 5,
+        regional_restrictions: Vec::new(),
+    }
+}
+
 fn base_db() -> V6Database {
     V6Database {
         goods: vec![
@@ -148,6 +164,9 @@ fn base_db() -> V6Database {
         buildings: vec![BuildingDef {
             id: "steel_mill".to_owned(),
             name: "Steel Mill".to_owned(),
+            description: "Test steel mill".to_owned(),
+            economic_sector: EconomicSectorDef::Secondary,
+            gameplay_class: BuildingGameplayClassDef::Industrial,
             kind: BuildingKindDef::Industrial,
             max_level: 15,
             owner_default: OwnerDef::Private,
@@ -155,6 +174,15 @@ fn base_db() -> V6Database {
             group: "城市工业".to_owned(),
             state_limit_kind: None,
             requires_law: None,
+            employment_profile: BuildingEmploymentProfileDef {
+                peasants: 0,
+                workers: 10,
+                clerks: 0,
+                capitalists: 0,
+                aristocrats: 0,
+                soldiers: 0,
+            },
+            construction_recipe: test_construction_recipe("steel"),
         }],
         production_methods: vec![
             ProductionMethodDef {
@@ -387,6 +415,9 @@ fn add_resource_building_def(db: &mut V6Database, building_id: &str, deposit_kin
     db.buildings.push(BuildingDef {
         id: building_id.to_owned(),
         name: building_id.to_owned(),
+        description: format!("Test resource building {building_id}"),
+        economic_sector: EconomicSectorDef::Primary,
+        gameplay_class: BuildingGameplayClassDef::Resource,
         kind: BuildingKindDef::Resource,
         max_level: 10,
         owner_default: OwnerDef::Private,
@@ -394,6 +425,15 @@ fn add_resource_building_def(db: &mut V6Database, building_id: &str, deposit_kin
         group: "资源与农业".to_owned(),
         state_limit_kind: Some(deposit_kind.to_owned()),
         requires_law: None,
+        employment_profile: BuildingEmploymentProfileDef {
+            peasants: 0,
+            workers: 10,
+            clerks: 0,
+            capitalists: 0,
+            aristocrats: 0,
+            soldiers: 0,
+        },
+        construction_recipe: test_construction_recipe("steel"),
     });
     db.production_methods.push(test_pm(
         &format!("{building_id}_default"),
@@ -1711,6 +1751,150 @@ fn construction_queue_progresses_and_increases_existing_building_level() {
 }
 
 #[test]
+fn construction_queue_uses_building_recipe() {
+    let mut world = world_with_law("interventionism");
+    let db = base_db();
+    let mut econ = EconomyState::new(&world);
+    econ.enqueue_construction(
+        hoi4_state::CountryId(0),
+        BuildOrder::new("steel_mill", StateId(0)),
+        &world,
+    );
+
+    assert_eq!(econ.construction[0].items[0].cost, 0.0);
+    tick_daily_v6(&mut world, &mut econ, &db, 1);
+
+    let item = &econ.construction[0].items[0];
+    assert_eq!(item.cost, 1_000.0);
+    assert_eq!(item.budget_needed_rm, 50_000_000.0);
+    assert_eq!(item.material_needs.len(), 1);
+    assert_eq!(item.material_needs[0].good_id, "steel");
+    assert_eq!(item.material_needs[0].total_needed, 20.0);
+}
+
+#[test]
+fn construction_queue_advances_multiple_projects_and_reports_capacity() {
+    let mut world = world_with_law("interventionism");
+    world.countries.pops.groups.clear();
+    world.countries.pops.groups.push(PopGroup {
+        class: PopClass::Worker,
+        state: StateId(0),
+        size: 10_000,
+        employed_at: None,
+        wage_rm: 0.0,
+        tax_burden: 0.0,
+        income_rm: 0.0,
+        tax_paid_rm: 0.0,
+        disposable_income_rm: 0.0,
+        basic_consumption_budget: 0.0,
+        satisfaction_law_modifier: 0.0,
+        loyalty_coefficient: 1.0,
+        loyalty_decay_mult: 1.0,
+        satisfaction: 0.5,
+        political_loyalty: 0.0,
+        literacy: PopClass::Worker.baseline_literacy(),
+        skilled_ratio: PopClass::Worker.baseline_skilled_ratio(),
+        standard_of_living: 0.5,
+        needs_fulfillment: 1.0,
+        essential_needs_fulfillment: 1.0,
+        normal_needs_fulfillment: 1.0,
+        luxury_needs_fulfillment: 1.0,
+        radicalism: 0.0,
+    });
+    world.countries.treasury.treasuries[0].cash_rm = 10_000_000.0;
+    let db = base_db();
+    let mut econ = EconomyState::new(&world);
+    let cid = hoi4_state::CountryId(0);
+    econ.enqueue_construction(
+        cid,
+        BuildOrder::new("steel_mill", StateId(0)).with_level(1),
+        &world,
+    );
+    econ.enqueue_construction(
+        cid,
+        BuildOrder::new("steel_mill", StateId(0)).with_level(2),
+        &world,
+    );
+
+    tick_daily_v6(&mut world, &mut econ, &db, 1);
+
+    let queue = &econ.construction[0];
+    assert_eq!(queue.items.len(), 2);
+    assert!(queue.capacity.total_cp > 0.0);
+    assert!(queue.capacity.allocated_cp > 0.0);
+    assert!(queue.capacity.idle_cp >= 0.0);
+    assert!(queue.capacity.blocked_cp >= 0.0);
+    assert!(queue.items[0].progress > 0.0);
+    assert!(queue.items[1].progress > 0.0);
+    for item in &queue.items {
+        assert!(item.runtime.allocated_cp > 0.0);
+        assert!(item.runtime.effective_cp > 0.0);
+        assert!(item.runtime.estimated_days.is_some());
+        assert!(!item.runtime.bottleneck.is_empty());
+    }
+}
+
+#[test]
+fn construction_queue_pause_priority_and_weight_affect_runtime() {
+    let mut world = world_with_law("interventionism");
+    world.countries.pops.groups.clear();
+    world.countries.pops.groups.push(PopGroup {
+        class: PopClass::Worker,
+        state: StateId(0),
+        size: 10_000,
+        employed_at: None,
+        wage_rm: 0.0,
+        tax_burden: 0.0,
+        income_rm: 0.0,
+        tax_paid_rm: 0.0,
+        disposable_income_rm: 0.0,
+        basic_consumption_budget: 0.0,
+        satisfaction_law_modifier: 0.0,
+        loyalty_coefficient: 1.0,
+        loyalty_decay_mult: 1.0,
+        satisfaction: 0.5,
+        political_loyalty: 0.0,
+        literacy: PopClass::Worker.baseline_literacy(),
+        skilled_ratio: PopClass::Worker.baseline_skilled_ratio(),
+        standard_of_living: 0.5,
+        needs_fulfillment: 1.0,
+        essential_needs_fulfillment: 1.0,
+        normal_needs_fulfillment: 1.0,
+        luxury_needs_fulfillment: 1.0,
+        radicalism: 0.0,
+    });
+    world.countries.treasury.treasuries[0].cash_rm = 10_000_000.0;
+    let db = base_db();
+    let mut econ = EconomyState::new(&world);
+    let cid = hoi4_state::CountryId(0);
+    econ.enqueue_construction(
+        cid,
+        BuildOrder::new("steel_mill", StateId(0))
+            .with_level(1)
+            .paused(true),
+        &world,
+    );
+    econ.enqueue_construction(
+        cid,
+        BuildOrder::new("steel_mill", StateId(0))
+            .with_level(2)
+            .with_priority(4)
+            .with_weight(2.0),
+        &world,
+    );
+
+    tick_daily_v6(&mut world, &mut econ, &db, 1);
+
+    let queue = &econ.construction[0];
+    assert_eq!(queue.items[0].progress, 0.0);
+    assert_eq!(queue.items[0].runtime.bottleneck, "paused");
+    assert!(queue.items[1].progress > 0.0);
+    assert!(queue.items[1].runtime.allocated_cp > 0.0);
+    assert_eq!(queue.items[1].runtime.priority, 4);
+    assert!((queue.items[1].runtime.weight - 2.0).abs() < f32::EPSILON);
+}
+
+#[test]
 fn construction_queue_reorder_and_cancel_mutate_real_items() {
     let world = world_with_law("interventionism");
     let mut econ = EconomyState::new(&world);
@@ -2262,6 +2446,60 @@ fn p14_gdp_uses_building_value_added_not_separate_estimate() {
         building.value_added_rm > 0.0 || building.level == 0,
         "建筑 value_added_rm 应 > 0（有生产时）",
     );
+}
+
+#[test]
+fn g13_gdp_replaces_profile_anchor_with_runtime_components() {
+    let mut world = world_with_law("interventionism");
+    add_building(
+        &mut world,
+        "steel_mill",
+        "steel_mill_default",
+        BuildingOwner::State,
+    );
+    let db = base_db();
+    let rm_per_gbp = world.countries.treasury.exchange_rates[0].rm_per_gbp as f64;
+    {
+        let building = &mut world.countries.buildings_v6.buildings[0];
+        building.value_added_rm = 100.0;
+    }
+    {
+        let pop = &mut world.countries.pops.groups[0];
+        pop.income_rm = 5.0;
+        pop.basic_consumption_budget = 3.0;
+    }
+    {
+        let treasury = &mut world.countries.treasury.treasuries[0];
+        treasury.gdp_rm = 9_999_999.0;
+        treasury.gdp_gbp = 9_999.0;
+        treasury.gdp_breakdown.historical_validation_gbp = 1_000.0;
+        treasury.daily_budget.expense_state_payroll_rm = 7.0;
+        treasury.daily_budget.expense_construction_wages_rm = 2.0;
+        treasury.daily_budget.expense_welfare_rm = 1.0;
+        treasury.daily_budget.expense_military_procurement_rm = 4.0;
+        treasury.daily_trade_balance_gbp = 2.0;
+    }
+
+    hoi4_logic::economy::finance_tick::step_update_gdp(&mut world, &db, 0, 7);
+
+    let treasury = &world.countries.treasury.treasuries[0];
+    let expected_rm = (100.0 + (3.0 * 100.0) + 10.0 + 4.0 + (2.0 * rm_per_gbp)) * 365.0;
+    assert!(
+        (treasury.gdp_rm - expected_rm).abs() < 0.01,
+        "GDP should be written from runtime components, got {} expected {}",
+        treasury.gdp_rm,
+        expected_rm
+    );
+    assert_eq!(treasury.gdp_breakdown.building_secondary_rm, 36_500.0);
+    assert_eq!(treasury.gdp_breakdown.pop_income_rm, 182_500.0);
+    assert_eq!(treasury.gdp_breakdown.pop_consumption_rm, 109_500.0);
+    assert_eq!(treasury.gdp_breakdown.government_services_rm, 3_650.0);
+    assert_eq!(treasury.gdp_breakdown.military_procurement_rm, 1_460.0);
+    assert!((treasury.gdp_gbp - treasury.gdp_rm / rm_per_gbp).abs() < 0.01);
+    assert!(treasury
+        .gdp_breakdown
+        .historical_validation_error_ratio
+        .is_finite());
 }
 
 #[test]

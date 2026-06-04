@@ -220,6 +220,8 @@ pub struct StatePopulation1936Def {
     pub data_quality: HistoricalDataQuality,
 }
 
+pub type StatePopulationProfile1936 = StatePopulation1936Def;
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
 pub enum StateIntegrationDef {
     Metropole,

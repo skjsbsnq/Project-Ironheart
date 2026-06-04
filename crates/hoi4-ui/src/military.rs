@@ -31,6 +31,7 @@ pub struct DivisionEntry {
     pub strength: f32,
     pub in_combat: bool,
     pub province_id: u16,
+    pub province_name: String,
     pub equipment_ratio: f32,
     pub army_id: Option<u32>,
     pub army_name: Option<String>,
@@ -945,7 +946,7 @@ fn v9_military_division_table(
                     ratio_color(div.strength),
                 )
                 .right(),
-                TableCell::new(format!("#{}", div.province_id)).right(),
+                TableCell::new(&div.province_name).right(),
             ])
             .accent(accent)
         })
@@ -1536,7 +1537,7 @@ impl MilitaryPanel {
                                         ui.label(RichText::new(format!("装备 {:.0}%", div.equipment_ratio * 100.0)).small().color(equip_color));
                                         let strength_color = if div.strength < 0.8 { BAD } else { GOOD };
                                         ui.label(RichText::new(format!("兵力 {:.0}%", div.strength * 100.0)).small().color(strength_color));
-                                        ui.label(RichText::new(tr("at_province").replace("{}", &div.province_id.to_string())).small().color(MUTED));
+                                        ui.label(RichText::new(&div.province_name).small().color(MUTED));
                                     });
                                 }
                             }

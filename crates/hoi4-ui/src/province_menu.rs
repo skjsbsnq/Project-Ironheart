@@ -16,6 +16,7 @@ pub struct ProvinceMenu {
     pub open: bool,
     pub province_id: u32,
     pub owner_tag: String,
+    pub owner_name: String,
     pub is_own_territory: bool,
     pub has_wargoal: bool,
     pub has_selected_divisions: bool,
@@ -27,6 +28,7 @@ impl ProvinceMenu {
             open: false,
             province_id: 0,
             owner_tag: String::new(),
+            owner_name: String::new(),
             is_own_territory: false,
             has_wargoal: false,
             has_selected_divisions: false,
@@ -50,9 +52,7 @@ impl ProvinceMenu {
         let placed = AnchorLayout::Center.place(screen, size, Vec2::ZERO);
         let mut cmd = None;
         let mut open = self.open;
-        let owner_line = tr("province_owner")
-            .replacen("{}", &self.province_id.to_string(), 1)
-            .replacen("{}", &tr(&self.owner_tag), 1);
+        let owner_line = format!("{}: {}", tr("owner"), self.owner_name);
 
         Area::new(egui::Id::new("province_menu_v9"))
             .order(Order::Foreground)
@@ -129,9 +129,9 @@ impl ProvinceMenu {
 
                 if !self.is_own_territory {
                     let label = if self.has_wargoal {
-                        format!("{} {}", tr("declare_war"), self.owner_tag)
+                        format!("{} {}", tr("declare_war"), self.owner_name)
                     } else {
-                        format!("{} {}", tr("justify_wargoal"), self.owner_tag)
+                        format!("{} {}", tr("justify_wargoal"), self.owner_name)
                     };
                     let rect = Rect::from_min_size(Pos2::new(inner.left(), y), button_size);
                     let variant = if self.has_wargoal {
@@ -200,11 +200,7 @@ impl ProvinceMenu {
             .resizable(false)
             .default_width(220.0)
             .show(ctx, |ui| {
-                ui.label(
-                    tr("province_owner")
-                        .replace("{}", &self.province_id.to_string())
-                        .replacen("{}", &tr(&self.owner_tag), 1),
-                );
+                ui.label(format!("{}: {}", tr("owner"), self.owner_name));
                 ui.separator();
 
                 // Move army (always available if divisions selected)
@@ -221,7 +217,7 @@ impl ProvinceMenu {
                 if !self.is_own_territory {
                     if self.has_wargoal {
                         if ui
-                            .button(format!("⚔ {} {}", tr("declare_war"), self.owner_tag))
+                            .button(format!("⚔ {} {}", tr("declare_war"), self.owner_name))
                             .clicked()
                         {
                             cmd = Some(ProvinceMenuCommand::DeclareWar {
@@ -231,7 +227,7 @@ impl ProvinceMenu {
                         }
                     } else {
                         if ui
-                            .button(format!("📋 {} {}", tr("justify_wargoal"), self.owner_tag))
+                            .button(format!("📋 {} {}", tr("justify_wargoal"), self.owner_name))
                             .clicked()
                         {
                             cmd = Some(ProvinceMenuCommand::JustifyWargoal {

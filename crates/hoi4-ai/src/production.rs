@@ -399,6 +399,9 @@ mod tests {
         db.buildings.push(BuildingDef {
             id: "arms_industry".to_owned(),
             name: "Arms Industry".to_owned(),
+            description: "Test arms industry".to_owned(),
+            economic_sector: EconomicSectorDef::Secondary,
+            gameplay_class: BuildingGameplayClassDef::Military,
             kind: BuildingKindDef::Military,
             max_level: 5,
             owner_default: OwnerDef::State,
@@ -406,6 +409,25 @@ mod tests {
             group: String::new(),
             state_limit_kind: None,
             requires_law: None,
+            employment_profile: BuildingEmploymentProfileDef {
+                peasants: 0,
+                workers: 10,
+                clerks: 0,
+                capitalists: 0,
+                aristocrats: 0,
+                soldiers: 0,
+            },
+            construction_recipe: ConstructionRecipeDef {
+                cp_cost: 1_000.0,
+                funds_rm: 50_000_000.0,
+                materials: vec![ConstructionMaterialDef {
+                    good_id: "steel".to_owned(),
+                    amount: 20.0,
+                }],
+                labor: 10,
+                engineering: 5,
+                regional_restrictions: Vec::new(),
+            },
         });
         db.production_methods.push(ProductionMethodDef {
             id: "arms_industry_default".to_owned(),

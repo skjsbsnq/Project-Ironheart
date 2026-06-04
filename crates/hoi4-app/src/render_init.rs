@@ -1314,6 +1314,13 @@ impl App {
         }
         binding_audit.extend(river_pass.binding_audit.entries.clone());
 
+        let water_refraction_target = WaterRefractionTarget::for_quality(
+            &device,
+            config.width,
+            config.height,
+            self.map_quality_preset,
+        );
+
         // P5 vanilla pdxwater pass. Reuses the same per-LOD instance buffers as
         // terrain, binds runtime ShadowMap/gradient/secondary targets, and no
         // longer consumes coast_sdf as a default parity input.
@@ -1331,6 +1338,10 @@ impl App {
                 height_scale: HEIGHT_SCALE,
                 vanilla_resources: &vanilla_resources,
                 runtime_targets: &vanilla_targets,
+                water_refraction_view: &water_refraction_target.view,
+                water_refraction_sampler: &water_refraction_target.sampler,
+                refraction_available: true,
+                quality_preset: self.map_quality_preset,
             },
         );
         println!(
@@ -1581,6 +1592,15 @@ impl App {
         // 绂诲睆 HDR ???RT锛圧GBA16Float锛???D pass 鍐欏叆杩欓噷锛屼箣鍚庣敱 PostProcessChain
         // ???SimpleBlitPass 妗ユ帴???swap chain??
         let hdr_target = HdrTarget::new(&device, config.width, config.height);
+        let water_refraction_pass = WaterRefractionPass::new(
+            &device,
+            &hdr_target.view,
+            water_refraction_target.format,
+            hdr_target.width,
+            hdr_target.height,
+            water_refraction_target.width,
+            water_refraction_target.height,
+        );
         let simple_blit = SimpleBlitPass::new(&device, format, &hdr_target.view);
         let color_cube_source = ColorCubeSource::load_from_path_config(&self.path_cfg);
         let post_process = PostProcessChain::new(
@@ -1618,6 +1638,12 @@ impl App {
             post_process.mode,
             post_process.calibration.summary(),
             post_process.color_cube_source
+        );
+        println!(
+            "[water_refraction] target ready ({}x{} {:?})",
+            water_refraction_target.width,
+            water_refraction_target.height,
+            water_refraction_target.format
         );
 
         // Egui UI overlay must target the swapchain format.
@@ -1802,6 +1828,8 @@ impl App {
             province_name_pass,
             // Phase 3.12.1
             hdr_target,
+            water_refraction_target,
+            water_refraction_pass,
             global_uniform_buf,
             simple_blit,
             post_process,

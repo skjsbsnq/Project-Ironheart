@@ -6,5 +6,6 @@
 pub mod ai;
 pub mod script;
 pub mod systems;
+pub mod ui_data;
 pub mod vanilla_resource_views;
 pub mod vanilla_targets;
