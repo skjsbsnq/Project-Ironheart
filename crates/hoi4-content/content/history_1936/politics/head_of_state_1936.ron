@@ -75,6 +75,18 @@
         title: "President",
     ),
     (
+        tag: "AUS",
+        character_key: "AUS_kurt_schuschnigg",
+        name: "Kurt Schuschnigg",
+        title: "Federal Chancellor",
+    ),
+    (
+        tag: "LIT",
+        character_key: "LIT_antanas_smetona",
+        name: "Antanas Smetona",
+        title: "President",
+    ),
+    (
         tag: "ROM",
         character_key: "ROM_gheorghe_tatarescu",
         name: "Gheorghe Tatarescu",

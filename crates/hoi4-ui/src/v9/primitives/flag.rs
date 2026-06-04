@@ -50,7 +50,7 @@ impl<'a> FlagFrame<'a> {
                 image_rect.center(),
                 Align2::CENTER_CENTER,
                 if self.label.is_empty() {
-                    "???"
+                    "未知"
                 } else {
                     self.label
                 },

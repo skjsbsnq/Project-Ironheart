@@ -12,29 +12,35 @@ use hoi4_state::{
 };
 
 use super::{
-    ConstructionFundingSource, ConstructionItem, ConstructionProjectRuntime, EconomyState,
-    MaterialNeed,
+    ConstructionCapacity, ConstructionFundingSource, ConstructionItem, ConstructionProjectRuntime,
+    EconomyState, MaterialNeed,
 };
 
-const BASE_CP_POOL: f32 = 75.0;
+const BASE_NATIONAL_ADMIN_CP: f32 = 45.0;
+const CP_PER_OWNED_STATE_ADMIN: f32 = 2.0;
+const MAX_STATE_ADMIN_CP: f32 = 30.0;
 const CP_PER_CONSTRUCTION_SECTOR_LEVEL: f32 = 30.0;
+const BASE_REGIONAL_LABOR_CP: f32 = 15.0;
+const UNEMPLOYED_POP_PER_LABOR_CP: f32 = 50.0;
+const MAX_REGIONAL_LABOR_CP: f32 = 90.0;
+const BASE_ENGINEERING_EQUIPMENT_CP: f32 = 10.0;
+const ENGINEERING_CP_PER_CONSTRUCTION_SECTOR_LEVEL: f32 = 12.0;
 const DAILY_FUND_RATIO: f64 = 0.015;
 
 pub fn run(world: &mut World, econ: &mut EconomyState, db: &V6Database, ci: usize) {
     if ci >= econ.construction.len() || ci >= world.countries.count {
         return;
     }
-    let total_cp = construction_cp_pool(world, ci) * economy_construction_speed(world, db, ci);
-    econ.construction[ci].capacity.total_cp = total_cp;
-    econ.construction[ci].capacity.allocated_cp = 0.0;
-    econ.construction[ci].capacity.idle_cp = total_cp;
-    econ.construction[ci].capacity.blocked_cp = 0.0;
+    hydrate_and_validate_queue(world, econ, db, ci);
+    let mut capacity = construction_capacity_breakdown(world, econ, db, ci);
+    capacity.allocated_cp = 0.0;
+    capacity.idle_cp = capacity.total_cp;
+    capacity.blocked_cp = 0.0;
+    econ.construction[ci].capacity = capacity;
 
-    if econ.construction[ci].items.is_empty() || total_cp <= 0.0 {
+    if econ.construction[ci].items.is_empty() || econ.construction[ci].capacity.total_cp <= 0.0 {
         return;
     }
-
-    hydrate_and_validate_queue(world, econ, db, ci);
 
     let active_indices: Vec<usize> = econ.construction[ci]
         .items
@@ -61,13 +67,15 @@ pub fn run(world: &mut World, econ: &mut EconomyState, db: &V6Database, ci: usiz
     }
 
     for idx in active_indices {
-        let allocated_cp =
-            total_cp * allocation_weight(&econ.construction[ci].items[idx]) / total_weight.max(1.0);
+        let allocated_cp = econ.construction[ci].capacity.total_cp
+            * allocation_weight(&econ.construction[ci].items[idx])
+            / total_weight.max(1.0);
         advance_project(world, econ, db, ci, idx, allocated_cp);
     }
 
-    econ.construction[ci].capacity.idle_cp =
-        (total_cp - econ.construction[ci].capacity.allocated_cp).max(0.0);
+    econ.construction[ci].capacity.idle_cp = (econ.construction[ci].capacity.total_cp
+        - econ.construction[ci].capacity.allocated_cp)
+        .max(0.0);
 
     let completed: Vec<usize> = econ.construction[ci]
         .items
@@ -414,9 +422,58 @@ fn estimate_days(cost: f32, progress: f32, effective_cp: f32) -> Option<u32> {
     Some((remaining / effective_cp).ceil() as u32)
 }
 
+pub fn construction_capacity_breakdown(
+    world: &World,
+    econ: &EconomyState,
+    db: &V6Database,
+    ci: usize,
+) -> ConstructionCapacity {
+    let speed = economy_construction_speed(world, db, ci);
+    let national_admin_cp = national_admin_cp(world, ci) * speed;
+    let construction_sector_cp = construction_sector_cp(world, ci) * speed;
+    let regional_labor_cp = regional_labor_cp(world, ci) * speed;
+    let engineering_equipment_cp = engineering_equipment_cp(world, ci) * speed;
+    let physical_cp =
+        national_admin_cp + construction_sector_cp + regional_labor_cp + engineering_equipment_cp;
+    let finance_cp = finance_capacity_cp(world, econ, ci, physical_cp);
+    let material_cp = material_capacity_cp(world, econ, ci, physical_cp);
+    let total_cp = physical_cp.min(finance_cp).min(material_cp).max(0.0);
+
+    ConstructionCapacity {
+        total_cp,
+        national_admin_cp,
+        construction_sector_cp,
+        regional_labor_cp,
+        engineering_equipment_cp,
+        finance_cp,
+        material_cp,
+        allocated_cp: 0.0,
+        idle_cp: total_cp,
+        blocked_cp: 0.0,
+    }
+}
+
 pub fn construction_cp_pool(world: &World, ci: usize) -> f32 {
+    national_admin_cp(world, ci)
+        + construction_sector_cp(world, ci)
+        + regional_labor_cp(world, ci)
+        + engineering_equipment_cp(world, ci)
+}
+
+fn national_admin_cp(world: &World, ci: usize) -> f32 {
     let country = CountryId(ci as u16);
-    let mut cp = BASE_CP_POOL;
+    let owned_states = world
+        .states
+        .owners
+        .iter()
+        .filter(|owner| **owner == country)
+        .count() as f32;
+    BASE_NATIONAL_ADMIN_CP + (owned_states * CP_PER_OWNED_STATE_ADMIN).min(MAX_STATE_ADMIN_CP)
+}
+
+fn construction_sector_cp(world: &World, ci: usize) -> f32 {
+    let country = CountryId(ci as u16);
+    let mut cp = 0.0;
     for building in &world.countries.buildings_v6.buildings {
         let state_idx = building.state.0 as usize;
         if state_idx >= world.states.count || world.states.owners[state_idx] != country {
@@ -427,6 +484,157 @@ pub fn construction_cp_pool(world: &World, ci: usize) -> f32 {
         }
     }
     cp
+}
+
+fn regional_labor_cp(world: &World, ci: usize) -> f32 {
+    let country = CountryId(ci as u16);
+    let owned_states: std::collections::HashSet<StateId> = world
+        .states
+        .owners
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, owner)| (*owner == country).then_some(StateId(idx as u16)))
+        .collect();
+    if owned_states.is_empty() {
+        return 0.0;
+    }
+
+    let mut has_pop_data = false;
+    let unemployed: u32 = world
+        .countries
+        .pops
+        .groups
+        .iter()
+        .filter(|pg| owned_states.contains(&pg.state) && pg.class != PopClass::Soldier)
+        .map(|pg| {
+            has_pop_data = true;
+            if pg.employed_at.is_none() {
+                pg.size
+            } else {
+                0
+            }
+        })
+        .sum();
+
+    if !has_pop_data {
+        return BASE_REGIONAL_LABOR_CP;
+    }
+    (BASE_REGIONAL_LABOR_CP + unemployed as f32 / UNEMPLOYED_POP_PER_LABOR_CP)
+        .min(MAX_REGIONAL_LABOR_CP)
+}
+
+fn engineering_equipment_cp(world: &World, ci: usize) -> f32 {
+    BASE_ENGINEERING_EQUIPMENT_CP
+        + construction_sector_levels(world, ci) as f32
+            * ENGINEERING_CP_PER_CONSTRUCTION_SECTOR_LEVEL
+}
+
+fn construction_sector_levels(world: &World, ci: usize) -> u32 {
+    let country = CountryId(ci as u16);
+    world
+        .countries
+        .buildings_v6
+        .buildings
+        .iter()
+        .filter(|building| {
+            let state_idx = building.state.0 as usize;
+            state_idx < world.states.count
+                && world.states.owners[state_idx] == country
+                && building.building_def_id == "construction_sector"
+        })
+        .map(|building| building.level as u32)
+        .sum()
+}
+
+fn finance_capacity_cp(world: &World, econ: &EconomyState, ci: usize, physical_cp: f32) -> f32 {
+    if physical_cp <= 0.0 || ci >= econ.construction.len() {
+        return physical_cp.max(0.0);
+    }
+    let mut treasury_need = 0.0_f64;
+    let mut private_need = 0.0_f64;
+    let mut cartel_need = 0.0_f64;
+    for item in econ.construction[ci]
+        .items
+        .iter()
+        .filter(|item| !item.paused && item.runtime.bottleneck != "location")
+    {
+        let remaining = item.funds_remaining_rm();
+        if remaining <= 0.0 {
+            continue;
+        }
+        let daily_payment = (remaining * DAILY_FUND_RATIO).max(1.0);
+        match item.funding_source {
+            ConstructionFundingSource::Government | ConstructionFundingSource::Mefo => {
+                treasury_need += daily_payment;
+            }
+            ConstructionFundingSource::PrivatePool => {
+                private_need += daily_payment;
+            }
+            ConstructionFundingSource::CartelPool => {
+                cartel_need += daily_payment;
+            }
+            ConstructionFundingSource::OverlordInvestment { .. }
+            | ConstructionFundingSource::ForeignInvestment { .. } => {
+                treasury_need += daily_payment;
+            }
+        };
+    }
+    let daily_need = treasury_need + private_need + cartel_need;
+    if daily_need <= 0.0 {
+        return physical_cp;
+    }
+    let country = CountryId(ci as u16);
+    let treasury_available = world
+        .countries
+        .treasury
+        .treasuries
+        .get(ci)
+        .map(|treasury| treasury.cash_rm.max(0.0))
+        .unwrap_or(0.0)
+        .min(treasury_need);
+    let private_available = world
+        .countries
+        .investment_balance_rm(country, InvestmentAccountKind::Private)
+        .max(0.0)
+        .min(private_need);
+    let cartel_available = world
+        .countries
+        .investment_balance_rm(country, InvestmentAccountKind::Cartel)
+        .max(0.0)
+        .min(cartel_need);
+    let available = treasury_available + private_available + cartel_available;
+    physical_cp * (available / daily_need).clamp(0.0, 1.0) as f32
+}
+
+fn material_capacity_cp(world: &World, econ: &EconomyState, ci: usize, physical_cp: f32) -> f32 {
+    if physical_cp <= 0.0 || ci >= econ.construction.len() {
+        return physical_cp.max(0.0);
+    }
+    let mut weighted_ratio = 0.0_f32;
+    let mut total_weight = 0.0_f32;
+    for item in econ.construction[ci]
+        .items
+        .iter()
+        .filter(|item| !item.paused && item.runtime.bottleneck != "location")
+    {
+        if item.material_needs.is_empty() {
+            continue;
+        }
+        let weight: f32 = item
+            .material_needs
+            .iter()
+            .map(|need| (need.total_needed - need.consumed).max(0.0))
+            .sum();
+        if weight <= 0.0 {
+            continue;
+        }
+        weighted_ratio += compute_material_fulfillment(world, ci, item) * weight;
+        total_weight += weight;
+    }
+    if total_weight <= 0.0 {
+        return physical_cp;
+    }
+    physical_cp * (weighted_ratio / total_weight).clamp(0.0, 1.0)
 }
 
 fn economy_construction_speed(world: &World, db: &V6Database, ci: usize) -> f32 {

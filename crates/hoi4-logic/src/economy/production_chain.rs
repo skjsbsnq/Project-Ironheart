@@ -97,6 +97,90 @@ pub struct ProductionChainAction {
     pub output_kind: ProductionChainOutputKind,
 }
 
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct ProductionShortageContext {
+    pub demand: f32,
+    pub supply: f32,
+    pub imports: f32,
+    pub exports: f32,
+    pub stockpile: f32,
+    pub stockpile_coverage_days: f32,
+    pub domestic_production: f32,
+    pub building_input_demand: f32,
+    pub pop_consumption_demand: f32,
+    pub military_order_demand: f32,
+    pub construction_demand: f32,
+    pub is_blockaded: bool,
+    pub has_market_bloc_supply: bool,
+    pub has_subject_supply: bool,
+    pub world_spot_available: f32,
+    pub has_active_construction_queue: bool,
+}
+
+impl ProductionShortageContext {
+    pub fn shortage_amount(&self) -> f32 {
+        (self.demand - self.supply).max(0.0)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductionShortageDiagnosis {
+    pub good_id: String,
+    pub shortage_amount: f32,
+    pub shortage_ratio: f32,
+    pub primary_bucket: Option<DemandBucketKind>,
+    pub primary_pressure: ProductionShortagePressureKind,
+    pub supply_condition: ProductionShortageSupplyCondition,
+    pub affected_building_count: usize,
+    pub affected_bucket_count: usize,
+    pub actions: Vec<ProductionChainRecommendedAction>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductionShortagePressureKind {
+    BuildingInput,
+    PopConsumption,
+    MilitaryOrders,
+    Construction,
+    ExportOrders,
+    GeneralDemand,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductionShortageSupplyCondition {
+    Stable,
+    DomesticMissing,
+    ImportsBlocked,
+    ImportsInsufficient,
+    StockpileBuffering,
+    ProductionInsufficient,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProductionChainRecommendedAction {
+    pub kind: ProductionChainRecommendedActionKind,
+    pub good_id: String,
+    pub building_id: Option<String>,
+    pub building_name: Option<String>,
+    pub production_method_id: Option<String>,
+    pub production_method_name: Option<String>,
+    pub amount_per_level: f32,
+    pub priority: u8,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProductionChainRecommendedActionKind {
+    BuildProducer,
+    RestoreImportRoute,
+    OpenImport,
+    UseMarketBloc,
+    UseSubjectSupply,
+    ReleaseStockpile,
+    PauseConstruction,
+    ProtectPopConsumption,
+    CutExports,
+}
+
 impl ProductionChainGraph {
     pub fn from_database(db: &V6Database) -> Self {
         Self::from_database_and_market(db, None)
@@ -269,6 +353,130 @@ impl ProductionChainGraph {
                 output_kind: producer.output_kind,
             })
             .collect()
+    }
+
+    pub fn diagnose_shortage(
+        &self,
+        good_id: &str,
+        context: ProductionShortageContext,
+    ) -> ProductionShortageDiagnosis {
+        let impact = self.shortage_impact(good_id);
+        let shortage_amount = impact
+            .shortage_amount
+            .max(context.shortage_amount())
+            .max(0.0);
+        let demand = context.demand.max(impact.shortage_amount).max(0.0);
+        let shortage_ratio = if demand > 0.0 {
+            impact.shortage_ratio.max(shortage_amount / demand)
+        } else {
+            impact.shortage_ratio
+        };
+        let primary_bucket = impact
+            .affected_demand_buckets
+            .iter()
+            .max_by(|a, b| {
+                a.unmet
+                    .max(a.requested)
+                    .partial_cmp(&b.unmet.max(b.requested))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|bucket| bucket.bucket);
+        let primary_pressure = primary_pressure(primary_bucket, &context);
+        let supply_condition = supply_condition(&context, shortage_amount);
+        let mut actions = Vec::new();
+
+        if shortage_amount > 0.0 {
+            if context.is_blockaded && context.imports > 0.0 {
+                push_recommendation(
+                    &mut actions,
+                    ProductionChainRecommendedActionKind::RestoreImportRoute,
+                    good_id,
+                );
+            }
+
+            for action in self
+                .buildable_actions_for_shortage(good_id)
+                .into_iter()
+                .take(4)
+            {
+                actions.push(ProductionChainRecommendedAction {
+                    kind: ProductionChainRecommendedActionKind::BuildProducer,
+                    good_id: good_id.to_owned(),
+                    building_id: Some(action.building_id),
+                    building_name: Some(action.building_name),
+                    production_method_id: Some(action.production_method_id),
+                    production_method_name: Some(action.production_method_name),
+                    amount_per_level: action.amount_per_level,
+                    priority: actions.len() as u8,
+                });
+            }
+
+            if context.world_spot_available > 0.0
+                || (context.imports <= 0.0 && context.domestic_production < context.demand)
+            {
+                push_recommendation(
+                    &mut actions,
+                    ProductionChainRecommendedActionKind::OpenImport,
+                    good_id,
+                );
+            }
+            if context.has_market_bloc_supply {
+                push_recommendation(
+                    &mut actions,
+                    ProductionChainRecommendedActionKind::UseMarketBloc,
+                    good_id,
+                );
+            }
+            if context.has_subject_supply {
+                push_recommendation(
+                    &mut actions,
+                    ProductionChainRecommendedActionKind::UseSubjectSupply,
+                    good_id,
+                );
+            }
+            if context.stockpile > 0.0 {
+                push_recommendation(
+                    &mut actions,
+                    ProductionChainRecommendedActionKind::ReleaseStockpile,
+                    good_id,
+                );
+            }
+            if primary_pressure == ProductionShortagePressureKind::Construction
+                && context.has_active_construction_queue
+            {
+                push_recommendation(
+                    &mut actions,
+                    ProductionChainRecommendedActionKind::PauseConstruction,
+                    good_id,
+                );
+            }
+            if primary_pressure == ProductionShortagePressureKind::PopConsumption {
+                push_recommendation(
+                    &mut actions,
+                    ProductionChainRecommendedActionKind::ProtectPopConsumption,
+                    good_id,
+                );
+            }
+            if primary_bucket == Some(DemandBucketKind::Export) || context.exports > 0.0 {
+                push_recommendation(
+                    &mut actions,
+                    ProductionChainRecommendedActionKind::CutExports,
+                    good_id,
+                );
+            }
+        }
+
+        ProductionShortageDiagnosis {
+            good_id: good_id.to_owned(),
+            shortage_amount,
+            shortage_ratio,
+            primary_bucket,
+            primary_pressure,
+            supply_condition,
+            affected_building_count: impact.affected_buildings.len(),
+            affected_bucket_count: impact.affected_demand_buckets.len(),
+            actions,
+        }
     }
 
     fn index_building_construction_recipe(&mut self, building: &BuildingDef) {
@@ -511,4 +719,94 @@ fn consumer_kind_sort_key(kind: &ProductionChainConsumerKind) -> String {
             format!("2:{}:{bucket:?}", bucket.priority())
         }
     }
+}
+
+fn primary_pressure(
+    primary_bucket: Option<DemandBucketKind>,
+    context: &ProductionShortageContext,
+) -> ProductionShortagePressureKind {
+    match primary_bucket {
+        Some(DemandBucketKind::BuildingInput) => ProductionShortagePressureKind::BuildingInput,
+        Some(DemandBucketKind::PopBasicConsumption)
+        | Some(DemandBucketKind::PopNonBasicConsumption) => {
+            ProductionShortagePressureKind::PopConsumption
+        }
+        Some(DemandBucketKind::GovernmentProcurement) | Some(DemandBucketKind::MilitaryInput) => {
+            ProductionShortagePressureKind::MilitaryOrders
+        }
+        Some(DemandBucketKind::ConstructionInput) => ProductionShortagePressureKind::Construction,
+        Some(DemandBucketKind::Export) => ProductionShortagePressureKind::ExportOrders,
+        None => {
+            let pressures = [
+                (
+                    context.building_input_demand,
+                    ProductionShortagePressureKind::BuildingInput,
+                ),
+                (
+                    context.pop_consumption_demand,
+                    ProductionShortagePressureKind::PopConsumption,
+                ),
+                (
+                    context.military_order_demand,
+                    ProductionShortagePressureKind::MilitaryOrders,
+                ),
+                (
+                    context.construction_demand,
+                    ProductionShortagePressureKind::Construction,
+                ),
+                (
+                    context.exports,
+                    ProductionShortagePressureKind::ExportOrders,
+                ),
+            ];
+            pressures
+                .into_iter()
+                .max_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
+                .filter(|(amount, _)| *amount > 0.0)
+                .map(|(_, kind)| kind)
+                .unwrap_or(ProductionShortagePressureKind::GeneralDemand)
+        }
+    }
+}
+
+fn supply_condition(
+    context: &ProductionShortageContext,
+    shortage_amount: f32,
+) -> ProductionShortageSupplyCondition {
+    if shortage_amount <= 0.0 {
+        return ProductionShortageSupplyCondition::Stable;
+    }
+    if context.is_blockaded && context.imports > 0.0 {
+        return ProductionShortageSupplyCondition::ImportsBlocked;
+    }
+    if context.stockpile > 0.0 && context.stockpile_coverage_days > 0.0 {
+        return ProductionShortageSupplyCondition::StockpileBuffering;
+    }
+    if context.domestic_production <= 0.0 && context.imports <= 0.0 {
+        return ProductionShortageSupplyCondition::DomesticMissing;
+    }
+    if context.imports > 0.0 {
+        return ProductionShortageSupplyCondition::ImportsInsufficient;
+    }
+    ProductionShortageSupplyCondition::ProductionInsufficient
+}
+
+fn push_recommendation(
+    actions: &mut Vec<ProductionChainRecommendedAction>,
+    kind: ProductionChainRecommendedActionKind,
+    good_id: &str,
+) {
+    if actions.iter().any(|action| action.kind == kind) {
+        return;
+    }
+    actions.push(ProductionChainRecommendedAction {
+        kind,
+        good_id: good_id.to_owned(),
+        building_id: None,
+        building_name: None,
+        production_method_id: None,
+        production_method_name: None,
+        amount_per_level: 0.0,
+        priority: actions.len() as u8,
+    });
 }

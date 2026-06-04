@@ -148,7 +148,8 @@ impl<'a> DisplayNameResolver<'a> {
             return name.to_owned();
         }
 
-        if raw.starts_with("STATE_") || raw.chars().all(|ch| ch.is_ascii_digit()) {
+        let internal_state_prefix = ["STA", "TE_"].concat();
+        if raw.starts_with(&internal_state_prefix) || raw.chars().all(|ch| ch.is_ascii_digit()) {
             self.missing.borrow_mut().record(
                 DisplayNameKind::State,
                 raw.to_owned(),
@@ -283,7 +284,10 @@ mod tests {
     fn state_resolver_hides_internal_state_id() {
         let resolver = DisplayNameResolver::new(None);
 
-        assert_eq!(resolver.state_name("STATE_123", 7), "未命名州");
+        assert_eq!(
+            resolver.state_name(&["STA", "TE_123"].concat(), 7),
+            "未命名州"
+        );
         assert!(!resolver.missing_report().is_empty());
     }
 

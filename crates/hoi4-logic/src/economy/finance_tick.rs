@@ -3,7 +3,10 @@
 //! 本模块被 `market_tick` 和 `planned_tick` 共同调用（经 `EconomicSystemTick` trait），
 //! 但自身不直接实现 trait，避免违反 HC-3。
 
-use hoi4_content::{v6_loader::EconomicSectorDef, V6Database};
+use hoi4_content::{
+    v6_loader::{BuildingGdpComponentDef, BuildingGdpRuleDef},
+    V6Database,
+};
 use hoi4_state::{
     Building, BuildingOwner, CountryId, InvestmentAccountKind, LawCategory, OwnershipAccount,
     PopClass, StateIntegrationStatus, World,
@@ -397,19 +400,18 @@ pub fn step_construction_project_funding(
     // `construction_tick::run`; this legacy hook remains for older tick order callers.
 }
 
-fn building_sector(db: &V6Database, building_def_id: &str) -> EconomicSectorDef {
+fn building_gdp_rule(db: &V6Database, building_def_id: &str) -> BuildingGdpRuleDef {
     db.buildings
         .iter()
         .find(|def| def.id == building_def_id)
-        .map(|def| def.economic_sector)
-        .unwrap_or(EconomicSectorDef::Secondary)
+        .map(|def| def.gdp_rule)
+        .unwrap_or(BuildingGdpRuleDef {
+            component: BuildingGdpComponentDef::SecondaryOutput,
+            value_added_multiplier: 1.0,
+        })
 }
 
 pub fn step_update_gdp(world: &mut World, db: &V6Database, ci: usize, day: i64) {
-    if day % GDP_WEEKLY_INTERVAL != 0 {
-        return;
-    }
-
     let mut building_primary_rm: f64 = 0.0;
     let mut building_secondary_rm: f64 = 0.0;
     let mut building_tertiary_rm: f64 = 0.0;
@@ -423,12 +425,16 @@ pub fn step_update_gdp(world: &mut World, db: &V6Database, ci: usize, day: i64) 
             continue;
         }
 
-        let value = building.value_added_rm.max(0.0);
+        let rule = building_gdp_rule(db, &building.building_def_id);
+        let value = building.value_added_rm.max(0.0) * rule.value_added_multiplier.max(0.0) as f64;
         if world.states.integration_status[state_idx].is_domestic() {
-            match building_sector(db, &building.building_def_id) {
-                EconomicSectorDef::Primary => building_primary_rm += value,
-                EconomicSectorDef::Secondary => building_secondary_rm += value,
-                EconomicSectorDef::Tertiary => building_tertiary_rm += value,
+            match rule.component {
+                BuildingGdpComponentDef::PrimaryOutput => building_primary_rm += value,
+                BuildingGdpComponentDef::SecondaryOutput
+                | BuildingGdpComponentDef::MilitaryProcurement => building_secondary_rm += value,
+                BuildingGdpComponentDef::TertiaryOutput
+                | BuildingGdpComponentDef::GovernmentService
+                | BuildingGdpComponentDef::InfrastructureService => building_tertiary_rm += value,
             }
         } else {
             colonial_building_value_added_rm += value

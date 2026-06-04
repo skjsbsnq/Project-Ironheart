@@ -124,7 +124,7 @@ pub fn build_market_panel_data(
             if g.category == hoi4_content::v6_loader::GoodCategoryDef::MilitaryIntermediate {
                 government_orders.entry(g.id.clone()).or_default().push(
                     hoi4_ui::market_panel::GoodFlowSource {
-                        name: "?????????".to_owned(),
+                        name: "政府军需采购".to_owned(),
                         amount: procurement_mult,
                     },
                 );
@@ -280,7 +280,7 @@ pub fn build_market_panel_data(
             if domestic_production > 0.0 {
                 supply_sources.push(hoi4_ui::market_panel::GoodSupplySourceEntry {
                     kind: hoi4_ui::market_panel::GoodSupplySourceKind::Domestic,
-                    label: "Label".to_owned(),
+                    label: "国内生产".to_owned(),
                     amount: domestic_production,
                 });
             }
@@ -300,7 +300,7 @@ pub fn build_market_panel_data(
             if stockpile_draw > 0.0 {
                 supply_sources.push(hoi4_ui::market_panel::GoodSupplySourceEntry {
                     kind: hoi4_ui::market_panel::GoodSupplySourceKind::Stockpile,
-                    label: "Label".to_owned(),
+                    label: "库存释放".to_owned(),
                     amount: stockpile_draw,
                 });
             }
@@ -313,7 +313,7 @@ pub fn build_market_panel_data(
                 let (kind, label) = if route.exporter.is_none() {
                     (
                         hoi4_ui::market_panel::GoodSupplySourceKind::WorldSpot,
-                        "??????".to_owned(),
+                        "世界市场".to_owned(),
                     )
                 } else {
                     let tag = world
@@ -321,11 +321,12 @@ pub fn build_market_panel_data(
                         .tags
                         .get(route.exporter.0 as usize)
                         .cloned()
-                        .unwrap_or_else(|| "??????".to_owned());
+                        .unwrap_or_default();
+                    let country_name = name_resolver.country_name(tag.as_str(), tag.as_str());
                     if world.diplomacy.is_subject_of(route.exporter, player_id) {
                         (
                             hoi4_ui::market_panel::GoodSupplySourceKind::Subject,
-                            format!("{tag}"),
+                            country_name,
                         )
                     } else if world
                         .countries
@@ -344,12 +345,12 @@ pub fn build_market_panel_data(
                     {
                         (
                             hoi4_ui::market_panel::GoodSupplySourceKind::MarketBloc,
-                            format!("{tag}"),
+                            country_name,
                         )
                     } else {
                         (
                             hoi4_ui::market_panel::GoodSupplySourceKind::WorldSpot,
-                            format!("{tag}"),
+                            country_name,
                         )
                     }
                 };
@@ -369,6 +370,7 @@ pub fn build_market_panel_data(
             } else {
                 0.0
             };
+            let display_good_name = good_name(&name_resolver, v6_db, &g.id);
             let shortage = unmet_demand.max((demand - supply).max(0.0));
             let graph_impact = chain_graph.shortage_impact(&g.id);
             let mut affected_buildings = if shortage > 0.0 {
@@ -405,51 +407,52 @@ pub fn build_market_panel_data(
                 } else {
                     Vec::new()
                 };
-            let actionable_fixes: Vec<hoi4_ui::market_panel::MarketActionEntry> = if shortage > 0.0
-            {
-                chain_graph
-                    .buildable_actions_for_shortage(&g.id)
-                    .into_iter()
-                    .take(4)
-                    .enumerate()
-                    .map(|(idx, action)| {
-                        let building_label =
-                            building_name(&name_resolver, v6_db, &action.building_id);
-                        let pm_label = name_resolver.content_name(
-                            DisplayNameKind::ProductionMethod,
-                            &action.production_method_id,
-                            &action.production_method_name,
-                        );
-                        hoi4_ui::market_panel::MarketActionEntry {
-                            title: format!("建设 {building_label}"),
-                            description: format!(
-                                "{pm_label} 每级可提供 {:.1}/日，用于缓解 {} 短缺",
-                                action.amount_per_level,
-                                good_name(&name_resolver, v6_db, &g.id)
-                            ),
-                            related_good_id: Some(g.id.clone()),
-                            priority: idx as u8,
-                        }
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-            let shortage_reason = shortage_reason_for(
+            let diagnosis = chain_graph.diagnose_shortage(
                 &g.id,
-                shortage,
-                demand,
-                supply,
-                imports,
-                any_blockaded,
-                building_input_demand,
-                pop_consumption_demand,
-                military_order_demand,
-                construction_demand_for_good,
-                &affected_buildings,
-                &affected_pop_classes,
-                &affected_demand_buckets,
+                hoi4_logic::economy::production_chain::ProductionShortageContext {
+                    demand,
+                    supply,
+                    imports,
+                    exports,
+                    stockpile,
+                    stockpile_coverage_days,
+                    domestic_production,
+                    building_input_demand,
+                    pop_consumption_demand,
+                    military_order_demand,
+                    construction_demand: construction_demand_for_good,
+                    is_blockaded: any_blockaded && imports > 0.0,
+                    has_market_bloc_supply: supply_sources.iter().any(|source| {
+                        source.kind == hoi4_ui::market_panel::GoodSupplySourceKind::MarketBloc
+                            && source.amount > 0.0
+                    }),
+                    has_subject_supply: supply_sources.iter().any(|source| {
+                        source.kind == hoi4_ui::market_panel::GoodSupplySourceKind::Subject
+                            && source.amount > 0.0
+                    }),
+                    world_spot_available: world.countries.market.world_spot.available_for(&g.id),
+                    has_active_construction_queue: econ
+                        .construction
+                        .get(player)
+                        .map(|queue| queue.items.iter().any(|item| !item.paused))
+                        .unwrap_or(false),
+                },
             );
+            let actionable_fixes: Vec<hoi4_ui::market_panel::MarketActionEntry> = diagnosis
+                .actions
+                .iter()
+                .map(|action| {
+                    market_action_entry_for(
+                        &name_resolver,
+                        v6_db,
+                        action,
+                        &display_good_name,
+                        diagnosis.shortage_amount,
+                    )
+                })
+                .collect();
+            let shortage_reason =
+                shortage_reason_for(&display_good_name, &diagnosis, demand, supply);
             let category = match g.category {
                 hoi4_content::v6_loader::GoodCategoryDef::RawMaterial => {
                     hoi4_ui::market_panel::GoodCategory::RawMaterial
@@ -470,7 +473,7 @@ pub fn build_market_panel_data(
                     hoi4_ui::market_panel::GoodCategory::MilitaryIntermediate
                 }
             };
-            let good_name = good_name(&name_resolver, v6_db, &g.id);
+            let good_name = display_good_name;
             hoi4_ui::market_panel::GoodEntry {
                 id: g.id.clone(),
                 name: good_name,
@@ -576,9 +579,9 @@ pub fn build_market_panel_data(
                 hoi4_ui::market_panel::MarketAlertSeverity::Warning
             },
             good_id: good.id.clone(),
-            title: format!("{} ???", good.name),
+            title: format!("{} 短缺", good.name),
             description: format!(
-                "Market impact {:.1} {:.1}",
+                "当前缺口 {:.1}/日，库存可支撑 {:.1} 天。",
                 good.unmet_demand.max((good.demand - good.supply).max(0.0)),
                 good.stockpile_coverage_days
             ),
@@ -588,8 +591,8 @@ pub fn build_market_panel_data(
         alerts.push(hoi4_ui::market_panel::MarketAlertEntry {
             severity: hoi4_ui::market_panel::MarketAlertSeverity::Info,
             good_id: String::new(),
-            title: "??????".to_owned(),
-            description: "Details".to_owned(),
+            title: "市场供需稳定".to_owned(),
+            description: "暂无需要立即处理的商品短缺。".to_owned(),
         });
     }
     let cash_rm = world
@@ -696,17 +699,17 @@ pub fn build_market_panel_data(
                             .unwrap_or(std::cmp::Ordering::Equal)
                     });
                     let relation = if member == bloc.leader {
-                        "Unknown".to_owned()
+                        "集团领袖".to_owned()
                     } else if member == player_id {
-                        "???".to_owned()
+                        "本国".to_owned()
                     } else if let Some(autonomy) = world.diplomacy.autonomy.get(&member) {
                         if autonomy.master == bloc.leader {
                             market_autonomy_level_label(autonomy.level).to_owned()
                         } else {
-                            "???".to_owned()
+                            "成员国".to_owned()
                         }
                     } else {
-                        "???".to_owned()
+                        "成员国".to_owned()
                     };
                     let market_access = if world.countries.trade.routes.iter().any(|route| {
                         (route.importer == member || route.exporter == member)
@@ -730,10 +733,10 @@ pub fn build_market_panel_data(
             hoi4_ui::market_panel::MarketBlocPanelData {
                 name: bloc.name.clone(),
                 kind: match bloc.kind {
-                    hoi4_state::MarketBlocKind::ImperialPreference => "??????".to_owned(),
-                    hoi4_state::MarketBlocKind::FactionMarket => "??????".to_owned(),
-                    hoi4_state::MarketBlocKind::ColonialEmpire => "??????".to_owned(),
-                    hoi4_state::MarketBlocKind::BilateralSphere => "?????????".to_owned(),
+                    hoi4_state::MarketBlocKind::ImperialPreference => "帝国特惠市场".to_owned(),
+                    hoi4_state::MarketBlocKind::FactionMarket => "阵营共同市场".to_owned(),
+                    hoi4_state::MarketBlocKind::ColonialEmpire => "殖民帝国市场".to_owned(),
+                    hoi4_state::MarketBlocKind::BilateralSphere => "双边势力圈".to_owned(),
                 },
                 leader_tag: tag_of(bloc.leader),
                 members,
@@ -789,12 +792,12 @@ pub fn build_market_panel_data(
                 .map(|row| row.amount as f64 * 0.05)
                 .sum();
             let autonomy_level = match autonomy.level {
-                hoi4_state::AutonomyLevel::Integrated => "??????",
-                hoi4_state::AutonomyLevel::IntegratedPuppet => "Integrated puppet",
-                hoi4_state::AutonomyLevel::Puppet => "Puppet",
-                hoi4_state::AutonomyLevel::Dominion => "Dominion",
-                hoi4_state::AutonomyLevel::Satellite => "Satellite",
-                hoi4_state::AutonomyLevel::FreedomAssociation => "??????",
+                hoi4_state::AutonomyLevel::Integrated => "整合属地",
+                hoi4_state::AutonomyLevel::IntegratedPuppet => "整合傀儡",
+                hoi4_state::AutonomyLevel::Puppet => "傀儡国",
+                hoi4_state::AutonomyLevel::Dominion => "自治领",
+                hoi4_state::AutonomyLevel::Satellite => "卫星国",
+                hoi4_state::AutonomyLevel::FreedomAssociation => "自由联合",
             }
             .to_owned();
             let subject_states = world.country_state_ids(autonomy.subject);
@@ -820,19 +823,19 @@ pub fn build_market_panel_data(
                 hoi4_logic::occupation::country_governance_market_access(world, autonomy.subject);
             let risk = if avg_resistance >= 50.0 {
                 format!(
-                    "?????{:.0}%??????????????????????????????????{:.0}%",
+                    "抵抗度 {:.0}%，资源和市场通道不稳定，实际市场接入约 {:.0}%。",
                     avg_resistance,
                     market_access * 100.0
                 )
             } else if autonomy.level.master_resource_share() >= 0.5 {
                 format!(
-                    "????????????????????????????????{:.0}%????????{:.0}%",
+                    "资源抽取比例较高，顺从度 {:.0}%，市场接入约 {:.0}%。",
                     avg_compliance,
                     market_access * 100.0
                 )
             } else {
                 format!(
-                    "??????????????? {:.0}%????????{:.0}%",
+                    "属地供给稳定，顺从度 {:.0}%，市场接入约 {:.0}%。",
                     avg_compliance,
                     market_access * 100.0
                 )
@@ -856,23 +859,29 @@ pub fn build_market_panel_data(
             let shortage = good.unmet_demand.max((good.demand - good.supply).max(0.0));
             let (title, description) = if good.imports > 0.0 && good.is_blockaded {
                 (
-                    format!("??? {} ??????", good.name),
-                    format!("{} impact {:.1} {:.1}", good.name, shortage, good.imports),
+                    format!("恢复 {} 进口通道", good.name),
+                    format!(
+                        "{} 仍缺 {:.1}/日，受封锁影响的进口量为 {:.1}/日。",
+                        good.name, shortage, good.imports
+                    ),
                 )
             } else if good.domestic_production <= 0.0 && good.imports <= 0.0 {
                 (
-                    format!("??? {} ???", good.name),
-                    format!("{} requires attention", good.name),
+                    format!("建立 {} 供给来源", good.name),
+                    format!("{} 没有国内产出或进口，需要建设产能或开辟贸易。", good.name),
                 )
             } else if good.pop_consumption_demand > good.building_input_demand {
                 (
-                    format!("??? POP ???? {}", good.name),
-                    format!("POP demand {:.1}", good.pop_consumption_demand),
+                    format!("保障 POP 的 {} 消费", good.name),
+                    format!(
+                        "POP 消费需求 {:.1}/日，是当前短缺的主要压力。",
+                        good.pop_consumption_demand
+                    ),
                 )
             } else {
                 (
-                    format!("Manage {}", good.name),
-                    format!("Shortage {:.1}", shortage),
+                    format!("处理 {} 短缺", good.name),
+                    format!("当前缺口 {:.1}/日，优先检查生产链和库存。", shortage),
                 )
             };
             hoi4_ui::market_panel::MarketActionEntry {
@@ -900,8 +909,8 @@ pub fn build_market_panel_data(
     }
     if actions.is_empty() && any_blockaded {
         actions.push(hoi4_ui::market_panel::MarketActionEntry {
-            title: "??????????????".to_owned(),
-            description: "Blocked imports require attention".to_owned(),
+            title: "恢复被封锁的进口".to_owned(),
+            description: "进口线路受阻，相关商品和建筑链路需要优先处理。".to_owned(),
             related_good_id: None,
             priority: 0,
         });
@@ -986,10 +995,10 @@ pub fn build_trade_panel_data(
                 good_name(&name_resolver, v6_db, &good_id)
             };
             let kind = match route.kind {
-                hoi4_state::TradeRouteKind::Sea => "???".to_owned(),
-                hoi4_state::TradeRouteKind::Land => "???".to_owned(),
-                hoi4_state::TradeRouteKind::Transit => "???".to_owned(),
-                hoi4_state::TradeRouteKind::ImperialPreference => "??????".to_owned(),
+                hoi4_state::TradeRouteKind::Sea => "海运".to_owned(),
+                hoi4_state::TradeRouteKind::Land => "陆运".to_owned(),
+                hoi4_state::TradeRouteKind::Transit => "转运".to_owned(),
+                hoi4_state::TradeRouteKind::ImperialPreference => "帝国特惠".to_owned(),
             };
             let partner = if route.importer == player_id {
                 route.exporter
@@ -1100,71 +1109,138 @@ fn demand_bucket_label(bucket: hoi4_state::market::DemandBucketKind) -> &'static
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn shortage_reason_for(
-    good_id: &str,
-    shortage: f32,
+    good_name: &str,
+    diagnosis: &hoi4_logic::economy::production_chain::ProductionShortageDiagnosis,
     demand: f32,
     supply: f32,
-    imports: f32,
-    any_blockaded: bool,
-    building_input_demand: f32,
-    pop_consumption_demand: f32,
-    military_order_demand: f32,
-    construction_demand: f32,
-    affected_buildings: &[hoi4_ui::market_panel::GoodFlowSource],
-    affected_pop_classes: &[hoi4_ui::market_panel::GoodFlowSource],
-    affected_demand_buckets: &[hoi4_ui::market_panel::GoodFlowSource],
 ) -> String {
+    use hoi4_logic::economy::production_chain::{
+        ProductionShortagePressureKind, ProductionShortageSupplyCondition,
+    };
+
+    let shortage = diagnosis.shortage_amount;
     if shortage <= 0.0 {
         return format!(
-            "{good_id}: 供给 {:.1}/日覆盖需求 {:.1}/日。",
+            "{good_name}: 供给 {:.1}/日覆盖需求 {:.1}/日。",
             supply, demand
         );
     }
 
-    let primary_bucket = affected_demand_buckets
-        .iter()
-        .max_by(|a, b| {
-            a.amount
-                .partial_cmp(&b.amount)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(|row| row.name.as_str())
+    let primary_bucket = diagnosis
+        .primary_bucket
+        .map(demand_bucket_label)
         .unwrap_or("总需求");
-    let primary_use = if building_input_demand >= pop_consumption_demand
-        && building_input_demand >= military_order_demand
-        && building_input_demand >= construction_demand
-    {
-        "建筑生产投入"
-    } else if pop_consumption_demand >= military_order_demand
-        && pop_consumption_demand >= construction_demand
-    {
-        "POP 消费"
-    } else if military_order_demand >= construction_demand {
-        "军工/政府订单"
-    } else {
-        "建设材料"
+    let primary_use = match diagnosis.primary_pressure {
+        ProductionShortagePressureKind::BuildingInput => "建筑生产投入",
+        ProductionShortagePressureKind::PopConsumption => "POP 消费",
+        ProductionShortagePressureKind::MilitaryOrders => "军工/政府订单",
+        ProductionShortagePressureKind::Construction => "建设材料",
+        ProductionShortagePressureKind::ExportOrders => "出口订单",
+        ProductionShortagePressureKind::GeneralDemand => "总需求",
     };
-    let affected = if !affected_buildings.is_empty() {
-        format!("，影响 {} 个建筑链路", affected_buildings.len())
-    } else if !affected_pop_classes.is_empty() {
-        format!("，影响 {} 类 POP", affected_pop_classes.len())
+    let affected = if diagnosis.affected_building_count > 0 {
+        format!("，影响 {} 个建筑链路", diagnosis.affected_building_count)
+    } else if diagnosis.affected_bucket_count > 0 {
+        format!("，影响 {} 个需求桶", diagnosis.affected_bucket_count)
     } else {
         String::new()
     };
-    let blockade = if imports > 0.0 && any_blockaded {
-        "；进口受封锁影响，外部补给不稳定"
-    } else if imports > 0.0 {
-        "；已有进口补给但仍不足"
-    } else {
-        ""
+    let supply_note = match diagnosis.supply_condition {
+        ProductionShortageSupplyCondition::Stable => "",
+        ProductionShortageSupplyCondition::DomesticMissing => "；没有稳定国内产出",
+        ProductionShortageSupplyCondition::ImportsBlocked => "；进口受封锁影响，外部补给不稳定",
+        ProductionShortageSupplyCondition::ImportsInsufficient => "；已有进口补给但仍不足",
+        ProductionShortageSupplyCondition::StockpileBuffering => "；库存正在缓冲但无法完全覆盖缺口",
+        ProductionShortageSupplyCondition::ProductionInsufficient => "；国内产能低于当前需求",
     };
 
     format!(
-        "{good_id}: 缺口 {:.1}/日，供给 {:.1}/日低于需求 {:.1}/日；主要压力来自 {primary_bucket}/{primary_use}{affected}{blockade}。",
+        "{good_name}: 缺口 {:.1}/日，供给 {:.1}/日低于需求 {:.1}/日；主要压力来自 {primary_bucket}/{primary_use}{affected}{supply_note}。",
         shortage, supply, demand
     )
+}
+
+fn market_action_entry_for(
+    name_resolver: &DisplayNameResolver<'_>,
+    v6_db: &hoi4_content::V6Database,
+    action: &hoi4_logic::economy::production_chain::ProductionChainRecommendedAction,
+    good_name: &str,
+    shortage: f32,
+) -> hoi4_ui::market_panel::MarketActionEntry {
+    use hoi4_logic::economy::production_chain::ProductionChainRecommendedActionKind as Kind;
+
+    let (title, description) = match action.kind {
+        Kind::BuildProducer => {
+            let building_label = action
+                .building_id
+                .as_deref()
+                .map(|id| building_name(name_resolver, v6_db, id))
+                .or_else(|| action.building_name.clone())
+                .unwrap_or_else(|| "生产建筑".to_owned());
+            let pm_label = action
+                .production_method_id
+                .as_deref()
+                .map(|id| {
+                    name_resolver.content_name(
+                        DisplayNameKind::ProductionMethod,
+                        id,
+                        action.production_method_name.as_deref().unwrap_or(id),
+                    )
+                })
+                .or_else(|| action.production_method_name.clone())
+                .unwrap_or_else(|| "当前生产方法".to_owned());
+            (
+                format!("建设 {building_label}"),
+                format!(
+                    "{pm_label} 每级可提供 {:.1}/日，用于缓解 {good_name} 短缺。",
+                    action.amount_per_level
+                ),
+            )
+        }
+        Kind::RestoreImportRoute => (
+            format!("恢复 {good_name} 进口通道"),
+            format!(
+                "{good_name} 仍缺 {:.1}/日，优先处理封锁和运输中断。",
+                shortage
+            ),
+        ),
+        Kind::OpenImport => (
+            format!("开辟 {good_name} 进口"),
+            format!("{good_name} 国内供给不足，可通过世界市场或贸易路线临时补足。"),
+        ),
+        Kind::UseMarketBloc => (
+            format!("调动市场圈 {good_name} 供给"),
+            format!("优先检查同一市场圈成员的富余 {good_name}，降低外汇和运输压力。"),
+        ),
+        Kind::UseSubjectSupply => (
+            format!("调动属地 {good_name} 供给"),
+            format!("属地或傀儡供应可作为 {good_name} 短缺的中期缓冲。"),
+        ),
+        Kind::ReleaseStockpile => (
+            format!("释放 {good_name} 库存"),
+            format!("当前库存可缓冲部分缺口，同时需要补充产能或进口。"),
+        ),
+        Kind::PauseConstruction => (
+            "暂停低优先级建设".to_owned(),
+            format!("{good_name} 正被建设队列消耗，暂停低优先级项目可释放材料。"),
+        ),
+        Kind::ProtectPopConsumption => (
+            format!("保障 POP 的 {good_name} 消费"),
+            format!("短缺主要冲击民用消费，优先保供可降低满意度和收入链条压力。"),
+        ),
+        Kind::CutExports => (
+            format!("削减 {good_name} 出口"),
+            format!("出口订单正在占用供给，削减出口可先满足国内生产和消费。"),
+        ),
+    };
+
+    hoi4_ui::market_panel::MarketActionEntry {
+        title,
+        description,
+        related_good_id: Some(action.good_id.clone()),
+        priority: action.priority,
+    }
 }
 
 fn blockade_affected_buildings(
@@ -1209,10 +1285,10 @@ fn blockade_affected_buildings(
         let state_name = state_name(name_resolver, world, state_idx);
         let building_name = building_name(name_resolver, v6_db, &building.building_def_id);
         let label = if state_name.is_empty() {
-            format!("{}??? {}", building_name, blocked_inputs.join("/"))
+            format!("{} 缺少 {}", building_name, blocked_inputs.join("/"))
         } else {
             format!(
-                "{} {}??? {}",
+                "{} {} 缺少 {}",
                 state_name,
                 building_name,
                 blocked_inputs.join("/")
@@ -1264,11 +1340,11 @@ fn trade_capacity(world: &World, country: hoi4_state::CountryId) -> f32 {
 
 fn market_autonomy_level_label(level: hoi4_state::AutonomyLevel) -> &'static str {
     match level {
-        hoi4_state::AutonomyLevel::Integrated => "??????",
-        hoi4_state::AutonomyLevel::IntegratedPuppet => "Integrated puppet",
-        hoi4_state::AutonomyLevel::Puppet => "Puppet",
-        hoi4_state::AutonomyLevel::Dominion => "Dominion",
-        hoi4_state::AutonomyLevel::Satellite => "Satellite",
-        hoi4_state::AutonomyLevel::FreedomAssociation => "??????",
+        hoi4_state::AutonomyLevel::Integrated => "整合属地",
+        hoi4_state::AutonomyLevel::IntegratedPuppet => "整合傀儡",
+        hoi4_state::AutonomyLevel::Puppet => "傀儡国",
+        hoi4_state::AutonomyLevel::Dominion => "自治领",
+        hoi4_state::AutonomyLevel::Satellite => "卫星国",
+        hoi4_state::AutonomyLevel::FreedomAssociation => "自由联合",
     }
 }

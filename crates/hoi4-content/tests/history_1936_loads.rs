@@ -15,9 +15,9 @@ fn h0_history_1936_loads_all_required_profiles() {
     assert_eq!(
         tags,
         [
-            "USA", "GER", "SOV", "ENG", "FRA", "CZE", "JAP", "ITA", "SPR", "CHI", "HBC", "SND",
-            "PRC", "SHX", "GXC", "GDC", "YUN", "XAJ", "SIC", "XSM", "SIK", "TIB", "CAN", "AST",
-            "NZL", "SAF", "RAJ", "MAL", "ROM", "SWE", "MAN", "MEN",
+            "USA", "GER", "SOV", "ENG", "FRA", "CZE", "AUS", "LIT", "POL", "JAP", "ITA", "SPR",
+            "CHI", "HBC", "SND", "PRC", "SHX", "GXC", "GDC", "YUN", "XAJ", "SIC", "XSM", "SIK",
+            "TIB", "CAN", "AST", "NZL", "SAF", "RAJ", "MAL", "ROM", "SWE", "MAN", "MEN",
         ]
     );
     assert_eq!(db.military_profiles.len(), db.countries.len());
@@ -25,6 +25,54 @@ fn h0_history_1936_loads_all_required_profiles() {
     assert!(!db.state_deposits.is_empty());
     assert!(!db.trade_routes.is_empty());
     assert!(!db.head_of_states.is_empty());
+}
+
+#[test]
+fn p3_warehouse_visible_country_profiles_are_complete() {
+    let history = Historical1936Database::load().expect("history_1936 RON should load");
+    let db = V6Database::load();
+    let required_tags = [
+        "AST", "AUS", "CAN", "CHI", "CZE", "ENG", "FRA", "GDC", "GER", "GXC", "HBC", "ITA", "JAP",
+        "LIT", "MAL", "MAN", "MEN", "NZL", "POL", "PRC", "RAJ", "ROM", "SAF", "SHX", "SIC", "SIK",
+        "SND", "SOV", "SPR", "SWE", "TIB", "USA", "XAJ", "XSM", "YUN",
+    ];
+
+    for tag in required_tags {
+        assert!(
+            history.country(tag).is_some(),
+            "missing {tag} economy profile"
+        );
+        assert!(
+            history.head_of_state(tag).is_some(),
+            "missing {tag} head of state profile"
+        );
+        assert!(
+            history
+                .military_profiles
+                .iter()
+                .any(|profile| profile.tag == tag),
+            "missing {tag} military profile"
+        );
+        assert!(
+            db.initial_pops.contains_key(tag),
+            "missing {tag} POP profile"
+        );
+    }
+}
+
+#[test]
+fn p3_state_owner_overrides_have_population_profiles() {
+    let db = Historical1936Database::load().expect("history_1936 RON should load");
+    let required_states = [
+        4, 69, 74, 75, 152, 153, 188, 610, 611, 612, 714, 715, 716, 717, 761, 848, 972, 975, 976,
+    ];
+
+    for state_id in required_states {
+        assert!(
+            db.state_population(state_id).is_some(),
+            "missing Phase 3 state owner override population for state {state_id}"
+        );
+    }
 }
 
 #[test]

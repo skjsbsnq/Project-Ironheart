@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "LIT",
+    population: 2550000,
+    gdp_1936_gbp: 650000000.0,
+    gdp_quality: Rough,
+    sector_shares: (agriculture: 0.50, mining: 0.03, heavy_industry: 0.07, light_industry: 0.08, services: 0.18, government: 0.09, military_industry: 0.05),
+    urbanization: 0.23,
+    literacy: 0.78,
+    unemployment: 0.05,
+    industrial_capacity_index: 1.5,
+    military_spending_share: 0.055,
+    construction_capacity_index: 1.5,
+    gold_reserve_gbp: 18000000.0,
+    foreign_exchange_reserve_gbp: 12000000.0,
+    public_debt_gbp: 90000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "export_focus", taxation: "low_taxation", civil_rights: "limited_rights", information_control: "regulated_press"),
+)

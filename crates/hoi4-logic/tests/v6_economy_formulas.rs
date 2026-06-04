@@ -2,12 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use hoi4_content::v6_loader::{
-    BuildingDef, BuildingEmploymentProfileDef, BuildingGameplayClassDef, BuildingKindDef,
-    CivilRightsDef, ConscriptionDef, ConstructionMaterialDef, ConstructionRecipeDef,
-    EconomicSectorDef, EconomyDef, EquipmentOutputDef, GoodCategoryDef, GoodDef,
-    InformationControlDef, MefoDef, OwnerDef, PopClassNeedsDef, PopModifiers, PopNeedEntryDef,
-    PopNeedTierDef, ProductionMethodDef, PyatiletkaDef, PyatiletkaTargetDef, TaxationDef, TradeDef,
-    V6Database, V6EventDef, V6EventOption,
+    BuildingDef, BuildingEmploymentProfileDef, BuildingGameplayClassDef, BuildingGdpComponentDef,
+    BuildingGdpRuleDef, BuildingKindDef, CivilRightsDef, ConscriptionDef, ConstructionMaterialDef,
+    ConstructionRecipeDef, EconomicSectorDef, EconomyDef, EquipmentOutputDef, GoodCategoryDef,
+    GoodDef, InformationControlDef, MefoDef, OwnerDef, PopClassNeedsDef, PopModifiers,
+    PopNeedEntryDef, PopNeedTierDef, ProductionMethodDef, PyatiletkaDef, PyatiletkaTargetDef,
+    TaxationDef, TradeDef, V6Database, V6EventDef, V6EventOption,
 };
 use hoi4_content::{ResourceDepositDef, StateResourceDepositDef};
 use hoi4_data::{Color, Country, CountryTag, DivisionTemplate, GameData, State, SubunitDef};
@@ -166,7 +166,11 @@ fn base_db() -> V6Database {
             name: "Steel Mill".to_owned(),
             description: "Test steel mill".to_owned(),
             economic_sector: EconomicSectorDef::Secondary,
-            gameplay_class: BuildingGameplayClassDef::Industrial,
+            gameplay_class: BuildingGameplayClassDef::HeavyIndustry,
+            gdp_rule: BuildingGdpRuleDef {
+                component: BuildingGdpComponentDef::SecondaryOutput,
+                value_added_multiplier: 1.0,
+            },
             kind: BuildingKindDef::Industrial,
             max_level: 15,
             owner_default: OwnerDef::Private,
@@ -417,7 +421,11 @@ fn add_resource_building_def(db: &mut V6Database, building_id: &str, deposit_kin
         name: building_id.to_owned(),
         description: format!("Test resource building {building_id}"),
         economic_sector: EconomicSectorDef::Primary,
-        gameplay_class: BuildingGameplayClassDef::Resource,
+        gameplay_class: BuildingGameplayClassDef::ResourceExtraction,
+        gdp_rule: BuildingGdpRuleDef {
+            component: BuildingGdpComponentDef::PrimaryOutput,
+            value_added_multiplier: 1.0,
+        },
         kind: BuildingKindDef::Resource,
         max_level: 10,
         owner_default: OwnerDef::Private,
@@ -1821,6 +1829,23 @@ fn construction_queue_advances_multiple_projects_and_reports_capacity() {
     let queue = &econ.construction[0];
     assert_eq!(queue.items.len(), 2);
     assert!(queue.capacity.total_cp > 0.0);
+    assert!(queue.capacity.national_admin_cp > 0.0);
+    assert!(queue.capacity.construction_sector_cp >= 0.0);
+    assert!(queue.capacity.regional_labor_cp > 0.0);
+    assert!(queue.capacity.engineering_equipment_cp > 0.0);
+    assert!(queue.capacity.finance_cp > 0.0);
+    assert!(queue.capacity.material_cp > 0.0);
+    let physical_cp = queue.capacity.national_admin_cp
+        + queue.capacity.construction_sector_cp
+        + queue.capacity.regional_labor_cp
+        + queue.capacity.engineering_equipment_cp;
+    let expected_total_cp = physical_cp
+        .min(queue.capacity.finance_cp)
+        .min(queue.capacity.material_cp);
+    assert!(
+        (queue.capacity.total_cp - expected_total_cp).abs() < 0.01,
+        "construction total CP must be the capped capacity breakdown"
+    );
     assert!(queue.capacity.allocated_cp > 0.0);
     assert!(queue.capacity.idle_cp >= 0.0);
     assert!(queue.capacity.blocked_cp >= 0.0);
@@ -2433,11 +2458,8 @@ fn p14_gdp_uses_building_value_added_not_separate_estimate() {
         .insert("coal".to_owned(), 1.0);
     world.countries.treasury.treasuries[0].cash_rm = 1_000_000_000.0;
     let db = base_db();
-    let mut econ = EconomyState::new(&world);
-
-    for day in 1..=8 {
-        tick_daily_v6(&mut world, &mut econ, &db, day);
-    }
+    hoi4_logic::economy::building_runtime::update(&mut world, &db, 0);
+    hoi4_logic::economy::finance_tick::step_update_gdp(&mut world, &db, 0, 7);
 
     let building = &world.countries.buildings_v6.buildings[0];
     let treasury = &world.countries.treasury.treasuries[0];

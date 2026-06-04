@@ -118,6 +118,12 @@ pub struct MaterialNeed {
 #[derive(Debug, Clone)]
 pub struct ConstructionCapacity {
     pub total_cp: f32,
+    pub national_admin_cp: f32,
+    pub construction_sector_cp: f32,
+    pub regional_labor_cp: f32,
+    pub engineering_equipment_cp: f32,
+    pub finance_cp: f32,
+    pub material_cp: f32,
     pub allocated_cp: f32,
     pub idle_cp: f32,
     pub blocked_cp: f32,
@@ -127,6 +133,12 @@ impl Default for ConstructionCapacity {
     fn default() -> Self {
         Self {
             total_cp: 0.0,
+            national_admin_cp: 0.0,
+            construction_sector_cp: 0.0,
+            regional_labor_cp: 0.0,
+            engineering_equipment_cp: 0.0,
+            finance_cp: 0.0,
+            material_cp: 0.0,
             allocated_cp: 0.0,
             idle_cp: 0.0,
             blocked_cp: 0.0,

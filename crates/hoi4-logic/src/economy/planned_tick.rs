@@ -46,6 +46,8 @@ impl EconomicSystemTick for PlannedTick {
             step_pop_employment(world, db, ci);
             econ.invalidate_qualification_totals();
             step_pop_wage(world, db, ci);
+        } else {
+            step_pop_income_from_existing_wage(world, ci);
         }
         step_rationing(world, db, ci);
 
@@ -571,14 +573,31 @@ fn step_pop_wage(world: &mut World, db: &V6Database, ci: usize) {
     }
 }
 
+fn step_pop_income_from_existing_wage(world: &mut World, ci: usize) {
+    for pop_idx in country_pop_indices(world, ci) {
+        let Some(pg) = world.countries.pops.groups.get_mut(pop_idx) else {
+            continue;
+        };
+        if pg.class == PopClass::Soldier {
+            continue;
+        }
+        if pg.income_rm == 0.0 && pg.wage_rm > 0.0 {
+            pg.income_rm = pg.wage_rm;
+            pg.disposable_income_rm = pg.income_rm - pg.tax_paid_rm;
+        }
+    }
+}
+
 fn step_rationing(world: &mut World, db: &V6Database, ci: usize) {
     let completed_techs = world.countries.completed_techs[ci].clone();
     let integration_status = world.states.integration_status.clone();
+    let market_price = world.countries.market.markets[ci].price.clone();
 
     let mut total_pop_demand: std::collections::HashMap<String, f32> =
         std::collections::HashMap::new();
     let mut luxury_demand: std::collections::HashMap<String, f32> =
         std::collections::HashMap::new();
+    let mut pop_basic_budgets: Vec<(usize, f32)> = Vec::new();
 
     for pop_idx in country_pop_indices(world, ci) {
         let Some(pg) = world.countries.pops.groups.get(pop_idx) else {
@@ -603,14 +622,18 @@ fn step_rationing(world: &mut World, db: &V6Database, ci: usize) {
 
         let is_unemployed = pg.employed_at.is_none();
         let non_basic_mult = if is_unemployed { 0.3 } else { 1.0 };
+        let mut basic_budget_rm = 0.0_f32;
 
         for need in goods {
             if !good_is_unlocked(db, &completed_techs, &need.good_id) {
                 continue;
             }
+            let price = market_price.get(&need.good_id).copied().unwrap_or(1.0);
             let demand = match need.tier {
                 PopNeedTierDef::Essential | PopNeedTierDef::Normal => {
-                    pop_millions * need.amount_per_million
+                    let demand = pop_millions * need.amount_per_million;
+                    basic_budget_rm += demand * price;
+                    demand
                 }
                 PopNeedTierDef::Luxury => {
                     let d = pop_millions * need.amount_per_million * non_basic_mult;
@@ -619,6 +642,13 @@ fn step_rationing(world: &mut World, db: &V6Database, ci: usize) {
                 }
             };
             *total_pop_demand.entry(need.good_id.clone()).or_insert(0.0) += demand;
+        }
+        pop_basic_budgets.push((pop_idx, basic_budget_rm));
+    }
+
+    for (pop_idx, basic_budget_rm) in pop_basic_budgets {
+        if let Some(pg) = world.countries.pops.groups.get_mut(pop_idx) {
+            pg.basic_consumption_budget = basic_budget_rm;
         }
     }
 

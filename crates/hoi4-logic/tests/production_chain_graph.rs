@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 
 use hoi4_content::v6_loader::{
-    BuildingDef, BuildingEmploymentProfileDef, BuildingGameplayClassDef, BuildingKindDef,
-    ConstructionMaterialDef, ConstructionRecipeDef, EconomicSectorDef, EquipmentOutputDef,
-    GoodCategoryDef, GoodDef, OwnerDef, ProductionMethodDef,
+    BuildingDef, BuildingEmploymentProfileDef, BuildingGameplayClassDef, BuildingGdpComponentDef,
+    BuildingGdpRuleDef, BuildingKindDef, ConstructionMaterialDef, ConstructionRecipeDef,
+    EconomicSectorDef, EquipmentOutputDef, GoodCategoryDef, GoodDef, OwnerDef, ProductionMethodDef,
 };
 use hoi4_content::V6Database;
 use hoi4_logic::economy::production_chain::{
     ProductionChainConsumerKind, ProductionChainGraph, ProductionChainOutputKind,
+    ProductionChainRecommendedActionKind, ProductionShortageContext,
+    ProductionShortagePressureKind, ProductionShortageSupplyCondition,
 };
 use hoi4_state::market::{BucketDemand, DemandBucketKind};
 use hoi4_state::market::{ClearingBucket, GoodClearingResult, MarketClearingSheet, NationalMarket};
@@ -28,7 +30,11 @@ fn building(id: &str, name: &str, kind: BuildingKindDef, buildable: bool) -> Bui
         name: name.to_owned(),
         description: format!("{name} description"),
         economic_sector: EconomicSectorDef::Secondary,
-        gameplay_class: BuildingGameplayClassDef::Industrial,
+        gameplay_class: BuildingGameplayClassDef::HeavyIndustry,
+        gdp_rule: BuildingGdpRuleDef {
+            component: BuildingGdpComponentDef::SecondaryOutput,
+            value_added_multiplier: 1.0,
+        },
         kind,
         max_level: 10,
         owner_default: OwnerDef::Private,
@@ -238,4 +244,124 @@ fn shortage_to_actions_query() {
         action.building_id == "arms_industry"
             && action.output_kind == ProductionChainOutputKind::EquipmentCategory
     }));
+}
+
+#[test]
+fn shortage_diagnosis_includes_import_and_blockade_actions() {
+    let db = test_db();
+    let market = market_with_coal_shortage();
+    let graph = ProductionChainGraph::from_database_and_market(&db, Some(&market));
+
+    let diagnosis = graph.diagnose_shortage(
+        "coal",
+        ProductionShortageContext {
+            demand: 10.0,
+            supply: 2.0,
+            imports: 3.0,
+            is_blockaded: true,
+            domestic_production: 2.0,
+            world_spot_available: 12.0,
+            ..ProductionShortageContext::default()
+        },
+    );
+
+    assert_eq!(diagnosis.shortage_amount, 8.0);
+    assert_eq!(
+        diagnosis.supply_condition,
+        ProductionShortageSupplyCondition::ImportsBlocked
+    );
+    assert!(diagnosis
+        .actions
+        .iter()
+        .any(|action| action.kind == ProductionChainRecommendedActionKind::RestoreImportRoute));
+    assert!(diagnosis
+        .actions
+        .iter()
+        .any(|action| action.kind == ProductionChainRecommendedActionKind::OpenImport));
+}
+
+#[test]
+fn shortage_diagnosis_can_prioritize_construction_pause() {
+    let db = test_db();
+    let mut market = NationalMarket {
+        supply: HashMap::from([("steel".to_owned(), 5.0)]),
+        demand: HashMap::from([("steel".to_owned(), 20.0)]),
+        unmet_demand: HashMap::from([("steel".to_owned(), 15.0)]),
+        ..NationalMarket::default()
+    };
+    market.clearing_sheet = MarketClearingSheet {
+        results: HashMap::from([(
+            "steel".to_owned(),
+            GoodClearingResult {
+                buckets: vec![ClearingBucket {
+                    kind: DemandBucketKind::ConstructionInput,
+                    requested: 20.0,
+                    fulfilled: 5.0,
+                    unmet: 15.0,
+                }],
+                total_fulfilled: 5.0,
+                total_unmet: 15.0,
+                shortage_ratio: 0.75,
+                ..GoodClearingResult::default()
+            },
+        )]),
+    };
+    let graph = ProductionChainGraph::from_database_and_market(&db, Some(&market));
+
+    let diagnosis = graph.diagnose_shortage(
+        "steel",
+        ProductionShortageContext {
+            demand: 20.0,
+            supply: 5.0,
+            construction_demand: 20.0,
+            has_active_construction_queue: true,
+            ..ProductionShortageContext::default()
+        },
+    );
+
+    assert_eq!(
+        diagnosis.primary_pressure,
+        ProductionShortagePressureKind::Construction
+    );
+    assert!(diagnosis
+        .actions
+        .iter()
+        .any(|action| action.kind == ProductionChainRecommendedActionKind::PauseConstruction));
+}
+
+#[test]
+fn shortage_diagnosis_uses_market_bloc_subject_and_stockpile_options() {
+    let db = test_db();
+    let market = market_with_coal_shortage();
+    let graph = ProductionChainGraph::from_database_and_market(&db, Some(&market));
+
+    let diagnosis = graph.diagnose_shortage(
+        "coal",
+        ProductionShortageContext {
+            demand: 10.0,
+            supply: 2.0,
+            stockpile: 6.0,
+            stockpile_coverage_days: 1.5,
+            has_market_bloc_supply: true,
+            has_subject_supply: true,
+            ..ProductionShortageContext::default()
+        },
+    );
+
+    assert_eq!(
+        diagnosis.supply_condition,
+        ProductionShortageSupplyCondition::StockpileBuffering
+    );
+    assert!(diagnosis
+        .actions
+        .iter()
+        .any(|action| action.kind == ProductionChainRecommendedActionKind::UseMarketBloc));
+    assert!(diagnosis
+        .actions
+        .iter()
+        .any(|action| action.kind == ProductionChainRecommendedActionKind::UseSubjectSupply));
+    assert!(diagnosis
+        .actions
+        .iter()
+        .any(|action| action.kind == ProductionChainRecommendedActionKind::ReleaseStockpile));
 }

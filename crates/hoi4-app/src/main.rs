@@ -1327,71 +1327,6 @@ impl App {
         run.finished = true;
     }
 
-    fn head_of_state_display(
-        world: &World,
-        historical_1936: &hoi4_content::Historical1936Database,
-        country: hoi4_state::CountryId,
-    ) -> (String, Option<String>) {
-        if country.is_none() {
-            return (String::new(), None);
-        }
-        let Some(tag) = world.countries.tags.get(country.0 as usize) else {
-            return (String::new(), None);
-        };
-
-        if let Some(def) = historical_1936.head_of_state(tag) {
-            let character = if def.character_key.is_empty() {
-                None
-            } else {
-                world
-                    .data
-                    .characters
-                    .iter()
-                    .find(|character| character.key == def.character_key)
-            };
-            let name = if !def.name.is_empty() {
-                def.name.clone()
-            } else if let Some(character) = character {
-                world
-                    .data
-                    .character_names
-                    .get(&character.name_loc_key)
-                    .cloned()
-                    .unwrap_or_else(|| character.name_loc_key.clone())
-            } else {
-                def.character_key.clone()
-            };
-            let leader_fallback_portrait = if !def.character_key.is_empty() || def.name.is_empty() {
-                world
-                    .country_leader(country)
-                    .and_then(|leader| leader.portrait_large.clone())
-            } else {
-                None
-            };
-            let portrait = if !def.portrait_gfx.is_empty() {
-                Some(def.portrait_gfx.clone())
-            } else {
-                character
-                    .and_then(|character| character.portrait_large.clone())
-                    .or(leader_fallback_portrait)
-            };
-            return (name, portrait);
-        }
-
-        match world.country_leader(country) {
-            Some(def) => {
-                let name = world
-                    .data
-                    .character_names
-                    .get(&def.name_loc_key)
-                    .cloned()
-                    .unwrap_or_else(|| def.name_loc_key.clone());
-                (name, def.portrait_large.clone())
-            }
-            None => (String::new(), None),
-        }
-    }
-
     fn split_fleet_data(
         world: &mut World,
         player: hoi4_state::CountryId,
@@ -1535,101 +1470,6 @@ impl App {
             world.air_wings.max_planes[to].max(world.air_wings.count_planes[to]);
     }
 
-    fn finance_panel_signature(world: &World, econ: &EconomyState, player: usize) -> u64 {
-        let mut h = DefaultHasher::new();
-        if let Some(t) = world.countries.treasury.treasuries.get(player) {
-            t.cash_rm.to_bits().hash(&mut h);
-            t.reserve_gbp.to_bits().hash(&mut h);
-            t.daily_income_rm.to_bits().hash(&mut h);
-            t.daily_expense_rm.to_bits().hash(&mut h);
-            t.public_debt_rm.to_bits().hash(&mut h);
-            t.mefo_debt_rm.to_bits().hash(&mut h);
-            t.gdp_rm.to_bits().hash(&mut h);
-            t.credit_rating.hash(&mut h);
-        }
-        if let Some(rate) = world.countries.treasury.exchange_rates.get(player) {
-            rate.rm_per_gbp.to_bits().hash(&mut h);
-        }
-        if let Some(queue) = econ.construction.get(player) {
-            queue.items.len().hash(&mut h);
-            for item in &queue.items {
-                item.funding_source.hash(&mut h);
-                item.budget_needed_rm.to_bits().hash(&mut h);
-                item.reserved_funds_rm.to_bits().hash(&mut h);
-                item.paid_funds_rm.to_bits().hash(&mut h);
-            }
-        }
-        for account in world
-            .countries
-            .investment_accounts
-            .iter()
-            .filter(|account| account.country == hoi4_state::CountryId(player as u16))
-        {
-            account.account_kind.hash(&mut h);
-            account.balance_rm.to_bits().hash(&mut h);
-            account.last_income_rm.to_bits().hash(&mut h);
-            account.last_spent_rm.to_bits().hash(&mut h);
-        }
-        h.finish()
-    }
-
-    fn market_panel_signature(world: &World, econ: &EconomyState, player: usize) -> u64 {
-        let mut h = DefaultHasher::new();
-        if let Some(market) = world.countries.market.markets.get(player) {
-            market.supply.len().hash(&mut h);
-            market.demand.len().hash(&mut h);
-            market.price.len().hash(&mut h);
-            market.stockpile.len().hash(&mut h);
-            market.clearing_sheet.results.len().hash(&mut h);
-        }
-        world.countries.trade.routes.len().hash(&mut h);
-        world.countries.buildings_v6.buildings.len().hash(&mut h);
-        world.countries.pops.groups.len().hash(&mut h);
-        Self::finance_panel_signature(world, econ, player).hash(&mut h);
-        h.finish()
-    }
-
-    fn construction_panel_signature(
-        world: &World,
-        econ: &EconomyState,
-        auto_build_enabled: bool,
-        last_auto_build_explanations_len: usize,
-        player: usize,
-    ) -> u64 {
-        let mut h = DefaultHasher::new();
-        world.countries.buildings_v6.buildings.len().hash(&mut h);
-        world.countries.pops.groups.len().hash(&mut h);
-        auto_build_enabled.hash(&mut h);
-        last_auto_build_explanations_len.hash(&mut h);
-        if let Some(queue) = econ.construction.get(player) {
-            queue.items.len().hash(&mut h);
-            for item in &queue.items {
-                item.building_key.hash(&mut h);
-                item.target_state.hash(&mut h);
-                item.progress.to_bits().hash(&mut h);
-                item.paid_funds_rm.to_bits().hash(&mut h);
-                for need in &item.material_needs {
-                    need.good_id.hash(&mut h);
-                    need.consumed.to_bits().hash(&mut h);
-                    need.total_needed.to_bits().hash(&mut h);
-                }
-            }
-        }
-        Self::market_panel_signature(world, econ, player).hash(&mut h);
-        h.finish()
-    }
-
-    fn diplomacy_panel_signature(world: &World, player: usize) -> u64 {
-        let mut h = DefaultHasher::new();
-        world.diplomacy.wars.len().hash(&mut h);
-        world.diplomacy.factions.len().hash(&mut h);
-        world.diplomacy.diplomatic_requests.len().hash(&mut h);
-        world.diplomacy.world_tension.to_bits().hash(&mut h);
-        world.countries.tags.len().hash(&mut h);
-        player.hash(&mut h);
-        h.finish()
-    }
-
     fn v6_industry_counts(world: &World, country: CountryId) -> (u32, u32, u32) {
         if country.is_none() {
             return (0, 0, 0);
@@ -1757,55 +1597,6 @@ impl App {
         added
     }
 
-    fn v6_industrial_levels(world: &World, country: CountryId) -> (u32, u32) {
-        if country.is_none() {
-            return (0, 0);
-        }
-        let mut industrial = 0u32;
-        let mut military = 0u32;
-        for building in &world.countries.buildings_v6.buildings {
-            let state_idx = building.state.0 as usize;
-            if state_idx >= world.states.count
-                || world.states.owners[state_idx] != country
-                || building.level == 0
-            {
-                continue;
-            }
-            match building.kind {
-                hoi4_state::BuildingKind::Military => military += building.level as u32,
-                hoi4_state::BuildingKind::MilitaryBase => {}
-                _ => industrial += building.level as u32,
-            }
-        }
-        (industrial, military)
-    }
-
-    fn v6_estimated_gdp_gbp(
-        world: &World,
-        db: &hoi4_content::V6Database,
-        country: CountryId,
-    ) -> f64 {
-        if country.is_none() {
-            return 0.0;
-        }
-        let ci = country.0 as usize;
-        let rm_per_gbp = world.countries.treasury.exchange_rates[ci]
-            .rm_per_gbp
-            .max(0.1) as f64;
-        let mut gdp_rm = 0.0_f64;
-        for building in &world.countries.buildings_v6.buildings {
-            let state_idx = building.state.0 as usize;
-            if state_idx >= world.states.count
-                || world.states.owners[state_idx] != country
-                || building.level == 0
-            {
-                continue;
-            }
-            gdp_rm += building.value_added_rm;
-        }
-        gdp_rm * 365.0 / rm_per_gbp
-    }
-
     fn v6_tech_category_key(category: hoi4_content::v6_loader::TechCategoryDef) -> &'static str {
         match category {
             hoi4_content::v6_loader::TechCategoryDef::Industry => "industry",
@@ -1891,60 +1682,6 @@ impl App {
     fn exit_construction_mode(&mut self) {
         self.construction_mode = None;
         self.construction_highlight_province_ids.clear();
-    }
-
-    fn construction_highlight_provinces(
-        world: &World,
-        v6_db: &hoi4_content::V6Database,
-        player: usize,
-        building_key: &str,
-    ) -> HashSet<u32> {
-        let mut highlighted = HashSet::new();
-        let Some(building_def) = v6_db.buildings.iter().find(|def| def.id == building_key) else {
-            return highlighted;
-        };
-
-        let player_cid = hoi4_state::CountryId(player as u16);
-        for si in 0..world.states.count {
-            if world.states.owners[si] != player_cid {
-                continue;
-            }
-            let sid = hoi4_state::StateId(si as u16);
-            if !Self::v6_state_has_free_building_slot(world, sid) {
-                continue;
-            }
-            if hoi4_logic::economy::construction_tick::validate_build_location(
-                world,
-                v6_db,
-                player,
-                building_def,
-                sid,
-            )
-            .is_err()
-            {
-                continue;
-            }
-            for province in &world.states.provinces[si] {
-                highlighted.insert(province.0 as u32);
-            }
-        }
-        highlighted
-    }
-
-    fn v6_state_has_free_building_slot(world: &World, state: hoi4_state::StateId) -> bool {
-        let si = state.0 as usize;
-        if si >= world.states.count {
-            return false;
-        }
-        let used: u8 = world
-            .countries
-            .buildings_v6
-            .buildings
-            .iter()
-            .filter(|building| building.state == state && building.level > 0)
-            .map(|building| building.level)
-            .sum();
-        (used as u16) < Self::v6_state_building_capacity(world, state)
     }
 
     fn v6_state_building_capacity(world: &World, state: hoi4_state::StateId) -> u16 {
@@ -3180,188 +2917,16 @@ impl App {
         target: hoi4_state::CountryId,
         has_wargoal: bool,
     ) -> Option<hoi4_ui::country_info_panel::CountryInfoData> {
-        let ti = target.0 as usize;
-        if ti >= self.world.countries.count {
-            return None;
-        }
         let player = hoi4_state::CountryId(self.player_country as u16);
-
-        let tag = self.world.countries.tags.get(ti)?.clone();
-        if tag.is_empty() {
-            return None;
-        }
-        let display_name = hoi4_ui::i18n::tr(&tag).to_string();
-
-        let (leader_name, leader_portrait_key) =
-            Self::head_of_state_display(&self.world, &self.historical_1936, target);
-
-        let ruling = self
-            .world
-            .countries
-            .ruling_party
-            .get(ti)
-            .cloned()
-            .unwrap_or_default();
-        let party_loc_key_long = format!("{}_{}_party_long", tag, ruling);
-        let party_loc_key = format!("{}_{}_party", tag, ruling);
-        let party_full_name = self
-            .world
-            .data
-            .party_names
-            .get(&party_loc_key_long)
-            .or_else(|| self.world.data.party_names.get(&party_loc_key))
-            .cloned()
-            .unwrap_or_else(|| ruling.clone());
-        let ruling_party_label = hoi4_ui::i18n::tr(&ruling).to_string();
-
-        // Economy stats from V6 buildings.
-        let (industrial_level, military_industrial_level) =
-            Self::v6_industrial_levels(&self.world, target);
-        let gdp_gbp = self
-            .world
-            .countries
-            .treasury
-            .treasuries
-            .get(ti)
-            .map(|t| t.gdp_gbp)
-            .unwrap_or_else(|| Self::v6_estimated_gdp_gbp(&self.world, &self.v6_db, target));
-        let construction_points = Self::v6_construction_points(&self.world, target);
-        let population_breakdown = self.world.country_population_breakdown(target);
-        let population = population_breakdown.governed;
-        let manpower = recruitable_manpower(&self.world, &self.v6_db, CountryId(ti as u16));
-        let stability = self
-            .world
-            .countries
-            .stability
-            .get(ti)
-            .copied()
-            .unwrap_or(0.5);
-        let war_support = self
-            .world
-            .countries
-            .war_support
-            .get(ti)
-            .copied()
-            .unwrap_or(0.0);
-
-        // Division count.
-        let division_count = (0..self.world.divisions.count)
-            .filter(|&i| self.world.divisions.owners[i] == target)
-            .count() as u32;
-
-        let opinion = self.world.diplomacy.opinions.get(player, target);
-        let at_war = self.world.diplomacy.at_war_with(player, target);
-        let player_faction = self.world.diplomacy.faction_of(player);
-        let target_faction = self.world.diplomacy.faction_of(target);
-        let same_faction = player_faction.is_some() && player_faction == target_faction;
-        let faction_name = target_faction
-            .and_then(|fid| self.world.diplomacy.faction(fid).map(|f| f.name.clone()));
-        let autonomy = self.world.diplomacy.autonomy.get(&target);
-        let overlord_name = autonomy.map(|a| self.country_display_name(a.master));
-        let autonomy_level_name = autonomy.map(|a| autonomy_level_label(a.level).to_owned());
-        let mut subject_names: Vec<String> = self
-            .world
-            .diplomacy
-            .autonomy
-            .values()
-            .filter(|a| a.master == target)
-            .map(|a| self.country_display_name(a.subject))
-            .collect();
-        subject_names.sort();
-
-        let (justifying_wargoal, justify_progress, justify_days_remaining) = self
-            .world
-            .diplomacy
-            .pending_wargoals
-            .get(&player)
-            .and_then(|wgs| wgs.iter().find(|w| w.target == target))
-            .map(|wg| {
-                if wg.justified {
-                    (false, 1.0_f32, 0_u32)
-                } else {
-                    let total = wg.justify_total_days.max(1.0);
-                    let prog = (wg.justify_progress / total).clamp(0.0, 1.0);
-                    let days = (wg.justify_total_days - wg.justify_progress)
-                        .max(0.0)
-                        .ceil() as u32;
-                    (true, prog, days)
-                }
-            })
-            .unwrap_or((false, 0.0, 0));
-
-        let justify_action = diplomacy_action_view(
+        hoi4_app::ui_data::country::build_country_info_data(
             &self.world,
+            &self.historical_1936,
+            &self.v6_db,
             player,
-            hoi4_logic::diplomacy::DiplomaticAction::StartJustification {
-                target,
-                kind: hoi4_state::WargoalType::Annex,
-                target_state: None,
-            },
-        );
-        let mut declare_war_action = diplomacy_action_view(
-            &self.world,
-            player,
-            hoi4_logic::diplomacy::DiplomaticAction::DeclareWar { target },
-        );
-        if self.settings.instant_war
-            && !declare_war_action.enabled
-            && declare_war_action.reason.as_deref() == Some("?????????????????")
-        {
-            declare_war_action = hoi4_ui::diplomacy::DiplomaticActionView::enabled(
-                "?????????????????????????????????",
-            );
-        }
-        let invite_to_faction_action = diplomacy_action_view(
-            &self.world,
-            player,
-            hoi4_logic::diplomacy::DiplomaticAction::InviteToFaction { target },
-        );
-        let request_access_action = diplomacy_action_view(
-            &self.world,
-            player,
-            hoi4_logic::diplomacy::DiplomaticAction::RequestMilitaryAccess { target },
-        );
-
-        Some(hoi4_ui::country_info_panel::CountryInfoData {
-            tag: tag.clone(),
-            display_name,
-            flag_gfx: format!("GFX_flag_{}_{}", tag, ruling),
-            leader_name,
-            leader_portrait_key,
-            ruling_party_label,
-            party_full_name,
-            gdp_gbp,
-            industrial_level,
-            military_industrial_level,
-            construction_points,
-            division_count,
-            population,
-            domestic_population: population_breakdown.domestic,
-            colonial_population: population_breakdown.colonial,
-            governed_population: population_breakdown.governed,
-            subject_population: population_breakdown.subject,
-            imperial_population: population_breakdown.imperial,
-            manpower,
-            stability,
-            war_support,
-            opinion,
-            at_war,
-            same_faction,
-            faction_name,
-            overlord_name,
-            subject_names,
-            autonomy_level_name,
+            target,
             has_wargoal,
-            justifying_wargoal,
-            justify_progress,
-            justify_days_remaining,
-            wargoals: country_wargoal_details(&self.world, player, target),
-            relation_factors: country_relation_factors(&self.world, player, target),
-            justify_action,
-            declare_war_action,
-            invite_to_faction_action,
-            request_access_action,
-        })
+            self.settings.instant_war,
+        )
     }
 
     fn state_population(&self, state: hoi4_state::StateId) -> u64 {
@@ -5333,11 +4898,12 @@ impl App {
                 .focus_tree
                 .country
                 .eq_ignore_ascii_case(&player_tag_str);
-            let (leader_name, leader_portrait_key) = Self::head_of_state_display(
-                &self.world,
-                &self.historical_1936,
-                hoi4_state::CountryId(player as u16),
-            );
+            let (leader_name, leader_portrait_key) =
+                hoi4_app::ui_data::country::head_of_state_display(
+                    &self.world,
+                    &self.historical_1936,
+                    hoi4_state::CountryId(player as u16),
+                );
             let party_loc_key_long = format!("{}_{}_party_long", player_tag_str, ruling);
             let party_loc_key = format!("{}_{}_party", player_tag_str, ruling);
             let party_full_name = self
@@ -5540,7 +5106,11 @@ impl App {
             let cache_key = UiPanelCacheKey::new(
                 player_country,
                 self.world.date.days_since_epoch(),
-                Self::market_panel_signature(&self.world, &self.econ, player_country),
+                hoi4_app::ui_data::cache::market_panel_signature(
+                    &self.world,
+                    &self.econ,
+                    player_country,
+                ),
             );
             if let Some(data) = self
                 .ui_panel_cache
@@ -5578,7 +5148,11 @@ impl App {
             let cache_key = UiPanelCacheKey::new(
                 player_country,
                 self.world.date.days_since_epoch(),
-                Self::finance_panel_signature(&self.world, &self.econ, player_country),
+                hoi4_app::ui_data::cache::finance_panel_signature(
+                    &self.world,
+                    &self.econ,
+                    player_country,
+                ),
             );
             if let Some(data) = self
                 .ui_panel_cache
@@ -5630,7 +5204,7 @@ impl App {
             let cache_key = UiPanelCacheKey::new(
                 player_country,
                 self.world.date.days_since_epoch(),
-                Self::construction_panel_signature(
+                hoi4_app::ui_data::cache::construction_panel_signature(
                     &self.world,
                     &self.econ,
                     self.auto_build_enabled,
@@ -5770,7 +5344,7 @@ impl App {
             let cache_key = UiPanelCacheKey::new(
                 player_country,
                 self.world.date.days_since_epoch(),
-                Self::diplomacy_panel_signature(&self.world, player_country),
+                hoi4_app::ui_data::cache::diplomacy_panel_signature(&self.world, player_country),
             )
             .with_selected_tag(selected_tag.clone());
             if let Some(data) = self
@@ -5787,292 +5361,14 @@ impl App {
                 );
                 Some(data)
             } else {
-                let built =
-                    {
-                        let player = player_country;
-                        let player_cid = hoi4_state::CountryId(player as u16);
-                        let player_tag = self
-                            .world
-                            .countries
-                            .tags
-                            .get(player)
-                            .cloned()
-                            .unwrap_or_default();
-                        let player_faction = self
-                            .world
-                            .diplomacy
-                            .factions
-                            .iter()
-                            .find(|f| f.contains(player_cid))
-                            .map(|f| hoi4_ui::diplomacy::FactionEntry {
-                                name: f.name.clone(),
-                                leader_tag: self
-                                    .world
-                                    .countries
-                                    .tags
-                                    .get(f.leader.0 as usize)
-                                    .cloned()
-                                    .unwrap_or_default(),
-                                member_tags: f
-                                    .members
-                                    .iter()
-                                    .map(|m| {
-                                        self.world
-                                            .countries
-                                            .tags
-                                            .get(m.0 as usize)
-                                            .cloned()
-                                            .unwrap_or_default()
-                                    })
-                                    .collect(),
-                            });
-                        let countries: Vec<hoi4_ui::diplomacy::CountryEntry> = (0..self
-                            .world
-                            .countries
-                            .count)
-                            .filter(|&i| i != player && !self.world.countries.tags[i].is_empty())
-                            .map(|i| {
-                                let cid = hoi4_state::CountryId(i as u16);
-                                let opinion = self.world.diplomacy.opinions.get(player_cid, cid);
-                                let same_faction = player_faction.is_some()
-                                    && self
-                                        .world
-                                        .diplomacy
-                                        .factions
-                                        .iter()
-                                        .any(|f| f.contains(player_cid) && f.contains(cid));
-                                let (leader_name, leader_portrait_key) =
-                                    Self::head_of_state_display(
-                                        &self.world,
-                                        &self.historical_1936,
-                                        cid,
-                                    );
-                                let has_wargoal = self
-                                    .world
-                                    .diplomacy
-                                    .pending_wargoals
-                                    .get(&player_cid)
-                                    .map(|goals| {
-                                        goals
-                                            .iter()
-                                            .any(|goal| goal.target == cid && goal.justified)
-                                    })
-                                    .unwrap_or(false);
-                                let should_build_detail = selected_tag
-                                    .as_deref()
-                                    .map(|tag| tag == self.world.countries.tags[i].as_str())
-                                    .unwrap_or(false);
-                                let detail = if should_build_detail {
-                                    self.build_country_info_data(cid, has_wargoal).map(|info| {
-                                        hoi4_ui::diplomacy::CountryDiplomacyDetail {
-                                            tag: info.tag,
-                                            display_name: info.display_name,
-                                            opinion: info.opinion,
-                                            at_war: info.at_war,
-                                            same_faction: info.same_faction,
-                                            faction_name: info.faction_name,
-                                            overlord_name: info.overlord_name,
-                                            subject_names: info.subject_names,
-                                            autonomy_level_name: info.autonomy_level_name,
-                                            domestic_population: info.domestic_population,
-                                            colonial_population: info.colonial_population,
-                                            governed_population: info.governed_population,
-                                            subject_population: info.subject_population,
-                                            imperial_population: info.imperial_population,
-                                            has_wargoal: info.has_wargoal,
-                                            justifying_wargoal: info.justifying_wargoal,
-                                            justify_progress: info.justify_progress,
-                                            justify_days_remaining: info.justify_days_remaining,
-                                            wargoals: info.wargoals,
-                                            relation_factors: info.relation_factors,
-                                            justify_action: info.justify_action,
-                                            declare_war_action: info.declare_war_action,
-                                            invite_to_faction_action: info.invite_to_faction_action,
-                                            request_access_action: info.request_access_action,
-                                        }
-                                    })
-                                } else {
-                                    None
-                                };
-                                hoi4_ui::diplomacy::CountryEntry {
-                                    tag: self.world.countries.tags[i].clone(),
-                                    flag_gfx: format!(
-                                        "GFX_flag_{}_{}",
-                                        self.world.countries.tags[i],
-                                        self.world
-                                            .countries
-                                            .ruling_party
-                                            .get(i)
-                                            .map(String::as_str)
-                                            .unwrap_or_default()
-                                    ),
-                                    opinion,
-                                    at_war: self.world.diplomacy.at_war_with(player_cid, cid),
-                                    same_faction,
-                                    autonomy_summary: diplomacy_autonomy_summary(&self.world, cid),
-                                    leader_name,
-                                    leader_portrait_key,
-                                    detail,
-                                }
-                            })
-                            .collect();
-                        let all_factions: Vec<hoi4_ui::diplomacy::FactionEntry> = self
-                            .world
-                            .diplomacy
-                            .factions
-                            .iter()
-                            .map(|f| hoi4_ui::diplomacy::FactionEntry {
-                                name: localized_content_name(&f.name, &f.name),
-                                leader_tag: self
-                                    .world
-                                    .countries
-                                    .tags
-                                    .get(f.leader.0 as usize)
-                                    .cloned()
-                                    .unwrap_or_default(),
-                                member_tags: f
-                                    .members
-                                    .iter()
-                                    .map(|m| {
-                                        self.world
-                                            .countries
-                                            .tags
-                                            .get(m.0 as usize)
-                                            .cloned()
-                                            .unwrap_or_default()
-                                    })
-                                    .collect(),
-                            })
-                            .collect();
-                        let mut active_wars: Vec<hoi4_ui::diplomacy::PeaceWarEntry> = self
-                            .world
-                            .diplomacy
-                            .wars
-                            .values()
-                            .map(|war| {
-                                let tag_of = |country: hoi4_state::CountryId| {
-                                    self.world
-                                        .countries
-                                        .tags
-                                        .get(country.0 as usize)
-                                        .cloned()
-                                        .unwrap_or_default()
-                                };
-                                let mut attacker_tags: Vec<String> =
-                                    war.attackers.iter().copied().map(tag_of).collect();
-                                attacker_tags.sort();
-                                let mut defender_tags: Vec<String> =
-                                    war.defenders.iter().copied().map(tag_of).collect();
-                                defender_tags.sort();
-                                let winning_side_goals = if war.side_of(player_cid)
-                                    == Some(hoi4_state::WarSide::Defender)
-                                {
-                                    &war.defender_wargoals
-                                } else {
-                                    &war.attacker_wargoals
-                                };
-                                let wargoals = winning_side_goals
-                                    .iter()
-                                    .map(|goal| hoi4_ui::diplomacy::PeaceWargoalEntry {
-                                        claimant_tag: tag_of(goal.claimant),
-                                        claimant_name: self.country_display_name(goal.claimant),
-                                        target_tag: tag_of(goal.target),
-                                        target_name: self.country_display_name(goal.target),
-                                        kind: wargoal_kind_label(goal.kind).to_owned(),
-                                        target_state: goal.target_state.map(|state| state.0),
-                                    })
-                                    .collect();
-                                hoi4_ui::diplomacy::PeaceWarEntry {
-                                    id: war.id,
-                                    primary_attacker_tag: tag_of(war.primary_attacker),
-                                    primary_defender_tag: tag_of(war.primary_defender),
-                                    attacker_tags,
-                                    defender_tags,
-                                    attacker_score: war.attacker_war_score,
-                                    defender_score: war.defender_war_score,
-                                    player_side: match war.side_of(player_cid) {
-                                        Some(hoi4_state::WarSide::Attacker) => {
-                                            Some(hoi4_ui::diplomacy::PeaceSide::Attacker)
-                                        }
-                                        Some(hoi4_state::WarSide::Defender) => {
-                                            Some(hoi4_ui::diplomacy::PeaceSide::Defender)
-                                        }
-                                        None => None,
-                                    },
-                                    wargoals,
-                                    attacker_peace_action: diplomacy_action_view(
-                                        &self.world,
-                                        player_cid,
-                                        hoi4_logic::diplomacy::DiplomaticAction::ResolvePeace {
-                                            war_id: war.id,
-                                            winning_side: hoi4_state::WarSide::Attacker,
-                                        },
-                                    ),
-                                    defender_peace_action: diplomacy_action_view(
-                                        &self.world,
-                                        player_cid,
-                                        hoi4_logic::diplomacy::DiplomaticAction::ResolvePeace {
-                                            war_id: war.id,
-                                            winning_side: hoi4_state::WarSide::Defender,
-                                        },
-                                    ),
-                                }
-                            })
-                            .collect();
-                        active_wars.sort_by_key(|war| war.id);
-                        let tag_of = |country: hoi4_state::CountryId| {
-                            self.world
-                                .countries
-                                .tags
-                                .get(country.0 as usize)
-                                .cloned()
-                                .unwrap_or_default()
-                        };
-                        let mut requests: Vec<hoi4_ui::diplomacy::DiplomaticRequestEntry> =
-                            self.world
-                                .diplomacy
-                                .diplomatic_requests
-                                .iter()
-                                .filter(|request| {
-                                    request.from == player_cid || request.to == player_cid
-                                })
-                                .map(|request| {
-                                    hoi4_ui::diplomacy::DiplomaticRequestEntry {
-                    from_tag: tag_of(request.from),
-                    to_tag: tag_of(request.to),
-                    kind: match &request.kind {
-                        hoi4_state::DiplomaticRequestKind::InviteToFaction { .. } => {
-                            "Invite to faction".to_owned()
-                        }
-                        hoi4_state::DiplomaticRequestKind::RequestMilitaryAccess => {
-                            "?????????".to_owned()
-                        }
-                        hoi4_state::DiplomaticRequestKind::OfferNonAggressionPact => {
-                            "?????????".to_owned()
-                        }
-                        hoi4_state::DiplomaticRequestKind::OfferPeace => "??????".to_owned(),
-                    },
-                    status: match request.status {
-                        hoi4_state::DiplomaticRequestStatus::Pending => "Pending".to_owned(),
-                        hoi4_state::DiplomaticRequestStatus::Accepted => "Accepted".to_owned(),
-                        hoi4_state::DiplomaticRequestStatus::Rejected => "Rejected".to_owned(),
-                        hoi4_state::DiplomaticRequestStatus::Expired => "Expired".to_owned(),
-                        hoi4_state::DiplomaticRequestStatus::Withdrawn => "Withdrawn".to_owned(),
-                    },
-                }
-                                })
-                                .collect();
-                        requests.sort_by(|a, b| a.status.cmp(&b.status).then(a.kind.cmp(&b.kind)));
-                        Some(hoi4_ui::diplomacy::DiplomacyData {
-                            player_tag,
-                            player_faction,
-                            all_factions,
-                            countries,
-                            active_wars,
-                            requests,
-                            world_tension: self.world.diplomacy.world_tension,
-                        })
-                    };
+                let built = hoi4_app::ui_data::country::build_diplomacy_panel_data(
+                    &self.world,
+                    &self.historical_1936,
+                    &self.v6_db,
+                    player_country,
+                    selected_tag.as_deref(),
+                    self.settings.instant_war,
+                );
                 if let Some(data) = built.as_ref() {
                     self.ui_panel_cache.diplomacy = Some((cache_key, data.clone()));
                 }
@@ -7371,82 +6667,33 @@ impl App {
         }
         for cmd in construction_v6_cmds {
             use hoi4_ui::construction_v6_panel::ConstructionV6Command;
+            let effect =
+                hoi4_app::ui_data::construction_commands::apply_construction_control_command(
+                    &cmd,
+                    &mut self.world,
+                    &mut self.econ,
+                    &self.v6_db,
+                    self.player_country,
+                    &mut self.auto_build_enabled,
+                    &mut self.construction_mode,
+                    &mut self.construction_highlight_province_ids,
+                );
+            if effect.handled {
+                if effect.reset_auto_build_month {
+                    self.last_auto_build_month = None;
+                }
+                construction_highlight_changed |= effect.highlight_changed;
+                continue;
+            }
             match cmd {
-                ConstructionV6Command::ToggleAutoBuild(enabled) => {
-                    self.auto_build_enabled = enabled;
-                    if enabled {
-                        self.last_auto_build_month = None;
-                    }
-                }
-                ConstructionV6Command::MoveUp(idx) => {
-                    let player = self.player_country;
-                    if let Some(q) = self.econ.construction.get_mut(player) {
-                        if idx > 0 && idx < q.items.len() {
-                            q.items.swap(idx, idx - 1);
-                        }
-                    }
-                }
-                ConstructionV6Command::MoveDown(idx) => {
-                    let player = self.player_country;
-                    if let Some(q) = self.econ.construction.get_mut(player) {
-                        if idx + 1 < q.items.len() {
-                            q.items.swap(idx, idx + 1);
-                        }
-                    }
-                }
-                ConstructionV6Command::Remove(idx) => {
-                    let player = self.player_country;
-                    self.econ
-                        .cancel_construction_item(&mut self.world, player, idx, &self.v6_db);
-                }
-                ConstructionV6Command::ToggleProjectPaused(idx, paused) => {
-                    let player = self.player_country;
-                    if let Some(item) = self
-                        .econ
-                        .construction
-                        .get_mut(player)
-                        .and_then(|queue| queue.items.get_mut(idx))
-                    {
-                        item.paused = paused;
-                        item.runtime.paused = paused;
-                    }
-                }
-                ConstructionV6Command::SetProjectPriority { idx, priority } => {
-                    let player = self.player_country;
-                    if let Some(item) = self
-                        .econ
-                        .construction
-                        .get_mut(player)
-                        .and_then(|queue| queue.items.get_mut(idx))
-                    {
-                        item.priority = priority;
-                        item.runtime.priority = priority;
-                    }
-                }
-                ConstructionV6Command::SetProjectWeight { idx, weight } => {
-                    let player = self.player_country;
-                    if let Some(item) = self
-                        .econ
-                        .construction
-                        .get_mut(player)
-                        .and_then(|queue| queue.items.get_mut(idx))
-                    {
-                        let weight = weight.max(0.1);
-                        item.weight = weight;
-                        item.runtime.weight = weight;
-                    }
-                }
-                ConstructionV6Command::StartConstructionMode { building_key } => {
-                    self.construction_highlight_province_ids =
-                        Self::construction_highlight_provinces(
-                            &self.world,
-                            &self.v6_db,
-                            self.player_country,
-                            &building_key,
-                        );
-                    self.construction_mode = Some(building_key);
-                    construction_highlight_changed = true;
-                }
+                ConstructionV6Command::ToggleAutoBuild(_)
+                | ConstructionV6Command::MoveUp(_)
+                | ConstructionV6Command::MoveDown(_)
+                | ConstructionV6Command::Remove(_)
+                | ConstructionV6Command::ToggleProjectPaused(_, _)
+                | ConstructionV6Command::SetProjectPriority { .. }
+                | ConstructionV6Command::SetProjectWeight { .. }
+                | ConstructionV6Command::StartConstructionMode { .. } => {}
                 ConstructionV6Command::SwitchPM {
                     building_idx,
                     group,
@@ -10028,17 +9275,6 @@ fn estimate_construction_days_remaining(progress: f32, cost: f32) -> Option<u32>
     Some(((1.0 - completion) * 100.0).ceil().max(1.0) as u32)
 }
 
-fn autonomy_level_label(level: hoi4_state::AutonomyLevel) -> &'static str {
-    match level {
-        hoi4_state::AutonomyLevel::Integrated => "??????",
-        hoi4_state::AutonomyLevel::IntegratedPuppet => "Integrated puppet",
-        hoi4_state::AutonomyLevel::Puppet => "Puppet",
-        hoi4_state::AutonomyLevel::Dominion => "Dominion",
-        hoi4_state::AutonomyLevel::Satellite => "Satellite",
-        hoi4_state::AutonomyLevel::FreedomAssociation => "??????",
-    }
-}
-
 fn terrain_bucket_signature(bucket: &[ChunkInstance]) -> u64 {
     let mut h = DefaultHasher::new();
     bucket.len().hash(&mut h);
@@ -10065,246 +9301,6 @@ fn postprocess_lut_selection_for(
         night_factor: 0.0,
         water_factor: 0.0,
         winter_factor: 0.0,
-    }
-}
-
-fn country_display_name_from_world(
-    world: &hoi4_state::World,
-    country: hoi4_state::CountryId,
-) -> String {
-    world
-        .country_tag(country)
-        .map(|tag| hoi4_ui::i18n::tr(tag).to_string())
-        .unwrap_or_else(|| hoi4_ui::i18n::tr("unknown").to_owned())
-}
-
-fn diplomacy_autonomy_summary(
-    world: &hoi4_state::World,
-    country: hoi4_state::CountryId,
-) -> Option<String> {
-    if let Some(autonomy) = world.diplomacy.autonomy.get(&country) {
-        let master = world
-            .countries
-            .tags
-            .get(autonomy.master.0 as usize)
-            .map(|tag| hoi4_ui::i18n::tr(tag).to_string())
-            .unwrap_or_else(|| hoi4_ui::i18n::tr("unknown").to_owned());
-        return Some(format!(
-            "{} of {}",
-            autonomy_level_label(autonomy.level),
-            master
-        ));
-    }
-
-    let subject_count = world
-        .diplomacy
-        .autonomy
-        .values()
-        .filter(|autonomy| autonomy.master == country)
-        .count();
-    if subject_count > 0 {
-        Some(format!("Subjects: {}", subject_count))
-    } else {
-        None
-    }
-}
-
-fn country_wargoal_status(
-    world: &hoi4_state::World,
-    player: hoi4_state::CountryId,
-    target: hoi4_state::CountryId,
-) -> (bool, bool, f32, u32) {
-    world
-        .diplomacy
-        .pending_wargoals
-        .get(&player)
-        .and_then(|wgs| wgs.iter().find(|w| w.target == target))
-        .map(|wg| {
-            if wg.justified {
-                (true, false, 1.0_f32, 0_u32)
-            } else {
-                let total = wg.justify_total_days.max(1.0);
-                let prog = (wg.justify_progress / total).clamp(0.0, 1.0);
-                let days = (wg.justify_total_days - wg.justify_progress)
-                    .max(0.0)
-                    .ceil() as u32;
-                (false, true, prog, days)
-            }
-        })
-        .unwrap_or((false, false, 0.0, 0))
-}
-
-fn country_wargoal_details(
-    world: &hoi4_state::World,
-    player: hoi4_state::CountryId,
-    target: hoi4_state::CountryId,
-) -> Vec<hoi4_ui::diplomacy::WargoalDetailEntry> {
-    world
-        .diplomacy
-        .pending_wargoals
-        .get(&player)
-        .map(|wargoals| {
-            wargoals
-                .iter()
-                .filter(|goal| goal.target == target)
-                .map(|goal| {
-                    let total = goal.justify_total_days.max(1.0);
-                    let progress = if goal.justified {
-                        1.0
-                    } else {
-                        (goal.justify_progress / total).clamp(0.0, 1.0)
-                    };
-                    hoi4_ui::diplomacy::WargoalDetailEntry {
-                        kind: wargoal_kind_label(goal.kind).to_owned(),
-                        target_state: goal.target_state.map(|state| state.0),
-                        status: if goal.justified {
-                            "??????".to_owned()
-                        } else {
-                            "??????".to_owned()
-                        },
-                        progress,
-                        days_remaining: if goal.justified {
-                            0
-                        } else {
-                            (goal.justify_total_days - goal.justify_progress)
-                                .max(0.0)
-                                .ceil() as u32
-                        },
-                        source: "Source".to_owned(),
-                    }
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-fn country_relation_factors(
-    world: &hoi4_state::World,
-    player: hoi4_state::CountryId,
-    target: hoi4_state::CountryId,
-) -> Vec<hoi4_ui::diplomacy::RelationFactorEntry> {
-    let mut factors = Vec::new();
-    let opinion = world.diplomacy.opinions.get(player, target);
-    factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-        label: "Label".to_owned(),
-        value: format!("{opinion:+}"),
-        positive: opinion >= 0,
-    });
-
-    let reverse = world.diplomacy.opinions.get(target, player);
-    factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-        label: "Label".to_owned(),
-        value: format!("{reverse:+}"),
-        positive: reverse >= 0,
-    });
-
-    if world.diplomacy.at_war_with(player, target) {
-        factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "Label".to_owned(),
-            value: "Value".to_owned(),
-            positive: false,
-        });
-    } else {
-        factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "Label".to_owned(),
-            value: "Value".to_owned(),
-            positive: true,
-        });
-    }
-
-    match (
-        world.diplomacy.faction_of(player),
-        world.diplomacy.faction_of(target),
-    ) {
-        (Some(a), Some(b)) if a == b => factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "Label".to_owned(),
-            value: "Value".to_owned(),
-            positive: true,
-        }),
-        (Some(_), Some(_)) => factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "Label".to_owned(),
-            value: "Value".to_owned(),
-            positive: false,
-        }),
-        _ => factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "Label".to_owned(),
-            value: "Value".to_owned(),
-            positive: false,
-        }),
-    }
-
-    if world.diplomacy.is_subject_of(target, player) {
-        factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "Label".to_owned(),
-            value: "Value".to_owned(),
-            positive: true,
-        });
-    } else if world.diplomacy.is_subject_of(player, target) {
-        factors.push(hoi4_ui::diplomacy::RelationFactorEntry {
-            label: "Label".to_owned(),
-            value: "Value".to_owned(),
-            positive: false,
-        });
-    }
-
-    factors
-}
-
-fn wargoal_kind_label(kind: hoi4_state::WargoalType) -> &'static str {
-    match kind {
-        hoi4_state::WargoalType::Annex => "???",
-        hoi4_state::WargoalType::TakeState => "Take state",
-        hoi4_state::WargoalType::Liberate => "???",
-        hoi4_state::WargoalType::Puppet => "?????",
-        hoi4_state::WargoalType::ToppleGovernment => "??????",
-        hoi4_state::WargoalType::NavalAccess => "??????",
-    }
-}
-
-fn diplomacy_action_view(
-    world: &hoi4_state::World,
-    actor: hoi4_state::CountryId,
-    action: hoi4_logic::diplomacy::DiplomaticAction,
-) -> hoi4_ui::diplomacy::DiplomaticActionView {
-    let preview = hoi4_logic::diplomacy::preview_action(world, actor, &action).summary;
-    let availability = hoi4_logic::diplomacy::evaluate_action(world, actor, &action);
-    if availability.available {
-        hoi4_ui::diplomacy::DiplomaticActionView::enabled(preview)
-    } else {
-        hoi4_ui::diplomacy::DiplomaticActionView::disabled(
-            preview,
-            diplomacy_unavailable_reason_text(availability.reason.as_ref()),
-        )
-    }
-}
-
-fn diplomacy_unavailable_reason_text(
-    reason: Option<&hoi4_logic::diplomacy::UnavailableReason>,
-) -> String {
-    use hoi4_logic::diplomacy::UnavailableReason;
-    match reason {
-        Some(UnavailableReason::BadActor) => "Bad actor".to_owned(),
-        Some(UnavailableReason::BadTarget) => "?????????".to_owned(),
-        Some(UnavailableReason::SelfTarget) => "Cannot target self".to_owned(),
-        Some(UnavailableReason::AlreadyAtWar) => "Already at war".to_owned(),
-        Some(UnavailableReason::MissingJustifiedWargoal) => "?????????????????".to_owned(),
-        Some(UnavailableReason::AlreadyInFaction) => "????????????".to_owned(),
-        Some(UnavailableReason::NotInFaction) => "Not in faction".to_owned(),
-        Some(UnavailableReason::TargetAlreadyInFaction) => "????????????".to_owned(),
-        Some(UnavailableReason::NoFactionToInviteFrom) => "No faction to invite from".to_owned(),
-        Some(UnavailableReason::OpinionTooLow { current, required }) => {
-            format!("?????????????????? {current}?????{required}")
-        }
-        Some(UnavailableReason::DuplicateWargoal) => "???????????????".to_owned(),
-        Some(UnavailableReason::InsufficientPoliticalPower) => "?????????".to_owned(),
-        Some(UnavailableReason::MissingTargetState) => "???????????????".to_owned(),
-        Some(UnavailableReason::ExtraneousTargetState) => "???????????????".to_owned(),
-        Some(UnavailableReason::BadFaction) => "??????".to_owned(),
-        Some(UnavailableReason::WarNotFound) => "War not found".to_owned(),
-        Some(UnavailableReason::NotWarParticipant) => "???????????????".to_owned(),
-        Some(UnavailableReason::DuplicatePendingRequest) => "Duplicate pending request".to_owned(),
-        Some(UnavailableReason::PeaceNotReady) => "?????????????????????????????????".to_owned(),
-        None => "Unavailable".to_owned(),
     }
 }
 

@@ -218,6 +218,9 @@ fn build_employment_rows(
         ("一产", "primary"),
         ("二产", "secondary"),
         ("三产", "tertiary"),
+        ("政府服务", "government"),
+        ("军工支援", "military_support"),
+        ("基础设施", "infrastructure"),
     ];
     let mut rows: Vec<_> = sector_specs
         .iter()
@@ -374,6 +377,13 @@ fn economy_sector_label(
         hoi4_content::v6_loader::EconomicSectorDef::Primary => ("primary", "一产"),
         hoi4_content::v6_loader::EconomicSectorDef::Secondary => ("secondary", "二产"),
         hoi4_content::v6_loader::EconomicSectorDef::Tertiary => ("tertiary", "三产"),
+        hoi4_content::v6_loader::EconomicSectorDef::Government => ("government", "政府服务"),
+        hoi4_content::v6_loader::EconomicSectorDef::MilitarySupport => {
+            ("military_support", "军工支援")
+        }
+        hoi4_content::v6_loader::EconomicSectorDef::Infrastructure => {
+            ("infrastructure", "基础设施")
+        }
     }
 }
 
@@ -382,7 +392,10 @@ fn sector_sort_key(sector_id: &str) -> u8 {
         "primary" => 0,
         "secondary" => 1,
         "tertiary" => 2,
-        _ => 3,
+        "government" => 3,
+        "military_support" => 4,
+        "infrastructure" => 5,
+        _ => 6,
     }
 }
 

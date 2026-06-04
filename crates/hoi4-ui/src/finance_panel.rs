@@ -266,6 +266,8 @@ pub const ECONOMY_V9_SECONDARY_TABS: [(&str, &str); 9] = [
     ("diagnostics", "诊断"),
 ];
 
+const FINANCE_V9_FOOTER: &str = "Q 关闭 | 预算表 / 融资操作";
+
 pub fn economy_v9_secondary_tabs() -> &'static [(&'static str, &'static str)] {
     &ECONOMY_V9_SECONDARY_TABS
 }
@@ -374,7 +376,7 @@ fn v9_show_finance(ctx: &egui::Context, data: &FinancePanelData) -> (bool, Vec<F
         .subtitle("财政部 / 预算 / 债务工具")
         .class(PanelClass::Economy)
         .accent(accent)
-        .footer("Q Close  |  Budget table / Financing actions")
+        .footer(FINANCE_V9_FOOTER)
         .show(ctx, |ui, layout| {
             draw_summary_tiles(
                 ui,
@@ -2578,6 +2580,15 @@ mod tests {
                 "diagnostics"
             ]
         );
+    }
+
+    #[test]
+    fn finance_v9_footer_is_player_visible_chinese() {
+        assert!(FINANCE_V9_FOOTER.contains("关闭"));
+        assert!(FINANCE_V9_FOOTER.contains("预算表"));
+        assert!(FINANCE_V9_FOOTER.contains("融资操作"));
+        assert!(!FINANCE_V9_FOOTER.contains("Close"));
+        assert!(!FINANCE_V9_FOOTER.contains("Budget table"));
     }
 
     #[test]

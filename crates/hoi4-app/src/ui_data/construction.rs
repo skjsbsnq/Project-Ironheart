@@ -404,6 +404,12 @@ pub fn build_construction_v6_panel_data(
         active_construction_key: construction_mode.clone(),
         available_cp: construction_capacity.allocated_cp,
         total_cp,
+        national_admin_cp: construction_capacity.national_admin_cp,
+        construction_sector_cp: construction_capacity.construction_sector_cp,
+        regional_labor_cp: construction_capacity.regional_labor_cp,
+        engineering_equipment_cp: construction_capacity.engineering_equipment_cp,
+        finance_cp: construction_capacity.finance_cp,
+        material_cp: construction_capacity.material_cp,
         allocated_cp: construction_capacity.allocated_cp,
         idle_cp: construction_capacity.idle_cp,
         blocked_cp: construction_capacity.blocked_cp,
@@ -471,6 +477,15 @@ fn construction_sector(
         hoi4_content::v6_loader::EconomicSectorDef::Tertiary => {
             hoi4_ui::construction_v6_panel::ConstructionV9Sector::Tertiary
         }
+        hoi4_content::v6_loader::EconomicSectorDef::Government => {
+            hoi4_ui::construction_v6_panel::ConstructionV9Sector::Tertiary
+        }
+        hoi4_content::v6_loader::EconomicSectorDef::MilitarySupport => {
+            hoi4_ui::construction_v6_panel::ConstructionV9Sector::Secondary
+        }
+        hoi4_content::v6_loader::EconomicSectorDef::Infrastructure => {
+            hoi4_ui::construction_v6_panel::ConstructionV9Sector::Tertiary
+        }
     }
 }
 
@@ -493,24 +508,20 @@ fn construction_funding_source_label(
     source: hoi4_logic::economy::ConstructionFundingSource,
 ) -> &'static str {
     match source {
-        hoi4_logic::economy::ConstructionFundingSource::Government => "Government",
-        hoi4_logic::economy::ConstructionFundingSource::Mefo => "MEFO bills",
-        hoi4_logic::economy::ConstructionFundingSource::PrivatePool => "Private pool",
-        hoi4_logic::economy::ConstructionFundingSource::CartelPool => "Cartel pool",
-        hoi4_logic::economy::ConstructionFundingSource::OverlordInvestment { .. } => {
-            "Overlord investment"
-        }
-        hoi4_logic::economy::ConstructionFundingSource::ForeignInvestment { .. } => {
-            "Foreign investment"
-        }
+        hoi4_logic::economy::ConstructionFundingSource::Government => "政府预算",
+        hoi4_logic::economy::ConstructionFundingSource::Mefo => "MEFO 票据",
+        hoi4_logic::economy::ConstructionFundingSource::PrivatePool => "私人投资池",
+        hoi4_logic::economy::ConstructionFundingSource::CartelPool => "卡特尔投资池",
+        hoi4_logic::economy::ConstructionFundingSource::OverlordInvestment { .. } => "宗主国投资",
+        hoi4_logic::economy::ConstructionFundingSource::ForeignInvestment { .. } => "外国投资",
     }
 }
 
 fn building_owner_label(owner: hoi4_state::BuildingOwner) -> &'static str {
     match owner {
-        hoi4_state::BuildingOwner::State => "State",
-        hoi4_state::BuildingOwner::Private => "Private",
-        hoi4_state::BuildingOwner::Cartel => "Cartel",
+        hoi4_state::BuildingOwner::State => "国有",
+        hoi4_state::BuildingOwner::Private => "私营",
+        hoi4_state::BuildingOwner::Cartel => "卡特尔",
     }
 }
 
@@ -563,7 +574,11 @@ fn recipe_region_summary(building_def: &hoi4_content::v6_loader::BuildingDef) ->
             restrictions.push(limit.clone());
         }
     }
-    restrictions.join(", ")
+    restrictions
+        .iter()
+        .map(|restriction| region_restriction_label(restriction))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn required_law_label(
@@ -605,7 +620,7 @@ fn required_law_label(
             .map(|law| name_resolver.content_name(DisplayNameKind::Law, &law.id, &law.name)),
     };
     Some(format!(
-        "Requires law: {}",
+        "需要法律：{}",
         law_name.unwrap_or_else(|| {
             name_resolver.content_name(DisplayNameKind::Law, law_id.as_str(), law_id.as_str())
         })
@@ -620,7 +635,7 @@ fn building_lock_reason(
     building_def: &hoi4_content::v6_loader::BuildingDef,
 ) -> Option<String> {
     if !building_def.buildable {
-        return Some("Not buildable".to_owned());
+        return Some("当前不可建设".to_owned());
     }
 
     if let Some(reason) = required_law_label(name_resolver, db, building_def.requires_law.as_ref())
@@ -644,7 +659,7 @@ fn building_lock_reason(
             || world.countries.unlocked_buildings[player].contains(&building_def.id);
         if !unlocked {
             return Some(format!(
-                "Requires technology: {}",
+                "需要科技：{}",
                 name_resolver.content_name(DisplayNameKind::Technology, &tech.id, &tech.name)
             ));
         }
@@ -658,10 +673,10 @@ fn building_state_limit_reason(
     building_def: &hoi4_content::v6_loader::BuildingDef,
 ) -> Option<String> {
     match building_def.state_limit_kind.as_deref() {
-        Some("coastal") => Some("State limit: coastal states only".to_owned()),
-        Some("urban") => Some("State limit: urban states only".to_owned()),
-        Some("resource") => Some("State limit: resource states only".to_owned()),
-        Some(kind) => Some(format!("State limit: {}", kind)),
+        Some("coastal") => Some("州限制：仅沿海州".to_owned()),
+        Some("urban") => Some("州限制：仅城市州".to_owned()),
+        Some("resource") => Some("州限制：仅资源州".to_owned()),
+        Some(kind) => Some(format!("州限制：{}", region_restriction_label(kind))),
         None => {
             let _ = world;
             None
@@ -755,7 +770,7 @@ fn pm_lock_reason(
                         tech_id.as_str(),
                     )
                 });
-            return Some(format!("Requires technology: {}", tech_name));
+            return Some(format!("需要科技：{}", tech_name));
         }
     }
     if let Some(reason) = required_law_label(name_resolver, db, pm.required_law.as_ref()) {
@@ -791,7 +806,7 @@ fn pm_prediction(
         .collect::<Vec<_>>()
         .join(", ");
     if !output.is_empty() {
-        parts.push(format!("??? {}", output));
+        parts.push(format!("产出 {}", output));
     }
     let input = pm
         .input_good_ids
@@ -805,13 +820,25 @@ fn pm_prediction(
         .collect::<Vec<_>>()
         .join(", ");
     if !input.is_empty() {
-        parts.push(format!("??? {}", input));
+        parts.push(format!("投入 {}", input));
     }
     let workers: u32 = pm.employment_demand.iter().sum::<u32>() * level as u32;
     if workers > 0 {
-        parts.push(format!("??? {}", workers));
+        parts.push(format!("用工 {}", workers));
     }
     parts.join(", ")
+}
+
+fn region_restriction_label(restriction: &str) -> String {
+    match restriction {
+        "coastal" => "沿海州".to_owned(),
+        "urban" => "城市州".to_owned(),
+        "resource" => "资源州".to_owned(),
+        "resource_deposit" => "资源产地".to_owned(),
+        "river" => "河流地区".to_owned(),
+        "capital" => "首都地区".to_owned(),
+        other => format!("未命名地区限制({other})"),
+    }
 }
 
 fn pm_groups_for_building(

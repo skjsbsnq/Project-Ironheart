@@ -161,56 +161,71 @@ pub fn build_pop_panel_data(
     let mut political_pressures = Vec::new();
     if total.avg_essential_needs() < 0.8 {
         political_pressures.push(hoi4_ui::pop_panel::PopPoliticalPressureEntry {
-            source: "Source".to_owned(),
+            source: "生活必需品不足".to_owned(),
             pressure: ((0.8 - total.avg_essential_needs()) / 0.8).clamp(0.0, 1.0),
-            description: "Details".to_owned(),
+            description: format!(
+                "基础需求满足度仅 {:.0}%，生活压力正在推高不满。",
+                total.avg_essential_needs() * 100.0
+            ),
         });
     }
     if unemployment_rate > 0.10 {
         political_pressures.push(hoi4_ui::pop_panel::PopPoliticalPressureEntry {
-            source: "Source".to_owned(),
+            source: "失业压力".to_owned(),
             pressure: ((unemployment_rate - 0.10) / 0.40).clamp(0.0, 1.0),
-            description: "Details".to_owned(),
+            description: format!(
+                "失业率达到 {:.0}%，需要新增就业或降低劳动力冲击。",
+                unemployment_rate * 100.0
+            ),
         });
     }
     if total.avg_tax() > 0.50 {
         political_pressures.push(hoi4_ui::pop_panel::PopPoliticalPressureEntry {
-            source: "Source".to_owned(),
+            source: "税负过高".to_owned(),
             pressure: ((total.avg_tax() - 0.50) / 0.50).clamp(0.0, 1.0),
-            description: "Details".to_owned(),
+            description: format!(
+                "平均税负达到 {:.0}%，可支配收入被明显压缩。",
+                total.avg_tax() * 100.0
+            ),
         });
     }
     if total.avg_satisfaction() < 0.45 {
         political_pressures.push(hoi4_ui::pop_panel::PopPoliticalPressureEntry {
-            source: "Source".to_owned(),
+            source: "满意度偏低".to_owned(),
             pressure: ((0.45 - total.avg_satisfaction()) / 0.45).clamp(0.0, 1.0),
-            description: "Details".to_owned(),
+            description: format!(
+                "平均满意度仅 {:.0}%，社会稳定风险上升。",
+                total.avg_satisfaction() * 100.0
+            ),
         });
     }
     let avg_income = total.avg_income();
     let avg_disposable = total.avg_disposable_income();
     if avg_income > 0.0 && avg_disposable / avg_income < 0.5 {
         political_pressures.push(hoi4_ui::pop_panel::PopPoliticalPressureEntry {
-            source: "Source".to_owned(),
+            source: "可支配收入不足".to_owned(),
             pressure: ((0.5 - avg_disposable / avg_income) / 0.5).clamp(0.0, 1.0),
-            description: "Details".to_owned(),
+            description: format!(
+                "税后可支配收入仅占收入 {:.0}%，消费能力不足。",
+                avg_disposable / avg_income * 100.0
+            ),
         });
     }
     let needs = vec![
         hoi4_ui::pop_panel::PopNeedEntry {
-            tier_name: "Need".to_owned(),
+            tier_name: "基础需求".to_owned(),
             fulfillment: total.avg_essential_needs(),
-            description: "Details".to_owned(),
+            description: "粮食、燃料和基本生活品的满足情况。".to_owned(),
         },
         hoi4_ui::pop_panel::PopNeedEntry {
-            tier_name: "Need".to_owned(),
+            tier_name: "普通需求".to_owned(),
             fulfillment: total.avg_normal_needs(),
-            description: "Details".to_owned(),
+            description: "日常消费品和服务的满足情况。".to_owned(),
         },
         hoi4_ui::pop_panel::PopNeedEntry {
-            tier_name: "Need".to_owned(),
+            tier_name: "奢侈需求".to_owned(),
             fulfillment: total.avg_luxury_needs(),
-            description: "Details".to_owned(),
+            description: "高收入人群奢侈品和高级服务的满足情况。".to_owned(),
         },
     ];
     Some(hoi4_ui::pop_panel::PopPanelData {
@@ -241,10 +256,10 @@ pub fn build_pop_panel_data(
         needs,
         political_pressures,
         alerts: if total.size == 0 {
-            vec!["No POP data".to_owned()]
+            vec!["缺少人口数据".to_owned()]
         } else if zero_pop_count > 0 {
             vec![format!(
-                "{} requires attention: {}",
+                "{} 个州缺少人口数据：{}",
                 zero_pop_count,
                 zero_pop_alert.join(", ")
             )]
@@ -396,13 +411,13 @@ fn building_qualification(
 
 fn integration_label(status: StateIntegrationStatus) -> &'static str {
     match status {
-        StateIntegrationStatus::Metropole => "???",
-        StateIntegrationStatus::Incorporated => "???",
-        StateIntegrationStatus::Colony => "Colony",
-        StateIntegrationStatus::Protectorate => "Protectorate",
-        StateIntegrationStatus::Mandate => "??????",
-        StateIntegrationStatus::Concession => "???",
-        StateIntegrationStatus::Occupied => "Occupied",
+        StateIntegrationStatus::Metropole => "本土核心",
+        StateIntegrationStatus::Incorporated => "整合州",
+        StateIntegrationStatus::Colony => "殖民地",
+        StateIntegrationStatus::Protectorate => "保护领",
+        StateIntegrationStatus::Mandate => "委任统治地",
+        StateIntegrationStatus::Concession => "租借地",
+        StateIntegrationStatus::Occupied => "占领区",
     }
 }
 
@@ -525,8 +540,9 @@ impl PopAgg {
 mod tests {
     use super::*;
     use hoi4_content::v6_loader::{
-        BuildingDef, BuildingEmploymentProfileDef, BuildingGameplayClassDef, BuildingKindDef,
-        ConstructionRecipeDef, EconomicSectorDef, OwnerDef,
+        BuildingDef, BuildingEmploymentProfileDef, BuildingGameplayClassDef,
+        BuildingGdpComponentDef, BuildingGdpRuleDef, BuildingKindDef, ConstructionRecipeDef,
+        EconomicSectorDef, OwnerDef,
     };
     use hoi4_content::{ProductionMethodDef, V6Database};
     use hoi4_state::{Building, BuildingId, BuildingKind, BuildingOwner};
@@ -665,7 +681,11 @@ mod tests {
             name: "Advanced Plant".to_owned(),
             description: String::new(),
             economic_sector: EconomicSectorDef::Secondary,
-            gameplay_class: BuildingGameplayClassDef::Industrial,
+            gameplay_class: BuildingGameplayClassDef::HeavyIndustry,
+            gdp_rule: BuildingGdpRuleDef {
+                component: BuildingGdpComponentDef::SecondaryOutput,
+                value_added_multiplier: 1.0,
+            },
             kind: BuildingKindDef::Industrial,
             max_level: 5,
             owner_default: OwnerDef::Private,

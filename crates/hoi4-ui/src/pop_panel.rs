@@ -143,6 +143,21 @@ pub struct PopPanelData {
     pub alerts: Vec<String>,
 }
 
+pub const POP_V9_SECONDARY_TABS: [(&str, &str); 8] = [
+    ("national", "全国"),
+    ("states", "州人口"),
+    ("classes", "阶层"),
+    ("employment", "就业"),
+    ("income", "收入"),
+    ("needs", "消费需求"),
+    ("education", "教育技能"),
+    ("satisfaction", "满意度"),
+];
+
+pub fn pop_v9_secondary_tabs() -> &'static [(&'static str, &'static str)] {
+    &POP_V9_SECONDARY_TABS
+}
+
 pub struct PopPanel;
 
 impl PopPanel {
@@ -525,7 +540,7 @@ fn v9_show_pop(ctx: &egui::Context, data: &PopPanelData) -> (bool, Vec<()>) {
         .subtitle("人口结构 / 州 / 政治压力")
         .class(PanelClass::Economy)
         .accent(accent)
-        .footer("Q Close  |  Select integration filter")
+        .footer("Q 关闭 | 选择人口口径")
         .show(ctx, |ui, layout| {
             draw_summary_tiles(
                 ui,
@@ -559,7 +574,12 @@ fn v9_show_pop(ctx: &egui::Context, data: &PopPanelData) -> (bool, Vec<()>) {
                     ),
                 ],
             );
-            draw_tab_strip(ui, layout.tabs, "阶层表 / 州表 / 需求进度", accent);
+            draw_tab_strip(
+                ui,
+                layout.tabs,
+                "全国 / 州人口 / 阶层 / 就业 / 收入 / 消费需求 / 教育技能 / 满意度",
+                accent,
+            );
             v9_pop_body(ui, layout.body, data, &mut filter);
         });
 
@@ -1070,5 +1090,64 @@ fn v9_bad_percent_color(value: f32) -> Color32 {
         palette::WARN
     } else {
         palette::GOOD
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pop_v9_secondary_tabs_cover_required_panels() {
+        let labels: Vec<_> = pop_v9_secondary_tabs()
+            .iter()
+            .map(|(_, label)| *label)
+            .collect();
+        assert_eq!(
+            labels,
+            vec![
+                "全国",
+                "州人口",
+                "阶层",
+                "就业",
+                "收入",
+                "消费需求",
+                "教育技能",
+                "满意度",
+            ]
+        );
+    }
+
+    #[test]
+    fn pop_v9_footer_is_player_visible_chinese() {
+        let footer = "Q 关闭 | 选择人口口径";
+        assert!(footer.contains("关闭"));
+        assert!(footer.contains("人口口径"));
+        assert!(!footer.contains("Close"));
+        assert!(!footer.contains("Select"));
+    }
+
+    #[test]
+    fn pop_state_entry_keeps_internal_id_outside_display_name() {
+        let state = PopStateEntry {
+            state_name: "莱茵兰".into(),
+            state_id: 51,
+            integration_kind: PopIntegrationKind::Domestic,
+            integration_label: "本土".into(),
+            population: 1_000_000,
+            employed: 600_000,
+            unemployment_rate: 0.05,
+            avg_satisfaction: 0.72,
+            avg_wage_rm: 3.5,
+            avg_income_rm: 4.0,
+            avg_disposable_income_rm: 3.2,
+            dominant_class: "工人".into(),
+        };
+        assert_eq!(state.state_name, "莱茵兰");
+        let internal_prefix = ["STA", "TE_"].concat();
+        let internal_label = ["Sta", "te "].concat();
+        assert!(!state.state_name.contains(&internal_prefix));
+        assert!(!state.state_name.contains(&internal_label));
+        assert_ne!(state.state_name, state.state_id.to_string());
     }
 }

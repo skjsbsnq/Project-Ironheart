@@ -110,6 +110,29 @@
     (state_id: 759, population: 250000, integration: Incorporated, urbanization: 0.04, literacy: 0.12, workforce_profile: MilitaryFrontier, data_quality: Rough),
     (state_id: 760, population: 900000, integration: Incorporated, urbanization: 0.07, literacy: 0.18, workforce_profile: MilitaryFrontier, data_quality: Rough),
 
+    // Phase 3 completion: European 1936 owner overrides that previously fell back to state manpower.
+    (state_id: 4, population: 1950000, integration: Metropole, urbanization: 0.62, literacy: 0.94, workforce_profile: UrbanServices, data_quality: Rough),
+    (state_id: 152, population: 1350000, integration: Metropole, urbanization: 0.38, literacy: 0.93, workforce_profile: Industrial, data_quality: Rough),
+    (state_id: 153, population: 1250000, integration: Metropole, urbanization: 0.36, literacy: 0.93, workforce_profile: Industrial, data_quality: Rough),
+    (state_id: 848, population: 650000, integration: Metropole, urbanization: 0.28, literacy: 0.92, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 975, population: 650000, integration: Metropole, urbanization: 0.30, literacy: 0.92, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 976, population: 900000, integration: Metropole, urbanization: 0.34, literacy: 0.93, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 69, population: 3200000, integration: Metropole, urbanization: 0.42, literacy: 0.94, workforce_profile: Industrial, data_quality: Rough),
+    (state_id: 74, population: 4400000, integration: Metropole, urbanization: 0.40, literacy: 0.94, workforce_profile: Industrial, data_quality: Rough),
+    (state_id: 75, population: 5100000, integration: Metropole, urbanization: 0.34, literacy: 0.92, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 972, population: 2300000, integration: Metropole, urbanization: 0.32, literacy: 0.90, workforce_profile: Industrial, data_quality: Rough),
+    (state_id: 188, population: 2550000, integration: Metropole, urbanization: 0.23, literacy: 0.78, workforce_profile: Agrarian, data_quality: Rough),
+
+    // Phase 3 completion: Manchurian and Mengjiang override states not covered by earlier batches.
+    (state_id: 610, population: 2800000, integration: Protectorate, urbanization: 0.18, literacy: 0.32, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 611, population: 1600000, integration: Protectorate, urbanization: 0.12, literacy: 0.20, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 612, population: 1500000, integration: Protectorate, urbanization: 0.10, literacy: 0.18, workforce_profile: MilitaryFrontier, data_quality: Rough),
+    (state_id: 714, population: 1400000, integration: Protectorate, urbanization: 0.14, literacy: 0.28, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 715, population: 1500000, integration: Protectorate, urbanization: 0.16, literacy: 0.30, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 716, population: 1200000, integration: Protectorate, urbanization: 0.14, literacy: 0.28, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 717, population: 800000, integration: Protectorate, urbanization: 0.12, literacy: 0.25, workforce_profile: Agrarian, data_quality: Rough),
+    (state_id: 761, population: 400000, integration: Protectorate, urbanization: 0.10, literacy: 0.22, workforce_profile: MilitaryFrontier, data_quality: Rough),
+
     // British Empire subjects and dominions covered in Phase 1.
     (state_id: 303, population: 157000000, integration: Protectorate, urbanization: 0.11, literacy: 0.12, workforce_profile: Agrarian, data_quality: Rough),
     (state_id: 702, population: 3600000, integration: Protectorate, urbanization: 0.18, literacy: 0.35, workforce_profile: Plantation, data_quality: Rough),

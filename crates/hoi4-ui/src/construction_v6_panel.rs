@@ -147,6 +147,12 @@ pub struct ConstructionV6PanelData {
     pub active_construction_key: Option<String>,
     pub available_cp: f32,
     pub total_cp: f32,
+    pub national_admin_cp: f32,
+    pub construction_sector_cp: f32,
+    pub regional_labor_cp: f32,
+    pub engineering_equipment_cp: f32,
+    pub finance_cp: f32,
+    pub material_cp: f32,
     pub allocated_cp: f32,
     pub idle_cp: f32,
     pub blocked_cp: f32,
@@ -202,6 +208,25 @@ const EMPLOYMENT_CLASS_COLORS: [Color32; 6] = [
 
 pub struct ConstructionV6Panel;
 
+const CONSTRUCTION_V9_FOOTER: &str = "Q 关闭 | 总览 / 队列 / 目录 / 瓶颈";
+
+pub const CONSTRUCTION_V9_SECONDARY_TABS: [(&str, &str); 10] = [
+    ("overview", "总览"),
+    ("queue", "队列"),
+    ("catalog", "建筑目录"),
+    ("primary", "一产建筑"),
+    ("secondary", "二产建筑"),
+    ("tertiary", "三产建筑"),
+    ("infrastructure", "基础设施"),
+    ("military", "军事设施"),
+    ("bottlenecks", "瓶颈"),
+    ("auto_build", "自动建设"),
+];
+
+pub fn construction_v9_secondary_tabs() -> &'static [(&'static str, &'static str)] {
+    &CONSTRUCTION_V9_SECONDARY_TABS
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConstructionPanelTab {
     Overview,
@@ -218,18 +243,7 @@ enum ConstructionPanelTab {
 
 impl ConstructionPanelTab {
     fn id(self) -> &'static str {
-        match self {
-            Self::Overview => "overview",
-            Self::Queue => "queue",
-            Self::Catalog => "catalog",
-            Self::Primary => "primary",
-            Self::Secondary => "secondary",
-            Self::Tertiary => "tertiary",
-            Self::Infrastructure => "infrastructure",
-            Self::Military => "military",
-            Self::Bottlenecks => "bottlenecks",
-            Self::AutoBuild => "auto_build",
-        }
+        CONSTRUCTION_V9_SECONDARY_TABS[self as usize].0
     }
 
     fn from_id(id: &str) -> Self {
@@ -249,18 +263,7 @@ impl ConstructionPanelTab {
     }
 
     fn label(self) -> &'static str {
-        match self {
-            Self::Overview => "总览",
-            Self::Queue => "队列",
-            Self::Catalog => "建筑目录",
-            Self::Primary => "一产建筑",
-            Self::Secondary => "二产建筑",
-            Self::Tertiary => "三产建筑",
-            Self::Infrastructure => "基础设施",
-            Self::Military => "军事设施",
-            Self::Bottlenecks => "瓶颈",
-            Self::AutoBuild => "自动建设",
-        }
+        CONSTRUCTION_V9_SECONDARY_TABS[self as usize].1
     }
 }
 
@@ -461,7 +464,7 @@ fn v9_show_construction(
         .subtitle(&subtitle)
         .class(PanelClass::Economy)
         .accent(accent)
-        .footer("Q Close  |  Overview / Queue / Catalog / Bottlenecks")
+        .footer(CONSTRUCTION_V9_FOOTER)
         .show(ctx, |ui, layout| {
             draw_summary_tiles(
                 ui,
@@ -1023,6 +1026,11 @@ fn v9_bottleneck_queue_panel(
                     palette::GOOD
                 }),
             );
+            ui.label(
+                RichText::new(cp_source_summary(data))
+                    .small()
+                    .color(palette::PARCHMENT_DIM),
+            );
             ui.add_space(6.0);
             let has_blocked_entries = data.queue.iter().any(|entry| {
                 entry.blocked_cp > 0.0
@@ -1324,6 +1332,7 @@ fn v9_investment_overview_panel(
             render_summary(ui, data);
             ui.add_space(6.0);
             ui.label(RichText::new(cp_explanation_text()).small().color(MUTED));
+            ui.label(RichText::new(cp_source_summary(data)).small().color(MUTED));
             ui.add_space(6.0);
             render_status_banner(ui, data, cp_ratio);
             ui.add_space(6.0);
@@ -1334,6 +1343,18 @@ fn v9_investment_overview_panel(
 
 fn cp_explanation_text() -> &'static str {
     "建造力 CP 表示国家每日可投入建设的能力；已分配 CP 推进队列，闲置 CP 代表未使用产能，受阻 CP 来自资金、材料、劳工、工程或基础设施瓶颈。"
+}
+
+fn cp_source_summary(data: &ConstructionV6PanelData) -> String {
+    format!(
+        "来源：行政 {:.0} / 建设部门 {:.0} / 地区劳力 {:.0} / 工程设备 {:.0}；上限：资金 {:.0} / 材料 {:.0}",
+        data.national_admin_cp,
+        data.construction_sector_cp,
+        data.regional_labor_cp,
+        data.engineering_equipment_cp,
+        data.finance_cp,
+        data.material_cp,
+    )
 }
 
 fn v9_problem_overview_panel(
@@ -2062,7 +2083,7 @@ fn render_catalog_detail(
     );
     ui.label(
         RichText::new(format!(
-            "Recipe: CP {:.0} | {:.1}M RM | labor {} | engineering {}",
+            "配方：CP {:.0} | {:.1}M RM | 劳力 {} | 工程 {}",
             entry.recipe_cp_cost,
             entry.recipe_funds_rm / 1_000_000.0,
             entry.recipe_labor,
@@ -2073,14 +2094,14 @@ fn render_catalog_detail(
     );
     if !entry.recipe_materials_summary.is_empty() {
         ui.label(
-            RichText::new(format!("Materials: {}", entry.recipe_materials_summary))
+            RichText::new(format!("材料：{}", entry.recipe_materials_summary))
                 .font(TextRole::Caption.font_id())
                 .color(palette::PARCHMENT_DIM),
         );
     }
     if !entry.recipe_region_summary.is_empty() {
         ui.label(
-            RichText::new(format!("Regional limits: {}", entry.recipe_region_summary))
+            RichText::new(format!("地区限制：{}", entry.recipe_region_summary))
                 .font(TextRole::Caption.font_id())
                 .color(palette::PARCHMENT_DIM),
         );
@@ -2300,6 +2321,10 @@ fn render_summary(ui: &mut egui::Ui, data: &ConstructionV6PanelData) {
             ("已分配CP", format!("{:.0}", data.allocated_cp)),
             ("闲置CP", format!("{:.0}", data.idle_cp)),
             ("受阻CP", format!("{:.0}", data.blocked_cp)),
+            ("行政CP", format!("{:.0}", data.national_admin_cp)),
+            ("建设部门CP", format!("{:.0}", data.construction_sector_cp)),
+            ("劳力CP", format!("{:.0}", data.regional_labor_cp)),
+            ("工程CP", format!("{:.0}", data.engineering_equipment_cp)),
             (tr("gdp_growth"), format!("{:+.1}%", data.gdp_growth_yoy)),
             (
                 tr("v6_construction_spend"),
@@ -2400,6 +2425,12 @@ fn render_command_bar(
                     } else {
                         palette::MUTED
                     }),
+                );
+
+                columns[0].label(
+                    RichText::new(cp_source_summary(data))
+                        .small()
+                        .color(palette::PARCHMENT_DIM),
                 );
 
                 columns[1].label(
@@ -2579,7 +2610,7 @@ fn render_queue(
                 });
                 ui.label(
                     RichText::new(format!(
-                        "Recipe: CP {:.0} | {:.1}M RM | labor {} | engineering {}",
+                        "配方：CP {:.0} | {:.1}M RM | 劳力 {} | 工程 {}",
                         entry.recipe_cp_cost,
                         entry.recipe_funds_rm / 1_000_000.0,
                         entry.recipe_labor,
@@ -2590,14 +2621,14 @@ fn render_queue(
                 );
                 if !entry.recipe_materials_summary.is_empty() {
                     ui.label(
-                        RichText::new(format!("Materials: {}", entry.recipe_materials_summary))
+                        RichText::new(format!("材料：{}", entry.recipe_materials_summary))
                             .small()
                             .color(palette::PARCHMENT_DIM),
                     );
                 }
                 if !entry.recipe_region_summary.is_empty() {
                     ui.label(
-                        RichText::new(format!("Regional limits: {}", entry.recipe_region_summary))
+                        RichText::new(format!("地区限制：{}", entry.recipe_region_summary))
                             .small()
                             .color(palette::PARCHMENT_DIM),
                     );
@@ -3117,6 +3148,12 @@ mod tests {
             active_construction_key: Some("steel_mill".into()),
             available_cp: 50.0,
             total_cp: 100.0,
+            national_admin_cp: 20.0,
+            construction_sector_cp: 35.0,
+            regional_labor_cp: 25.0,
+            engineering_equipment_cp: 20.0,
+            finance_cp: 90.0,
+            material_cp: 80.0,
             allocated_cp: 50.0,
             idle_cp: 25.0,
             blocked_cp: 25.0,
@@ -3196,6 +3233,15 @@ mod tests {
                 "自动建设",
             ]
         );
+    }
+
+    #[test]
+    fn construction_v9_footer_is_player_visible_chinese() {
+        assert!(CONSTRUCTION_V9_FOOTER.contains("关闭"));
+        assert!(CONSTRUCTION_V9_FOOTER.contains("总览"));
+        assert!(CONSTRUCTION_V9_FOOTER.contains("队列"));
+        assert!(!CONSTRUCTION_V9_FOOTER.contains("Close"));
+        assert!(!CONSTRUCTION_V9_FOOTER.contains("Overview"));
     }
 
     #[test]
@@ -3304,5 +3350,38 @@ mod tests {
             },
         ];
         assert_eq!(actions.len(), 6);
+    }
+
+    #[test]
+    fn construction_queue_entries_expose_per_project_cp_and_eta() {
+        let data = sample_panel_data();
+        let item = &data.queue[0];
+        assert!(item.allocated_cp > 0.0);
+        assert!(item.effective_cp > 0.0);
+        assert!(item.blocked_cp > 0.0);
+        assert_eq!(item.bottleneck_label, "materials");
+        assert_eq!(item.estimated_days, Some(18));
+        assert!(item.recipe_cp_cost > 0.0);
+        assert!(item.recipe_funds_rm > 0.0);
+        assert!(item.recipe_labor > 0);
+        assert!(item.recipe_engineering > 0);
+    }
+
+    #[test]
+    fn construction_capacity_sources_are_split_for_ui() {
+        let data = sample_panel_data();
+        assert!(data.national_admin_cp > 0.0);
+        assert!(data.construction_sector_cp > 0.0);
+        assert!(data.regional_labor_cp > 0.0);
+        assert!(data.engineering_equipment_cp > 0.0);
+        assert!(data.finance_cp > 0.0);
+        assert!(data.material_cp > 0.0);
+        let summary = cp_source_summary(&data);
+        assert!(summary.contains("行政"));
+        assert!(summary.contains("建设"));
+        assert!(summary.contains("劳力"));
+        assert!(summary.contains("工程"));
+        assert!(summary.contains("资金"));
+        assert!(summary.contains("材料"));
     }
 }

@@ -103,16 +103,11 @@ fn calibration_world() -> (World, V6Database) {
     (world, db)
 }
 
-fn gdp_error(world: &World, db: &V6Database, tag: &str) -> f64 {
-    let country = world.country(tag).expect("country exists");
-    let target = db
-        .historical_countries
-        .iter()
-        .find(|profile| profile.tag == tag)
-        .expect("historical profile exists")
-        .gdp_1936_gbp;
-    let actual = world.countries.treasury.treasuries[country.0 as usize].gdp_gbp;
-    ((actual / target) - 1.0).abs()
+fn tick_days(world: &mut World, db: &V6Database, days: i64) {
+    let mut econ = EconomyState::new(world);
+    for day in 1..=days {
+        tick_daily_v6(world, &mut econ, db, day);
+    }
 }
 
 fn gdp_snapshot(world: &World, db: &V6Database, tag: &str) -> (f64, f64, f64, f32) {
@@ -134,77 +129,114 @@ fn gdp_snapshot(world: &World, db: &V6Database, tag: &str) -> (f64, f64, f64, f3
 }
 
 #[test]
-fn h4_gdp_order_matches_1936_targets() {
-    let (world, _db) = calibration_world();
-    let usa = world.country("USA").unwrap().0 as usize;
-    let ger = world.country("GER").unwrap().0 as usize;
-    let sov = world.country("SOV").unwrap().0 as usize;
-    let eng = world.country("ENG").unwrap().0 as usize;
-    let fra = world.country("FRA").unwrap().0 as usize;
-    let jap = world.country("JAP").unwrap().0 as usize;
-    let ita = world.country("ITA").unwrap().0 as usize;
-
-    let treasury = &world.countries.treasury.treasuries;
-    assert!(treasury[usa].gdp_gbp > treasury[ger].gdp_gbp);
-    assert!(treasury[ger].gdp_gbp >= treasury[sov].gdp_gbp * 0.9);
-    assert!(treasury[sov].gdp_gbp > treasury[eng].gdp_gbp);
-    assert!(treasury[eng].gdp_gbp > treasury[fra].gdp_gbp);
-    assert!(treasury[fra].gdp_gbp > treasury[jap].gdp_gbp);
-    assert!(treasury[jap].gdp_gbp > treasury[ita].gdp_gbp);
-}
-
-#[test]
-fn h4_major_gdp_stays_calibrated_after_30_and_90_days() {
-    let (mut world, db) = calibration_world();
-    let mut econ = EconomyState::new(&world);
+fn h4_initial_gdp_is_validation_only_until_runtime_tick() {
+    let (world, db) = calibration_world();
     let tags = ["USA", "GER", "SOV", "ENG", "FRA", "JAP", "ITA", "CHI"];
 
     for tag in tags {
-        assert!(
-            gdp_error(&world, &db, tag) < 0.001,
-            "{tag} initial GDP should match target"
-        );
-    }
-
-    for day in 1..=30 {
-        tick_daily_v6(&mut world, &mut econ, &db, day);
-    }
-    for tag in tags {
-        let err = gdp_error(&world, &db, tag);
-        let (actual_gbp, actual_rm, target, rate) = gdp_snapshot(&world, &db, tag);
-        assert!(
-            err <= 0.10,
-            "{tag} 30d GDP error {err:.3} exceeds 10% (actual_gbp={actual_gbp:.0}, actual_rm={actual_rm:.0}, target={target:.0}, rate={rate:.3})"
-        );
-    }
-
-    for day in 31..=90 {
-        tick_daily_v6(&mut world, &mut econ, &db, day);
-    }
-    for tag in tags {
-        let err = gdp_error(&world, &db, tag);
-        let (actual_gbp, actual_rm, target, rate) = gdp_snapshot(&world, &db, tag);
-        assert!(
-            err <= 0.08,
-            "{tag} 90d GDP error {err:.3} exceeds 8% (actual_gbp={actual_gbp:.0}, actual_rm={actual_rm:.0}, target={target:.0}, rate={rate:.3})"
+        let country = world.country(tag).expect("country exists");
+        let profile = db
+            .historical_countries
+            .iter()
+            .find(|profile| profile.tag == tag)
+            .expect("historical profile exists");
+        let treasury = &world.countries.treasury.treasuries[country.0 as usize];
+        assert_eq!(treasury.gdp_gbp, 0.0, "{tag} runtime GDP starts unset");
+        assert_eq!(treasury.gdp_rm, 0.0, "{tag} runtime GDP RM starts unset");
+        assert_eq!(
+            treasury.gdp_breakdown.historical_validation_gbp, profile.gdp_1936_gbp,
+            "{tag} historical GDP should be retained only as validation target"
         );
     }
 }
 
 #[test]
-fn h4_china_has_high_total_gdp_low_industrial_capacity() {
-    let (world, _db) = calibration_world();
+fn h4_runtime_gdp_breakdown_is_generated_after_tick() {
+    let (mut world, db) = calibration_world();
+    tick_days(&mut world, &db, 30);
+
+    for tag in ["USA", "GER", "SOV", "ENG", "FRA", "JAP", "ITA", "CHI"] {
+        let country = world.country(tag).expect("country exists");
+        let treasury = &world.countries.treasury.treasuries[country.0 as usize];
+        assert!(
+            treasury.gdp_gbp > 0.0,
+            "{tag} runtime GDP should be produced by tick"
+        );
+        assert!(
+            treasury.gdp_rm > 0.0,
+            "{tag} runtime GDP RM should be produced by tick"
+        );
+        assert!(
+            treasury.gdp_breakdown.runtime_total_rm() > 0.0,
+            "{tag} GDP breakdown should have runtime components"
+        );
+        assert!(
+            treasury.gdp_breakdown.building_primary_rm > 0.0
+                || treasury.gdp_breakdown.building_secondary_rm > 0.0
+                || treasury.gdp_breakdown.building_tertiary_rm > 0.0,
+            "{tag} GDP should include building value-added"
+        );
+        assert!(
+            treasury.gdp_breakdown.pop_income_rm > 0.0
+                && treasury.gdp_breakdown.pop_consumption_rm > 0.0,
+            "{tag} GDP should include POP income and consumption"
+        );
+    }
+}
+
+#[test]
+fn h4_major_gdp_records_historical_validation_error_after_30_and_90_days() {
+    let (mut world, db) = calibration_world();
+    let tags = ["USA", "GER", "SOV", "ENG", "FRA", "JAP", "ITA", "CHI"];
+
+    for tag in tags {
+        let country = world.country(tag).expect("country exists");
+        assert_eq!(
+            world.countries.treasury.treasuries[country.0 as usize].gdp_gbp, 0.0,
+            "{tag} initial GDP should not be seeded from historical target"
+        );
+    }
+
+    tick_days(&mut world, &db, 30);
+    for tag in tags {
+        let country = world.country(tag).expect("country exists");
+        let (actual_gbp, actual_rm, target, rate) = gdp_snapshot(&world, &db, tag);
+        let treasury = &world.countries.treasury.treasuries[country.0 as usize];
+        let signed_err = (actual_gbp - target) / target;
+        assert!(
+            signed_err.is_finite()
+                && (treasury.gdp_breakdown.historical_validation_error_ratio - signed_err).abs()
+                    < 0.0001,
+            "{tag} 30d GDP validation error should be recorded from runtime GDP (actual_gbp={actual_gbp:.0}, actual_rm={actual_rm:.0}, target={target:.0}, rate={rate:.3})"
+        );
+    }
+
+    tick_days(&mut world, &db, 60);
+    for tag in tags {
+        let country = world.country(tag).expect("country exists");
+        let (actual_gbp, actual_rm, target, rate) = gdp_snapshot(&world, &db, tag);
+        let treasury = &world.countries.treasury.treasuries[country.0 as usize];
+        let signed_err = (actual_gbp - target) / target;
+        assert!(
+            signed_err.is_finite()
+                && (treasury.gdp_breakdown.historical_validation_error_ratio - signed_err).abs()
+                    < 0.0001,
+            "{tag} 90d GDP validation error should be recorded from runtime GDP (actual_gbp={actual_gbp:.0}, actual_rm={actual_rm:.0}, target={target:.0}, rate={rate:.3})"
+        );
+    }
+}
+
+#[test]
+fn h4_china_has_runtime_gdp_and_low_industrial_capacity() {
+    let (mut world, db) = calibration_world();
+    tick_days(&mut world, &db, 30);
     let chi = world.country("CHI").unwrap();
     let jap = world.country("JAP").unwrap();
     let chi_gdp = world.countries.treasury.treasuries[chi.0 as usize].gdp_gbp;
-    let jap_gdp = world.countries.treasury.treasuries[jap.0 as usize].gdp_gbp;
     let chi_industry_levels = building_levels(&world, chi, &["steel_mill", "machinery_workshop"]);
     let jap_industry_levels = building_levels(&world, jap, &["steel_mill", "machinery_workshop"]);
 
-    assert!(
-        chi_gdp >= jap_gdp * 0.85,
-        "CHI total GDP should not be too low"
-    );
+    assert!(chi_gdp > 0.0, "CHI runtime GDP should be produced by tick");
     assert!(
         chi_industry_levels < jap_industry_levels,
         "CHI industrial capacity should remain below JAP despite comparable total GDP"

@@ -1,0 +1,18 @@
+#![enable(implicit_some)]
+(
+    tag: "POL",
+    population: 35000000,
+    gdp_1936_gbp: 5200000000.0,
+    gdp_quality: Estimated,
+    sector_shares: (agriculture: 0.38, mining: 0.12, heavy_industry: 0.15, light_industry: 0.09, services: 0.14, government: 0.07, military_industry: 0.05),
+    urbanization: 0.30,
+    literacy: 0.74,
+    unemployment: 0.08,
+    industrial_capacity_index: 6.0,
+    military_spending_share: 0.075,
+    construction_capacity_index: 5.0,
+    gold_reserve_gbp: 90000000.0,
+    foreign_exchange_reserve_gbp: 65000000.0,
+    public_debt_gbp: 950000000.0,
+    initial_laws: (conscription: "limited_conscription", economy: "interventionism", trade: "export_focus", taxation: "medium_taxation", civil_rights: "limited_rights", information_control: "regulated_press"),
+)

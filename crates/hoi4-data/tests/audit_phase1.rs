@@ -512,18 +512,20 @@ fn audit_g04_1936_country_economy_coverage_sets() {
             && existing_tags.contains("AUS"),
         "1936 owner set should include vanilla majors and 1936 override countries"
     );
-    assert!(
-        missing_economy.iter().any(|tag| tag == "AUS"),
-        "AUS should remain visible as missing economy coverage until G06 fills it"
-    );
-    assert!(
-        missing_pops.iter().any(|tag| tag == "AUS"),
-        "AUS should remain visible as missing POP coverage until G06/G05 fills it"
-    );
-    assert!(
-        missing_finance.iter().any(|tag| tag == "AUS"),
-        "AUS should remain visible as missing finance coverage until G06 fills it"
-    );
+    for tag in ["AUS", "LIT", "POL"] {
+        assert!(
+            !missing_economy.iter().any(|missing| missing == tag),
+            "{tag} should have Phase 3 economy coverage"
+        );
+        assert!(
+            !missing_pops.iter().any(|missing| missing == tag),
+            "{tag} should have Phase 3 POP coverage"
+        );
+        assert!(
+            !missing_finance.iter().any(|missing| missing == tag),
+            "{tag} should have Phase 3 finance coverage"
+        );
+    }
 }
 
 fn existing_state_owner_counts(data: &GameData) -> BTreeMap<String, usize> {
