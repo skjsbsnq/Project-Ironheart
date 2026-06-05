@@ -1,7 +1,7 @@
 //! V6.D 计划经济专属 UI：五年计划面板（目标 vs 实际 vs 配给率）。
 
 use crate::i18n::tr;
-use egui::{Color32, RichText};
+use egui::Color32;
 
 #[derive(Debug, Clone)]
 pub struct PlanTargetEntry {
@@ -26,93 +26,8 @@ pub struct PyatiletkaPanelData {
 pub struct PyatiletkaPanel;
 
 impl PyatiletkaPanel {
-    #[allow(unreachable_code)]
     pub fn show(ctx: &egui::Context, data: &PyatiletkaPanelData) -> bool {
-        return v9_show_pyatiletka(ctx, data);
-
-        let mut close = false;
-
-        if !data.is_planned_economy {
-            return close;
-        }
-
-        egui::SidePanel::left("pyatiletka_panel")
-            .default_width(380.0)
-            .resizable(false)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    ui.heading(
-                        RichText::new(tr("v6_pyatiletka_title"))
-                            .color(Color32::from_rgb(0xcc, 0x33, 0x33)),
-                    );
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.small_button("✕").clicked() {
-                            close = true;
-                        }
-                    });
-                });
-
-                ui.label(RichText::new(&data.plan_name).color(Color32::from_rgb(0xff, 0xcc, 0x80)));
-                ui.label(
-                    RichText::new(&data.plan_period)
-                        .small()
-                        .color(Color32::from_gray(160)),
-                );
-                ui.add_space(4.0);
-                ui.separator();
-
-                ui.label(
-                    RichText::new(tr("v6_pyatiletka_targets"))
-                        .color(Color32::from_rgb(0xe0, 0xc0, 0x78)),
-                );
-                ui.add_space(2.0);
-
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for entry in &data.targets {
-                        render_plan_target(ui, entry);
-                    }
-                });
-
-                ui.add_space(4.0);
-                ui.separator();
-
-                ui.label(
-                    RichText::new(tr("v6_pyatiletka_research"))
-                        .color(Color32::from_rgb(0xe0, 0xc0, 0x78)),
-                );
-                ui.add_space(2.0);
-
-                for dir in &data.focus_directions {
-                    ui.horizontal(|ui| {
-                        ui.colored_label(Color32::from_rgb(0x60, 0xc0, 0x60), "★");
-                        ui.label(RichText::new(dir).small());
-                    });
-                }
-
-                ui.add_space(4.0);
-                ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(format!(
-                            "{}: +{:.0}%",
-                            tr("v6_pyatiletka_focus_bonus"),
-                            data.focus_bonus * 100.0
-                        ))
-                        .small()
-                        .color(Color32::from_rgb(0x60, 0xc0, 0x60)),
-                    );
-                    ui.label(
-                        RichText::new(format!(
-                            "{}: {:.0}%",
-                            tr("v6_pyatiletka_off_penalty"),
-                            data.off_focus_penalty * 100.0
-                        ))
-                        .small()
-                        .color(Color32::from_rgb(0xc0, 0x60, 0x60)),
-                    );
-                });
-            });
-
-        close
+        v9_show_pyatiletka(ctx, data)
     }
 }
 
@@ -441,59 +356,6 @@ fn v9_plan_percent(value: f32) -> String {
 
 fn v9_plan_signed_percent(value: f32) -> String {
     format!("{:+.0}%", value * 100.0)
-}
-
-fn render_plan_target(ui: &mut egui::Ui, entry: &PlanTargetEntry) {
-    let progress = if entry.target_output > 0.0 {
-        (entry.actual_output / entry.target_output).min(1.0)
-    } else {
-        1.0
-    };
-
-    let bar_color = if progress >= 0.9 {
-        Color32::from_rgb(0x60, 0xc0, 0x60)
-    } else if progress >= 0.5 {
-        Color32::from_rgb(0xc0, 0xc0, 0x40)
-    } else {
-        Color32::from_rgb(0xc0, 0x60, 0x40)
-    };
-
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(&entry.good_name).color(Color32::from_gray(220)));
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(
-                RichText::new(format!(
-                    "{:.0}/{:.0}",
-                    entry.actual_output, entry.target_output
-                ))
-                .small()
-                .color(Color32::from_gray(160)),
-            );
-        });
-    });
-
-    ui.add(
-        egui::ProgressBar::new(progress)
-            .fill(bar_color)
-            .show_percentage(),
-    );
-
-    if entry.ration_rate < 1.0 {
-        ui.horizontal(|ui| {
-            ui.colored_label(Color32::from_rgb(0xff, 0xa0, 0x40), "⚠");
-            ui.label(
-                RichText::new(format!(
-                    "{}: {:.0}%",
-                    tr("v6_pyatiletka_ration_rate"),
-                    entry.ration_rate * 100.0
-                ))
-                .small()
-                .color(Color32::from_rgb(0xff, 0xa0, 0x40)),
-            );
-        });
-    }
-
-    ui.add_space(2.0);
 }
 
 #[cfg(test)]

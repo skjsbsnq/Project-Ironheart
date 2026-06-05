@@ -1,4 +1,10 @@
-//! Standard V9 in-game panel shell.
+//! Legacy V9 ornate in-game panel shell.
+//!
+//! Gate 2.3 boundary: this shell is kept for panels that have not migrated.
+//! New migrated panels should use `crate::vanilla_iron::{LedgerPanelShell,
+//! WorkbenchShell, DossierPanelShell, CommandPanelShell, JournalPanelShell,
+//! UtilityWindowShell}` instead of adding new V9 `PanelShell` bodies or new
+//! `*_v9_secondary_tabs` flows.
 
 use egui::{Align2, Area, Color32, Context, Id, Order, Pos2, Rect, Sense, Stroke, Vec2};
 

@@ -1,9 +1,9 @@
-//! Focus tree panel — node-line rendering with scroll/zoom/tooltip/selection.
+﻿//! Focus tree panel — node-line rendering with scroll/zoom/tooltip/selection.
 
 #![allow(deprecated)]
 
-use crate::i18n::tr;
-use egui::{Color32, CornerRadius, Pos2, Rect, Stroke, Vec2};
+use crate::{i18n::tr, ActiveDetailPanel, FocusDetailTarget, PanelCommand};
+use egui::{CornerRadius, Pos2, Rect, Stroke, Vec2};
 use hoi4_content::focus::{Focus, FocusTree};
 use std::collections::HashSet;
 
@@ -23,15 +23,9 @@ pub enum FocusCommand {
     Start(String),
     /// Player cancelled the current focus.
     Cancel,
+    Panel(PanelCommand),
 }
 
-const NODE_W: f32 = 90.0;
-const NODE_H: f32 = 90.0;
-const GRID_SPACING_X: f32 = 110.0;
-const GRID_SPACING_Y: f32 = 110.0;
-const ICON_SIZE: f32 = 52.0;
-const RING_RADIUS: f32 = 30.0;
-const PROGRESS_H: f32 = 6.0;
 const MIN_ZOOM: f32 = 0.5;
 const MAX_ZOOM: f32 = 2.0;
 
@@ -55,7 +49,6 @@ impl FocusTreePanel {
     /// Show the focus tree window. Returns a command if the player acts.
     /// P0.3：available_focus_ids 包含通过 available 条件的 focus id，
     /// 不在此集合中的 focus 显示为锁定。
-    #[allow(unreachable_code)]
     pub fn show(
         &mut self,
         ctx: &egui::Context,
@@ -68,7 +61,7 @@ impl FocusTreePanel {
         if !self.open {
             return None;
         }
-        return v9_show_focus_tree(
+        v9_show_focus_tree(
             self,
             ctx,
             tree,
@@ -76,144 +69,7 @@ impl FocusTreePanel {
             current_focus,
             current_progress,
             available_focus_ids,
-        );
-
-        let mut cmd: Option<FocusCommand> = None;
-        let mut open = self.open;
-
-        egui::Window::new(tr("national_focus"))
-            .open(&mut open)
-            .default_size([800.0, 600.0])
-            .show(ctx, |ui| {
-                // Zoom controls
-                ui.horizontal(|ui| {
-                    if ui.button("−").clicked() {
-                        self.zoom = (self.zoom - 0.1).max(MIN_ZOOM);
-                    }
-                    ui.label(format!("{:.0}%", self.zoom * 100.0));
-                    if ui.button("+").clicked() {
-                        self.zoom = (self.zoom + 0.1).min(MAX_ZOOM);
-                    }
-                    // Cancel button
-                    if current_focus.is_some() {
-                        if ui.button(tr("cancel_focus")).clicked() {
-                            cmd = Some(FocusCommand::Cancel);
-                        }
-                    }
-                    // Confirm button
-                    if let Some(sel) = &self.selected {
-                        let selected_focus = tree.focuses.iter().find(|f| f.id == *sel);
-                        let state = selected_focus
-                            .map(|f| {
-                                focus_state(
-                                    f,
-                                    completed,
-                                    current_focus,
-                                    current_progress,
-                                    available_focus_ids.contains(&f.id),
-                                )
-                            })
-                            .unwrap_or(FocusState::Locked);
-                        if state == FocusState::Available && current_focus.is_none() {
-                            let label = selected_focus
-                                .map(focus_display_name)
-                                .unwrap_or_else(|| sel.clone());
-                            if ui
-                                .button(format!("{}: {label}", tr("start_focus")))
-                                .clicked()
-                            {
-                                cmd = Some(FocusCommand::Start(sel.clone()));
-                                self.selected = None;
-                            }
-                        }
-                    }
-                });
-
-                // Scroll area with zoom
-                egui::ScrollArea::both().show(ui, |ui| {
-                    let z = self.zoom;
-                    let (min_x, max_x, min_y, max_y) = tree_bounds(tree);
-                    let canvas_w = ((max_x - min_x + 1) as f32 * GRID_SPACING_X + NODE_W) * z;
-                    let canvas_h = ((max_y - min_y + 1) as f32 * GRID_SPACING_Y + NODE_H) * z;
-                    let (response, painter) =
-                        ui.allocate_painter(Vec2::new(canvas_w, canvas_h), egui::Sense::click());
-                    let origin = response.rect.min;
-
-                    // Handle scroll-wheel zoom
-                    if response.hovered() {
-                        let scroll = ui.input(|i| i.smooth_scroll_delta.y);
-                        if scroll != 0.0 {
-                            self.zoom = (self.zoom + scroll * 0.001).clamp(MIN_ZOOM, MAX_ZOOM);
-                        }
-                    }
-
-                    draw_lines(&painter, tree, origin, min_x, min_y, z);
-                    draw_mutual_exclusive(&painter, tree, origin, min_x, min_y, z);
-
-                    // Draw nodes + detect click + tooltip
-                    for focus in &tree.focuses {
-                        let state = focus_state(
-                            focus,
-                            completed,
-                            current_focus,
-                            current_progress,
-                            available_focus_ids.contains(&focus.id),
-                        );
-                        let center = node_center_z(focus, origin, min_x, min_y, z);
-                        let selected = self.selected.as_deref() == Some(focus.id.as_str());
-                        draw_node(&painter, focus, center, state, z, selected);
-
-                        // Hit test for click
-                        let node_rect =
-                            Rect::from_center_size(center, Vec2::splat(RING_RADIUS * 2.0 * z));
-                        if response.clicked() {
-                            if let Some(pos) = response.interact_pointer_pos() {
-                                if node_rect.contains(pos) {
-                                    self.selected = Some(focus.id.clone());
-                                }
-                            }
-                        }
-
-                        // Tooltip on hover
-                        if ui.rect_contains_pointer(node_rect) {
-                            egui::show_tooltip(
-                                ui.ctx(),
-                                ui.layer_id(),
-                                ui.id().with(&focus.id),
-                                |ui| {
-                                    ui.strong(focus_display_name(focus));
-                                    ui.label(
-                                        tr("cost_days").replace("{}", &focus.cost_days.to_string()),
-                                    );
-                                    match state {
-                                        FocusState::Completed => {
-                                            ui.label(tr("focus_completed"));
-                                        }
-                                        FocusState::InProgress(p) => {
-                                            ui.label(
-                                                tr("focus_in_progress")
-                                                    .replace("{:.0}", &format!("{:.0}", p * 100.0)),
-                                            );
-                                        }
-                                        FocusState::Available => {
-                                            ui.label(tr("available"));
-                                        }
-                                        FocusState::Locked => {
-                                            ui.label(tr("locked"));
-                                        }
-                                    }
-                                    let prerequisites = localized_prerequisites(focus);
-                                    if !prerequisites.is_empty() {
-                                        ui.label(tr("requires").replace("{}", &prerequisites));
-                                    }
-                                },
-                            );
-                        }
-                    }
-                });
-            });
-        self.open = open;
-        cmd
+        )
     }
 }
 
@@ -416,6 +272,11 @@ fn v9_focus_tree_body(
                         if let Some(pos) = response.interact_pointer_pos() {
                             if node_rect.expand(8.0 * z).contains(pos) {
                                 panel.selected = Some(focus.id.clone());
+                                *cmd = Some(FocusCommand::Panel(PanelCommand::OpenDetail(
+                                    ActiveDetailPanel::Focus(FocusDetailTarget {
+                                        focus_id: focus.id.clone(),
+                                    }),
+                                )));
                             }
                         }
                     }
@@ -546,15 +407,6 @@ fn tree_bounds(tree: &FocusTree) -> (i32, i32, i32, i32) {
     }
 }
 
-fn node_center_z(focus: &Focus, origin: Pos2, min_x: i32, min_y: i32, z: f32) -> Pos2 {
-    let gx = (focus.position.0 - min_x) as f32;
-    let gy = (focus.position.1 - min_y) as f32;
-    Pos2::new(
-        origin.x + (gx * GRID_SPACING_X + NODE_W * 0.5) * z,
-        origin.y + (gy * GRID_SPACING_Y + NODE_H * 0.5) * z,
-    )
-}
-
 fn focus_state(
     focus: &Focus,
     completed: &HashSet<String>,
@@ -583,59 +435,6 @@ fn focus_state(
         return FocusState::Locked;
     }
     FocusState::Available
-}
-
-fn draw_node(
-    painter: &egui::Painter,
-    focus: &Focus,
-    center: Pos2,
-    state: FocusState,
-    z: f32,
-    selected: bool,
-) {
-    let r = RING_RADIUS * z;
-    let color = match state {
-        FocusState::Completed => Color32::from_rgb(80, 200, 80),
-        FocusState::InProgress(_) => Color32::from_rgb(220, 180, 50),
-        FocusState::Available => Color32::from_rgb(200, 200, 200),
-        FocusState::Locked => Color32::from_rgb(100, 100, 100),
-    };
-    let ring_w = if selected { 5.0 } else { 3.0 };
-    painter.circle_stroke(center, r, Stroke::new(ring_w, color));
-    if selected {
-        painter.circle_stroke(
-            center,
-            r + 3.0,
-            Stroke::new(1.5, Color32::from_rgb(255, 220, 100)),
-        );
-    }
-    painter.circle_filled(center, ICON_SIZE * 0.4 * z, Color32::from_rgb(60, 50, 40));
-
-    if let FocusState::InProgress(pct) = state {
-        let bar_top = center.y + r + 4.0;
-        let bar_left = center.x - r;
-        let bar_w = r * 2.0;
-        let bg = Rect::from_min_size(
-            Pos2::new(bar_left, bar_top),
-            Vec2::new(bar_w, PROGRESS_H * z),
-        );
-        painter.rect_filled(bg, CornerRadius::same(2), Color32::from_rgb(40, 40, 40));
-        let fg = Rect::from_min_size(
-            Pos2::new(bar_left, bar_top),
-            Vec2::new(bar_w * pct.clamp(0.0, 1.0), PROGRESS_H * z),
-        );
-        painter.rect_filled(fg, CornerRadius::same(2), Color32::from_rgb(220, 180, 50));
-    }
-
-    let label_pos = Pos2::new(center.x, center.y + r + 14.0);
-    let focus_name = focus_display_name(focus);
-    let galley = painter.layout_no_wrap(
-        focus_name,
-        egui::FontId::proportional(10.0 * z),
-        Color32::from_rgb(200, 190, 170),
-    );
-    let text_rect = egui::Align2::CENTER_TOP.anchor_size(label_pos, galley.size());
-    painter.galley(text_rect.min, galley, Color32::from_rgb(200, 190, 170));
 }
 
 fn focus_display_name(focus: &Focus) -> String {
@@ -667,80 +466,4 @@ fn localized_prerequisites(focus: &Focus) -> String {
         })
         .collect::<Vec<_>>()
         .join("; ")
-}
-
-fn draw_lines(
-    painter: &egui::Painter,
-    tree: &FocusTree,
-    origin: Pos2,
-    min_x: i32,
-    min_y: i32,
-    z: f32,
-) {
-    let id_to_focus: std::collections::HashMap<&str, &Focus> =
-        tree.focuses.iter().map(|f| (f.id.as_str(), f)).collect();
-    let r = RING_RADIUS * z;
-    for focus in &tree.focuses {
-        let child = node_center_z(focus, origin, min_x, min_y, z);
-        for group in &focus.prerequisites {
-            for pid in group {
-                if let Some(p) = id_to_focus.get(pid.as_str()) {
-                    let parent = node_center_z(p, origin, min_x, min_y, z);
-                    painter.line_segment(
-                        [
-                            Pos2::new(parent.x, parent.y + r),
-                            Pos2::new(child.x, child.y - r),
-                        ],
-                        Stroke::new(1.5, Color32::from_rgb(150, 140, 120)),
-                    );
-                }
-            }
-        }
-    }
-}
-
-fn draw_mutual_exclusive(
-    painter: &egui::Painter,
-    tree: &FocusTree,
-    origin: Pos2,
-    min_x: i32,
-    min_y: i32,
-    z: f32,
-) {
-    let id_to_focus: std::collections::HashMap<&str, &Focus> =
-        tree.focuses.iter().map(|f| (f.id.as_str(), f)).collect();
-    let mut drawn: HashSet<(&str, &str)> = HashSet::new();
-    for focus in &tree.focuses {
-        for me_id in &focus.mutually_exclusive {
-            let pair = if focus.id.as_str() < me_id.as_str() {
-                (focus.id.as_str(), me_id.as_str())
-            } else {
-                (me_id.as_str(), focus.id.as_str())
-            };
-            if !drawn.insert(pair) {
-                continue;
-            }
-            if let Some(other) = id_to_focus.get(me_id.as_str()) {
-                let a = node_center_z(focus, origin, min_x, min_y, z);
-                let b = node_center_z(other, origin, min_x, min_y, z);
-                let mid = Pos2::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
-                let sz = 8.0 * z;
-                let red = Color32::from_rgb(200, 60, 60);
-                painter.line_segment(
-                    [
-                        Pos2::new(mid.x - sz, mid.y - sz),
-                        Pos2::new(mid.x + sz, mid.y + sz),
-                    ],
-                    Stroke::new(2.5, red),
-                );
-                painter.line_segment(
-                    [
-                        Pos2::new(mid.x + sz, mid.y - sz),
-                        Pos2::new(mid.x - sz, mid.y + sz),
-                    ],
-                    Stroke::new(2.5, red),
-                );
-            }
-        }
-    }
 }

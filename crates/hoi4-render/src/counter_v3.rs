@@ -79,6 +79,16 @@ pub struct Hoi3CounterInstance {
     pub _pad0: u8,
     /// 凑足 40 字节并保留扩展空间。
     pub _pad1: [f32; 3],
+    /// Pixel offset from the projected world anchor to the counter's top-left corner.
+    pub screen_offset: [f32; 2],
+    /// World-space anchor projected by the counter shader every frame.
+    pub world_pos: [f32; 3],
+    /// Province id packed as u32 so hit-testing survives the expanded instance layout.
+    pub province_id_bits: u32,
+    /// World-space delta applied by the shader for smooth visual movement.
+    pub motion_delta: [f32; 3],
+    /// x = animation start time in app seconds, y = duration seconds.
+    pub motion_times: [f32; 2],
 }
 
 impl Hoi3CounterInstance {
@@ -90,10 +100,68 @@ impl Hoi3CounterInstance {
         bytemuck::Zeroable::zeroed()
     }
 
-    /// CR-4: Extract province_id stored in _pad1[0] bits.
+    /// CR-4: Extract province_id stored in the packed id field.
     pub fn province_id(&self) -> u16 {
-        self._pad1[0].to_bits() as u16
+        self.province_id_bits as u16
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct CounterMotionOverride {
+    pub current: (f32, f32),
+    pub target: (f32, f32),
+    pub remaining_secs: f32,
+}
+
+pub fn project_counter_anchor_screen(
+    counter: &Hoi3CounterInstance,
+    view_proj: &glam::Mat4,
+    screen_w: f32,
+    screen_h: f32,
+    time_secs: f32,
+) -> Option<[f32; 2]> {
+    if screen_w <= 0.0 || screen_h <= 0.0 {
+        return None;
+    }
+    let duration = counter.motion_times[1];
+    let t = if duration > 0.001 {
+        ((time_secs - counter.motion_times[0]) / duration).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let world_pos = glam::Vec3::new(
+        counter.world_pos[0] + counter.motion_delta[0] * t,
+        counter.world_pos[1] + counter.motion_delta[1] * t,
+        counter.world_pos[2] + counter.motion_delta[2] * t,
+    );
+    let clip = *view_proj * world_pos.extend(1.0);
+    if clip.w <= 0.0 {
+        return None;
+    }
+    let nx = clip.x / clip.w;
+    let ny = clip.y / clip.w;
+    let nz = clip.z / clip.w;
+    if nz < 0.0 || nz > 1.0 {
+        return None;
+    }
+    Some([
+        (nx * 0.5 + 0.5) * screen_w,
+        (1.0 - (ny * 0.5 + 0.5)) * screen_h,
+    ])
+}
+
+pub fn project_counter_screen_pos(
+    counter: &Hoi3CounterInstance,
+    view_proj: &glam::Mat4,
+    screen_w: f32,
+    screen_h: f32,
+    time_secs: f32,
+) -> Option<[f32; 2]> {
+    let anchor = project_counter_anchor_screen(counter, view_proj, screen_w, screen_h, time_secs)?;
+    Some([
+        anchor[0] + counter.screen_offset[0],
+        anchor[1] + counter.screen_offset[1],
+    ])
 }
 
 /// `Hoi3CounterInstance::flags` 各位语义。
@@ -131,7 +199,10 @@ struct CounterBucket {
     sum_xp: f64,
     sum_visual_x: f64,
     sum_visual_y: f64,
+    sum_target_x: f64,
+    sum_target_y: f64,
     visual_count: u32,
+    max_motion_remaining_secs: f32,
 }
 
 /// CR-2.7 — 把 vanilla 国家色映射到"高饱和、易辨识"版本。
@@ -271,7 +342,8 @@ pub fn generate_hoi3_counters_v0(
     visible: Option<&HashSet<CountryId>>,
     spotted: Option<&HashSet<u16>>,
     player: CountryId,
-    visual_centroids_override: Option<&HashMap<usize, (f32, f32)>>,
+    visual_motion_overrides: Option<&HashMap<usize, CounterMotionOverride>>,
+    motion_start_secs: f32,
 ) -> Vec<Hoi3CounterInstance> {
     let max_prov = centroids.len().min(world.provinces.count);
     if max_prov == 0 || world.divisions.count == 0 {
@@ -309,7 +381,7 @@ pub fn generate_hoi3_counters_v0(
                     visible,
                     spotted,
                     player,
-                    visual_centroids_override,
+                    visual_motion_overrides,
                     split_by_corps,
                     subunits,
                     max_prov,
@@ -332,7 +404,7 @@ pub fn generate_hoi3_counters_v0(
                 visible,
                 spotted,
                 player,
-                visual_centroids_override,
+                visual_motion_overrides,
                 split_by_corps,
                 subunits,
                 max_prov,
@@ -544,6 +616,24 @@ pub fn generate_hoi3_counters_v0(
             };
 
             let stack_count_clamped = bucket.count.min(255) as u8;
+            let (target_cx, target_cy) = if bucket.visual_count > 0 {
+                (
+                    (bucket.sum_target_x / bucket.visual_count as f64) as f32,
+                    (bucket.sum_target_y / bucket.visual_count as f64) as f32,
+                )
+            } else {
+                (cx, cy)
+            };
+            let target_world_y =
+                sample_height_bilinear(heightmap, target_cx, target_cy) * height_scale + 0.01;
+            let target_world_x = target_cx * world_scale;
+            let target_world_z = target_cy * world_scale;
+            let motion_delta = [
+                target_world_x - world_x,
+                target_world_y - world_y,
+                target_world_z - world_z,
+            ];
+            let motion_times = [motion_start_secs, bucket.max_motion_remaining_secs.max(0.0)];
 
             let mut top_flags: u8 = 0;
             if bucket.in_combat {
@@ -587,6 +677,11 @@ pub fn generate_hoi3_counters_v0(
                         hierarchy_level: 0,
                         _pad0: 0,
                         _pad1: [0.0; 3],
+                        screen_offset: [0.0; 2],
+                        world_pos: [world_x, world_y, world_z],
+                        province_id_bits: pid as u32,
+                        motion_delta,
+                        motion_times,
                     });
                 }
             }
@@ -605,6 +700,11 @@ pub fn generate_hoi3_counters_v0(
                 hierarchy_level: 0,
                 _pad0: 0,
                 _pad1: [f32::from_bits(pid as u32), 0.0, 0.0],
+                screen_offset: [0.0; 2],
+                world_pos: [world_x, world_y, world_z],
+                province_id_bits: pid as u32,
+                motion_delta,
+                motion_times,
             });
         } // end for (stack_idx, bucket)
     } // end for (pid_u16, stacks)
@@ -629,7 +729,7 @@ fn add_division_to_counter_bucket(
     visible: Option<&HashSet<CountryId>>,
     spotted: Option<&HashSet<u16>>,
     player: CountryId,
-    visual_centroids_override: Option<&HashMap<usize, (f32, f32)>>,
+    visual_motion_overrides: Option<&HashMap<usize, CounterMotionOverride>>,
     split_by_corps: bool,
     subunits: &std::collections::HashMap<String, hoi4_data::military::SubunitDef>,
     max_prov: usize,
@@ -683,17 +783,27 @@ fn add_division_to_counter_bucket(
         sum_xp: 0.0,
         sum_visual_x: 0.0,
         sum_visual_y: 0.0,
+        sum_target_x: 0.0,
+        sum_target_y: 0.0,
         visual_count: 0,
+        max_motion_remaining_secs: 0.0,
     });
 
     bucket.count = bucket.count.saturating_add(1);
-    let (vcx, vcy) = visual_centroids_override
-        .and_then(|overrides| overrides.get(&div_idx).copied())
-        .unwrap_or(centroids[pid]);
+    let motion = visual_motion_overrides.and_then(|overrides| overrides.get(&div_idx).copied());
+    let (vcx, vcy) = motion.map(|m| m.current).unwrap_or(centroids[pid]);
+    let (tcx, tcy) = motion.map(|m| m.target).unwrap_or((vcx, vcy));
     if vcx != 0.0 || vcy != 0.0 {
         bucket.sum_visual_x += vcx as f64;
         bucket.sum_visual_y += vcy as f64;
+        bucket.sum_target_x += tcx as f64;
+        bucket.sum_target_y += tcy as f64;
         bucket.visual_count = bucket.visual_count.saturating_add(1);
+    }
+    if let Some(motion) = motion {
+        bucket.max_motion_remaining_secs = bucket
+            .max_motion_remaining_secs
+            .max(motion.remaining_secs.max(0.0));
     }
 
     let tag = &world.countries.tags[owner_idx];
@@ -791,7 +901,8 @@ pub fn generate_hoi3_counters_cr3(
     visible: Option<&HashSet<CountryId>>,
     spotted: Option<&HashSet<u16>>,
     player: CountryId,
-    visual_centroids_override: Option<&HashMap<usize, (f32, f32)>>,
+    visual_motion_overrides: Option<&HashMap<usize, CounterMotionOverride>>,
+    motion_start_secs: f32,
 ) -> Vec<Hoi3CounterInstance> {
     // 2026-05-20 fix：全球视野（cam_distance > 250）下兵牌彼此重叠到无意义，
     // 数字也会堆成乱码。HOI3/HOI4 原版同样在最远 zoom 隐藏兵牌，仅留地图色。
@@ -815,7 +926,8 @@ pub fn generate_hoi3_counters_cr3(
             visible,
             spotted,
             player,
-            visual_centroids_override,
+            visual_motion_overrides,
+            motion_start_secs,
         );
     }
 
@@ -831,8 +943,8 @@ pub fn generate_hoi3_counters_cr3(
     let base_size = size_for_zoom(cam_distance);
     let mut out: Vec<Hoi3CounterInstance> = Vec::new();
 
-    // Project division to screen
-    let div_screen = |i: usize| -> Option<(f32, f32)> {
+    // Project division to screen and keep world anchors for GPU-side interpolation.
+    let div_screen = |i: usize| -> Option<(f32, f32, [f32; 3], [f32; 3], f32)> {
         let loc = world.divisions.locations[i];
         if loc.is_none() {
             return None;
@@ -841,9 +953,9 @@ pub fn generate_hoi3_counters_cr3(
         if pid >= max_prov {
             return None;
         }
-        let (cx, cy) = visual_centroids_override
-            .and_then(|overrides| overrides.get(&i).copied())
-            .unwrap_or(centroids[pid]);
+        let motion = visual_motion_overrides.and_then(|overrides| overrides.get(&i).copied());
+        let (cx, cy) = motion.map(|m| m.current).unwrap_or(centroids[pid]);
+        let (target_cx, target_cy) = motion.map(|m| m.target).unwrap_or((cx, cy));
         if cx == 0.0 && cy == 0.0 {
             return None;
         }
@@ -867,9 +979,16 @@ pub fn generate_hoi3_counters_cr3(
         if nz < 0.0 || nz > 1.0 {
             return None;
         }
+        let target_wy =
+            sample_height_bilinear(heightmap, target_cx, target_cy) * height_scale + 0.01;
+        let current_world = [cx * world_scale, wy, cy * world_scale];
+        let target_world = [target_cx * world_scale, target_wy, target_cy * world_scale];
         Some((
             (clip.x / clip.w * 0.5 + 0.5) * screen_w,
             (1.0 - (clip.y / clip.w * 0.5 + 0.5)) * screen_h,
+            current_world,
+            target_world,
+            motion.map(|m| m.remaining_secs.max(0.0)).unwrap_or(0.0),
         ))
     };
 
@@ -894,6 +1013,9 @@ pub fn generate_hoi3_counters_cr3(
     let emit_group = |divs: &[usize], level: u8, out: &mut Vec<Hoi3CounterInstance>| {
         let mut sx_sum = 0.0f64;
         let mut sy_sum = 0.0f64;
+        let mut world_sum = [0.0f64; 3];
+        let mut target_world_sum = [0.0f64; 3];
+        let mut max_motion_remaining_secs = 0.0f32;
         let mut count = 0u32;
         let mut sum_org = 0.0f64;
         let mut sum_org_max = 0.0f64;
@@ -912,9 +1034,17 @@ pub fn generate_hoi3_counters_cr3(
             if !div_visible(di) {
                 continue;
             }
-            if let Some((sx, sy)) = div_screen(di) {
+            if let Some((sx, sy, world_anchor, target_world_anchor, motion_remaining)) =
+                div_screen(di)
+            {
                 sx_sum += sx as f64;
                 sy_sum += sy as f64;
+                for axis in 0..3 {
+                    world_sum[axis] += world_anchor[axis] as f64;
+                    target_world_sum[axis] += target_world_anchor[axis] as f64;
+                }
+                max_motion_remaining_secs =
+                    max_motion_remaining_secs.max(motion_remaining.max(0.0));
                 if count == 0 {
                     let loc = world.divisions.locations[di];
                     if !loc.is_none() {
@@ -971,6 +1101,22 @@ pub fn generate_hoi3_counters_cr3(
 
         let cx = (sx_sum / count as f64) as f32;
         let cy = (sy_sum / count as f64) as f32;
+        let world_pos = [
+            (world_sum[0] / count as f64) as f32,
+            (world_sum[1] / count as f64) as f32,
+            (world_sum[2] / count as f64) as f32,
+        ];
+        let target_world_pos = [
+            (target_world_sum[0] / count as f64) as f32,
+            (target_world_sum[1] / count as f64) as f32,
+            (target_world_sum[2] / count as f64) as f32,
+        ];
+        let motion_delta = [
+            target_world_pos[0] - world_pos[0],
+            target_world_pos[1] - world_pos[1],
+            target_world_pos[2] - world_pos[2],
+        ];
+        let motion_times = [motion_start_secs, max_motion_remaining_secs.max(0.0)];
         let bonus = hierarchy_size_bonus(level);
         let size = [base_size[0] + bonus, base_size[1] + bonus];
         let top_x = cx - size[0] * 0.5;
@@ -1035,6 +1181,11 @@ pub fn generate_hoi3_counters_cr3(
             hierarchy_level: level,
             _pad0: 0,
             _pad1: [f32::from_bits(first_province as u32), 0.0, 0.0],
+            screen_offset: [0.0; 2],
+            world_pos,
+            province_id_bits: first_province as u32,
+            motion_delta,
+            motion_times,
         });
     };
 
@@ -1176,6 +1327,9 @@ fn merge_by_screen_grid(
         // 计算合并后的代表卡（顶牌）。
         let mut sum_x = 0.0f32;
         let mut sum_y = 0.0f32;
+        let mut sum_world = [0.0f32; 3];
+        let mut sum_target_world = [0.0f32; 3];
+        let mut max_motion_duration = 0.0f32;
         let mut sum_stack: u32 = 0;
         let mut sum_org: u32 = 0;
         let mut sum_str: u32 = 0;
@@ -1187,6 +1341,11 @@ fn merge_by_screen_grid(
             let c = &counters[i];
             sum_x += c.screen_pos[0] + c.size[0] * 0.5;
             sum_y += c.screen_pos[1] + c.size[1] * 0.5;
+            for axis in 0..3 {
+                sum_world[axis] += c.world_pos[axis];
+                sum_target_world[axis] += c.world_pos[axis] + c.motion_delta[axis];
+            }
+            max_motion_duration = max_motion_duration.max(c.motion_times[1].max(0.0));
             sum_stack = sum_stack.saturating_add(c.stack_count.max(1) as u32);
             sum_org += c.organisation as u32;
             sum_str += c.strength as u32;
@@ -1201,6 +1360,12 @@ fn merge_by_screen_grid(
         let n = idxs.len() as f32;
         let avg_cx = sum_x / n;
         let avg_cy = sum_y / n;
+        let world_pos = [sum_world[0] / n, sum_world[1] / n, sum_world[2] / n];
+        let target_world_pos = [
+            sum_target_world[0] / n,
+            sum_target_world[1] / n,
+            sum_target_world[2] / n,
+        ];
         let rep_idx = idxs
             .iter()
             .copied()
@@ -1222,6 +1387,13 @@ fn merge_by_screen_grid(
         rep.organisation = (sum_org / idxs.len() as u32).min(255) as u8;
         rep.strength = (sum_str / idxs.len() as u32).min(255) as u8;
         rep.experience_level = max_xp;
+        rep.world_pos = world_pos;
+        rep.motion_delta = [
+            target_world_pos[0] - world_pos[0],
+            target_world_pos[1] - world_pos[1],
+            target_world_pos[2] - world_pos[2],
+        ];
+        rep.motion_times[1] = max_motion_duration;
         let top_x = avg_cx - rep.size[0] * 0.5;
         let top_y = avg_cy - rep.size[1] * 0.5;
         rep.screen_pos = [top_x, top_y];
@@ -1278,8 +1450,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn instance_size_is_40_bytes() {
-        assert_eq!(std::mem::size_of::<Hoi3CounterInstance>(), 40);
+    fn instance_size_is_84_bytes() {
+        assert_eq!(std::mem::size_of::<Hoi3CounterInstance>(), 84);
     }
 
     #[test]
@@ -1334,6 +1506,11 @@ mod tests {
             hierarchy_level: 0,
             _pad0: 0,
             _pad1: [0.0; 3],
+            screen_offset: [0.0; 2],
+            world_pos: [0.0; 3],
+            province_id_bits: 0,
+            motion_delta: [0.0; 3],
+            motion_times: [0.0; 2],
         };
         let top = Hoi3CounterInstance {
             screen_pos: [10.0, 10.0],
@@ -1348,6 +1525,11 @@ mod tests {
             hierarchy_level: 0,
             _pad0: 0,
             _pad1: [0.0; 3],
+            screen_offset: [0.0; 2],
+            world_pos: [0.0; 3],
+            province_id_bits: 0,
+            motion_delta: [0.0; 3],
+            motion_times: [0.0; 2],
         };
         let centers = collect_top_counter_screen_centers(&[underlay, top]);
         assert_eq!(centers.len(), 1);

@@ -74,7 +74,9 @@ fn g4_construction_queue_dto_exposes_capacity_bottlenecks_and_commands() {
     let data = ConstructionV6PanelData {
         entries: vec![],
         queue: vec![ConstructionQueueV6Entry {
+            building_key: "steel_mill".into(),
             building_name: "钢铁厂".into(),
+            state_id: 51,
             state_name: "莱茵兰".into(),
             current_level: 1,
             target_level: 2,

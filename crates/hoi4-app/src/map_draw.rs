@@ -5,11 +5,11 @@ use crate::map_renderer::MapFramePlan;
 use crate::passes::PostProcessDebugView;
 use crate::passes::{self, PostProcessLutSelection, PostProcessMode};
 use crate::render_state::RenderState;
-use hoi4_render::terrain::{vertex_count_for_lod, ChunkInstance};
+use hoi4_render::terrain::vertex_count_for_lod;
 
 pub(crate) struct MapDrawInput<'a> {
     pub(crate) frame_plan: &'a MapFramePlan,
-    pub(crate) buckets: &'a [Vec<ChunkInstance>; 3],
+    pub(crate) terrain_counts: [u32; 3],
     pub(crate) draw_3d_map: bool,
     pub(crate) show_province_names: bool,
     pub(crate) zoom_factor: f32,
@@ -31,11 +31,7 @@ pub(crate) fn render_map_frame(
 ) -> MapDrawOutput {
     let map_draw = &input.frame_plan.draw;
     let world_objects = input.frame_plan.world_objects;
-    let counts = [
-        input.buckets[0].len() as u32,
-        input.buckets[1].len() as u32,
-        input.buckets[2].len() as u32,
-    ];
+    let counts = input.terrain_counts;
     let vert_counts = [
         vertex_count_for_lod(0),
         vertex_count_for_lod(1),

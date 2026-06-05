@@ -1,20 +1,11 @@
-//! V6 法律面板 UI：6 大类法律切换 + 冷却显示 + PP 消耗。
+﻿//! V6 法律面板 UI：6 大类法律切换 + 冷却显示 + PP 消耗。
 //!
 //! V6.A 验收要求：法律面板出现，能切换冷却显示但 modifier 还没接通。
 
-use crate::{components, i18n::tr};
-use egui::{Color32, RichText};
+use crate::i18n::tr;
+use egui::Color32;
 
 use hoi4_state::LawCategory;
-
-const GOLD: Color32 = Color32::from_rgb(0xc9, 0xa5, 0x5b);
-const GOLD_BRIGHT: Color32 = Color32::from_rgb(0xe0, 0xc0, 0x78);
-const MUTED: Color32 = Color32::from_gray(155);
-const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
-const STROKE_DARK: Color32 = Color32::from_rgb(0x5a, 0x44, 0x2c);
-const GOOD: Color32 = Color32::from_rgb(0x70, 0xc8, 0x78);
-const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
-const BAD: Color32 = Color32::from_rgb(0xe0, 0x60, 0x58);
 
 fn category_label(cat: &LawCategory) -> &'static str {
     match cat {
@@ -27,14 +18,32 @@ fn category_label(cat: &LawCategory) -> &'static str {
     }
 }
 
-fn category_color(cat: &LawCategory) -> Color32 {
+pub fn law_category_label(cat: &LawCategory) -> &'static str {
+    category_label(cat)
+}
+
+pub fn law_category_key(cat: LawCategory) -> &'static str {
     match cat {
-        LawCategory::Conscription => Color32::from_rgb(0xb0, 0x60, 0x40),
-        LawCategory::Economy => Color32::from_rgb(0x60, 0x90, 0xb0),
-        LawCategory::Trade => Color32::from_rgb(0x60, 0xa0, 0x60),
-        LawCategory::Taxation => Color32::from_rgb(0xc0, 0xa0, 0x30),
-        LawCategory::CivilRights => Color32::from_rgb(0x90, 0x70, 0xb0),
-        LawCategory::InformationControl => Color32::from_rgb(0xa0, 0x50, 0x50),
+        LawCategory::Conscription => "Conscription",
+        LawCategory::Economy => "Economy",
+        LawCategory::Trade => "Trade",
+        LawCategory::Taxation => "Taxation",
+        LawCategory::CivilRights => "CivilRights",
+        LawCategory::InformationControl => "InformationControl",
+    }
+}
+
+pub fn law_category_from_key(key: &str) -> Option<LawCategory> {
+    match key {
+        "Conscription" | "conscription" => Some(LawCategory::Conscription),
+        "Economy" | "economy" => Some(LawCategory::Economy),
+        "Trade" | "trade" => Some(LawCategory::Trade),
+        "Taxation" | "taxation" => Some(LawCategory::Taxation),
+        "CivilRights" | "civil_rights" | "civilRights" => Some(LawCategory::CivilRights),
+        "InformationControl" | "information_control" | "informationControl" => {
+            Some(LawCategory::InformationControl)
+        }
+        _ => None,
     }
 }
 
@@ -74,53 +83,43 @@ pub enum LawCommand {
     },
 }
 
+pub fn law_switch_available(
+    slot: &LawSlotEntry,
+    tier: &LawTierEntry,
+    political_power: f32,
+) -> bool {
+    let is_pending = slot
+        .pending
+        .as_ref()
+        .map_or(false, |(id, _, _)| id == &tier.id);
+    tier.id != slot.current_id
+        && !is_pending
+        && slot.cooldown_days == 0
+        && !slot.is_locked
+        && political_power >= tier.pp_cost as f32
+}
+
+pub fn law_unavailable_reason(
+    slot: &LawSlotEntry,
+    tier: &LawTierEntry,
+    political_power: f32,
+) -> Option<String> {
+    if law_switch_available(slot, tier, political_power) {
+        return None;
+    }
+    let is_pending = slot
+        .pending
+        .as_ref()
+        .map_or(false, |(id, _, _)| id == &tier.id);
+    let has_pp = political_power >= tier.pp_cost as f32;
+    Some(disabled_law_reason(slot, tier, is_pending, has_pp))
+}
+
 pub struct LawPanel;
 
 impl LawPanel {
-    #[allow(unreachable_code)]
     pub fn show(ctx: &egui::Context, data: &LawPanelData) -> (bool, Vec<LawCommand>) {
-        return v9_show_law(ctx, data);
-
-        let mut close = false;
-        let mut cmds: Vec<LawCommand> = Vec::new();
-        let selected_id = egui::Id::new("law_panel_selected_category");
-        let mut selected_category = ctx
-            .data_mut(|d| d.get_persisted::<Option<LawCategory>>(selected_id))
-            .unwrap_or(None);
-
-        egui::SidePanel::left("law_panel")
-            .default_width(540.0)
-            .min_width(460.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                components::panel_header(ui, tr("v6_law_panel_title"), &mut close);
-                render_law_summary(ui, data);
-                render_law_status_banner(ui, data);
-
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        render_law_overview_grid(ui, data, &mut selected_category);
-                    });
-            });
-
-        if let Some(category) = selected_category {
-            if let Some(slot) = data.slots.iter().find(|slot| slot.category == category) {
-                render_law_picker_window(
-                    ctx,
-                    slot,
-                    data.political_power,
-                    &mut selected_category,
-                    &mut cmds,
-                );
-            } else {
-                selected_category = None;
-            }
-        }
-
-        ctx.data_mut(|d| d.insert_persisted(selected_id, selected_category));
-
-        (close, cmds)
+        v9_show_law(ctx, data)
     }
 }
 
@@ -130,7 +129,7 @@ fn v9_show_law(ctx: &egui::Context, data: &LawPanelData) -> (bool, Vec<LawComman
     };
     use crate::v9::tokens::palette;
 
-    let selected_id = egui::Id::new("law_panel_v9_selected_category");
+    let selected_id = egui::Id::new("law_panel_v9_selected_overview_category");
     let mut selected_category = ctx
         .data_mut(|d| d.get_persisted::<Option<LawCategory>>(selected_id))
         .unwrap_or_else(|| data.slots.first().map(|slot| slot.category));
@@ -166,7 +165,7 @@ fn v9_show_law(ctx: &egui::Context, data: &LawPanelData) -> (bool, Vec<LawComman
         .subtitle("法律类别 / 切换影响预览")
         .class(PanelClass::Economy)
         .accent(accent)
-        .footer("Q Close  |  Select law group / Switch")
+        .footer("Q 关闭 | 选择法律组 / 切换")
         .show(ctx, |ui, layout| {
             draw_summary_tiles(
                 ui,
@@ -592,429 +591,6 @@ fn v9_law_category_color(cat: &LawCategory) -> Color32 {
         LawCategory::CivilRights => palette::COLD_ATOMIC,
         LawCategory::InformationControl => palette::BAD,
     }
-}
-
-fn render_law_summary(ui: &mut egui::Ui, data: &LawPanelData) {
-    let locked = data.slots.iter().filter(|slot| slot.is_locked).count();
-    let cooling = data
-        .slots
-        .iter()
-        .filter(|slot| slot.cooldown_days > 0)
-        .count();
-    let pending = data
-        .slots
-        .iter()
-        .filter(|slot| slot.pending.is_some())
-        .count();
-    let affordable = data
-        .slots
-        .iter()
-        .flat_map(|slot| slot.tiers.iter().map(move |tier| (slot, tier)))
-        .filter(|(slot, tier)| {
-            tier.id != slot.current_id
-                && slot
-                    .pending
-                    .as_ref()
-                    .map_or(true, |(id, _, _)| id != &tier.id)
-                && slot.cooldown_days == 0
-                && !slot.is_locked
-                && data.political_power >= tier.pp_cost as f32
-        })
-        .count();
-
-    ui.add_space(6.0);
-    components::summary_strip(
-        ui,
-        &[
-            (
-                tr("political_power"),
-                format!("{:.0}", data.political_power),
-            ),
-            ("法律类别", data.slots.len().to_string()),
-            ("可切换", affordable.to_string()),
-            ("冷却中", cooling.to_string()),
-            ("锁定", locked.to_string()),
-            ("进行中", pending.to_string()),
-        ],
-    );
-    ui.add_space(6.0);
-}
-
-fn render_law_status_banner(ui: &mut egui::Ui, data: &LawPanelData) {
-    let locked = data.slots.iter().filter(|slot| slot.is_locked).count();
-    let pending = data
-        .slots
-        .iter()
-        .filter(|slot| slot.pending.is_some())
-        .count();
-    let cooling = data
-        .slots
-        .iter()
-        .filter(|slot| slot.cooldown_days > 0)
-        .count();
-    let (label, text, color) = if pending > 0 {
-        (
-            "法律切换中",
-            format!("{} 项法律正在过渡，完成前不能重复切换。", pending),
-            WARN,
-        )
-    } else if locked > 0 {
-        (
-            "部分法律锁定",
-            format!("{} 个法律类别受当前政治或事件状态限制。", locked),
-            BAD,
-        )
-    } else if cooling > 0 {
-        (
-            "法律冷却",
-            format!("{} 个法律类别仍在冷却，等待冷却结束后再调整。", cooling),
-            WARN,
-        )
-    } else if data.political_power < 50.0 {
-        (
-            "政治力量不足",
-            "多数法律切换需要消耗 PP，建议先积累政治力量。".to_owned(),
-            WARN,
-        )
-    } else {
-        (
-            "法律稳定",
-            "当前没有锁定或冷却阻塞，可根据战争、财政和生产需要调整法律。".to_owned(),
-            GOOD,
-        )
-    };
-
-    egui::Frame::new()
-        .fill(Color32::from_rgba_premultiplied(0x1d, 0x16, 0x10, 230))
-        .stroke(egui::Stroke::new(1.0, color))
-        .inner_margin(egui::Margin::symmetric(10, 7))
-        .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(label).strong().color(color));
-                ui.label(
-                    RichText::new(text)
-                        .small()
-                        .color(Color32::from_rgb(0xe0, 0xd2, 0xa8)),
-                );
-            });
-        });
-    ui.add_space(8.0);
-}
-
-fn render_law_overview_grid(
-    ui: &mut egui::Ui,
-    data: &LawPanelData,
-    selected_category: &mut Option<LawCategory>,
-) {
-    ui.label(RichText::new("法律总览").strong().color(GOLD_BRIGHT));
-    ui.label(
-        RichText::new("点击一个法律类别，打开二级界面选择具体法律。")
-            .small()
-            .color(MUTED),
-    );
-    ui.add_space(8.0);
-
-    egui::Grid::new("law_panel_vic3_grid")
-        .num_columns(3)
-        .spacing([8.0, 8.0])
-        .show(ui, |ui| {
-            for index in 0..9 {
-                if let Some(slot) = data.slots.get(index) {
-                    if law_overview_card(ui, slot, data.political_power).clicked() {
-                        *selected_category = Some(slot.category);
-                    }
-                } else {
-                    empty_law_grid_cell(ui);
-                }
-
-                if index % 3 == 2 {
-                    ui.end_row();
-                }
-            }
-        });
-}
-
-fn law_overview_card(
-    ui: &mut egui::Ui,
-    slot: &LawSlotEntry,
-    political_power: f32,
-) -> egui::Response {
-    let size = egui::vec2(160.0, 124.0);
-    let (rect, response) = ui.allocate_exact_size(size, egui::Sense::click());
-    if ui.is_rect_visible(rect) {
-        let cat_color = category_color(&slot.category);
-        let border = if response.hovered() {
-            GOLD_BRIGHT
-        } else if slot.is_locked {
-            BAD
-        } else if slot.pending.is_some() {
-            GOLD
-        } else if slot.cooldown_days > 0 {
-            WARN
-        } else {
-            STROKE_DARK
-        };
-        let painter = ui.painter();
-        painter.rect_filled(rect, 4.0, PANEL_CARD);
-        painter.rect_stroke(
-            rect,
-            4.0,
-            egui::Stroke::new(1.2, border),
-            egui::epaint::StrokeKind::Inside,
-        );
-        painter.rect_filled(
-            egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), 5.0)),
-            3.0,
-            cat_color,
-        );
-
-        let title_pos = rect.min + egui::vec2(10.0, 20.0);
-        painter.text(
-            title_pos,
-            egui::Align2::LEFT_CENTER,
-            category_label(&slot.category),
-            egui::FontId::proportional(14.0),
-            GOLD_BRIGHT,
-        );
-        painter.text(
-            rect.min + egui::vec2(10.0, 45.0),
-            egui::Align2::LEFT_CENTER,
-            &slot.current_name,
-            egui::FontId::proportional(16.0),
-            Color32::from_rgb(0xe0, 0xd2, 0xa8),
-        );
-
-        let (status, color) = if slot.is_locked {
-            ("锁定", BAD)
-        } else if slot.pending.is_some() {
-            ("切换中", GOLD)
-        } else if slot.cooldown_days > 0 {
-            ("冷却中", WARN)
-        } else if slot
-            .tiers
-            .iter()
-            .any(|tier| tier.id != slot.current_id && political_power >= tier.pp_cost as f32)
-        {
-            ("可调整", GOOD)
-        } else {
-            ("稳定", MUTED)
-        };
-        painter.text(
-            rect.min + egui::vec2(10.0, 76.0),
-            egui::Align2::LEFT_CENTER,
-            status,
-            egui::FontId::proportional(13.0),
-            color,
-        );
-
-        let detail = if let Some((_, target_name, remaining)) = &slot.pending {
-            format!("目标: {} / {}天", target_name, remaining)
-        } else if slot.cooldown_days > 0 {
-            format!("冷却: {}天", slot.cooldown_days)
-        } else if slot.is_locked {
-            slot.locked_reason
-                .as_deref()
-                .unwrap_or(tr("v6_law_locked"))
-                .to_owned()
-        } else {
-            format!("{} 项可选法律", slot.tiers.len())
-        };
-        painter.text(
-            rect.min + egui::vec2(10.0, 100.0),
-            egui::Align2::LEFT_CENTER,
-            detail,
-            egui::FontId::proportional(12.0),
-            MUTED,
-        );
-    }
-
-    response.on_hover_text("点击打开法律选择")
-}
-
-fn empty_law_grid_cell(ui: &mut egui::Ui) {
-    let size = egui::vec2(160.0, 124.0);
-    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    if ui.is_rect_visible(rect) {
-        ui.painter().rect_stroke(
-            rect,
-            4.0,
-            egui::Stroke::new(1.0, Color32::from_rgba_premultiplied(0x5a, 0x44, 0x2c, 80)),
-            egui::epaint::StrokeKind::Inside,
-        );
-    }
-}
-
-fn render_law_picker_window(
-    ctx: &egui::Context,
-    slot: &LawSlotEntry,
-    political_power: f32,
-    selected_category: &mut Option<LawCategory>,
-    cmds: &mut Vec<LawCommand>,
-) {
-    let mut open = true;
-    egui::Window::new(format!("{} 法律", category_label(&slot.category)))
-        .id(egui::Id::new("law_picker_window"))
-        .default_pos(egui::pos2(575.0, 96.0))
-        .open(&mut open)
-        .default_width(620.0)
-        .default_height(560.0)
-        .resizable(true)
-        .show(ctx, |ui| {
-            render_law_picker_header(ui, slot, political_power);
-            ui.add_space(8.0);
-
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| {
-                    for tier in &slot.tiers {
-                        render_law_tier_choice(ui, slot, tier, political_power, cmds);
-                        ui.add_space(6.0);
-                    }
-                });
-        });
-
-    if !open {
-        *selected_category = None;
-    }
-}
-
-fn render_law_picker_header(ui: &mut egui::Ui, slot: &LawSlotEntry, political_power: f32) {
-    let cat_color = category_color(&slot.category);
-    egui::Frame::new()
-        .fill(Color32::from_rgba_premultiplied(0x1d, 0x16, 0x10, 230))
-        .stroke(egui::Stroke::new(1.0, cat_color))
-        .inner_margin(egui::Margin::symmetric(10, 8))
-        .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(
-                    RichText::new(category_label(&slot.category))
-                        .strong()
-                        .color(cat_color),
-                );
-                ui.label(RichText::new(format!("当前: {}", slot.current_name)).strong());
-                ui.label(
-                    RichText::new(format!("PP {:.0}", political_power))
-                        .small()
-                        .color(GOLD),
-                );
-            });
-
-            if slot.is_locked {
-                ui.label(
-                    RichText::new(slot.locked_reason.as_deref().unwrap_or(tr("v6_law_locked")))
-                        .small()
-                        .color(BAD),
-                );
-            }
-            if slot.cooldown_days > 0 {
-                ui.label(
-                    RichText::new(format!("法律冷却中，还需 {} 天。", slot.cooldown_days))
-                        .small()
-                        .color(WARN),
-                );
-            }
-            if let Some((target_id, target_name, remaining)) = &slot.pending {
-                let target_cooldown = slot
-                    .tiers
-                    .iter()
-                    .find(|tier| tier.id == *target_id)
-                    .map(|tier| tier.cooldown_days)
-                    .unwrap_or(60);
-                let ratio = 1.0 - (*remaining as f32 / target_cooldown.max(1) as f32);
-                ui.label(
-                    RichText::new(format!(
-                        "正在切换到 {}，剩余 {} 天。",
-                        target_name, remaining
-                    ))
-                    .small()
-                    .color(GOLD),
-                );
-                ui.add(egui::ProgressBar::new(ratio.clamp(0.0, 1.0)).fill(GOLD));
-            }
-        });
-}
-
-fn render_law_tier_choice(
-    ui: &mut egui::Ui,
-    slot: &LawSlotEntry,
-    tier: &LawTierEntry,
-    political_power: f32,
-    cmds: &mut Vec<LawCommand>,
-) {
-    let is_current = tier.id == slot.current_id;
-    let is_pending = slot
-        .pending
-        .as_ref()
-        .map_or(false, |(id, _, _)| id == &tier.id);
-    let has_pp = political_power >= tier.pp_cost as f32;
-    let can_click =
-        !is_current && !is_pending && slot.cooldown_days == 0 && !slot.is_locked && has_pp;
-    let row_color = if is_current {
-        GOOD
-    } else if is_pending {
-        GOLD
-    } else {
-        Color32::from_rgb(0xe0, 0xd2, 0xa8)
-    };
-
-    egui::Frame::new()
-        .fill(Color32::from_rgba_premultiplied(0x31, 0x24, 0x18, 220))
-        .stroke(egui::Stroke::new(
-            1.0,
-            if is_current || is_pending {
-                row_color
-            } else {
-                STROKE_DARK
-            },
-        ))
-        .inner_margin(egui::Margin::symmetric(10, 8))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.vertical(|ui| {
-                    ui.label(RichText::new(&tier.name).strong().color(row_color));
-                    ui.label(
-                        RichText::new(format!(
-                            "消耗 {} PP，切换后冷却 {} 天",
-                            tier.pp_cost, tier.cooldown_days
-                        ))
-                        .small()
-                        .color(GOLD),
-                    );
-                    for effect in &tier.effects {
-                        ui.label(RichText::new(effect).small().color(MUTED));
-                    }
-                    if !is_current && !can_click {
-                        ui.label(
-                            RichText::new(disabled_law_reason(slot, tier, is_pending, has_pp))
-                                .small()
-                                .color(BAD),
-                        );
-                    }
-                });
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if is_current {
-                        ui.label(RichText::new("当前法律").strong().color(GOOD));
-                    } else if is_pending {
-                        ui.label(RichText::new("切换中").strong().color(GOLD));
-                    } else if ui
-                        .add_enabled(
-                            can_click,
-                            egui::Button::new(
-                                RichText::new(tr("v6_law_switch")).color(GOLD_BRIGHT),
-                            )
-                            .min_size(egui::vec2(96.0, 28.0)),
-                        )
-                        .clicked()
-                    {
-                        cmds.push(LawCommand::SwitchLaw {
-                            category: slot.category,
-                            target_law_id: tier.id.clone(),
-                        });
-                    }
-                });
-            });
-        });
 }
 
 fn disabled_law_reason(

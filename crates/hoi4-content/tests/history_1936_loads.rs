@@ -98,6 +98,11 @@ fn h0_head_of_state_1936_overrides_load() {
     assert_eq!(chi.name, "Chiang Kai-Shek");
     assert_eq!(chi.portrait_gfx, "GFX_portrait_CHI_chiang_kaishek");
 
+    let spr = db.head_of_state("SPR").expect("SPR head of state");
+    assert_eq!(spr.character_key, "SPR_niceto_alcala_zamora");
+    assert_eq!(spr.name, "Niceto Alcalá-Zamora");
+    assert_eq!(spr.portrait_gfx, "GFX_portrait_SPR_niceto_alcala_zamora");
+
     let jap = db.head_of_state("JAP").expect("JAP head of state");
     assert_eq!(jap.character_key, "JAP_emperor_hirohito");
     assert_eq!(jap.name, "Hirohito");

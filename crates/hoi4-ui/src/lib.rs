@@ -52,6 +52,7 @@ pub mod data_table;
 pub mod dds_decode;
 pub mod decisions_panel;
 pub mod demo;
+pub mod detail_panel;
 pub mod diplomacy;
 pub mod end_screen;
 pub mod event_panel;
@@ -82,8 +83,15 @@ pub mod theme;
 pub mod topbar;
 pub mod trade_panel;
 pub mod v9;
+pub mod vanilla_iron;
 
-pub use frame_model::{PanelAction, PanelKind, TopbarAction, UiAction, UiFrameModel};
+pub use frame_model::{
+    ActiveDetailPanel, ActivePopup, ActivePrimaryPanel, AirWingDetailTarget, ArmyDetailTarget,
+    BuildingDetailTarget, ConfirmPopup, CountryDetailTarget, DetailSource, FleetDetailTarget,
+    FocusDetailTarget, GoodsDetailTarget, JournalEntryDetailTarget, PanelAction, PanelCommand,
+    PanelKind, PopGroupDetailTarget, ProductionMethodTarget, ProvinceDetailTarget, RenamePopup,
+    StateDetailTarget, TechnologyDetailTarget, TopbarAction, UiAction, UiFrameModel,
+};
 
 use std::time::Instant;
 

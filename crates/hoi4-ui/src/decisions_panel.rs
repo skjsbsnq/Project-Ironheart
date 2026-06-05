@@ -3,6 +3,10 @@
 use crate::components;
 use crate::i18n::tr;
 use crate::politics::{DecisionCommand, DecisionEntry};
+use crate::{
+    vanilla_iron::{JournalPanelShell, VanillaIron},
+    ActiveDetailPanel, JournalEntryDetailTarget, PanelCommand,
+};
 use egui::{Color32, Pos2, Rect, RichText, Sense, Vec2};
 
 #[derive(Debug, Clone)]
@@ -37,102 +41,315 @@ const RAIL_DARK: Color32 = Color32::from_rgb(0x10, 0x0a, 0x05);
 const RAIL_INK: Color32 = Color32::from_rgb(0x1a, 0x12, 0x09);
 
 impl DecisionsPanel {
-    #[allow(unreachable_code)]
     pub fn show(ctx: &egui::Context, data: &DecisionsData) -> (bool, Vec<DecisionCommand>) {
-        return v9_show_decisions(ctx, data);
+        journal_show_decisions(ctx, data)
+    }
+}
 
-        let mut close = false;
-        let mut cmds = Vec::new();
-        let mut consumed: std::collections::HashSet<String> = Default::default();
+fn journal_show_decisions(
+    ctx: &egui::Context,
+    data: &DecisionsData,
+) -> (bool, Vec<DecisionCommand>) {
+    let filter_id = egui::Id::new("decisions_journal_filter");
+    let mut filter = ctx
+        .data_mut(|d| d.get_persisted::<String>(filter_id))
+        .unwrap_or_else(|| "available".to_owned());
+    let available = data
+        .decisions
+        .iter()
+        .filter(|entry| entry.clickable)
+        .count();
+    let cooldown = data
+        .decisions
+        .iter()
+        .filter(|entry| entry.cooldown_remaining.is_some())
+        .count();
+    let (close, output) = JournalPanelShell::new("decisions_journal_panel", tr("decisions"))
+        .subtitle("决议 / 局势 / 事务日志")
+        .footer("Q 关闭 | 点击条目打开详情")
+        .accent(if available > 0 {
+            VanillaIron::BRASS_BRIGHT
+        } else {
+            VanillaIron::MUTED
+        })
+        .show(ctx, |ui, layout| {
+            let mut cmds = Vec::new();
+            decisions_journal_nav(ui, layout.nav, data, &mut filter, available, cooldown);
+            decisions_journal_main(ui, layout.main, data, &filter, &mut cmds);
+            decisions_journal_side(ui, layout.side, data, &mut cmds);
+            cmds
+        });
+    ctx.data_mut(|d| d.insert_persisted(filter_id, filter));
+    (close, output.unwrap_or_default())
+}
 
-        egui::SidePanel::left("decisions_panel")
-            .default_width(560.0)
-            .min_width(520.0)
-            .max_width(640.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                components::panel_header(ui, tr("decisions"), &mut close);
-                top_meta_strip(ui, &data.country_tag, data.political_power);
-                ui.add_space(8.0);
+fn decisions_journal_nav(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &DecisionsData,
+    filter: &mut String,
+    available: usize,
+    cooldown: usize,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "筛选");
+        for (id, label, count) in [
+            ("available", "可执行", available),
+            ("cooldown", "冷却中", cooldown),
+            (
+                "expiring",
+                "即将到期",
+                data.decisions
+                    .iter()
+                    .filter(|entry| entry.mission_remaining.is_some_and(|days| days <= 30))
+                    .count(),
+            ),
+            (
+                "history",
+                "历史",
+                data.decisions
+                    .iter()
+                    .filter(|entry| entry.already_fired)
+                    .count(),
+            ),
+            ("all", "全部", data.decisions.len()),
+        ] {
+            if ui
+                .selectable_label(filter == id, format!("{label} ({count})"))
+                .clicked()
+            {
+                *filter = id.to_owned();
+            }
+        }
+        ui.separator();
+        VanillaIron::info_row(ui, "国家", data.country_tag.clone());
+        VanillaIron::info_row(ui, "政治力量", format!("{:.0} PP", data.political_power));
+    });
+}
 
-                if !data.mechanics.is_empty() {
-                    // 先用一个独立的滚动区域包住整张派系小游戏 + 决议列表，
-                    // 让鼠标滚轮在指南针上滚也能往下翻派系卡和决议。
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            render_mini_game(ui, data, &mut cmds, &mut consumed);
-                            ui.add_space(10.0);
-                            render_decisions(ui, data, &mut cmds, &consumed);
-                        });
-                } else {
-                    egui::ScrollArea::vertical()
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| {
-                            render_decisions(ui, data, &mut cmds, &consumed);
-                        });
-                }
+fn decisions_journal_main(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &DecisionsData,
+    filter: &str,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "事务列表");
+        let rows: Vec<&DecisionEntry> = data
+            .decisions
+            .iter()
+            .filter(|entry| decision_matches_filter(entry, filter))
+            .collect();
+        if rows.is_empty() {
+            ui.label(
+                RichText::new("没有符合筛选条件的决议或局势。")
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+            return;
+        }
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("decisions_journal_grid")
+                    .striped(true)
+                    .spacing(egui::vec2(8.0, 4.0))
+                    .show(ui, |ui| {
+                        for entry in rows {
+                            if ui
+                                .selectable_label(
+                                    false,
+                                    RichText::new(&entry.name)
+                                        .strong()
+                                        .color(if entry.clickable {
+                                            VanillaIron::TEXT
+                                        } else {
+                                            VanillaIron::MUTED
+                                        }),
+                                )
+                                .on_hover_text("打开日志详情")
+                                .clicked()
+                            {
+                                cmds.push(DecisionCommand::Panel(PanelCommand::OpenDetail(
+                                    ActiveDetailPanel::JournalEntry(JournalEntryDetailTarget {
+                                        entry_id: entry.id.clone(),
+                                    }),
+                                )));
+                            }
+                            ui.label(
+                                RichText::new(decision_journal_status(entry))
+                                    .small()
+                                    .color(decision_journal_status_color(entry)),
+                            );
+                            ui.label(format!("{:.0} PP", entry.cost_political_power));
+                            ui.label(
+                                RichText::new(&entry.effect_preview)
+                                    .small()
+                                    .color(VanillaIron::MUTED),
+                            );
+                            if ui
+                                .add_enabled(entry.clickable, egui::Button::new("执行"))
+                                .clicked()
+                            {
+                                cmds.push(DecisionCommand::Activate(entry.id.clone()));
+                            }
+                            ui.end_row();
+                        }
+                    });
             });
+    });
+}
 
-        (close, cmds)
+fn decisions_journal_side(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &DecisionsData,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "局势指标");
+        if data.mechanics.is_empty() {
+            ui.label(
+                RichText::new("暂无局势指标。")
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+        } else {
+            for gauge in &data.mechanics {
+                VanillaIron::info_row(
+                    ui,
+                    &gauge.label,
+                    format!("{:.0}/{:.0}", gauge.value, gauge.max),
+                );
+                if !gauge.detail.is_empty() {
+                    ui.label(
+                        RichText::new(&gauge.detail)
+                            .small()
+                            .color(VanillaIron::MUTED),
+                    );
+                }
+            }
+        }
+        ui.separator();
+        VanillaIron::section_heading(ui, "下一步");
+        if let Some(entry) = data.decisions.iter().find(|entry| entry.clickable) {
+            if ui.link(&entry.name).clicked() {
+                cmds.push(DecisionCommand::Panel(PanelCommand::OpenDetail(
+                    ActiveDetailPanel::JournalEntry(JournalEntryDetailTarget {
+                        entry_id: entry.id.clone(),
+                    }),
+                )));
+            }
+        } else {
+            ui.label(
+                RichText::new("当前没有可执行决议。")
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+        }
+    });
+}
+
+fn decision_matches_filter(entry: &DecisionEntry, filter: &str) -> bool {
+    match filter {
+        "available" => entry.clickable,
+        "cooldown" => entry.cooldown_remaining.is_some(),
+        "expiring" => entry.mission_remaining.is_some_and(|days| days <= 30),
+        "history" => entry.already_fired,
+        _ => true,
+    }
+}
+
+fn decision_journal_status(entry: &DecisionEntry) -> String {
+    if entry.already_fired {
+        "历史".to_owned()
+    } else if let Some(days) = entry.mission_remaining {
+        format!("进行中 {days} 天")
+    } else if let Some(days) = entry.cooldown_remaining {
+        format!("冷却 {days} 天")
+    } else if entry.clickable {
+        "可执行".to_owned()
+    } else {
+        "不可执行".to_owned()
+    }
+}
+
+fn decision_journal_status_color(entry: &DecisionEntry) -> Color32 {
+    if entry.clickable {
+        VanillaIron::GOOD
+    } else if entry.cooldown_remaining.is_some() || entry.mission_remaining.is_some() {
+        VanillaIron::WARN
+    } else {
+        VanillaIron::MUTED
     }
 }
 
 fn v9_show_decisions(ctx: &egui::Context, data: &DecisionsData) -> (bool, Vec<DecisionCommand>) {
-    use crate::v9::composites::panel_shell::{
-        draw_summary_tiles, draw_tab_strip, PanelClass, PanelShell,
+    use crate::v9::{
+        composites::side_rail::{SIDE_RAIL_PANEL_LEFT, SIDE_RAIL_TOP_OFFSET},
+        paint,
+        tokens::TextRole,
     };
-    use crate::v9::tokens::palette;
 
-    let visible = data.decisions.iter().filter(|d| d.visible).count();
-    let available = data
-        .decisions
-        .iter()
-        .filter(|d| d.visible && d.clickable)
-        .count();
-    let (close, output) = PanelShell::new("decisions_panel_v9", tr("decisions"))
-        .subtitle(if data.country_tag.is_empty() {
-            "国家"
-        } else {
-            &data.country_tag
-        })
-        .class(PanelClass::MilitaryDiplomacy)
-        .accent(palette::BRASS_BRIGHT)
-        .footer("Q Close  |  Decision cards")
-        .show(ctx, |ui, layout| {
-            draw_summary_tiles(
-                ui,
-                layout.summary,
-                &[
-                    ("国家", data.country_tag.clone(), palette::BRASS_BRIGHT),
-                    (
-                        tr("political_power"),
-                        format!("{:.0}", data.political_power),
-                        palette::GOLD,
-                    ),
-                    ("可见", visible.to_string(), palette::PARCHMENT),
-                    (
-                        tr("available"),
-                        available.to_string(),
-                        if available > 0 {
-                            palette::GOOD
-                        } else {
-                            palette::MUTED
-                        },
-                    ),
-                ],
+    let accent = decision_gold();
+    let screen = ctx.screen_rect();
+    let left_gap = if screen.width() >= 980.0 {
+        SIDE_RAIL_PANEL_LEFT
+    } else {
+        8.0
+    };
+    let top_gap = if screen.height() >= 680.0 {
+        SIDE_RAIL_TOP_OFFSET
+    } else {
+        72.0
+    };
+    let panel_w = 820.0_f32.min((screen.width() - left_gap - 8.0).max(420.0));
+    let panel_h = (screen.height() - top_gap - 8.0).max(360.0);
+    let panel_pos = Pos2::new(screen.left() + left_gap, screen.top() + top_gap);
+    let panel_size = Vec2::new(panel_w, panel_h);
+
+    let mut close = false;
+    let mut output = Vec::new();
+    egui::Area::new(egui::Id::new("decisions_panel_vanilla_1936"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(panel_pos)
+        .show(ctx, |ui| {
+            let (outer, _) = ui.allocate_exact_size(panel_size, Sense::click_and_drag());
+            paint::paint_shadow(ui.painter(), outer, crate::v9::Elevation::E2, 1.0);
+            paint_decisions_shell(ui, outer, accent);
+
+            let inner = outer.shrink2(Vec2::new(14.0, 12.0));
+            ui.painter().text(
+                Pos2::new(inner.left() + 2.0, inner.top() + 5.0),
+                egui::Align2::LEFT_TOP,
+                tr("decisions"),
+                TextRole::Display.font_id(),
+                decision_text(),
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "决议卡片 / 影响预览 / 机制",
-                palette::BRASS_BRIGHT,
+
+            let close_rect = Rect::from_min_size(
+                Pos2::new(inner.right() - 28.0, inner.top() - 2.0),
+                Vec2::splat(23.0),
             );
+            if decision_close_button(ui, close_rect)
+                .on_hover_text(tr("panel_close_hint"))
+                .clicked()
+            {
+                close = true;
+            }
+
+            let body = Rect::from_min_max(
+                Pos2::new(inner.left(), inner.top() + 52.0),
+                Pos2::new(inner.right(), inner.bottom() - 8.0),
+            );
+
             let mut cmds = Vec::new();
-            v9_decisions_body(ui, layout.body, data, &mut cmds);
-            cmds
+            v9_decisions_body(ui, body, data, &mut cmds);
+            output = cmds;
         });
-    (close, output.unwrap_or_default())
+
+    (close, output)
 }
 
 fn v9_decisions_body(
@@ -141,259 +358,355 @@ fn v9_decisions_body(
     data: &DecisionsData,
     cmds: &mut Vec<DecisionCommand>,
 ) {
-    use crate::v9::layout::{GridLayout, Track};
-    use crate::v9::tokens::spacing;
-    ui.allocate_ui_at_rect(rect, |ui| {
-        let grid = GridLayout::new(vec![Track::Fr(1.0)], vec![Track::Fr(0.62), Track::Fr(0.38)])
-            .with_gutter(spacing::S5, 0.0);
-        let cells = grid.measure(rect);
-        v9_decision_grid(ui, GridLayout::cell(&cells, 0, 0), data, cmds);
-        v9_impact_sidebar(ui, GridLayout::cell(&cells, 0, 1), data);
-    });
-}
-
-fn v9_decision_grid(
-    ui: &mut egui::Ui,
-    rect: Rect,
-    data: &DecisionsData,
-    cmds: &mut Vec<DecisionCommand>,
-) {
     ui.allocate_ui_at_rect(rect, |ui| {
         ui.set_min_size(rect.size());
         egui::ScrollArea::vertical()
+            .id_salt("decisions_vanilla_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                let decisions: Vec<&DecisionEntry> =
-                    data.decisions.iter().filter(|d| d.visible).collect();
-                if decisions.is_empty() {
-                    v9_draw_empty(
-                        ui,
-                        ui.available_rect_before_wrap(),
-                        "暂无决议",
-                        "该国家当前没有可见决议。",
-                    );
-                    return;
-                }
-                let gap = crate::v9::spacing::S4;
-                let card_w = ((ui.available_width() - gap) * 0.5).max(220.0);
-                for row in decisions.chunks(2) {
-                    let row_h = 126.0;
-                    let (row_rect, _) = ui.allocate_exact_size(
-                        Vec2::new(ui.available_width(), row_h),
-                        Sense::hover(),
-                    );
-                    for (col, entry) in row.iter().enumerate() {
-                        let card = Rect::from_min_size(
-                            Pos2::new(
-                                row_rect.left() + col as f32 * (card_w + gap),
-                                row_rect.top(),
-                            ),
-                            Vec2::new(card_w, row_h),
+                let width = ui.available_width().max(360.0);
+                if width >= 760.0 {
+                    let gap = 10.0;
+                    let right_w = 330.0_f32.min((width - gap) * 0.42);
+                    let left_w = (width - gap - right_w).max(380.0);
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(left_w, 0.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_width(left_w);
+                                v9_decision_grid(ui, data, cmds);
+                            },
                         );
-                        v9_decision_card(ui, card, entry, cmds);
-                    }
-                    ui.add_space(gap);
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(right_w, 0.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_width(right_w);
+                                v9_impact_sidebar(ui, data);
+                            },
+                        );
+                    });
+                } else {
+                    v9_impact_sidebar(ui, data);
+                    v9_decision_grid(ui, data, cmds);
                 }
             });
     });
 }
 
-fn v9_decision_card(
+fn v9_decision_grid(ui: &mut egui::Ui, data: &DecisionsData, cmds: &mut Vec<DecisionCommand>) {
+    let mut any_visible = false;
+    for category in decision_category_order() {
+        let entries: Vec<&DecisionEntry> = data
+            .decisions
+            .iter()
+            .filter(|entry| entry.visible && entry.category == category)
+            .collect();
+        if entries.is_empty() {
+            continue;
+        }
+        any_visible = true;
+        vanilla_decision_category_card(ui, category_label_zh(category), &entries, cmds);
+    }
+    if !any_visible {
+        vanilla_empty_card(
+            ui,
+            "暂无决议",
+            "当前国家没有可见决议。推进战局、积累政治力量或等待事件以解锁新的决议。",
+        );
+    }
+}
+
+fn vanilla_decision_category_card(
+    ui: &mut egui::Ui,
+    title: &str,
+    entries: &[&DecisionEntry],
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    let row_h = 86.0;
+    let height = 42.0 + entries.len() as f32 * (row_h + 6.0) + 5.0;
+    decision_panel_card(ui, height, |ui, inner| {
+        decision_section_title(ui, inner, title);
+        let mut y = inner.top() + 36.0;
+        for entry in entries {
+            let row =
+                Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), row_h));
+            vanilla_decision_row(ui, row, entry, cmds);
+            y += row_h + 6.0;
+        }
+    });
+}
+
+fn vanilla_decision_row(
     ui: &mut egui::Ui,
     rect: Rect,
     entry: &DecisionEntry,
     cmds: &mut Vec<DecisionCommand>,
 ) {
-    use crate::v9::{
-        primitives::{Button, ButtonSize, ButtonVariant, Card},
-        tokens::{palette, spacing, TextRole},
-    };
-    let inner = Card::new().show_at(ui, rect);
+    decision_row_frame(ui, rect);
     let accent = v9_decision_accent(entry);
-    let stripe = Rect::from_min_size(inner.left_top(), Vec2::new(4.0, inner.height()));
-    ui.painter()
-        .rect_filled(stripe, egui::epaint::CornerRadius::ZERO, accent);
-    let text_x = inner.left() + spacing::S5;
-    ui.painter().text(
-        Pos2::new(text_x, inner.top() + 2.0),
-        egui::Align2::LEFT_TOP,
-        &entry.name,
-        TextRole::Subheading.font_id(),
-        palette::GOLD_HOT,
+    ui.painter().rect_filled(
+        Rect::from_min_max(rect.left_top(), Pos2::new(rect.left() + 3.0, rect.bottom())),
+        0.0,
+        accent,
     );
-    let desc = truncate_chars(&entry.description, 96);
-    let galley = ui.painter().layout(
-        desc,
-        TextRole::Body.font_id(),
-        palette::PARCHMENT_DIM,
-        inner.width() - 18.0,
-    );
-    ui.painter().galley(
-        Pos2::new(text_x, inner.top() + 26.0),
-        galley,
-        palette::PARCHMENT_DIM,
+
+    let icon = Rect::from_min_size(rect.left_top() + Vec2::new(10.0, 9.0), Vec2::splat(28.0));
+    decision_slot(ui, icon, Color32::from_rgb(0x4d, 0x45, 0x35));
+    draw_decision_svg_icon(ui.painter(), icon.shrink(6.0), decision_muted());
+
+    let action_rect = Rect::from_min_size(
+        Pos2::new(rect.right() - 82.0, rect.top() + 9.0),
+        Vec2::new(72.0, 25.0),
     );
     let (state, state_color) = v9_decision_state(entry);
-    ui.painter().text(
-        Pos2::new(text_x, inner.bottom() - 24.0),
-        egui::Align2::LEFT_CENTER,
+    if decision_state_button(
+        ui,
+        action_rect,
+        &entry.id,
         state,
-        TextRole::Caption.font_id(),
         state_color,
-    );
-    if entry.cost_political_power > 0.0 {
-        ui.painter().text(
-            Pos2::new(inner.right() - 92.0, inner.bottom() - 24.0),
-            egui::Align2::RIGHT_CENTER,
-            format!("PP {:.0}", entry.cost_political_power),
-            TextRole::Numeric.font_id(),
-            palette::BRASS_BRIGHT,
-        );
-    }
-    let btn_rect = Rect::from_min_size(
-        Pos2::new(inner.right() - 82.0, inner.bottom() - 34.0),
-        Vec2::new(78.0, 26.0),
-    );
-    if Button::new(tr("execute"))
-        .size(ButtonSize::Sm)
-        .variant(ButtonVariant::Secondary)
-        .enabled(entry.clickable)
-        .show_at(ui, btn_rect)
-        .clicked()
-    {
+        entry.clickable,
+    ) {
         cmds.push(DecisionCommand::Activate(entry.id.clone()));
     }
+
+    let text_left = icon.right() + 12.0;
+    let text_right = action_rect.left() - 10.0;
+    let text_rect = Rect::from_min_max(
+        Pos2::new(text_left, rect.top() + 7.0),
+        Pos2::new(text_right, rect.bottom() - 8.0),
+    );
+    let clipped = ui.painter().with_clip_rect(text_rect);
+    clipped.text(
+        text_rect.left_top(),
+        egui::Align2::LEFT_TOP,
+        entry.name.as_str(),
+        fit_decision_font(
+            entry.name.as_str(),
+            crate::v9::TextRole::Body.font_id(),
+            text_rect.width(),
+        ),
+        decision_gold_hot(),
+    );
+
+    if !entry.description.is_empty() {
+        let desc = truncate_chars(&entry.description, 132);
+        let galley = clipped.layout(
+            desc,
+            crate::v9::TextRole::Caption.font_id(),
+            decision_text_dim(),
+            text_rect.width(),
+        );
+        clipped.galley(
+            Pos2::new(text_rect.left(), text_rect.top() + 20.0),
+            galley,
+            decision_text_dim(),
+        );
+    }
+
+    let meta = decision_meta_line(entry);
+    clipped.text(
+        Pos2::new(text_rect.left(), rect.bottom() - 17.0),
+        egui::Align2::LEFT_CENTER,
+        meta.as_str(),
+        crate::v9::TextRole::Caption.font_id(),
+        decision_muted(),
+    );
+
+    if let Some(remaining) = entry.mission_remaining {
+        let total = entry.mission_total.unwrap_or(remaining).max(1);
+        let done = total.saturating_sub(remaining);
+        let progress = done as f32 / total as f32;
+        let bar = Rect::from_min_size(
+            Pos2::new(text_left, rect.bottom() - 7.0),
+            Vec2::new((text_right - text_left).max(24.0), 4.0),
+        );
+        decision_progress_bar(ui, bar, progress, state_color);
+    }
+
     let response = ui.interact(
         rect,
-        ui.id().with(("v9_decision_card", &entry.id)),
+        ui.id().with(("decision_vanilla_row", &entry.id)),
         Sense::hover(),
     );
-    response.on_hover_text(if entry.effect_preview.is_empty() {
-        entry.description.clone()
-    } else {
-        format!("{}\n\n{}", entry.description, entry.effect_preview)
+    response.on_hover_text(decision_hover_text(entry));
+}
+
+fn v9_impact_sidebar(ui: &mut egui::Ui, data: &DecisionsData) {
+    vanilla_decision_overview_card(ui, data);
+    vanilla_decision_preview_card(ui, data);
+    if !data.mechanics.is_empty() {
+        vanilla_mechanics_card(ui, data);
+    }
+}
+
+fn vanilla_decision_overview_card(ui: &mut egui::Ui, data: &DecisionsData) {
+    let visible = data.decisions.iter().filter(|entry| entry.visible).count();
+    let available = data
+        .decisions
+        .iter()
+        .filter(|entry| entry.visible && entry.clickable)
+        .count();
+    decision_panel_card(ui, 132.0, |ui, inner| {
+        decision_section_title(ui, inner, "概览");
+        let mut y = inner.top() + 38.0;
+        decision_info_row(
+            ui,
+            Pos2::new(inner.left() + 4.0, y),
+            "国家",
+            if data.country_tag.is_empty() {
+                tr("country")
+            } else {
+                data.country_tag.as_str()
+            },
+            decision_text(),
+        );
+        y += 24.0;
+        decision_info_row(
+            ui,
+            Pos2::new(inner.left() + 4.0, y),
+            tr("political_power"),
+            &format!("{:.0}", data.political_power),
+            decision_gold_hot(),
+        );
+        y += 24.0;
+        decision_info_row(
+            ui,
+            Pos2::new(inner.left() + 4.0, y),
+            "可用 / 可见",
+            &format!("{} / {}", available, visible),
+            if available > 0 {
+                decision_good()
+            } else {
+                decision_muted()
+            },
+        );
     });
 }
 
-fn v9_impact_sidebar(ui: &mut egui::Ui, rect: Rect, data: &DecisionsData) {
-    use crate::v9::{
-        primitives::{draw_progress_bar, Card},
-        tokens::{palette, spacing, TextRole},
-    };
-    let inner = Card::new().as_panel().show_at(ui, rect);
+fn vanilla_decision_preview_card(ui: &mut egui::Ui, data: &DecisionsData) {
     let selected = data
         .decisions
         .iter()
         .find(|d| d.visible && d.clickable)
         .or_else(|| data.decisions.iter().find(|d| d.visible));
-    ui.painter().text(
-        Pos2::new(inner.left(), inner.top()),
-        egui::Align2::LEFT_TOP,
-        "影响预览",
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
-    let mut y = inner.top() + 34.0;
-    if let Some(entry) = selected {
-        ui.painter().text(
-            Pos2::new(inner.left(), y),
-            egui::Align2::LEFT_TOP,
-            &entry.name,
-            TextRole::Subheading.font_id(),
-            palette::GOLD_HOT,
-        );
-        y += 24.0;
-        let effect = if entry.effect_preview.is_empty() {
-            "暂无即时效果预览。"
-        } else {
-            &entry.effect_preview
-        };
-        let galley = ui.painter().layout(
-            effect.to_owned(),
-            TextRole::Body.font_id(),
-            palette::PARCHMENT,
-            inner.width(),
-        );
-        ui.painter()
-            .galley(Pos2::new(inner.left(), y), galley, palette::PARCHMENT);
-        y += 92.0;
-        let (state, color) = v9_decision_state(entry);
-        v9_sidebar_row(
-            ui,
-            Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 24.0)),
-            "状态",
-            state,
-            color,
-        );
-        y += 30.0;
-        v9_sidebar_row(
-            ui,
-            Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 24.0)),
-            "消耗",
-            &format!("PP {:.0}", entry.cost_political_power),
-            palette::BRASS_BRIGHT,
-        );
-        y += 42.0;
-    } else {
-        v9_draw_empty(
-            ui,
-            Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 92.0)),
-            "暂无决议",
-            "当前没有可见决议。",
-        );
-        y += 104.0;
-    }
 
-    if !data.mechanics.is_empty() {
-        ui.painter().text(
-            Pos2::new(inner.left(), y),
-            egui::Align2::LEFT_TOP,
-            "机制",
-            TextRole::Heading.font_id(),
-            palette::BRASS_BRIGHT,
+    decision_panel_card(ui, 236.0, |ui, inner| {
+        decision_section_title(ui, inner, "影响预览");
+        let content = Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 36.0),
+            inner.right_bottom(),
         );
-        y += 30.0;
-        for gauge in data.mechanics.iter().take(8) {
-            let label_rect =
-                Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 18.0));
-            v9_sidebar_row(
-                ui,
-                label_rect,
-                &gauge.label,
-                &format!("{:.1}/{:.0}", gauge.value, gauge.max),
-                palette::PARCHMENT,
+        if let Some(entry) = selected {
+            let title_rect = Rect::from_min_max(
+                content.left_top(),
+                Pos2::new(content.right(), content.top() + 26.0),
             );
-            let bar = Rect::from_min_size(
-                Pos2::new(inner.left(), y + 20.0),
-                Vec2::new(inner.width(), 8.0),
+            let clipped = ui.painter().with_clip_rect(title_rect);
+            clipped.text(
+                title_rect.left_top(),
+                egui::Align2::LEFT_TOP,
+                entry.name.as_str(),
+                fit_decision_font(
+                    entry.name.as_str(),
+                    crate::v9::TextRole::Body.font_id(),
+                    title_rect.width(),
+                ),
+                decision_gold_hot(),
+            );
+
+            let effect = if entry.effect_preview.is_empty() {
+                if entry.description.is_empty() {
+                    "暂无即时效果预览。".to_owned()
+                } else {
+                    entry.description.clone()
+                }
+            } else {
+                entry.effect_preview.clone()
+            };
+            let effect_rect = Rect::from_min_max(
+                Pos2::new(content.left(), content.top() + 30.0),
+                Pos2::new(content.right(), content.bottom() - 54.0),
+            );
+            let effect_painter = ui.painter().with_clip_rect(effect_rect);
+            let galley = effect_painter.layout(
+                effect,
+                crate::v9::TextRole::Caption.font_id(),
+                decision_text(),
+                effect_rect.width(),
+            );
+            effect_painter.galley(effect_rect.left_top(), galley, decision_text());
+
+            let (state, color) = v9_decision_state(entry);
+            let status_rect = Rect::from_min_size(
+                Pos2::new(content.left(), content.bottom() - 40.0),
+                Vec2::new(content.width(), 30.0),
+            );
+            decision_sidebar_row(ui, status_rect, "状态", state, color);
+            let cost_rect = status_rect.translate(Vec2::new(0.0, 24.0));
+            decision_sidebar_row(
+                ui,
+                cost_rect,
+                "消耗",
+                &format!("PP {:.0}", entry.cost_political_power),
+                decision_gold(),
+            );
+        } else {
+            decision_empty_text(ui, content, "当前没有可见决议");
+        }
+    });
+}
+
+fn vanilla_mechanics_card(ui: &mut egui::Ui, data: &DecisionsData) {
+    let rows = data.mechanics.len().min(8);
+    let height = 46.0 + rows as f32 * 39.0;
+    decision_panel_card(ui, height.max(126.0), |ui, inner| {
+        decision_section_title(ui, inner, "机制");
+        let mut y = inner.top() + 36.0;
+        for gauge in data.mechanics.iter().take(8) {
+            let row =
+                Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 32.0));
+            decision_sidebar_row(
+                ui,
+                Rect::from_min_size(row.left_top(), Vec2::new(row.width(), 17.0)),
+                gauge.label.as_str(),
+                &format!("{:.1}/{:.0}", gauge.value, gauge.max),
+                decision_text(),
             );
             let value = if gauge.max <= 0.0 {
                 0.0
             } else {
-                gauge.value / gauge.max
+                (gauge.value / gauge.max).clamp(0.0, 1.0)
             };
-            draw_progress_bar(
+            let bar = Rect::from_min_size(
+                Pos2::new(row.left(), row.top() + 20.0),
+                Vec2::new(row.width(), 7.0),
+            );
+            decision_progress_bar(
                 ui,
                 bar,
                 value,
-                if value >= 0.7 {
-                    palette::WARN
+                if value >= 0.70 {
+                    decision_warn()
                 } else {
-                    palette::GOLD
+                    decision_gold()
                 },
             );
-            y += 38.0 + spacing::S1;
+            y += 39.0;
         }
-    }
+    });
 }
 
-fn v9_sidebar_row(ui: &mut egui::Ui, rect: Rect, label: &str, value: &str, color: Color32) {
+fn decision_sidebar_row(ui: &mut egui::Ui, rect: Rect, label: &str, value: &str, color: Color32) {
     ui.painter().text(
         Pos2::new(rect.left(), rect.center().y),
         egui::Align2::LEFT_CENTER,
         label,
         crate::v9::TextRole::Caption.font_id(),
-        crate::v9::palette::MUTED,
+        decision_muted(),
     );
     ui.painter().text(
         Pos2::new(rect.right(), rect.center().y),
@@ -404,33 +717,448 @@ fn v9_sidebar_row(ui: &mut egui::Ui, rect: Rect, label: &str, value: &str, color
     );
 }
 
-fn v9_draw_empty(ui: &mut egui::Ui, rect: Rect, title: &str, body: &str) {
-    crate::v9::composites::panel_shell::draw_empty_state(ui, rect, title, body);
+fn decision_category_order() -> [hoi4_content::DecisionCategory; 5] {
+    [
+        hoi4_content::DecisionCategory::Crisis,
+        hoi4_content::DecisionCategory::Internal,
+        hoi4_content::DecisionCategory::Military,
+        hoi4_content::DecisionCategory::Diplomacy,
+        hoi4_content::DecisionCategory::Industry,
+    ]
+}
+
+fn paint_decisions_shell(ui: &mut egui::Ui, rect: Rect, accent: Color32) {
+    let painter = ui.painter();
+    painter.rect_filled(rect, 1.0, decision_black());
+    crate::v9::paint::paint_vertical_gradient_mesh(
+        painter,
+        rect.shrink(2.0),
+        Color32::from_rgba_premultiplied(0x18, 0x18, 0x15, 244),
+        Color32::from_rgba_premultiplied(0x06, 0x07, 0x06, 252),
+    );
+    crate::v9::paint::paint_plate_grain(painter, rect.shrink(4.0), 3.0, 3);
+    paint_decision_border(painter, rect);
+    painter.hline(
+        (rect.left() + 8.0)..=(rect.right() - 8.0),
+        rect.top() + 3.0,
+        egui::Stroke::new(1.0, Color32::from_white_alpha(18)),
+    );
+    painter.hline(
+        (rect.left() + 8.0)..=(rect.right() - 8.0),
+        rect.bottom() - 4.0,
+        egui::Stroke::new(1.0, Color32::from_black_alpha(235)),
+    );
+    for corner in [
+        rect.left_top() + Vec2::new(14.0, 14.0),
+        rect.right_top() + Vec2::new(-14.0, 14.0),
+    ] {
+        painter.circle_filled(corner, 2.2, Color32::from_black_alpha(210));
+        painter.circle_stroke(
+            corner,
+            2.2,
+            egui::Stroke::new(
+                1.0,
+                Color32::from_rgba_premultiplied(accent.r(), accent.g(), accent.b(), 90),
+            ),
+        );
+    }
+}
+
+fn paint_decision_border(painter: &egui::Painter, rect: Rect) {
+    painter.rect_stroke(
+        rect.translate(Vec2::new(1.0, 1.0)),
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, Color32::from_black_alpha(230)),
+        egui::epaint::StrokeKind::Inside,
+    );
+    painter.rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, decision_edge()),
+        egui::epaint::StrokeKind::Inside,
+    );
+    painter.rect_stroke(
+        rect.shrink(2.0),
+        egui::epaint::CornerRadius::same(0),
+        egui::Stroke::new(1.0, Color32::from_black_alpha(220)),
+        egui::epaint::StrokeKind::Inside,
+    );
+}
+
+fn decision_close_button(ui: &mut egui::Ui, rect: Rect) -> egui::Response {
+    let response = ui.interact(
+        rect,
+        ui.id().with("decisions_vanilla_close"),
+        Sense::click(),
+    );
+    let fill = if response.hovered() {
+        Color32::from_rgb(0x27, 0x28, 0x23)
+    } else {
+        Color32::from_rgb(0x12, 0x13, 0x10)
+    };
+    ui.painter().rect_filled(rect, 1.0, fill);
+    paint_decision_border(ui.painter(), rect);
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "X",
+        crate::v9::TextRole::Caption.font_id(),
+        decision_muted(),
+    );
+    response
+}
+
+fn decision_panel_card(
+    ui: &mut egui::Ui,
+    height: f32,
+    add_contents: impl FnOnce(&mut egui::Ui, Rect),
+) {
+    let width = ui.available_width().max(300.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
+    paint_decision_card_frame(ui, rect);
+    let inner = rect.shrink2(Vec2::new(9.0, 7.0));
+    add_contents(ui, inner);
+    ui.add_space(6.0);
+}
+
+fn paint_decision_card_frame(ui: &mut egui::Ui, rect: Rect) {
+    let painter = ui.painter();
+    painter.rect_filled(rect, 1.0, Color32::from_rgb(0x08, 0x09, 0x08));
+    crate::v9::paint::paint_vertical_gradient_mesh(
+        painter,
+        rect.shrink(2.0),
+        Color32::from_rgba_premultiplied(0x19, 0x1b, 0x17, 238),
+        Color32::from_rgba_premultiplied(0x03, 0x04, 0x03, 252),
+    );
+    crate::v9::paint::paint_horizontal_gradient_mesh(
+        painter,
+        rect.shrink(2.0),
+        Color32::from_black_alpha(120),
+        Color32::from_white_alpha(3),
+    );
+    crate::v9::paint::paint_plate_grain(painter, rect.shrink(4.0), 3.0, 2);
+    paint_decision_border(painter, rect);
+    painter.rect_stroke(
+        rect.shrink(3.0),
+        egui::epaint::CornerRadius::same(0),
+        egui::Stroke::new(1.0, Color32::from_black_alpha(190)),
+        egui::epaint::StrokeKind::Inside,
+    );
+    painter.hline(
+        (rect.left() + 8.0)..=(rect.right() - 8.0),
+        rect.top() + 3.0,
+        egui::Stroke::new(1.0, Color32::from_white_alpha(12)),
+    );
+    painter.hline(
+        (rect.left() + 8.0)..=(rect.right() - 8.0),
+        rect.bottom() - 3.0,
+        egui::Stroke::new(1.0, Color32::from_black_alpha(230)),
+    );
+}
+
+fn decision_section_title(ui: &mut egui::Ui, inner: Rect, title: &str) {
+    let title_rect = Rect::from_min_size(inner.left_top(), Vec2::new(inner.width(), 26.0));
+    ui.painter()
+        .rect_filled(title_rect, 0.0, Color32::from_rgb(0x10, 0x11, 0x0f));
+    crate::v9::paint::paint_vertical_gradient_mesh(
+        ui.painter(),
+        title_rect,
+        Color32::from_rgba_premultiplied(0x44, 0x43, 0x38, 95),
+        Color32::from_black_alpha(205),
+    );
+    ui.painter().rect_stroke(
+        title_rect,
+        egui::epaint::CornerRadius::same(0),
+        egui::Stroke::new(1.0, Color32::from_black_alpha(210)),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().hline(
+        (title_rect.left() + 4.0)..=(title_rect.right() - 4.0),
+        title_rect.top() + 1.0,
+        egui::Stroke::new(1.0, Color32::from_white_alpha(20)),
+    );
+    ui.painter().hline(
+        (title_rect.left() + 4.0)..=(title_rect.right() - 4.0),
+        title_rect.bottom() - 1.0,
+        egui::Stroke::new(1.0, Color32::from_rgb(0x6b, 0x55, 0x32)),
+    );
+    ui.painter().text(
+        Pos2::new(title_rect.left() + 6.0, title_rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        title,
+        crate::v9::TextRole::Subheading.font_id(),
+        decision_gold(),
+    );
+}
+
+fn decision_row_frame(ui: &mut egui::Ui, rect: Rect) {
+    ui.painter()
+        .rect_filled(rect, 1.0, Color32::from_rgb(0x12, 0x14, 0x12));
+    crate::v9::paint::paint_vertical_gradient_mesh(
+        ui.painter(),
+        rect.shrink(1.0),
+        Color32::from_rgba_premultiplied(0x25, 0x27, 0x22, 150),
+        Color32::from_rgba_premultiplied(0x08, 0x09, 0x08, 235),
+    );
+    paint_decision_border(ui.painter(), rect);
+    ui.painter().hline(
+        (rect.left() + 4.0)..=(rect.right() - 4.0),
+        rect.top() + 1.0,
+        egui::Stroke::new(1.0, Color32::from_white_alpha(6)),
+    );
+}
+
+fn decision_slot(ui: &mut egui::Ui, rect: Rect, accent: Color32) {
+    ui.painter()
+        .rect_filled(rect, 1.0, Color32::from_rgb(0x0d, 0x10, 0x10));
+    ui.painter().rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, accent),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().rect_stroke(
+        rect.shrink(3.0),
+        egui::epaint::CornerRadius::same(0),
+        egui::Stroke::new(1.0, Color32::from_black_alpha(210)),
+        egui::epaint::StrokeKind::Inside,
+    );
+}
+
+fn decision_state_button(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    id: &str,
+    label: &str,
+    color: Color32,
+    enabled: bool,
+) -> bool {
+    let response = ui.interact(
+        rect,
+        ui.id().with(("decision_state_button", id)),
+        Sense::click(),
+    );
+    let active = enabled && response.hovered();
+    ui.painter().rect_filled(
+        rect,
+        1.0,
+        if active {
+            Color32::from_rgb(0x31, 0x32, 0x2a)
+        } else {
+            Color32::from_rgb(0x0a, 0x0b, 0x09)
+        },
+    );
+    ui.painter().rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, Color32::from_black_alpha(220)),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().rect_stroke(
+        rect.shrink(1.0),
+        egui::epaint::CornerRadius::same(0),
+        egui::Stroke::new(1.0, if enabled { color } else { decision_edge() }),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        fit_decision_font(
+            label,
+            crate::v9::TextRole::Caption.font_id(),
+            rect.width() - 6.0,
+        ),
+        if enabled { color } else { decision_muted() },
+    );
+    if response.hovered() && enabled {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    enabled && response.clicked()
+}
+
+fn decision_progress_bar(ui: &mut egui::Ui, rect: Rect, value: f32, color: Color32) {
+    ui.painter().rect_filled(rect, 1.0, RAIL_INK);
+    let fill = Rect::from_min_max(
+        rect.left_top(),
+        Pos2::new(
+            rect.left() + rect.width() * value.clamp(0.0, 1.0),
+            rect.bottom(),
+        ),
+    );
+    ui.painter().rect_filled(fill, 1.0, color);
+    ui.painter().rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, decision_edge()),
+        egui::epaint::StrokeKind::Inside,
+    );
+}
+
+fn decision_info_row(ui: &mut egui::Ui, pos: Pos2, label: &str, value: &str, value_color: Color32) {
+    ui.painter().text(
+        pos,
+        egui::Align2::LEFT_TOP,
+        label,
+        crate::v9::TextRole::Body.font_id(),
+        decision_muted(),
+    );
+    ui.painter().text(
+        pos + Vec2::new(92.0, 0.0),
+        egui::Align2::LEFT_TOP,
+        value,
+        crate::v9::TextRole::Body.font_id(),
+        value_color,
+    );
+}
+
+fn vanilla_empty_card(ui: &mut egui::Ui, title: &str, body: &str) {
+    decision_panel_card(ui, 190.0, |ui, inner| {
+        decision_section_title(ui, inner, title);
+        let content = Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 36.0),
+            inner.right_bottom(),
+        );
+        decision_empty_text(ui, content, body);
+    });
+}
+
+fn decision_empty_text(ui: &mut egui::Ui, rect: Rect, text: &str) {
+    let galley = ui.painter().layout(
+        text.to_owned(),
+        crate::v9::TextRole::Body.font_id(),
+        decision_muted(),
+        rect.width(),
+    );
+    ui.painter().galley(
+        Pos2::new(rect.left(), rect.center().y - galley.size().y * 0.5),
+        galley,
+        decision_muted(),
+    );
+}
+
+fn draw_decision_svg_icon(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let stroke = egui::Stroke::new(1.55, color);
+    let thin = egui::Stroke::new(1.15, color);
+    let p = |x: f32, y: f32| -> Pos2 {
+        Pos2::new(
+            rect.left() + rect.width() * x / 24.0,
+            rect.top() + rect.height() * y / 24.0,
+        )
+    };
+    let rr =
+        |x: f32, y: f32, w: f32, h: f32| -> Rect { Rect::from_min_max(p(x, y), p(x + w, y + h)) };
+    painter.rect_stroke(
+        rr(6.0, 4.0, 12.0, 16.5),
+        egui::epaint::CornerRadius::same(1),
+        stroke,
+        egui::epaint::StrokeKind::Inside,
+    );
+    painter.rect_stroke(
+        rr(8.5, 2.8, 7.0, 4.0),
+        egui::epaint::CornerRadius::same(1),
+        thin,
+        egui::epaint::StrokeKind::Inside,
+    );
+    for y in [9.0, 12.5, 16.0] {
+        painter.line_segment([p(9.0, y), p(16.0, y)], thin);
+    }
+}
+
+fn decision_meta_line(entry: &DecisionEntry) -> String {
+    let mut parts = vec![entry.mechanic_kind.label().to_owned()];
+    if entry.cost_political_power > 0.0 {
+        parts.push(format!("PP {:.0}", entry.cost_political_power));
+    }
+    if let Some(remaining) = entry.cooldown_remaining {
+        parts.push(format!("{} {}天", tr("cooldown"), remaining));
+    }
+    if let Some(remaining) = entry.mission_remaining {
+        parts.push(format!("剩余 {}天", remaining));
+    }
+    if entry.already_fired {
+        parts.push(tr("done").to_owned());
+    }
+    parts.join(" / ")
+}
+
+fn decision_hover_text(entry: &DecisionEntry) -> String {
+    if entry.effect_preview.is_empty() {
+        entry.description.clone()
+    } else if entry.description.is_empty() {
+        entry.effect_preview.clone()
+    } else {
+        format!("{}\n\n{}", entry.description, entry.effect_preview)
+    }
+}
+
+fn fit_decision_font(text: &str, mut font: egui::FontId, max_width: f32) -> egui::FontId {
+    let estimated = text.chars().count() as f32 * font.size * 0.56;
+    if estimated > max_width && estimated > 1.0 {
+        font.size *= (max_width / estimated).clamp(0.70, 1.0);
+    }
+    font
+}
+
+fn decision_black() -> Color32 {
+    Color32::from_rgb(0x08, 0x0a, 0x09)
+}
+
+fn decision_edge() -> Color32 {
+    Color32::from_rgb(0x55, 0x48, 0x31)
+}
+
+fn decision_text() -> Color32 {
+    Color32::from_rgb(0xd6, 0xca, 0x9b)
+}
+
+fn decision_text_dim() -> Color32 {
+    Color32::from_rgb(0xaa, 0xa2, 0x82)
+}
+
+fn decision_muted() -> Color32 {
+    Color32::from_rgb(0x8d, 0x8b, 0x80)
+}
+
+fn decision_gold() -> Color32 {
+    Color32::from_rgb(0xc9, 0xb4, 0x72)
+}
+
+fn decision_gold_hot() -> Color32 {
+    Color32::from_rgb(0xe1, 0xd3, 0xa5)
+}
+
+fn decision_good() -> Color32 {
+    Color32::from_rgb(0x70, 0xc8, 0x78)
+}
+
+fn decision_warn() -> Color32 {
+    Color32::from_rgb(0xff, 0xc0, 0x60)
 }
 
 fn v9_decision_state(entry: &DecisionEntry) -> (&'static str, Color32) {
     if entry.mission_remaining.is_some() {
-        (tr("active"), crate::v9::palette::WARN)
+        (tr("active"), decision_warn())
     } else if entry.cooldown_remaining.is_some() {
-        (tr("cooldown"), crate::v9::palette::MUTED)
+        (tr("cooldown"), decision_muted())
     } else if entry.already_fired {
-        (tr("done"), crate::v9::palette::GOOD)
+        (tr("done"), decision_good())
     } else if entry.clickable {
-        (tr("available"), crate::v9::palette::GOOD)
+        (tr("execute"), decision_gold_hot())
     } else {
-        (tr("locked"), crate::v9::palette::MUTED)
+        (tr("locked"), decision_muted())
     }
 }
 
 fn v9_decision_accent(entry: &DecisionEntry) -> Color32 {
     if entry.clickable {
-        crate::v9::palette::GOLD
+        decision_gold()
     } else if entry.mission_remaining.is_some() {
-        crate::v9::palette::WARN
+        decision_warn()
     } else if entry.already_fired {
-        crate::v9::palette::GOOD
+        decision_good()
     } else {
-        crate::v9::palette::MUTED
+        decision_muted()
     }
 }
 

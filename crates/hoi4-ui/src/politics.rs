@@ -8,10 +8,13 @@
 
 #![allow(dead_code, deprecated)]
 
-use crate::{components, i18n::tr};
+use crate::{
+    components, i18n::tr, law_panel, vanilla_iron::VanillaIron, ActiveDetailPanel, PanelCommand,
+};
 use egui::{Color32, Pos2, Rect, RichText, Sense, Vec2};
 
 use hoi4_content::{Decision, DecisionCategory, DecisionMechanicKind, Effect};
+use hoi4_state::LawCategory;
 
 const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
 const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x31, 0x24, 0x18);
@@ -21,16 +24,19 @@ const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
 const BAD: Color32 = Color32::from_rgb(0xe0, 0x60, 0x58);
 const IDEA_SLOT_SIZE: f32 = 54.0;
 const IDEA_ICON_SIZE: f32 = 44.0;
+const VANILLA_CARD_GAP: f32 = 6.0;
 
 fn ideology_color(key: &str) -> Color32 {
+    hoi4_ideology_color(key)
+}
+
+fn hoi4_ideology_color(key: &str) -> Color32 {
     match key {
-        // HOI4-style ideology palette: democratic blue, communist red,
-        // fascist brown, non-aligned grey.
-        "democratic" => Color32::from_rgb(60, 90, 170),
-        "communism" => Color32::from_rgb(180, 30, 30),
-        "fascism" => Color32::from_rgb(80, 60, 40),
-        "neutrality" => Color32::from_rgb(140, 140, 140),
-        _ => Color32::from_rgb(100, 100, 100),
+        "democratic" => Color32::from_rgb(0x32, 0x68, 0xa6),
+        "communism" => Color32::from_rgb(0xa8, 0x2b, 0x25),
+        "fascism" => Color32::from_rgb(0x83, 0x55, 0x32),
+        "neutrality" => Color32::from_rgb(0x8f, 0x8d, 0x80),
+        _ => Color32::from_rgb(0x66, 0x66, 0x60),
     }
 }
 
@@ -135,6 +141,8 @@ pub struct PoliticsData {
     /// 党派完整名称（已解过 `<TAG>_<ideology>_party_long` loc，例 "Nationalsozialistische Deutsche Arbeiterpartei"）。
     /// 若本地化缺失则回退为 `ideology_label(ruling_party)`。
     pub party_full_name: String,
+    pub government_posts: Vec<GovernmentPostEntry>,
+    pub law_slots: Vec<PoliticsLawEntry>,
 }
 
 impl PoliticsData {
@@ -159,6 +167,8 @@ impl PoliticsData {
             leader_name: String::new(),
             leader_portrait_key: None,
             party_full_name: String::new(),
+            government_posts: Vec::new(),
+            law_slots: Vec::new(),
         }
     }
 }
@@ -173,12 +183,29 @@ pub struct IdeaEntry {
     pub modifiers: Vec<(String, f32)>,
 }
 
+#[derive(Debug, Clone)]
+pub struct GovernmentPostEntry {
+    pub office: String,
+    pub name: String,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct PoliticsLawEntry {
+    pub category: LawCategory,
+    pub current_name: String,
+    pub cooldown_days: u16,
+    pub pending: Option<(String, u16)>,
+    pub is_locked: bool,
+}
+
 /// F.2：面板回写命令。
 #[derive(Debug, Clone, PartialEq)]
 pub enum DecisionCommand {
     /// 玩家点了某个决议的执行按钮。
     Activate(String),
     OpenFocusTree,
+    Panel(PanelCommand),
 }
 
 /// 政治面板（无状态）。
@@ -194,8 +221,79 @@ impl PoliticsPanel {
         data: &PoliticsData,
         icon_bank: &mut crate::icons::IconBank,
     ) -> (bool, Vec<DecisionCommand>) {
-        v9_show_politics(ctx, data, icon_bank)
+        vanilla_show_politics(ctx, data, icon_bank)
     }
+}
+
+fn vanilla_show_politics(
+    ctx: &egui::Context,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+) -> (bool, Vec<DecisionCommand>) {
+    use crate::v9::{
+        composites::side_rail::{SIDE_RAIL_PANEL_LEFT, SIDE_RAIL_TOP_OFFSET},
+        paint,
+        tokens::TextRole,
+    };
+
+    let accent = v9_ideology_color(&data.ruling_party);
+    let screen = ctx.screen_rect();
+    let left_gap = if screen.width() >= 980.0 {
+        SIDE_RAIL_PANEL_LEFT
+    } else {
+        8.0
+    };
+    let top_gap = if screen.height() >= 680.0 {
+        SIDE_RAIL_TOP_OFFSET
+    } else {
+        72.0
+    };
+    let panel_w = 820.0_f32.min((screen.width() - left_gap - 8.0).max(420.0));
+    let panel_h = (screen.height() - top_gap - 8.0).max(360.0);
+    let panel_pos = Pos2::new(screen.left() + left_gap, screen.top() + top_gap);
+    let panel_size = Vec2::new(panel_w, panel_h);
+
+    let mut close = false;
+    let mut output = Vec::new();
+    egui::Area::new(egui::Id::new("politics_panel_vanilla_1936"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(panel_pos)
+        .show(ctx, |ui| {
+            let (outer, _) = ui.allocate_exact_size(panel_size, Sense::click_and_drag());
+            paint::paint_shadow(ui.painter(), outer, crate::v9::Elevation::E2, 1.0);
+            vanilla_politics_shell(ui, outer, accent);
+
+            let inner = outer.shrink2(Vec2::new(14.0, 12.0));
+            ui.painter().text(
+                Pos2::new(inner.left() + 2.0, inner.top() + 5.0),
+                egui::Align2::LEFT_TOP,
+                tr("politics"),
+                TextRole::Display.font_id(),
+                vanilla_text(),
+            );
+
+            let close_rect = Rect::from_min_size(
+                Pos2::new(inner.right() - 28.0, inner.top() - 2.0),
+                Vec2::splat(23.0),
+            );
+            if vanilla_close_button(ui, close_rect)
+                .on_hover_text(tr("panel_close_hint"))
+                .clicked()
+            {
+                close = true;
+            }
+
+            let body = Rect::from_min_max(
+                Pos2::new(inner.left(), inner.top() + 52.0),
+                Pos2::new(inner.right(), inner.bottom() - 8.0),
+            );
+
+            let mut cmds = Vec::new();
+            v9_politics_body(ui, body, data, icon_bank, &mut cmds);
+            output = cmds;
+        });
+
+    (close, output)
 }
 
 fn v9_show_politics(
@@ -203,56 +301,101 @@ fn v9_show_politics(
     data: &PoliticsData,
     icon_bank: &mut crate::icons::IconBank,
 ) -> (bool, Vec<DecisionCommand>) {
-    use crate::v9::composites::panel_shell::{
-        draw_summary_tiles, draw_tab_strip, PanelClass, PanelShell,
+    use crate::v9::{
+        composites::side_rail::{SIDE_RAIL_PANEL_LEFT, SIDE_RAIL_TOP_OFFSET},
+        paint,
+        primitives::{Button, ButtonSize, ButtonVariant},
+        tokens::{palette, spacing, Elevation, TextRole},
     };
-    use crate::v9::tokens::palette;
 
     let accent = v9_ideology_color(&data.ruling_party);
-    let ruling_support = ruling_party_support(data);
-    let subtitle = if data.country_tag.is_empty() {
-        tr("country")
+
+    let screen = ctx.screen_rect();
+    let left_gap = if screen.width() >= 980.0 {
+        SIDE_RAIL_PANEL_LEFT
     } else {
-        data.country_tag.as_str()
+        8.0
     };
-    let (close, output) = PanelShell::new("politics_panel_v9", tr("politics"))
-        .subtitle(subtitle)
-        .class(PanelClass::MilitaryDiplomacy)
-        .accent(accent)
-        .footer("Q Close  |  National politics")
-        .show(ctx, |ui, layout| {
-            draw_summary_tiles(
-                ui,
-                layout.summary,
-                &[
-                    (
-                        tr("political_power"),
-                        format!("{:.0}", data.political_power),
-                        palette::GOLD,
-                    ),
-                    (
-                        tr("stability"),
-                        format!("{:.0}%", data.stability * 100.0),
-                        v9_percent_color(data.stability),
-                    ),
-                    (
-                        tr("war_support"),
-                        format!("{:.0}%", data.war_support * 100.0),
-                        v9_percent_color(data.war_support),
-                    ),
-                    (
-                        tr("ruling_party"),
-                        format!("{:.0}%", ruling_support * 100.0),
-                        accent,
-                    ),
-                ],
+    let top_gap = if screen.height() >= 680.0 {
+        SIDE_RAIL_TOP_OFFSET
+    } else {
+        72.0
+    };
+    let panel_w = 820.0_f32.min((screen.width() - left_gap - 8.0).max(420.0));
+    let available_h = (screen.height() - top_gap - 8.0).max(360.0);
+    let panel_h = available_h.min(820.0);
+    let panel_pos = Pos2::new(screen.left() + left_gap, screen.top() + top_gap);
+    let panel_size = Vec2::new(panel_w, panel_h);
+
+    let mut close = false;
+    let mut output = Vec::new();
+    egui::Area::new(egui::Id::new("politics_panel_hoi4_rebuild"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(panel_pos)
+        .show(ctx, |ui| {
+            let (outer, _) = ui.allocate_exact_size(panel_size, Sense::click_and_drag());
+            paint::paint_shadow(ui.painter(), outer, Elevation::E3, 2.0);
+            paint_politics_shell(ui, outer, accent);
+
+            let inner = outer.shrink2(Vec2::new(spacing::S5, spacing::S4));
+            let header = Rect::from_min_size(inner.min, Vec2::new(inner.width(), 66.0));
+            let tab = Rect::from_min_size(
+                Pos2::new(inner.left(), header.bottom() + spacing::S4),
+                Vec2::new(inner.width(), 36.0),
             );
-            draw_tab_strip(ui, layout.tabs, "政权 / 意识形态 / 国家精神 / 顾问", accent);
+            let body = Rect::from_min_max(
+                Pos2::new(inner.left(), tab.bottom() + spacing::S4),
+                Pos2::new(inner.right(), inner.bottom() - spacing::S2),
+            );
+
+            paint::paint_recessed_panel(ui.painter(), header, 1.0);
+            ui.painter().rect_filled(
+                Rect::from_min_max(
+                    header.left_top(),
+                    Pos2::new(header.left() + 4.0, header.bottom()),
+                ),
+                0.0,
+                accent,
+            );
+            ui.painter().text(
+                Pos2::new(header.left() + spacing::S5, header.top() + spacing::S3),
+                egui::Align2::LEFT_TOP,
+                tr("politics"),
+                TextRole::Display.font_id(),
+                palette::GOLD_HOT,
+            );
+            ui.painter().text(
+                Pos2::new(header.left() + spacing::S5, header.bottom() - spacing::S2),
+                egui::Align2::LEFT_BOTTOM,
+                if data.country_tag.is_empty() {
+                    tr("country")
+                } else {
+                    data.country_tag.as_str()
+                },
+                TextRole::Caption.font_id(),
+                palette::PARCHMENT_DIM,
+            );
+
+            let close_rect = Rect::from_min_size(
+                Pos2::new(header.right() - 30.0, header.top() + spacing::S3),
+                Vec2::splat(24.0),
+            );
+            if Button::new("X")
+                .size(ButtonSize::Sm)
+                .variant(ButtonVariant::Ghost)
+                .show_at(ui, close_rect)
+                .on_hover_text(tr("panel_close_hint"))
+                .clicked()
+            {
+                close = true;
+            }
+
+            draw_politics_tab_strip(ui, tab, "政权总览 / 意识形态 / 国家精神 / 政府制度", accent);
             let mut cmds = Vec::new();
-            v9_politics_body(ui, layout.body, data, icon_bank, &mut cmds);
-            cmds
+            v9_politics_body(ui, body, data, icon_bank, &mut cmds);
+            output = cmds;
         });
-    (close, output.unwrap_or_default())
+    (close, output)
 }
 
 fn v9_politics_body(
@@ -265,24 +408,1027 @@ fn v9_politics_body(
     ui.allocate_ui_at_rect(rect, |ui| {
         ui.set_min_size(rect.size());
         egui::ScrollArea::vertical()
+            .id_salt("politics_vanilla_scroll")
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                v9_leader_card(ui, data, icon_bank, cmds);
-                v9_ideology_card(ui, data);
-                v9_ideas_card(ui, data, icon_bank);
-                v9_advisors_card(ui);
+                let width = ui.available_width().max(360.0);
+                if width >= 760.0 {
+                    let gap = 10.0;
+                    let right_w = 360.0_f32.min((width - gap) * 0.46);
+                    let left_w = (width - gap - right_w).max(360.0);
+                    let top_h =
+                        vanilla_leader_card_height().max(vanilla_government_card_height(data));
+                    let ideas_h = vanilla_ideas_card_height(data);
+                    let base_ideology_h = vanilla_ideology_card_height(data);
+                    let lower_stack_h = ideas_h + VANILLA_CARD_GAP + base_ideology_h;
+                    let target_lower_h =
+                        (rect.height() - top_h - VANILLA_CARD_GAP).max(lower_stack_h);
+                    let aligned_lower_h = lower_stack_h
+                        .max(vanilla_law_systems_card_height(data))
+                        .max(target_lower_h);
+                    let ideology_h = base_ideology_h + (aligned_lower_h - lower_stack_h);
+                    ui.horizontal_top(|ui| {
+                        ui.spacing_mut().item_spacing.x = gap;
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(left_w, 0.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_width(left_w);
+                                vanilla_leader_card(ui, data, icon_bank, cmds, top_h);
+                                vanilla_ideas_card(ui, data, icon_bank, ideas_h);
+                                vanilla_ideology_card(ui, data, ideology_h);
+                            },
+                        );
+                        ui.allocate_ui_with_layout(
+                            Vec2::new(right_w, 0.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.set_width(right_w);
+                                vanilla_government_card(ui, data, top_h);
+                                vanilla_law_systems_card(ui, data, cmds, aligned_lower_h);
+                            },
+                        );
+                    });
+                } else {
+                    vanilla_leader_card(ui, data, icon_bank, cmds, vanilla_leader_card_height());
+                    vanilla_government_card(ui, data, vanilla_government_card_height(data));
+                    vanilla_ideas_card(ui, data, icon_bank, vanilla_ideas_card_height(data));
+                    vanilla_law_systems_card(ui, data, cmds, vanilla_law_systems_card_height(data));
+                    vanilla_ideology_card(ui, data, vanilla_ideology_card_height(data));
+                }
             });
     });
+}
+
+fn paint_politics_shell(ui: &mut egui::Ui, rect: Rect, accent: Color32) {
+    use crate::v9::{paint, tokens::palette};
+
+    ui.painter().rect_filled(rect, 1.0, palette::SOOT_BLACK);
+    paint::paint_vertical_gradient_mesh(
+        ui.painter(),
+        rect.shrink(2.0),
+        Color32::from_rgba_premultiplied(0x18, 0x1b, 0x17, 245),
+        Color32::from_black_alpha(252),
+    );
+    ui.painter().rect_stroke(
+        rect,
+        1.0,
+        egui::Stroke::new(2.0, palette::EDGE_DARK),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().rect_stroke(
+        rect.shrink(2.0),
+        1.0,
+        egui::Stroke::new(1.0, palette::BRASS_DARK),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().rect_stroke(
+        rect.shrink(6.0),
+        0.0,
+        egui::Stroke::new(1.0, Color32::from_black_alpha(230)),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().hline(
+        (rect.left() + 22.0)..=(rect.right() - 22.0),
+        rect.top() + 9.0,
+        egui::Stroke::new(1.0, accent),
+    );
+    ui.painter().hline(
+        (rect.left() + 22.0)..=(rect.right() - 22.0),
+        rect.bottom() - 9.0,
+        egui::Stroke::new(1.0, palette::BRASS_DARK),
+    );
+}
+
+fn draw_politics_tab_strip(ui: &mut egui::Ui, rect: Rect, label: &str, accent: Color32) {
+    use crate::v9::{
+        paint,
+        tokens::{palette, spacing, TextRole},
+    };
+
+    paint::paint_recessed_panel(ui.painter(), rect, 1.0);
+    ui.painter().rect_filled(
+        Rect::from_min_max(rect.left_top(), Pos2::new(rect.left() + 4.0, rect.bottom())),
+        0.0,
+        accent,
+    );
+    ui.painter().hline(
+        (rect.left() + spacing::S4)..=(rect.right() - spacing::S4),
+        rect.top() + 1.0,
+        egui::Stroke::new(1.0, palette::BRASS_DARK),
+    );
+    ui.painter().text(
+        Pos2::new(rect.left() + spacing::S5, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        TextRole::Subheading.font_id(),
+        accent,
+    );
+}
+
+fn vanilla_politics_shell(ui: &mut egui::Ui, rect: Rect, accent: Color32) {
+    VanillaIron::paint_panel(ui, rect, accent);
+}
+
+fn paint_vanilla_border(painter: &egui::Painter, rect: Rect) {
+    VanillaIron::paint_border(painter, rect);
+}
+
+fn vanilla_close_button(ui: &mut egui::Ui, rect: Rect) -> egui::Response {
+    VanillaIron::close_button(ui, rect, ui.id().with("politics_vanilla_close"))
+}
+
+fn vanilla_black() -> Color32 {
+    VanillaIron::BLACK
+}
+
+fn vanilla_card() -> Color32 {
+    VanillaIron::CARD
+}
+
+fn vanilla_edge() -> Color32 {
+    VanillaIron::EDGE
+}
+
+fn vanilla_text() -> Color32 {
+    VanillaIron::TEXT
+}
+
+fn vanilla_muted() -> Color32 {
+    VanillaIron::MUTED
 }
 
 fn v9_card(ui: &mut egui::Ui, height: f32, add_contents: impl FnOnce(&mut egui::Ui, Rect)) {
     let width = ui.available_width().max(360.0);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
-    let inner = crate::v9::primitives::Card::new()
-        .as_panel()
-        .show_at(ui, rect);
+    paint_politics_card_frame(ui, rect);
+    let inner = rect.shrink2(Vec2::new(9.0, 7.0));
     add_contents(ui, inner);
-    ui.add_space(crate::v9::spacing::S4);
+    ui.add_space(VANILLA_CARD_GAP);
+}
+
+fn paint_politics_card_frame(ui: &mut egui::Ui, rect: Rect) {
+    let painter = ui.painter();
+    painter.rect_filled(rect, 1.0, Color32::from_rgb(0x08, 0x09, 0x08));
+    crate::v9::paint::paint_vertical_gradient_mesh(
+        painter,
+        rect.shrink(2.0),
+        Color32::from_rgba_premultiplied(0x19, 0x1b, 0x17, 238),
+        Color32::from_rgba_premultiplied(0x03, 0x04, 0x03, 252),
+    );
+    crate::v9::paint::paint_horizontal_gradient_mesh(
+        painter,
+        rect.shrink(2.0),
+        Color32::from_black_alpha(120),
+        Color32::from_white_alpha(3),
+    );
+    crate::v9::paint::paint_plate_grain(painter, rect.shrink(4.0), 3.0, 2);
+    paint_vanilla_border(painter, rect);
+    painter.rect_stroke(
+        rect.shrink(3.0),
+        egui::epaint::CornerRadius::same(0),
+        egui::Stroke::new(1.0, Color32::from_black_alpha(190)),
+        egui::epaint::StrokeKind::Inside,
+    );
+    painter.hline(
+        (rect.left() + 8.0)..=(rect.right() - 8.0),
+        rect.top() + 3.0,
+        egui::Stroke::new(1.0, Color32::from_white_alpha(12)),
+    );
+    painter.hline(
+        (rect.left() + 8.0)..=(rect.right() - 8.0),
+        rect.bottom() - 3.0,
+        egui::Stroke::new(1.0, Color32::from_black_alpha(230)),
+    );
+}
+
+fn vanilla_leader_card_height() -> f32 {
+    238.0
+}
+
+fn vanilla_ideas_card_height(_data: &PoliticsData) -> f32 {
+    122.0
+}
+
+fn vanilla_ideology_card_height(data: &PoliticsData) -> f32 {
+    (76.0 + data.party_popularity.len().max(1) as f32 * 24.0).max(206.0)
+}
+
+fn vanilla_government_card_height(data: &PoliticsData) -> f32 {
+    let rows = data.government_posts.len().max(1);
+    (48.0 + rows as f32 * 43.0).max(238.0)
+}
+
+fn vanilla_law_systems_card_height(data: &PoliticsData) -> f32 {
+    let rows = data.law_slots.len().max(1);
+    (48.0 + rows as f32 * 43.0).max(294.0)
+}
+
+fn vanilla_leader_card(
+    ui: &mut egui::Ui,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+    height: f32,
+) {
+    v9_card(ui, height, |ui, inner| {
+        vanilla_section_title(ui, inner, "\u{6267}\u{653f}\u{515a}");
+
+        let content = Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 34.0),
+            inner.right_bottom(),
+        );
+        let portrait_rect = Rect::from_min_size(
+            content.left_top() + Vec2::new(2.0, 4.0),
+            Vec2::new(102.0, 148.0),
+        );
+        draw_vanilla_portrait(ui, portrait_rect, data, icon_bank);
+
+        let text_left = portrait_rect.right() + 18.0;
+        let text_rect = Rect::from_min_max(
+            Pos2::new(text_left, portrait_rect.top() + 2.0),
+            Pos2::new(content.right() - 4.0, portrait_rect.bottom()),
+        );
+        let leader = if data.leader_name.is_empty() {
+            tr("leader_unknown").to_owned()
+        } else {
+            data.leader_name.clone()
+        };
+        let party = if data.party_full_name.is_empty() {
+            ideology_label(&data.ruling_party).to_owned()
+        } else {
+            data.party_full_name.clone()
+        };
+        let painter = ui.painter().with_clip_rect(text_rect);
+        painter.text(
+            text_rect.left_top(),
+            egui::Align2::LEFT_TOP,
+            leader.as_str(),
+            fit_text_font(
+                leader.as_str(),
+                crate::v9::TextRole::Heading.font_id(),
+                text_rect.width(),
+            ),
+            vanilla_gold(),
+        );
+        painter.text(
+            Pos2::new(text_rect.left(), text_rect.top() + 30.0),
+            egui::Align2::LEFT_TOP,
+            party.as_str(),
+            fit_text_font(
+                party.as_str(),
+                crate::v9::TextRole::Body.font_id(),
+                text_rect.width(),
+            ),
+            v9_ideology_color(&data.ruling_party),
+        );
+        vanilla_info_line(
+            ui,
+            Pos2::new(text_rect.left(), text_rect.top() + 70.0),
+            "\u{610f}\u{8bc6}\u{5f62}\u{6001}:",
+            ideology_label(&data.ruling_party),
+            v9_ideology_color(&data.ruling_party),
+        );
+        vanilla_info_line(
+            ui,
+            Pos2::new(text_rect.left(), text_rect.top() + 96.0),
+            "\u{6267}\u{653f}\u{5730}\u{4f4d}:",
+            "\u{6267}\u{653f}\u{515a}",
+            vanilla_gold(),
+        );
+        vanilla_info_line(
+            ui,
+            Pos2::new(text_rect.left(), text_rect.top() + 122.0),
+            "\u{4e0b}\u{4e00}\u{6b21}\u{9009}\u{4e3e}:",
+            "1940\u{5e74}1\u{6708}",
+            vanilla_text(),
+        );
+
+        if data.focus_available {
+            let button = Rect::from_min_size(
+                Pos2::new(content.right() - 126.0, content.bottom() - 34.0),
+                Vec2::new(118.0, 28.0),
+            );
+            if vanilla_action_button(ui, button, "\u{56fd}\u{7b56}") {
+                cmds.push(DecisionCommand::OpenFocusTree);
+            }
+        }
+    });
+}
+
+fn vanilla_ideas_card(
+    ui: &mut egui::Ui,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+    height: f32,
+) {
+    v9_card(ui, height, |ui, inner| {
+        vanilla_section_title(ui, inner, tr("national_spirits"));
+        let content = Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 34.0),
+            inner.right_bottom(),
+        );
+        if data.ideas.is_empty() {
+            let slot = Rect::from_min_size(
+                Pos2::new(content.left() + 12.0, content.top() + 8.0),
+                Vec2::splat(50.0),
+            );
+            vanilla_slot(ui, slot, Color32::from_rgb(0x34, 0x35, 0x30));
+            ui.painter().text(
+                slot.center(),
+                egui::Align2::CENTER_CENTER,
+                "?",
+                crate::v9::TextRole::Heading.font_id(),
+                Color32::from_rgb(0x4c, 0x4b, 0x43),
+            );
+            ui.painter().text(
+                Pos2::new(slot.right() + 14.0, slot.center().y),
+                egui::Align2::LEFT_CENTER,
+                tr("idea_none"),
+                crate::v9::TextRole::Body.font_id(),
+                vanilla_muted(),
+            );
+            return;
+        }
+
+        let slot = Vec2::splat(54.0);
+        let gap = 8.0;
+        let cols = (((content.width() + gap) / (slot.x + gap)).floor() as usize).clamp(1, 7);
+        for (idx, idea) in data.ideas.iter().enumerate() {
+            let col = idx % cols;
+            let row = idx / cols;
+            let rect = Rect::from_min_size(
+                content.left_top()
+                    + Vec2::new(col as f32 * (slot.x + gap), row as f32 * (slot.y + gap)),
+                slot,
+            );
+            vanilla_slot(ui, rect, vanilla_edge());
+            if let Some(handle) = idea_icon_gfx(idea).and_then(|gfx| icon_bank.get_or_load(&gfx)) {
+                ui.put(
+                    rect.shrink(5.0),
+                    egui::Image::from_texture(handle).fit_to_exact_size(rect.shrink(5.0).size()),
+                );
+            } else {
+                let letter = idea
+                    .name
+                    .chars()
+                    .find(|c| !c.is_whitespace())
+                    .unwrap_or('?');
+                ui.painter().text(
+                    rect.center(),
+                    egui::Align2::CENTER_CENTER,
+                    letter.to_string(),
+                    crate::v9::TextRole::Heading.font_id(),
+                    vanilla_gold(),
+                );
+            }
+            ui.interact(
+                rect,
+                ui.id().with(("vanilla_idea", &idea.key)),
+                Sense::hover(),
+            )
+            .on_hover_ui(|ui| render_idea_tooltip(ui, idea));
+        }
+    });
+}
+
+fn vanilla_ideology_card(ui: &mut egui::Ui, data: &PoliticsData, height: f32) {
+    v9_card(ui, height, |ui, inner| {
+        vanilla_section_title(ui, inner, "\u{610f}\u{8bc6}\u{5f62}\u{6001}");
+        let content = Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 40.0),
+            inner.right_bottom(),
+        );
+        let donut = Rect::from_min_size(
+            Pos2::new(content.left() + 26.0, content.top() + 10.0),
+            Vec2::splat(128.0),
+        );
+        draw_vanilla_ideology_donut(ui, donut, &data.party_popularity);
+
+        let legend = Rect::from_min_max(
+            Pos2::new(donut.right() + 26.0, content.top() + 4.0),
+            content.right_bottom(),
+        );
+        let mut y = legend.top();
+        for (key, pop) in &data.party_popularity {
+            let color = v9_ideology_color(key);
+            let row =
+                Rect::from_min_size(Pos2::new(legend.left(), y), Vec2::new(legend.width(), 24.0));
+            ui.painter()
+                .circle_filled(Pos2::new(row.left() + 7.0, row.center().y), 5.0, color);
+            ui.painter().text(
+                Pos2::new(row.left() + 20.0, row.center().y),
+                egui::Align2::LEFT_CENTER,
+                ideology_label(key),
+                crate::v9::TextRole::Body.font_id(),
+                vanilla_text(),
+            );
+            ui.painter().text(
+                Pos2::new(row.right(), row.center().y),
+                egui::Align2::RIGHT_CENTER,
+                format!("{:.0}%", pop * 100.0),
+                crate::v9::TextRole::Body.font_id(),
+                vanilla_text(),
+            );
+            y += 28.0;
+        }
+    });
+}
+
+fn vanilla_government_card(ui: &mut egui::Ui, data: &PoliticsData, height: f32) {
+    v9_card(ui, height, |ui, inner| {
+        vanilla_section_title(ui, inner, "\u{653f}\u{5e9c}");
+        if data.government_posts.is_empty() {
+            vanilla_empty_text(
+                ui,
+                inner,
+                "\u{6682}\u{65e0}\u{653f}\u{5e9c}\u{804c}\u{4f4d}\u{6570}\u{636e}",
+            );
+            return;
+        }
+        let mut y = inner.top() + 36.0;
+        for (idx, post) in data.government_posts.iter().enumerate() {
+            let rect =
+                Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 37.0));
+            let accent = if idx == 0 {
+                v9_ideology_color(&data.ruling_party)
+            } else {
+                vanilla_edge()
+            };
+            vanilla_person_row(ui, rect, &post.office, &post.name, &post.detail, accent);
+            y += 43.0;
+        }
+    });
+}
+
+fn vanilla_law_systems_card(
+    ui: &mut egui::Ui,
+    data: &PoliticsData,
+    cmds: &mut Vec<DecisionCommand>,
+    height: f32,
+) {
+    v9_card(ui, height, |ui, inner| {
+        vanilla_section_title(ui, inner, "\u{6cd5}\u{5f8b}\u{4e0e}\u{5236}\u{5ea6}");
+        if data.law_slots.is_empty() {
+            vanilla_empty_text(
+                ui,
+                inner,
+                "\u{6682}\u{65e0}\u{6cd5}\u{5f8b}\u{5236}\u{5ea6}\u{6570}\u{636e}",
+            );
+            return;
+        }
+        let mut y = inner.top() + 36.0;
+        for slot in &data.law_slots {
+            let rect =
+                Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 37.0));
+            let response = ui.interact(
+                rect,
+                ui.id().with((
+                    "politics_law_detail",
+                    law_panel::law_category_key(slot.category),
+                )),
+                Sense::click(),
+            );
+            if response.clicked() {
+                cmds.push(DecisionCommand::Panel(PanelCommand::OpenDetail(
+                    ActiveDetailPanel::Law {
+                        category: law_panel::law_category_key(slot.category).to_owned(),
+                        law_id: None,
+                    },
+                )));
+            }
+            response.on_hover_text("点击打开法律详情");
+            let status = politics_law_status_text(slot);
+            vanilla_law_row(ui, rect, slot, &status);
+            y += 43.0;
+        }
+    });
+}
+
+fn vanilla_section_title(ui: &mut egui::Ui, inner: Rect, title: &str) {
+    let title_rect = Rect::from_min_size(inner.left_top(), Vec2::new(inner.width(), 26.0));
+    VanillaIron::section_title_at(ui, title_rect, title);
+}
+
+fn vanilla_info_line(ui: &mut egui::Ui, pos: Pos2, label: &str, value: &str, value_color: Color32) {
+    ui.painter().text(
+        pos,
+        egui::Align2::LEFT_TOP,
+        label,
+        crate::v9::TextRole::Body.font_id(),
+        vanilla_muted(),
+    );
+    ui.painter().text(
+        pos + Vec2::new(92.0, 0.0),
+        egui::Align2::LEFT_TOP,
+        value,
+        crate::v9::TextRole::Body.font_id(),
+        value_color,
+    );
+}
+
+fn draw_vanilla_portrait(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+) {
+    vanilla_slot(ui, rect, v9_ideology_color(&data.ruling_party));
+    let mut drawn = false;
+    let image_rect = rect.shrink(2.0);
+    if let Some(gfx) = data.leader_portrait_key.as_deref() {
+        if let Some(handle) = icon_bank.get_or_load(gfx) {
+            ui.put(
+                image_rect,
+                egui::Image::from_texture(handle).fit_to_exact_size(image_rect.size()),
+            );
+            drawn = true;
+        }
+    }
+    if !drawn && !data.country_tag.is_empty() {
+        let gfx = format!("GFX_flag_{}", data.country_tag);
+        if let Some(handle) = icon_bank.get_or_load(&gfx) {
+            ui.put(
+                image_rect,
+                egui::Image::from_texture(handle).fit_to_exact_size(image_rect.size()),
+            );
+            drawn = true;
+        }
+    }
+    if !drawn {
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            if data.country_tag.is_empty() {
+                "?"
+            } else {
+                data.country_tag.as_str()
+            },
+            crate::v9::TextRole::Heading.font_id(),
+            v9_ideology_color(&data.ruling_party),
+        );
+    }
+    ui.painter().rect_stroke(
+        image_rect,
+        egui::epaint::CornerRadius::same(0),
+        egui::Stroke::new(1.0, Color32::from_black_alpha(230)),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, v9_ideology_color(&data.ruling_party)),
+        egui::epaint::StrokeKind::Inside,
+    );
+}
+
+fn vanilla_person_row(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    office: &str,
+    name: &str,
+    detail: &str,
+    accent: Color32,
+) {
+    vanilla_row_frame(ui, rect);
+    let icon = Rect::from_min_size(rect.left_top() + Vec2::new(7.0, 5.0), Vec2::splat(27.0));
+    vanilla_slot(ui, icon, accent);
+    draw_panel_svg_icon(ui, icon.shrink(5.0), PanelSvgIcon::Person, vanilla_muted());
+    let text_left = icon.right() + 10.0;
+    let action = Rect::from_min_size(
+        Pos2::new(rect.right() - 34.0, rect.top() + 4.0),
+        Vec2::splat(29.0),
+    );
+    vanilla_icon_button(ui, action, PanelSvgIcon::Government, accent);
+    ui.painter().text(
+        Pos2::new(text_left, rect.top() + 3.0),
+        egui::Align2::LEFT_TOP,
+        office,
+        crate::v9::TextRole::Caption.font_id(),
+        vanilla_muted(),
+    );
+    ui.painter().text(
+        Pos2::new(text_left, rect.top() + 18.0),
+        egui::Align2::LEFT_TOP,
+        name,
+        fit_text_font(
+            name,
+            crate::v9::TextRole::Body.font_id(),
+            action.left() - text_left - 58.0,
+        ),
+        vanilla_text(),
+    );
+    if !detail.is_empty() {
+        ui.painter().text(
+            Pos2::new(action.left() - 7.0, rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            detail,
+            crate::v9::TextRole::Caption.font_id(),
+            accent,
+        );
+    }
+}
+
+fn vanilla_law_row(ui: &mut egui::Ui, rect: Rect, slot: &PoliticsLawEntry, status: &str) {
+    vanilla_row_frame(ui, rect);
+    let icon = Rect::from_min_size(rect.left_top() + Vec2::new(7.0, 5.0), Vec2::splat(27.0));
+    vanilla_slot(ui, icon, Color32::from_rgb(0x4d, 0x45, 0x35));
+    draw_panel_svg_icon(
+        ui,
+        icon.shrink(5.0),
+        PanelSvgIcon::from_law(&slot.category),
+        Color32::from_rgb(0xb7, 0xb1, 0x9a),
+    );
+    let text_left = icon.right() + 10.0;
+    let status_rect = Rect::from_min_size(
+        Pos2::new(rect.right() - 73.0, rect.top() + 7.0),
+        Vec2::new(66.0, 23.0),
+    );
+    ui.painter().text(
+        Pos2::new(text_left, rect.top() + 3.0),
+        egui::Align2::LEFT_TOP,
+        politics_law_category_label(&slot.category),
+        crate::v9::TextRole::Caption.font_id(),
+        vanilla_muted(),
+    );
+    ui.painter().text(
+        Pos2::new(text_left, rect.top() + 18.0),
+        egui::Align2::LEFT_TOP,
+        slot.current_name.as_str(),
+        fit_text_font(
+            slot.current_name.as_str(),
+            crate::v9::TextRole::Body.font_id(),
+            status_rect.left() - text_left - 8.0,
+        ),
+        vanilla_text(),
+    );
+    vanilla_status_pill(ui, status_rect, status, politics_law_status_color(slot));
+}
+
+fn vanilla_row_frame(ui: &mut egui::Ui, rect: Rect) {
+    ui.painter()
+        .rect_filled(rect, 1.0, Color32::from_rgb(0x12, 0x14, 0x12));
+    crate::v9::paint::paint_vertical_gradient_mesh(
+        ui.painter(),
+        rect.shrink(1.0),
+        Color32::from_rgba_premultiplied(0x25, 0x27, 0x22, 150),
+        Color32::from_rgba_premultiplied(0x08, 0x09, 0x08, 235),
+    );
+    paint_vanilla_border(ui.painter(), rect);
+    ui.painter().hline(
+        (rect.left() + 4.0)..=(rect.right() - 4.0),
+        rect.top() + 1.0,
+        egui::Stroke::new(1.0, Color32::from_white_alpha(6)),
+    );
+}
+
+fn vanilla_slot(ui: &mut egui::Ui, rect: Rect, accent: Color32) {
+    ui.painter()
+        .rect_filled(rect, 1.0, Color32::from_rgb(0x0d, 0x10, 0x10));
+    ui.painter().rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, accent),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().rect_stroke(
+        rect.shrink(3.0),
+        egui::epaint::CornerRadius::same(0),
+        egui::Stroke::new(1.0, Color32::from_black_alpha(210)),
+        egui::epaint::StrokeKind::Inside,
+    );
+}
+
+fn vanilla_icon_button(ui: &mut egui::Ui, rect: Rect, icon: PanelSvgIcon, accent: Color32) {
+    ui.painter()
+        .rect_filled(rect, 1.0, Color32::from_rgb(0x18, 0x19, 0x15));
+    crate::v9::paint::paint_vertical_gradient_mesh(
+        ui.painter(),
+        rect.shrink(1.0),
+        Color32::from_white_alpha(12),
+        Color32::from_black_alpha(165),
+    );
+    paint_vanilla_border(ui.painter(), rect);
+    draw_panel_svg_icon(ui, rect.shrink(6.0), icon, accent);
+}
+
+fn vanilla_status_pill(ui: &mut egui::Ui, rect: Rect, text: &str, color: Color32) {
+    ui.painter()
+        .rect_filled(rect, 1.0, Color32::from_rgb(0x0a, 0x0b, 0x09));
+    ui.painter().rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, Color32::from_black_alpha(220)),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().rect_stroke(
+        rect.shrink(1.0),
+        egui::epaint::CornerRadius::same(0),
+        egui::Stroke::new(1.0, color),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        fit_text_font(
+            text,
+            crate::v9::TextRole::Caption.font_id(),
+            rect.width() - 6.0,
+        ),
+        color,
+    );
+}
+
+#[derive(Clone, Copy)]
+enum PanelSvgIcon {
+    Person,
+    Government,
+    Helmet,
+    Factory,
+    Globe,
+    Coin,
+    Scales,
+    Microphone,
+}
+
+impl PanelSvgIcon {
+    fn from_law(category: &LawCategory) -> Self {
+        match category {
+            LawCategory::Conscription => Self::Helmet,
+            LawCategory::Economy => Self::Factory,
+            LawCategory::Trade => Self::Globe,
+            LawCategory::Taxation => Self::Coin,
+            LawCategory::CivilRights => Self::Scales,
+            LawCategory::InformationControl => Self::Microphone,
+        }
+    }
+}
+
+fn draw_panel_svg_icon(ui: &mut egui::Ui, rect: Rect, icon: PanelSvgIcon, color: Color32) {
+    let stroke = egui::Stroke::new(1.7, color);
+    let thin = egui::Stroke::new(1.25, color);
+    let p = |x: f32, y: f32| -> Pos2 {
+        Pos2::new(
+            rect.left() + rect.width() * x / 24.0,
+            rect.top() + rect.height() * y / 24.0,
+        )
+    };
+    let rr =
+        |x: f32, y: f32, w: f32, h: f32| -> Rect { Rect::from_min_max(p(x, y), p(x + w, y + h)) };
+    let painter = ui.painter();
+
+    match icon {
+        PanelSvgIcon::Person => {
+            painter.circle_stroke(p(12.0, 7.5), rect.width() * 3.0 / 24.0, stroke);
+            panel_svg_polyline(
+                painter,
+                &[
+                    p(5.0, 21.0),
+                    p(7.0, 15.0),
+                    p(12.0, 12.5),
+                    p(17.0, 15.0),
+                    p(19.0, 21.0),
+                ],
+                stroke,
+            );
+            painter.line_segment([p(7.0, 21.0), p(17.0, 21.0)], thin);
+        }
+        PanelSvgIcon::Government => {
+            panel_svg_polyline(painter, &[p(3.0, 9.0), p(12.0, 4.5), p(21.0, 9.0)], stroke);
+            painter.line_segment([p(5.0, 10.0), p(19.0, 10.0)], stroke);
+            for x in [7.0, 11.0, 15.0] {
+                painter.line_segment([p(x, 11.0), p(x, 18.0)], thin);
+            }
+            painter.line_segment([p(5.0, 19.0), p(19.0, 19.0)], stroke);
+            painter.line_segment([p(3.5, 21.0), p(20.5, 21.0)], thin);
+        }
+        PanelSvgIcon::Helmet => {
+            panel_svg_polyline(
+                painter,
+                &[
+                    p(4.0, 13.0),
+                    p(6.0, 8.0),
+                    p(12.0, 5.5),
+                    p(18.0, 8.0),
+                    p(20.0, 13.0),
+                ],
+                stroke,
+            );
+            painter.line_segment([p(4.0, 13.0), p(20.0, 13.0)], stroke);
+            painter.line_segment([p(7.0, 16.5), p(17.0, 16.5)], thin);
+            painter.line_segment([p(9.0, 20.0), p(15.0, 20.0)], thin);
+        }
+        PanelSvgIcon::Factory => {
+            painter.rect_stroke(
+                rr(4.0, 11.0, 16.0, 9.0),
+                egui::epaint::CornerRadius::same(1),
+                stroke,
+                egui::epaint::StrokeKind::Inside,
+            );
+            panel_svg_polyline(
+                painter,
+                &[
+                    p(4.0, 11.0),
+                    p(8.0, 8.0),
+                    p(12.0, 11.0),
+                    p(16.0, 8.0),
+                    p(20.0, 11.0),
+                ],
+                stroke,
+            );
+            painter.rect_stroke(
+                rr(6.0, 5.0, 3.0, 6.0),
+                egui::epaint::CornerRadius::same(0),
+                thin,
+                egui::epaint::StrokeKind::Inside,
+            );
+            for x in [8.0, 12.0, 16.0] {
+                painter.line_segment([p(x, 15.0), p(x, 20.0)], thin);
+            }
+        }
+        PanelSvgIcon::Globe => {
+            painter.circle_stroke(p(12.0, 12.0), rect.width() * 7.0 / 24.0, stroke);
+            painter.line_segment([p(5.0, 12.0), p(19.0, 12.0)], thin);
+            painter.line_segment([p(12.0, 5.0), p(12.0, 19.0)], thin);
+            painter.circle_stroke(p(12.0, 12.0), rect.width() * 3.8 / 24.0, thin);
+        }
+        PanelSvgIcon::Coin => {
+            painter.circle_stroke(p(12.0, 12.0), rect.width() * 7.0 / 24.0, stroke);
+            painter.line_segment([p(12.0, 6.0), p(12.0, 18.0)], thin);
+            panel_svg_polyline(
+                painter,
+                &[
+                    p(15.5, 8.5),
+                    p(10.0, 8.5),
+                    p(8.5, 10.5),
+                    p(10.0, 12.0),
+                    p(14.0, 12.0),
+                    p(15.5, 13.5),
+                    p(14.0, 15.5),
+                    p(8.5, 15.5),
+                ],
+                thin,
+            );
+        }
+        PanelSvgIcon::Scales => {
+            painter.line_segment([p(12.0, 5.0), p(12.0, 20.0)], stroke);
+            painter.line_segment([p(6.0, 8.0), p(18.0, 8.0)], stroke);
+            painter.line_segment([p(8.0, 8.0), p(5.0, 15.0)], thin);
+            painter.line_segment([p(8.0, 8.0), p(11.0, 15.0)], thin);
+            painter.line_segment([p(16.0, 8.0), p(13.0, 15.0)], thin);
+            painter.line_segment([p(16.0, 8.0), p(19.0, 15.0)], thin);
+            panel_svg_polyline(
+                painter,
+                &[
+                    p(4.5, 15.0),
+                    p(11.5, 15.0),
+                    p(10.0, 17.0),
+                    p(6.0, 17.0),
+                    p(4.5, 15.0),
+                ],
+                thin,
+            );
+            panel_svg_polyline(
+                painter,
+                &[
+                    p(12.5, 15.0),
+                    p(19.5, 15.0),
+                    p(18.0, 17.0),
+                    p(14.0, 17.0),
+                    p(12.5, 15.0),
+                ],
+                thin,
+            );
+            painter.line_segment([p(8.0, 21.0), p(16.0, 21.0)], stroke);
+        }
+        PanelSvgIcon::Microphone => {
+            painter.rect_stroke(
+                rr(9.0, 4.5, 6.0, 10.0),
+                egui::epaint::CornerRadius::same(3),
+                stroke,
+                egui::epaint::StrokeKind::Inside,
+            );
+            painter.line_segment([p(12.0, 14.5), p(12.0, 20.0)], stroke);
+            painter.line_segment([p(8.0, 20.0), p(16.0, 20.0)], stroke);
+            panel_svg_polyline(
+                painter,
+                &[
+                    p(6.5, 11.0),
+                    p(6.5, 14.0),
+                    p(9.0, 17.0),
+                    p(12.0, 17.5),
+                    p(15.0, 17.0),
+                    p(17.5, 14.0),
+                    p(17.5, 11.0),
+                ],
+                thin,
+            );
+            painter.line_segment([p(10.5, 7.0), p(13.5, 7.0)], thin);
+            painter.line_segment([p(10.5, 10.0), p(13.5, 10.0)], thin);
+        }
+    }
+}
+
+fn panel_svg_polyline(painter: &egui::Painter, points: &[Pos2], stroke: egui::Stroke) {
+    painter.add(egui::Shape::line(points.to_vec(), stroke));
+}
+
+fn vanilla_action_button(ui: &mut egui::Ui, rect: Rect, label: &str) -> bool {
+    let response = ui.interact(
+        rect,
+        ui.id().with(("vanilla_action", label)),
+        Sense::click(),
+    );
+    ui.painter().rect_filled(
+        rect,
+        1.0,
+        if response.hovered() {
+            Color32::from_rgb(0x31, 0x32, 0x2a)
+        } else {
+            Color32::from_rgb(0x21, 0x22, 0x1c)
+        },
+    );
+    paint_vanilla_border(ui.painter(), rect);
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        label,
+        crate::v9::TextRole::Body.font_id(),
+        vanilla_text(),
+    );
+    response.clicked()
+}
+
+fn draw_vanilla_ideology_donut(ui: &mut egui::Ui, rect: Rect, popularity: &[(String, f32)]) {
+    let center = rect.center();
+    let radius = rect.width().min(rect.height()) * 0.5;
+    let total: f32 = popularity.iter().map(|(_, pop)| pop.max(0.0)).sum();
+    if total <= f32::EPSILON {
+        ui.painter()
+            .circle_filled(center, radius, Color32::from_rgb(0x3d, 0x3d, 0x38));
+        ui.painter()
+            .circle_filled(center, radius * 0.56, vanilla_black());
+        return;
+    }
+    let mut start = -std::f32::consts::FRAC_PI_2;
+    for (key, pop) in popularity {
+        let frac = (pop.max(0.0) / total).clamp(0.0, 1.0);
+        if frac <= 0.0 {
+            continue;
+        }
+        let sweep = frac * std::f32::consts::TAU;
+        let steps = ((sweep / std::f32::consts::TAU) * 80.0).ceil().max(4.0) as usize;
+        let mut points = Vec::with_capacity(steps + 2);
+        points.push(center);
+        for i in 0..=steps {
+            let t = start + sweep * (i as f32 / steps as f32);
+            points.push(Pos2::new(
+                center.x + t.cos() * radius,
+                center.y + t.sin() * radius,
+            ));
+        }
+        ui.painter().add(egui::Shape::convex_polygon(
+            points,
+            v9_ideology_color(key),
+            egui::Stroke::NONE,
+        ));
+        start += sweep;
+    }
+    ui.painter()
+        .circle_filled(center, radius * 0.56, vanilla_black());
+    ui.painter().circle_stroke(
+        center,
+        radius,
+        egui::Stroke::new(2.0, Color32::from_black_alpha(220)),
+    );
+    ui.painter().circle_stroke(
+        center,
+        radius * 0.56,
+        egui::Stroke::new(1.0, vanilla_edge()),
+    );
+}
+
+fn vanilla_empty_text(ui: &mut egui::Ui, inner: Rect, text: &str) {
+    ui.painter().text(
+        inner.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        crate::v9::TextRole::Body.font_id(),
+        vanilla_muted(),
+    );
+}
+
+fn fit_text_font(text: &str, mut font: egui::FontId, max_width: f32) -> egui::FontId {
+    let estimated = text.chars().count() as f32 * font.size * 0.56;
+    if estimated > max_width && estimated > 1.0 {
+        font.size *= (max_width / estimated).clamp(0.70, 1.0);
+    }
+    font
+}
+
+fn vanilla_gold() -> Color32 {
+    VanillaIron::BRASS_BRIGHT
 }
 
 fn v9_leader_card(
@@ -418,11 +1564,8 @@ fn v9_leader_card(
 }
 
 fn v9_ideology_card(ui: &mut egui::Ui, data: &PoliticsData) {
-    use crate::v9::{
-        primitives::draw_progress_bar,
-        tokens::{palette, spacing, TextRole},
-    };
-    let height = 58.0 + data.party_popularity.len().max(1) as f32 * 34.0;
+    use crate::v9::tokens::{palette, spacing, TextRole};
+    let height = (92.0 + data.party_popularity.len().max(1) as f32 * 25.0).max(188.0);
     v9_card(ui, height, |ui, inner| {
         ui.painter().text(
             Pos2::new(inner.left(), inner.top()),
@@ -431,31 +1574,125 @@ fn v9_ideology_card(ui: &mut egui::Ui, data: &PoliticsData) {
             TextRole::Heading.font_id(),
             palette::BRASS_BRIGHT,
         );
-        let mut y = inner.top() + 34.0;
+        let content = Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 34.0),
+            inner.right_bottom(),
+        );
+        let donut_size = content
+            .height()
+            .min(content.width() * 0.42)
+            .clamp(108.0, 148.0);
+        let donut_rect = Rect::from_min_size(
+            Pos2::new(
+                content.left(),
+                content.top() + (content.height() - donut_size) * 0.5,
+            ),
+            Vec2::splat(donut_size),
+        );
+        draw_v9_ideology_donut(ui, donut_rect, &data.party_popularity);
+
+        let legend_left = donut_rect.right() + spacing::S5;
+        let legend = Rect::from_min_max(
+            Pos2::new(legend_left, content.top()),
+            content.right_bottom(),
+        );
+        let mut y = legend.top();
         for (key, pop) in &data.party_popularity {
             let color = v9_ideology_color(key);
-            ui.painter().text(
-                Pos2::new(inner.left(), y),
-                egui::Align2::LEFT_TOP,
-                ideology_label(key),
-                TextRole::Body.font_id(),
+            let row =
+                Rect::from_min_size(Pos2::new(legend.left(), y), Vec2::new(legend.width(), 22.0));
+            ui.painter().rect_filled(
+                Rect::from_min_size(
+                    Pos2::new(row.left(), row.center().y - 5.0),
+                    Vec2::splat(10.0),
+                ),
+                1.0,
                 color,
             );
+            let text_clip = Rect::from_min_max(
+                Pos2::new(row.left() + 16.0, row.top()),
+                Pos2::new(row.right() - 48.0, row.bottom()),
+            );
             ui.painter().text(
-                Pos2::new(inner.right(), y),
-                egui::Align2::RIGHT_TOP,
-                format!("{:.0}%", pop * 100.0),
-                TextRole::Numeric.font_id(),
+                Pos2::new(text_clip.left(), row.center().y),
+                egui::Align2::LEFT_CENTER,
+                ideology_label(key),
+                TextRole::Body.font_id(),
                 palette::PARCHMENT,
             );
-            let bar = Rect::from_min_size(
-                Pos2::new(inner.left(), y + 18.0),
-                Vec2::new(inner.width(), 8.0),
+            ui.painter().text(
+                Pos2::new(row.right(), row.center().y),
+                egui::Align2::RIGHT_CENTER,
+                format!("{:.0}%", pop * 100.0),
+                TextRole::Numeric.font_id(),
+                color,
             );
-            draw_progress_bar(ui, bar, *pop, color);
-            y += spacing::S8 + 2.0;
+            let bar = Rect::from_min_size(
+                Pos2::new(row.left() + 16.0, row.bottom() - 3.0),
+                Vec2::new((row.width() - 64.0).max(32.0), 3.0),
+            );
+            ui.painter().rect_filled(bar, 1.0, palette::SOOT_BLACK);
+            ui.painter().rect_filled(
+                Rect::from_min_size(
+                    bar.min,
+                    Vec2::new(bar.width() * pop.clamp(0.0, 1.0), bar.height()),
+                ),
+                1.0,
+                color,
+            );
+            y += spacing::S7;
         }
     });
+}
+
+fn draw_v9_ideology_donut(ui: &mut egui::Ui, rect: Rect, popularity: &[(String, f32)]) {
+    use crate::v9::tokens::palette;
+
+    let center = rect.center();
+    let radius = rect.width().min(rect.height()) * 0.5;
+    let total: f32 = popularity.iter().map(|(_, pop)| pop.max(0.0)).sum();
+    if total <= f32::EPSILON {
+        ui.painter().circle_filled(center, radius, palette::IRON);
+        ui.painter()
+            .circle_filled(center, radius * 0.55, palette::SOOT_BLACK);
+        ui.painter()
+            .circle_stroke(center, radius, egui::Stroke::new(1.0, palette::EDGE_DARK));
+        return;
+    }
+
+    let mut start = -std::f32::consts::FRAC_PI_2;
+    for (key, pop) in popularity {
+        let frac = (pop.max(0.0) / total).clamp(0.0, 1.0);
+        if frac <= 0.0 {
+            continue;
+        }
+        let sweep = frac * std::f32::consts::TAU;
+        let steps = ((sweep / std::f32::consts::TAU) * 80.0).ceil().max(4.0) as usize;
+        let mut points = Vec::with_capacity(steps + 2);
+        points.push(center);
+        for i in 0..=steps {
+            let t = start + sweep * (i as f32 / steps as f32);
+            points.push(Pos2::new(
+                center.x + t.cos() * radius,
+                center.y + t.sin() * radius,
+            ));
+        }
+        ui.painter().add(egui::Shape::convex_polygon(
+            points,
+            v9_ideology_color(key),
+            egui::Stroke::new(0.0, Color32::TRANSPARENT),
+        ));
+        start += sweep;
+    }
+    ui.painter()
+        .circle_filled(center, radius * 0.55, palette::SOOT_BLACK);
+    ui.painter()
+        .circle_stroke(center, radius, egui::Stroke::new(2.0, palette::EDGE_DARK));
+    ui.painter().circle_stroke(
+        center,
+        radius * 0.55,
+        egui::Stroke::new(1.0, palette::BRASS_DARK),
+    );
 }
 
 fn v9_ideas_card(ui: &mut egui::Ui, data: &PoliticsData, icon_bank: &mut crate::icons::IconBank) {
@@ -463,7 +1700,8 @@ fn v9_ideas_card(ui: &mut egui::Ui, data: &PoliticsData, icon_bank: &mut crate::
         primitives::PortraitFrame,
         tokens::{palette, spacing, TextRole},
     };
-    let cols = 8usize;
+    let content_w = (ui.available_width().max(360.0) - 32.0).max(IDEA_SLOT_SIZE);
+    let cols = (((content_w + spacing::S4) / (54.0 + spacing::S4)).floor() as usize).clamp(1, 8);
     let rows = data.ideas.len().max(1).div_ceil(cols);
     let height = 54.0 + rows as f32 * 64.0;
     v9_card(ui, height, |ui, inner| {
@@ -505,6 +1743,208 @@ fn v9_ideas_card(ui: &mut egui::Ui, data: &PoliticsData, icon_bank: &mut crate::
             response.on_hover_ui(|ui| render_idea_tooltip(ui, idea));
         }
     });
+}
+
+fn v9_government_card(ui: &mut egui::Ui, data: &PoliticsData) {
+    use crate::v9::tokens::{palette, spacing, TextRole};
+
+    let rows = data.government_posts.len().max(1);
+    let height = 58.0 + rows as f32 * 48.0;
+    v9_card(ui, height, |ui, inner| {
+        ui.painter().text(
+            Pos2::new(inner.left(), inner.top()),
+            egui::Align2::LEFT_TOP,
+            "政府",
+            TextRole::Heading.font_id(),
+            palette::BRASS_BRIGHT,
+        );
+        if data.government_posts.is_empty() {
+            draw_v9_empty_text(ui, inner, "暂无政府职位数据");
+            return;
+        }
+        let mut y = inner.top() + 34.0;
+        for (idx, post) in data.government_posts.iter().enumerate() {
+            let row =
+                Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 40.0));
+            let accent = if idx == 0 {
+                v9_ideology_color(&data.ruling_party)
+            } else {
+                palette::BRASS_BRIGHT
+            };
+            draw_v9_detail_row(ui, row, &post.office, &post.name, &post.detail, accent);
+            y += 40.0 + spacing::S3;
+        }
+    });
+}
+
+fn v9_law_systems_card(ui: &mut egui::Ui, data: &PoliticsData) {
+    use crate::v9::tokens::{palette, spacing, TextRole};
+
+    let rows = data.law_slots.len().max(1);
+    let height = 58.0 + rows as f32 * 48.0;
+    v9_card(ui, height, |ui, inner| {
+        ui.painter().text(
+            Pos2::new(inner.left(), inner.top()),
+            egui::Align2::LEFT_TOP,
+            "法律与制度",
+            TextRole::Heading.font_id(),
+            palette::BRASS_BRIGHT,
+        );
+        if data.law_slots.is_empty() {
+            draw_v9_empty_text(ui, inner, "暂无法律制度数据");
+            return;
+        }
+        let mut y = inner.top() + 34.0;
+        for slot in &data.law_slots {
+            let row =
+                Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 40.0));
+            let accent = politics_law_category_color(&slot.category);
+            let status = politics_law_status_text(slot);
+            draw_v9_law_row(ui, row, slot, &status, accent);
+            y += 40.0 + spacing::S3;
+        }
+    });
+}
+
+fn draw_v9_detail_row(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    label: &str,
+    value: &str,
+    detail: &str,
+    accent: Color32,
+) {
+    use crate::v9::tokens::{palette, spacing, TextRole};
+
+    crate::v9::paint::paint_bevel(
+        ui.painter(),
+        rect,
+        palette::SOOT_BLACK,
+        palette::EDGE_DARK,
+        2.0,
+    );
+    ui.painter().rect_filled(
+        Rect::from_min_size(rect.left_top(), Vec2::new(3.0, rect.height())),
+        0.0,
+        accent,
+    );
+    let icon = Rect::from_min_size(
+        Pos2::new(rect.left() + spacing::S3, rect.top() + spacing::S3),
+        Vec2::splat(28.0),
+    );
+    crate::v9::paint::paint_bevel(ui.painter(), icon, palette::IRON_DARK, accent, 2.0);
+    let glyph = label.chars().next().unwrap_or('?').to_string();
+    ui.painter().text(
+        icon.center(),
+        egui::Align2::CENTER_CENTER,
+        glyph,
+        TextRole::Subheading.font_id(),
+        accent,
+    );
+    let text = Rect::from_min_max(
+        Pos2::new(icon.right() + spacing::S4, rect.top() + spacing::S2),
+        Pos2::new(rect.right() - spacing::S4, rect.bottom() - spacing::S2),
+    );
+    let painter = ui.painter().with_clip_rect(text);
+    painter.text(
+        Pos2::new(text.left(), text.top()),
+        egui::Align2::LEFT_TOP,
+        label,
+        TextRole::Caption.font_id(),
+        palette::PARCHMENT_DIM,
+    );
+    painter.text(
+        Pos2::new(text.left(), text.top() + 14.0),
+        egui::Align2::LEFT_TOP,
+        value,
+        TextRole::Body.font_id(),
+        palette::PARCHMENT,
+    );
+    if !detail.is_empty() {
+        painter.text(
+            Pos2::new(text.right(), text.top() + 14.0),
+            egui::Align2::RIGHT_TOP,
+            detail,
+            TextRole::Caption.font_id(),
+            accent,
+        );
+    }
+}
+
+fn draw_v9_law_row(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    slot: &PoliticsLawEntry,
+    status: &str,
+    accent: Color32,
+) {
+    use crate::v9::tokens::{palette, spacing, TextRole};
+
+    crate::v9::paint::paint_bevel(
+        ui.painter(),
+        rect,
+        palette::SOOT_BLACK,
+        palette::EDGE_DARK,
+        2.0,
+    );
+    ui.painter().rect_filled(
+        Rect::from_min_size(rect.left_top(), Vec2::new(3.0, rect.height())),
+        0.0,
+        accent,
+    );
+    let icon = Rect::from_min_size(
+        Pos2::new(rect.left() + spacing::S3, rect.top() + spacing::S3),
+        Vec2::splat(28.0),
+    );
+    crate::v9::paint::paint_bevel(
+        ui.painter(),
+        icon,
+        palette::IRON_DARK,
+        palette::EDGE_DARK,
+        2.0,
+    );
+    draw_panel_svg_icon(
+        ui,
+        icon.shrink(6.0),
+        PanelSvgIcon::from_law(&slot.category),
+        palette::PARCHMENT_DIM,
+    );
+    let text = Rect::from_min_max(
+        Pos2::new(icon.right() + spacing::S4, rect.top() + spacing::S2),
+        Pos2::new(rect.right() - spacing::S4, rect.bottom() - spacing::S2),
+    );
+    let painter = ui.painter().with_clip_rect(text);
+    painter.text(
+        Pos2::new(text.left(), text.top()),
+        egui::Align2::LEFT_TOP,
+        politics_law_category_label(&slot.category),
+        TextRole::Caption.font_id(),
+        palette::PARCHMENT_DIM,
+    );
+    painter.text(
+        Pos2::new(text.left(), text.top() + 14.0),
+        egui::Align2::LEFT_TOP,
+        slot.current_name.as_str(),
+        TextRole::Body.font_id(),
+        palette::PARCHMENT,
+    );
+    painter.text(
+        Pos2::new(text.right(), text.top() + 14.0),
+        egui::Align2::RIGHT_TOP,
+        status,
+        TextRole::Caption.font_id(),
+        politics_law_status_color(slot),
+    );
+}
+
+fn draw_v9_empty_text(ui: &mut egui::Ui, inner: Rect, text: &str) {
+    ui.painter().text(
+        inner.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        crate::v9::TextRole::Body.font_id(),
+        crate::v9::palette::MUTED,
+    );
 }
 
 fn v9_advisors_card(ui: &mut egui::Ui) {
@@ -552,13 +1992,7 @@ fn v9_badge(ui: &mut egui::Ui, rect: Rect, text: &str, color: Color32) {
 }
 
 fn v9_ideology_color(key: &str) -> Color32 {
-    match key {
-        "fascism" => crate::v9::palette::IDEO_FASCISM,
-        "democratic" => crate::v9::palette::IDEO_DEMOCRATIC,
-        "communism" => crate::v9::palette::IDEO_COMMUNISM,
-        "neutrality" => crate::v9::palette::IDEO_NEUTRALITY,
-        _ => crate::v9::palette::BRASS_BRIGHT,
-    }
+    hoi4_ideology_color(key)
 }
 
 fn v9_percent_color(value: f32) -> Color32 {
@@ -568,6 +2002,63 @@ fn v9_percent_color(value: f32) -> Color32 {
         crate::v9::palette::WARN
     } else {
         crate::v9::palette::BAD
+    }
+}
+
+fn politics_law_category_label(category: &LawCategory) -> &'static str {
+    match category {
+        LawCategory::Conscription => tr("v6_law_conscription"),
+        LawCategory::Economy => tr("v6_law_economy"),
+        LawCategory::Trade => tr("v6_law_trade"),
+        LawCategory::Taxation => tr("v6_law_taxation"),
+        LawCategory::CivilRights => tr("v6_law_civil_rights"),
+        LawCategory::InformationControl => tr("v6_law_information_control"),
+    }
+}
+
+fn politics_law_category_glyph(category: &LawCategory) -> &'static str {
+    match category {
+        LawCategory::Conscription => "C",
+        LawCategory::Economy => "E",
+        LawCategory::Trade => "T",
+        LawCategory::Taxation => "$",
+        LawCategory::CivilRights => "R",
+        LawCategory::InformationControl => "I",
+    }
+}
+
+fn politics_law_category_color(category: &LawCategory) -> Color32 {
+    use crate::v9::palette;
+    match category {
+        LawCategory::Conscription => palette::IDEO_FASCISM,
+        LawCategory::Economy => palette::INFO,
+        LawCategory::Trade => palette::GOOD,
+        LawCategory::Taxation => palette::GOLD,
+        LawCategory::CivilRights => palette::COLD_ATOMIC,
+        LawCategory::InformationControl => palette::BAD,
+    }
+}
+
+fn politics_law_status_text(slot: &PoliticsLawEntry) -> String {
+    if slot.is_locked {
+        tr("locked").to_owned()
+    } else if let Some((target, days)) = &slot.pending {
+        format!("{}: {} / {}天", tr("v6_law_pending"), target, days)
+    } else if slot.cooldown_days > 0 {
+        format!("{} {}天", tr("cooldown"), slot.cooldown_days)
+    } else {
+        tr("current").to_owned()
+    }
+}
+
+fn politics_law_status_color(slot: &PoliticsLawEntry) -> Color32 {
+    use crate::v9::palette;
+    if slot.is_locked {
+        palette::BAD
+    } else if slot.pending.is_some() || slot.cooldown_days > 0 {
+        palette::WARN
+    } else {
+        palette::GOOD
     }
 }
 

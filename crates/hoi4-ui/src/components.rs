@@ -1,8 +1,10 @@
-//! 通用 UI 组件：调色板、面板标题、章节卡片、metric tile、状态横幅、tab chip
-//! 以及空状态 / 摘要条 / 操作按钮。
+//! Legacy gold-brown UI components: palette, panel headers, section cards,
+//! metric tiles, banners, tab chips, empty states, summaries, and actions.
 //!
-//! 所有共享视觉 helpers 集中于此，面板源码不要再各自重复 PANEL_CARD / STROKE_DARK
-//! 之类的常量；通过 `components::PANEL_CARD` 等方式引用，统一全游戏风格。
+//! Gate 2.3 boundary: these helpers remain for panels that have not migrated
+//! yet. New migrated panel bodies should use `crate::vanilla_iron` instead of
+//! adding fresh dependencies on `PANEL_CARD`, `PANEL_CARD_SOFT`, or
+//! `PANEL_CARD_DEEP`.
 
 use egui::{Color32, RichText, Sense};
 
@@ -15,8 +17,11 @@ pub const BRONZE: Color32 = Color32::from_rgb(0x5a, 0x44, 0x2c);
 pub const PARCHMENT: Color32 = Color32::from_rgb(0xe0, 0xd2, 0xa8);
 pub const MUTED: Color32 = Color32::from_gray(155);
 
+/// Legacy gold-brown body card. Do not use for newly migrated panel shells.
 pub const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
+/// Legacy gold-brown soft card. Do not use for newly migrated panel shells.
 pub const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x31, 0x24, 0x18);
+/// Legacy gold-brown deep card. Do not use for newly migrated panel shells.
 pub const PANEL_CARD_DEEP: Color32 = Color32::from_rgb(0x1a, 0x12, 0x0a);
 pub const HERO_FILL: Color32 = Color32::from_rgb(0x16, 0x0e, 0x08);
 pub const ZEBRA_DARK: Color32 = Color32::from_rgb(0x28, 0x1d, 0x14);

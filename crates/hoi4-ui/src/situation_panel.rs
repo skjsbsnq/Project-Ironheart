@@ -4,13 +4,8 @@
 
 #![allow(deprecated)]
 
-use crate::{components, data_table, i18n::tr};
-use egui::{Color32, Pos2, Rect, RichText, Sense, Vec2};
-
-const GOLD: Color32 = components::GOLD;
-const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
-const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x31, 0x24, 0x18);
-const STROKE_DARK: Color32 = Color32::from_rgb(0x5a, 0x44, 0x2c);
+use crate::i18n::tr;
+use egui::{Color32, Pos2, Rect, Sense, Vec2};
 
 /// 局势面板中一个 side 的数据。
 pub struct SituationSideEntry {
@@ -87,277 +82,8 @@ pub enum SituationCommand {
 pub struct SituationPanel;
 
 impl SituationPanel {
-    #[allow(unreachable_code)]
     pub fn show(ctx: &egui::Context, data: &SituationPanelData) -> (bool, Vec<SituationCommand>) {
-        return v9_show_situations(ctx, data);
-
-        let mut close = false;
-        let mut cmds = Vec::new();
-        egui::SidePanel::left("situation_panel")
-            .default_width(460.0)
-            .min_width(380.0)
-            .resizable(false)
-            .show(ctx, |ui| {
-                components::panel_header(ui, tr("situations"), &mut close);
-                let active_count = data.situations.iter().filter(|sit| !sit.ended).count();
-                let ended_count = data.situations.len().saturating_sub(active_count);
-                let intervention_count = data
-                    .situations
-                    .iter()
-                    .map(|sit| sit.interventions.len())
-                    .sum::<usize>();
-                components::summary_strip(
-                    ui,
-                    &[
-                        ("活跃局势", active_count.to_string()),
-                        ("已结束", ended_count.to_string()),
-                        ("可干预项", intervention_count.to_string()),
-                    ],
-                );
-                ui.add_space(4.0);
-                render_status_banner(ui, data, active_count, intervention_count);
-                ui.separator();
-
-                if data.situations.is_empty() {
-                    components::empty_state(
-                        ui,
-                        tr("no_active_situations"),
-                        "国际局势平稳，暂无需要干预的事件。 ",
-                    );
-                }
-
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    for sit in &data.situations {
-                        ui.add_space(6.0);
-                        egui::Frame::new()
-                            .fill(PANEL_CARD)
-                            .stroke(egui::Stroke::new(1.0, STROKE_DARK))
-                            .inner_margin(egui::Margin::symmetric(10, 8))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new(&sit.title).strong().color(GOLD));
-                                    let stage = if sit.ended { "已结束" } else { "进行中" };
-                                    ui.colored_label(
-                                        Color32::LIGHT_GRAY,
-                                        format!("阶段：{}", stage),
-                                    );
-                                });
-                                ui.label(
-                                    RichText::new(&sit.description)
-                                        .small()
-                                        .color(Color32::LIGHT_GRAY),
-                                );
-
-                                components::section(ui, "进度与参战方", |ui| {
-                                    for side in &sit.sides {
-                                        ui.horizontal(|ui| {
-                                            ui.label(RichText::new(&side.name).color(side.color));
-                                            ui.add(
-                                                egui::ProgressBar::new(
-                                                    (side.progress / 100.0).clamp(0.0, 1.0),
-                                                )
-                                                .desired_width(190.0)
-                                                .text(format!("{:.0}%", side.progress)),
-                                            );
-                                        });
-                                        let supporters = if side.supporters.is_empty() {
-                                            "暂无支持国".to_owned()
-                                        } else {
-                                            format!("支持国：{}", side.supporters.join("、"))
-                                        };
-                                        ui.label(
-                                            RichText::new(supporters).small().color(Color32::GRAY),
-                                        );
-                                    }
-                                    if let Some(ref winner) = sit.winner {
-                                        ui.colored_label(
-                                            Color32::GREEN,
-                                            format!("胜利方：{}", winner),
-                                        );
-                                    }
-                                });
-
-                                if let Some(ov) = &sit.military_overview {
-                                    components::section(ui, "战区与关键省份", |ui| {
-                                        if ov.theater_total > 0 {
-                                            egui::Grid::new(format!(
-                                                "situation_theater_{}",
-                                                sit.id
-                                            ))
-                                            .num_columns(4)
-                                            .spacing([12.0, 4.0])
-                                            .striped(true)
-                                            .show(
-                                                ui,
-                                                |ui| {
-                                                    data_table::header(ui, "阵营");
-                                                    data_table::header(ui, "州控制");
-                                                    data_table::header(ui, "师数");
-                                                    data_table::header(ui, "步兵装备");
-                                                    ui.end_row();
-                                                    for (i, side) in sit.sides.iter().enumerate() {
-                                                        let cnt = ov
-                                                            .theater_control
-                                                            .get(i)
-                                                            .copied()
-                                                            .unwrap_or(0);
-                                                        let pct = 100.0 * cnt as f32
-                                                            / ov.theater_total as f32;
-                                                        let div = ov
-                                                            .division_counts
-                                                            .get(i)
-                                                            .copied()
-                                                            .unwrap_or(0);
-                                                        let eq = ov
-                                                            .equipment_stockpile
-                                                            .get(i)
-                                                            .copied()
-                                                            .unwrap_or(0.0);
-                                                        ui.colored_label(side.color, &side.name);
-                                                        ui.label(format!(
-                                                            "{}/{}（{:.0}%）",
-                                                            cnt, ov.theater_total, pct
-                                                        ));
-                                                        ui.label(format!("{} 个师", div));
-                                                        ui.label(format!("{:.0}", eq));
-                                                        ui.end_row();
-                                                    }
-                                                },
-                                            );
-                                        }
-                                        if !ov.key_provinces.is_empty() {
-                                            let key_text = ov
-                                                .key_provinces
-                                                .iter()
-                                                .map(|(name, ctrl)| format!("{}：{}", name, ctrl))
-                                                .collect::<Vec<_>>()
-                                                .join("；");
-                                            ui.label(
-                                                RichText::new(format!("关键省份：{}", key_text))
-                                                    .small()
-                                                    .color(Color32::LIGHT_YELLOW),
-                                            );
-                                        }
-                                    });
-                                }
-
-                                if !sit.ended {
-                                    components::section(ui, "干预行动", |ui| {
-                                        if sit.interventions.is_empty() {
-                                            components::empty_state(
-                                                ui,
-                                                "暂无可用干预行动",
-                                                "该局势只能观察，或尚未开放玩家干预。",
-                                            );
-                                        }
-                                        for interv in &sit.interventions {
-                                            egui::Frame::new()
-                                                .fill(PANEL_CARD_SOFT)
-                                                .stroke(egui::Stroke::new(1.0, STROKE_DARK))
-                                                .inner_margin(egui::Margin::symmetric(8, 6))
-                                                .show(ui, |ui| {
-                                                    ui.horizontal(|ui| {
-                                                        let enabled = interv.available
-                                                            && interv.cooldown_days == 0;
-                                                        let btn = components::action_button(
-                                                            ui,
-                                                            enabled,
-                                                            &interv.name,
-                                                        );
-                                                        if btn.clicked() {
-                                                            cmds.push(
-                                                                SituationCommand::Intervene {
-                                                                    situation_id: sit.id.clone(),
-                                                                    intervention_id: interv
-                                                                        .id
-                                                                        .clone(),
-                                                                },
-                                                            );
-                                                        }
-                                                        ui.label(format!(
-                                                            "支援：{}",
-                                                            interv.side_name
-                                                        ));
-                                                        if interv.cooldown_days > 0 {
-                                                            ui.colored_label(
-                                                                components::DANGER,
-                                                                format!(
-                                                                    "冷却：{} 天",
-                                                                    interv.cooldown_days
-                                                                ),
-                                                            );
-                                                        } else {
-                                                            ui.colored_label(
-                                                                components::SUCCESS,
-                                                                "可执行",
-                                                            );
-                                                        }
-                                                    });
-                                                    ui.label(
-                                                        RichText::new(format!(
-                                                            "代价：{}",
-                                                            if interv.cost_desc.is_empty() {
-                                                                "无直接代价"
-                                                            } else {
-                                                                &interv.cost_desc
-                                                            }
-                                                        ))
-                                                        .small()
-                                                        .color(Color32::LIGHT_GRAY),
-                                                    );
-                                                    ui.label(
-                                                        RichText::new(format!(
-                                                            "预期影响：{}",
-                                                            interv.expected_impact
-                                                        ))
-                                                        .small()
-                                                        .color(Color32::LIGHT_YELLOW),
-                                                    );
-                                                });
-                                        }
-                                    });
-                                }
-
-                                if !sit.intervention_log.is_empty() {
-                                    components::section(ui, "介入日志", |ui| {
-                                        for log in sit.intervention_log.iter().rev().take(5) {
-                                            let xp_str = if log.army_xp > 0.0 || log.air_xp > 0.0 {
-                                                format!(
-                                                    "，陆军经验 +{:.0}，空军经验 +{:.0}",
-                                                    log.army_xp, log.air_xp
-                                                )
-                                            } else {
-                                                String::new()
-                                            };
-                                            ui.label(
-                                                RichText::new(format!(
-                                                    "{} 执行 {}，{} 进度 +{:.0}{}",
-                                                    log.country_tag,
-                                                    log.intervention_name,
-                                                    log.side_name,
-                                                    log.progress_boost,
-                                                    xp_str
-                                                ))
-                                                .small()
-                                                .color(Color32::LIGHT_YELLOW),
-                                            );
-                                        }
-                                        if sit.intervention_log.len() > 5 {
-                                            ui.colored_label(
-                                                Color32::GRAY,
-                                                format!(
-                                                    "已隐藏较早的 {} 条记录",
-                                                    sit.intervention_log.len() - 5
-                                                ),
-                                            );
-                                        }
-                                    });
-                                }
-                            });
-                    }
-                });
-            });
-        (close, cmds)
+        v9_show_situations(ctx, data)
     }
 }
 
@@ -365,10 +91,7 @@ fn v9_show_situations(
     ctx: &egui::Context,
     data: &SituationPanelData,
 ) -> (bool, Vec<SituationCommand>) {
-    use crate::v9::composites::panel_shell::{
-        draw_empty_state, draw_summary_tiles, draw_tab_strip, PanelClass, PanelShell,
-    };
-    use crate::v9::tokens::palette;
+    use crate::vanilla_iron::{JournalPanelShell, VanillaIron};
 
     let active_count = data.situations.iter().filter(|sit| !sit.ended).count();
     let ended_count = data.situations.len().saturating_sub(active_count);
@@ -377,60 +100,155 @@ fn v9_show_situations(
         .iter()
         .map(|sit| sit.interventions.len())
         .sum::<usize>();
-    let (close, output) = PanelShell::new("situation_panel_v9", tr("situations"))
-        .class(PanelClass::MilitaryDiplomacy)
+    let (close, output) = JournalPanelShell::new("situation_panel_iron", tr("situations"))
+        .subtitle("国际局势")
         .accent(if active_count > 0 {
-            palette::WARN
+            VanillaIron::WARN
         } else {
-            palette::GOOD
+            VanillaIron::GOOD
         })
-        .footer("Q Close  |  Situation cards")
+        .footer("Esc 返回")
         .show(ctx, |ui, layout| {
-            draw_summary_tiles(
+            let mut cmds = Vec::new();
+            draw_situation_summary(
                 ui,
-                layout.summary,
+                layout.nav.shrink2(Vec2::new(8.0, 8.0)),
                 &[
                     (
                         tr("active"),
                         active_count.to_string(),
                         if active_count > 0 {
-                            palette::WARN
+                            VanillaIron::WARN
                         } else {
-                            palette::GOOD
+                            VanillaIron::GOOD
                         },
                     ),
-                    (tr("ended"), ended_count.to_string(), palette::MUTED),
+                    (tr("ended"), ended_count.to_string(), VanillaIron::MUTED),
                     (
                         tr("interventions"),
                         intervention_count.to_string(),
                         if intervention_count > 0 {
-                            palette::GOLD
+                            VanillaIron::BRASS_BRIGHT
                         } else {
-                            palette::MUTED
+                            VanillaIron::MUTED
                         },
                     ),
                 ],
             );
-            draw_tab_strip(
-                ui,
-                layout.tabs,
-                "局势 / 阶段进度 / 介入",
-                palette::BRASS_BRIGHT,
-            );
-            let mut cmds = Vec::new();
             if data.situations.is_empty() {
-                draw_empty_state(
+                draw_iron_empty_state(
                     ui,
-                    layout.body,
+                    layout.main.shrink2(Vec2::new(10.0, 10.0)),
                     tr("no_active_situations"),
                     "当前没有活跃国际局势。",
                 );
             } else {
-                v9_situations_body(ui, layout.body, data, &mut cmds);
+                v9_situations_body(
+                    ui,
+                    layout.main.shrink2(Vec2::new(8.0, 8.0)),
+                    data,
+                    &mut cmds,
+                );
             }
+            draw_situation_side(ui, layout.side.shrink2(Vec2::new(8.0, 8.0)), data);
             cmds
         });
     (close, output.unwrap_or_default())
+}
+
+fn draw_situation_summary(ui: &mut egui::Ui, rect: Rect, items: &[(&str, String, Color32)]) {
+    use crate::vanilla_iron::VanillaIron;
+    let mut y = rect.top();
+    ui.painter().text(
+        Pos2::new(rect.left(), y),
+        egui::Align2::LEFT_TOP,
+        "概览",
+        crate::v9::TextRole::Subheading.font_id(),
+        VanillaIron::BRASS_BRIGHT,
+    );
+    y += 28.0;
+    for (label, value, color) in items {
+        let row = Rect::from_min_size(Pos2::new(rect.left(), y), Vec2::new(rect.width(), 48.0));
+        VanillaIron::paint_region(ui.painter(), row, VanillaIron::CARD_DEEP);
+        ui.painter().text(
+            Pos2::new(row.left() + 8.0, row.top() + 7.0),
+            egui::Align2::LEFT_TOP,
+            *label,
+            crate::v9::TextRole::Caption.font_id(),
+            VanillaIron::MUTED,
+        );
+        ui.painter().text(
+            Pos2::new(row.left() + 8.0, row.top() + 24.0),
+            egui::Align2::LEFT_TOP,
+            value,
+            crate::v9::TextRole::Heading.font_id(),
+            *color,
+        );
+        y += 56.0;
+    }
+}
+
+fn draw_iron_empty_state(ui: &mut egui::Ui, rect: Rect, title: &str, body: &str) {
+    use crate::vanilla_iron::VanillaIron;
+    VanillaIron::paint_region(ui.painter(), rect, VanillaIron::CARD_DEEP);
+    ui.painter().text(
+        Pos2::new(rect.center().x, rect.center().y - 12.0),
+        egui::Align2::CENTER_CENTER,
+        title,
+        crate::v9::TextRole::Heading.font_id(),
+        VanillaIron::BRASS_BRIGHT,
+    );
+    ui.painter().text(
+        Pos2::new(rect.center().x, rect.center().y + 14.0),
+        egui::Align2::CENTER_CENTER,
+        body,
+        crate::v9::TextRole::Body.font_id(),
+        VanillaIron::MUTED,
+    );
+}
+
+fn draw_situation_side(ui: &mut egui::Ui, rect: Rect, data: &SituationPanelData) {
+    use crate::vanilla_iron::VanillaIron;
+    ui.painter().text(
+        rect.left_top(),
+        egui::Align2::LEFT_TOP,
+        "介入日志",
+        crate::v9::TextRole::Subheading.font_id(),
+        VanillaIron::BRASS_BRIGHT,
+    );
+    let mut y = rect.top() + 30.0;
+    let mut shown = 0usize;
+    for sit in &data.situations {
+        for log in sit.intervention_log.iter().rev().take(2) {
+            shown += 1;
+            let row = Rect::from_min_size(Pos2::new(rect.left(), y), Vec2::new(rect.width(), 54.0));
+            VanillaIron::paint_region(ui.painter(), row, VanillaIron::CARD_DEEP);
+            ui.painter().text(
+                Pos2::new(row.left() + 8.0, row.top() + 7.0),
+                egui::Align2::LEFT_TOP,
+                format!("{} - {}", log.country_tag, log.intervention_name),
+                crate::v9::TextRole::Caption.font_id(),
+                VanillaIron::TEXT,
+            );
+            ui.painter().text(
+                Pos2::new(row.left() + 8.0, row.top() + 27.0),
+                egui::Align2::LEFT_TOP,
+                format!("{} +{:.0}", log.side_name, log.progress_boost),
+                crate::v9::TextRole::Small.font_id(),
+                VanillaIron::MUTED,
+            );
+            y += 62.0;
+        }
+    }
+    if shown == 0 {
+        ui.painter().text(
+            Pos2::new(rect.left(), y),
+            egui::Align2::LEFT_TOP,
+            "暂无介入记录。",
+            crate::v9::TextRole::Body.font_id(),
+            VanillaIron::MUTED,
+        );
+    }
 }
 
 fn v9_situations_body(
@@ -455,9 +273,9 @@ fn v9_situations_body(
 fn v9_situation_card(ui: &mut egui::Ui, sit: &SituationEntry, cmds: &mut Vec<SituationCommand>) {
     use crate::v9::{
         layout::{GridLayout, Track},
-        primitives::{Button, ButtonSize, ButtonVariant, Card, ProgressRing},
         tokens::{palette, spacing, TextRole},
     };
+    use crate::vanilla_iron::VanillaIron;
     let side_rows = sit.sides.len().max(1);
     let intervention_rows = if sit.ended {
         0
@@ -471,13 +289,14 @@ fn v9_situation_card(ui: &mut egui::Ui, sit: &SituationEntry, cmds: &mut Vec<Sit
         Vec2::new(ui.available_width(), height.max(260.0)),
         Sense::hover(),
     );
-    let inner = Card::new().as_panel().show_at(ui, rect);
+    VanillaIron::paint_region(ui.painter(), rect, VanillaIron::CARD);
+    let inner = rect.shrink2(Vec2::new(12.0, 10.0));
     ui.painter().text(
         Pos2::new(inner.left(), inner.top()),
         egui::Align2::LEFT_TOP,
         &sit.title,
         TextRole::Display.font_id(),
-        palette::GOLD_HOT,
+        VanillaIron::TEXT,
     );
     let stage = if sit.ended { tr("ended") } else { tr("active") };
     v9_situation_badge(
@@ -513,9 +332,7 @@ fn v9_situation_card(ui: &mut egui::Ui, sit: &SituationEntry, cmds: &mut Vec<Sit
     let cells = ring_grid.measure(ring_rect);
     for (idx, side) in sit.sides.iter().enumerate() {
         let cell = GridLayout::cell(&cells, 0, idx);
-        ProgressRing::new(side.progress / 100.0, &side.name)
-            .accent(side.color)
-            .show_at(ui, cell);
+        draw_side_progress(ui, cell, side);
     }
     y += 84.0;
     if let Some(winner) = &sit.winner {
@@ -544,16 +361,14 @@ fn v9_situation_card(ui: &mut egui::Ui, sit: &SituationEntry, cmds: &mut Vec<Sit
             let row =
                 Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 36.0));
             let enabled = action.available && action.cooldown_days == 0;
-            crate::v9::paint::paint_bevel(
+            VanillaIron::paint_region(
                 ui.painter(),
                 row,
-                palette::SOOT_BLACK,
                 if enabled {
-                    palette::BRASS_DARK
+                    VanillaIron::CARD_DEEP
                 } else {
-                    palette::HAIRLINE
+                    VanillaIron::BLACK
                 },
-                1.0,
             );
             ui.painter().text(
                 Pos2::new(row.left() + spacing::S4, row.center().y),
@@ -561,29 +376,62 @@ fn v9_situation_card(ui: &mut egui::Ui, sit: &SituationEntry, cmds: &mut Vec<Sit
                 &action.name,
                 TextRole::Body.font_id(),
                 if enabled {
-                    palette::PARCHMENT
+                    VanillaIron::TEXT
                 } else {
-                    palette::MUTED
+                    VanillaIron::MUTED
                 },
             );
-            ui.painter().text(
-                Pos2::new(row.left() + 210.0, row.center().y),
-                egui::Align2::LEFT_CENTER,
+            let impact_rect = Rect::from_min_max(
+                Pos2::new(row.left() + 190.0, row.top()),
+                Pos2::new(row.right() - 98.0, row.bottom()),
+            );
+            let impact_font = crate::v9::text::fit_font_to_width(
                 &action.expected_impact,
                 TextRole::Caption.font_id(),
-                palette::BRASS_BRIGHT,
+                impact_rect.width().max(1.0),
+                0.72,
+            );
+            ui.painter().with_clip_rect(impact_rect).text(
+                impact_rect.left_center(),
+                egui::Align2::LEFT_CENTER,
+                &action.expected_impact,
+                impact_font,
+                VanillaIron::BRASS_BRIGHT,
             );
             let btn_rect = Rect::from_min_size(
                 Pos2::new(row.right() - 92.0, row.top() + 5.0),
                 Vec2::new(84.0, 26.0),
             );
-            if Button::new(tr("intervene"))
-                .size(ButtonSize::Sm)
-                .variant(ButtonVariant::Secondary)
-                .enabled(enabled)
-                .show_at(ui, btn_rect)
-                .clicked()
-            {
+            let button = ui.interact(
+                btn_rect,
+                ui.id().with(("situation_intervene", &sit.id, &action.id)),
+                Sense::click(),
+            );
+            let clickable = enabled && button.clicked();
+            VanillaIron::paint_region(
+                ui.painter(),
+                btn_rect,
+                if enabled && button.hovered() {
+                    VanillaIron::CARD_SOFT
+                } else {
+                    VanillaIron::CARD_DEEP
+                },
+            );
+            ui.painter().text(
+                btn_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                tr("intervene"),
+                TextRole::Caption.font_id(),
+                if enabled {
+                    VanillaIron::BRASS_BRIGHT
+                } else {
+                    VanillaIron::MUTED
+                },
+            );
+            if enabled && button.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if clickable {
                 cmds.push(SituationCommand::Intervene {
                     situation_id: sit.id.clone(),
                     intervention_id: action.id.clone(),
@@ -646,14 +494,61 @@ fn v9_military_overview(
     }
 }
 
-fn v9_situation_badge(ui: &mut egui::Ui, rect: Rect, label: &str, color: Color32) {
-    crate::v9::paint::paint_bevel(
-        ui.painter(),
-        rect,
-        crate::v9::palette::SOOT_BLACK,
-        color,
-        1.0,
+fn draw_side_progress(ui: &mut egui::Ui, rect: Rect, side: &SituationSideEntry) {
+    use crate::vanilla_iron::VanillaIron;
+
+    VanillaIron::paint_region(ui.painter(), rect, VanillaIron::CARD_DEEP);
+    let inner = rect.shrink2(Vec2::new(8.0, 8.0));
+    let progress = (side.progress / 100.0).clamp(0.0, 1.0);
+    let title_rect = Rect::from_min_max(
+        inner.left_top(),
+        Pos2::new(inner.right(), inner.top() + 18.0),
     );
+    let title_font = crate::v9::text::fit_font_to_width(
+        &side.name,
+        crate::v9::TextRole::Caption.font_id(),
+        title_rect.width(),
+        0.72,
+    );
+    ui.painter().with_clip_rect(title_rect).text(
+        title_rect.left_center(),
+        egui::Align2::LEFT_CENTER,
+        &side.name,
+        title_font,
+        side.color,
+    );
+
+    let bar = Rect::from_min_max(
+        Pos2::new(inner.left(), inner.top() + 28.0),
+        Pos2::new(inner.right(), inner.top() + 42.0),
+    );
+    ui.painter().rect_filled(bar, 1.0, VanillaIron::BLACK);
+    ui.painter().rect_filled(
+        Rect::from_min_max(
+            bar.left_top(),
+            Pos2::new(bar.left() + bar.width() * progress, bar.bottom()),
+        ),
+        1.0,
+        side.color,
+    );
+    ui.painter().rect_stroke(
+        bar,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, VanillaIron::EDGE_DARK),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().text(
+        Pos2::new(inner.right(), inner.bottom() - 2.0),
+        egui::Align2::RIGHT_BOTTOM,
+        format!("{:.0}%", side.progress),
+        crate::v9::TextRole::Caption.font_id(),
+        VanillaIron::TEXT,
+    );
+}
+
+fn v9_situation_badge(ui: &mut egui::Ui, rect: Rect, label: &str, color: Color32) {
+    use crate::vanilla_iron::VanillaIron;
+    VanillaIron::paint_region(ui.painter(), rect, VanillaIron::CARD_DEEP);
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -690,48 +585,4 @@ fn truncate_situation_text(text: &str, max: usize) -> String {
         .map(|(idx, _)| idx)
         .unwrap_or(text.len());
     format!("{}...", &text[..cut])
-}
-
-fn render_status_banner(
-    ui: &mut egui::Ui,
-    data: &SituationPanelData,
-    active_count: usize,
-    intervention_count: usize,
-) {
-    let (label, text, color) = if active_count == 0 {
-        (
-            "暂无活跃局势",
-            "当前没有需要立即介入的局势，面板主要用于回看已结束事件。".to_owned(),
-            Color32::from_rgb(0x70, 0xc8, 0x78),
-        )
-    } else if intervention_count == 0 {
-        (
-            "局势可观察",
-            "有活跃局势，但暂时没有可执行的干预动作。".to_owned(),
-            Color32::from_rgb(0xff, 0xc0, 0x60),
-        )
-    } else {
-        (
-            "局势紧张",
-            format!("当前有 {} 个活跃局势，优先关注可干预项。", active_count),
-            Color32::from_rgb(0xff, 0xc0, 0x60),
-        )
-    };
-
-    let ended_count = data.situations.iter().filter(|sit| sit.ended).count();
-    egui::Frame::new()
-        .fill(Color32::from_rgba_premultiplied(0x1d, 0x16, 0x10, 230))
-        .stroke(egui::Stroke::new(1.0, color))
-        .inner_margin(egui::Margin::symmetric(10, 7))
-        .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(label).strong().color(color));
-                ui.label(
-                    RichText::new(format!("{}  已结束 {}", text, ended_count))
-                        .small()
-                        .color(Color32::from_rgb(0xe0, 0xd2, 0xa8)),
-                );
-            });
-        });
-    ui.add_space(4.0);
 }

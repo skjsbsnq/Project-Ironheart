@@ -20,11 +20,12 @@ pub(crate) struct RenderState {
     /// Last uploaded terrain chunk buckets; avoids rewriting identical instance buffers while panning.
     pub(crate) terrain_bucket_signature: [u64; 3],
     pub(crate) terrain_bucket_counts: [u32; 3],
+    /// Reused CPU-side terrain buckets for culling; avoids per-redraw Vec allocation.
+    pub(crate) terrain_buckets: [Vec<ChunkInstance>; 3],
     pub(crate) lut_texture: wgpu::Texture,
     pub(crate) lut_width: u32,
     pub(crate) lut_height: u32,
-    /// Occupation overlay LUT - held to keep the bind-group view alive.
-    /// Rebuilt when controller changes can affect map colour overlays.
+    /// Transparent legacy occupation overlay LUT, held to keep the bind-group view alive.
     #[allow(dead_code)]
     pub(crate) occupation_lut_texture: wgpu::Texture,
     pub(crate) depth_view: wgpu::TextureView,

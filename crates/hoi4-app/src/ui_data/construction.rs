@@ -42,7 +42,9 @@ pub fn build_construction_v6_panel_data(
                         item.target_level
                     };
                     hoi4_ui::construction_v6_panel::ConstructionQueueV6Entry {
+                        building_key: item.building_key.clone(),
                         building_name,
+                        state_id: item.target_state.0,
                         state_name,
                         current_level,
                         target_level,
@@ -243,6 +245,7 @@ pub fn build_construction_v6_panel_data(
             .states
             .push(hoi4_ui::construction_v6_panel::BuildingStateV6Entry {
                 building_idx,
+                state_id: b.state.0,
                 state_name,
                 level: b.level,
                 employment_rate: b.production_rate,
@@ -292,6 +295,8 @@ pub fn build_construction_v6_panel_data(
                 .map(|(pm, level)| format!("{} Lv {}", pm, level))
                 .collect::<Vec<_>>()
                 .join(", ");
+            let outputs = flow_entries(&name_resolver, v6_db, &aggregate.outputs);
+            let inputs = flow_entries(&name_resolver, v6_db, &aggregate.inputs);
             hoi4_ui::construction_v6_panel::BuildingTypeV6Entry {
                 building_def_id,
                 building_name,
@@ -310,6 +315,8 @@ pub fn build_construction_v6_panel_data(
                     0.0
                 },
                 profit_rm_weekly: aggregate.profit_rm_weekly,
+                outputs,
+                inputs,
                 output_summary: flow_summary(&name_resolver, v6_db, &aggregate.outputs, "+"),
                 input_summary: flow_summary(&name_resolver, v6_db, &aggregate.inputs, "-"),
                 warnings,
@@ -934,6 +941,31 @@ fn flow_summary(
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn flow_entries(
+    name_resolver: &DisplayNameResolver<'_>,
+    db: &hoi4_content::V6Database,
+    flows: &HashMap<String, f32>,
+) -> Vec<hoi4_ui::construction_v6_panel::BuildingGoodFlowEntry> {
+    let mut items: Vec<_> = flows.iter().collect();
+    items.sort_by(|a, b| {
+        b.1.abs()
+            .partial_cmp(&a.1.abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    items
+        .into_iter()
+        .filter(|(_, amount)| amount.abs() > 0.01)
+        .take(8)
+        .map(
+            |(good_id, amount)| hoi4_ui::construction_v6_panel::BuildingGoodFlowEntry {
+                good_id: good_id.clone(),
+                good_name: good_name(name_resolver, db, good_id),
+                amount: *amount,
+            },
+        )
+        .collect()
 }
 
 fn state_name(name_resolver: &DisplayNameResolver<'_>, world: &World, state_idx: usize) -> String {

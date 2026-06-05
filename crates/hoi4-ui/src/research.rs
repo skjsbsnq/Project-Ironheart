@@ -2,7 +2,12 @@
 //!
 //! 多类别科技树：节点、进度条、年份惩罚和解锁预览。
 
-use crate::{components, i18n::tr};
+use crate::{
+    components,
+    i18n::tr,
+    vanilla_iron::{VanillaIron, WorkbenchShell},
+    ActiveDetailPanel, PanelCommand, TechnologyDetailTarget,
+};
 use egui::{Color32, RichText};
 
 use components::{MUTED, PANEL_CARD_SOFT, PARCHMENT, STROKE_TILE, WARN};
@@ -67,114 +72,264 @@ pub struct ResearchData {
 pub enum ResearchCommand {
     /// 开始研究某科技
     StartResearch(String),
+    Panel(PanelCommand),
 }
 
 pub struct ResearchPanel;
 
 impl ResearchPanel {
     /// 返回 (close_requested, commands)。
-    #[allow(unreachable_code)]
     pub fn show(ctx: &egui::Context, data: &ResearchData) -> (bool, Vec<ResearchCommand>) {
-        return v9_show_research(ctx, data);
+        workbench_show_research(ctx, data)
+    }
+}
 
-        let mut close = false;
-        let mut cmds = Vec::new();
-        let search_id = egui::Id::new("research_panel_search");
-        let mut search = ctx
-            .data_mut(|d| d.get_persisted::<String>(search_id))
-            .unwrap_or_default();
-        egui::SidePanel::left("research_panel")
-            .default_width(620.0)
-            .min_width(480.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                components::panel_header(ui, tr("research"), &mut close);
+fn workbench_show_research(
+    ctx: &egui::Context,
+    data: &ResearchData,
+) -> (bool, Vec<ResearchCommand>) {
+    let category_id = egui::Id::new("research_workbench_category");
+    let search_id = egui::Id::new("research_workbench_search");
+    let selected_id = egui::Id::new("research_workbench_selected_key");
+    let mut category = ctx
+        .data_mut(|d| d.get_persisted::<String>(category_id))
+        .unwrap_or_else(|| "all".to_owned());
+    let mut search = ctx
+        .data_mut(|d| d.get_persisted::<String>(search_id))
+        .unwrap_or_default();
+    let mut selected_key = ctx
+        .data_mut(|d| d.get_persisted::<Option<String>>(selected_id))
+        .unwrap_or_default();
+    let idle = data.slot_count.saturating_sub(data.slots.len());
+    let (close, output) = WorkbenchShell::new("research_workbench_panel", tr("research"))
+        .subtitle("科技分类 / 研究槽 / 科技详情")
+        .footer("Q 关闭 | 点击科技打开详情")
+        .accent(if idle > 0 {
+            VanillaIron::WARN
+        } else {
+            VanillaIron::BRASS_BRIGHT
+        })
+        .show(ctx, |ui, layout| {
+            let mut cmds = Vec::new();
+            research_nav(ui, layout.nav, data, &mut category, &mut search);
+            research_main(
+                ui,
+                layout.main,
+                data,
+                &category,
+                &search,
+                &mut selected_key,
+                &mut cmds,
+            );
+            research_side(
+                ui,
+                layout.side,
+                data,
+                selected_key.as_deref(),
+                idle,
+                &mut cmds,
+            );
+            cmds
+        });
+    ctx.data_mut(|d| {
+        d.insert_persisted(category_id, category);
+        d.insert_persisted(search_id, search);
+        d.insert_persisted(selected_id, selected_key);
+    });
+    (close, output.unwrap_or_default())
+}
 
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
+fn research_nav(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &ResearchData,
+    category: &mut String,
+    search: &mut String,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "分类");
+        if ui.selectable_label(category == "all", "全部科技").clicked() {
+            *category = "all".to_owned();
+        }
+        for item in CATEGORIES {
+            let count = data
+                .techs
+                .iter()
+                .filter(|tech| tech.category == *item)
+                .count();
+            if ui
+                .selectable_label(
+                    category == *item,
+                    format!("{} ({count})", category_label(item)),
+                )
+                .clicked()
+            {
+                *category = (*item).to_owned();
+            }
+        }
+        ui.separator();
+        ui.label(
+            RichText::new("搜索")
+                .strong()
+                .color(VanillaIron::BRASS_BRIGHT),
+        );
+        ui.add(
+            egui::TextEdit::singleline(search)
+                .hint_text("科技、类别、前置或解锁内容")
+                .desired_width(ui.available_width()),
+        );
+        if !search.is_empty() && VanillaIron::compact_button(ui, "清空").clicked() {
+            search.clear();
+        }
+    });
+}
+
+fn research_main(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &ResearchData,
+    category: &str,
+    search: &str,
+    selected_key: &mut Option<String>,
+    cmds: &mut Vec<ResearchCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "科技列表");
+        let mut techs: Vec<&TechNode> = data
+            .techs
+            .iter()
+            .filter(|tech| category == "all" || tech.category == category)
+            .filter(|tech| tech_matches_search(tech, search))
+            .collect();
+        techs.sort_by(|a, b| {
+            a.start_year
+                .cmp(&b.start_year)
+                .then_with(|| a.category.cmp(&b.category))
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        if techs.is_empty() {
+            ui.label(
+                RichText::new("没有符合筛选条件的科技。")
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+            return;
+        }
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("research_workbench_grid")
+                    .striped(true)
+                    .spacing(egui::vec2(8.0, 4.0))
                     .show(ui, |ui| {
-                        let idle_slots = data.slot_count.saturating_sub(data.slots.len());
-                        components::section(ui, tr("active_research"), |ui| {
-                            if data.slots.is_empty() {
-                                components::panel_hint(
-                                    ui,
-                                    tr("slots_idle").replace("{}", &data.slot_count.to_string()),
-                                );
+                        for tech in techs {
+                            let selected = selected_key.as_deref() == Some(tech.key.as_str());
+                            let color = if tech.completed {
+                                VanillaIron::GOOD
+                            } else if tech.researching {
+                                VanillaIron::BRASS_BRIGHT
+                            } else if tech.start_year > data.current_year {
+                                VanillaIron::WARN
                             } else {
-                                for slot in &data.slots {
-                                    let tech_name = tr(&slot.tech_key);
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new(tech_name)
-                                                .size(12.0)
-                                                .color(PARCHMENT)
-                                                .strong(),
-                                        );
-                                        ui.with_layout(
-                                            egui::Layout::right_to_left(egui::Align::Center),
-                                            |ui| {
-                                                ui.add(
-                                                    egui::ProgressBar::new(slot.progress)
-                                                        .desired_width(160.0),
-                                                );
-                                            },
-                                        );
-                                    });
-                                }
+                                VanillaIron::TEXT
+                            };
+                            if ui
+                                .selectable_label(
+                                    selected,
+                                    RichText::new(&tech.name).strong().color(color),
+                                )
+                                .on_hover_text("打开科技详情")
+                                .clicked()
+                            {
+                                *selected_key = Some(tech.key.clone());
+                                cmds.push(ResearchCommand::Panel(PanelCommand::OpenDetail(
+                                    ActiveDetailPanel::Technology(TechnologyDetailTarget {
+                                        technology_key: tech.key.clone(),
+                                    }),
+                                )));
                             }
-                            if idle_slots > 0 {
-                                ui.add_space(2.0);
-                                ui.label(
-                                    RichText::new(
-                                        tr("slot_idle").replace("{}", &idle_slots.to_string()),
-                                    )
-                                    .size(11.0)
-                                    .color(WARN),
-                                );
-                            }
-                        });
-
-                        ui.add_space(4.0);
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(RichText::new("搜索").size(11.0).color(MUTED));
-                            ui.add(
-                                egui::TextEdit::singleline(&mut search)
-                                    .hint_text("科技、类别、前置或解锁内容")
-                                    .desired_width(240.0),
+                            ui.label(
+                                RichText::new(category_label(&tech.category))
+                                    .small()
+                                    .color(VanillaIron::MUTED),
                             );
-                            if !search.is_empty() && ui.small_button("清空").clicked() {
-                                search.clear();
+                            ui.label(format!("{}", tech.start_year));
+                            ui.label(research_status_text(tech, data.current_year));
+                            if !tech.completed
+                                && !tech.researching
+                                && ui.small_button("研究").clicked()
+                            {
+                                cmds.push(ResearchCommand::StartResearch(tech.key.clone()));
                             }
-                        });
-
-                        // 按类别显示科技树
-                        for cat in CATEGORIES {
-                            let cat_techs: Vec<&TechNode> = data
-                                .techs
-                                .iter()
-                                .filter(|t| t.category == *cat && tech_matches_search(t, &search))
-                                .collect();
-                            if cat_techs.is_empty() {
-                                continue;
-                            }
-
-                            components::section(ui, category_label(cat), |ui| {
-                                for tech in cat_techs {
-                                    render_tech_node(
-                                        ui,
-                                        tech,
-                                        data.current_year,
-                                        idle_slots,
-                                        &mut cmds,
-                                    );
-                                    ui.add_space(3.0);
-                                }
-                            });
+                            ui.end_row();
                         }
                     });
             });
-        ctx.data_mut(|d| d.insert_persisted(search_id, search));
-        (close, cmds)
+    });
+}
+
+fn research_side(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &ResearchData,
+    selected_key: Option<&str>,
+    idle: usize,
+    cmds: &mut Vec<ResearchCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "研究槽");
+        VanillaIron::info_row(
+            ui,
+            "槽位",
+            format!("{}/{}", data.slots.len(), data.slot_count),
+        );
+        if idle > 0 {
+            VanillaIron::warning_row(ui, &format!("有 {idle} 个研究槽空闲。"));
+        }
+        for slot in &data.slots {
+            VanillaIron::info_row(
+                ui,
+                tr(&slot.tech_key),
+                format!("{:.0}%", slot.progress * 100.0),
+            );
+        }
+        ui.separator();
+        VanillaIron::section_heading(ui, "选中科技");
+        if let Some(tech) =
+            selected_key.and_then(|key| data.techs.iter().find(|tech| tech.key == key))
+        {
+            ui.label(RichText::new(&tech.name).strong().color(VanillaIron::TEXT));
+            ui.label(
+                RichText::new(research_status_text(tech, data.current_year))
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+            if VanillaIron::compact_button(ui, "打开详情").clicked() {
+                cmds.push(ResearchCommand::Panel(PanelCommand::OpenDetail(
+                    ActiveDetailPanel::Technology(TechnologyDetailTarget {
+                        technology_key: tech.key.clone(),
+                    }),
+                )));
+            }
+        } else {
+            ui.label(
+                RichText::new("未选中科技。")
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+        }
+    });
+}
+
+fn research_status_text(tech: &TechNode, current_year: u16) -> String {
+    if tech.completed {
+        "已完成".to_owned()
+    } else if tech.researching {
+        format!("研究中 {:.0}%", tech.progress * 100.0)
+    } else if tech.start_year > current_year {
+        format!("超前 {} 年", tech.start_year - current_year)
+    } else {
+        "可研究".to_owned()
     }
 }
 

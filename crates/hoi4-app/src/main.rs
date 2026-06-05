@@ -21,16 +21,21 @@ use hoi4_render::camera::{Camera, CameraUniform, RenderParams};
 use hoi4_render::counter_layout::{
     build_hit_regions, hit_test, layout_screen_space, HitRegion, LayoutCounter,
 };
-use hoi4_render::counter_v3::{flag_bits, generate_hoi3_counters_cr3, Hoi3CounterInstance};
+use hoi4_render::counter_v3::{
+    flag_bits, generate_hoi3_counters_cr3, project_counter_anchor_screen,
+    project_counter_screen_pos, CounterMotionOverride, Hoi3CounterInstance,
+};
 use hoi4_render::defines::VanillaMapSpace;
 use hoi4_render::frontlines::{generate_frontline_vertices, FrontVertex};
-use hoi4_render::map_mode::{build_color_lut, build_occupation_lut, MapMode};
+use hoi4_render::map_mode::{build_color_lut, color_lut_entry, MapMode};
 use hoi4_render::railways::{
     build_railway_vertices_with_bridges, compute_province_centroids, parse_railways, RailVertex,
     RailwayParams,
 };
 use hoi4_render::sdf::{compute_coast_sdf, compute_country_sdf, compute_province_sdf};
-use hoi4_render::terrain::{build_wrapped_instance_buckets, ChunkGrid, ChunkInstance, LOD_GRID};
+use hoi4_render::terrain::{
+    build_wrapped_instance_buckets_into, ChunkGrid, ChunkInstance, LOD_GRID,
+};
 use hoi4_render::trees::{generate_trees_with_stats, TreeInstance};
 use hoi4_render::trees_mesh::{
     build_tree_mesh, filter_instances_for_type, TreeMeshInstance, TreeMeshVertex,
@@ -126,6 +131,10 @@ const UNIT_BOX_SELECT_HOLD_MS: u128 = 180;
 const EDGE_PAN_MARGIN_PX: f32 = 12.0;
 const EDGE_PAN_SPEED_SCALE: f32 = 0.65;
 const MAX_INTERACTION_DT_SECS: f32 = 1.0 / 30.0;
+const TARGET_UI_FRAME_SECS: f32 = 1.0 / 60.0;
+const REDRAW_GUARD_SECS: f32 = 0.002;
+const MIN_SIM_SLICE_SECS: f32 = 0.001;
+const FAST_VISUAL_REBUILD_INTERVAL_SECS: f32 = 1.0 / 20.0;
 const SMOOTH_ZOOM_RESPONSE: f32 = 18.0;
 const HOVER_PICK_INTERVAL_MS: u128 = 33;
 const TOOLTIP_DELAY_MS: u128 = 400; // ms before tooltip appears
@@ -232,11 +241,8 @@ fn build_law_tiers(
                 pp_cost: l.pp_cost,
                 cooldown_days: l.cooldown_days,
                 effects: vec![
-                    format!("Recruitable ratio {:.1}%", l.soldier_ratio * 100.0),
-                    format!(
-                        "Recruit conversion {:.1}%/day",
-                        l.conscription_conversion_rate * 100.0
-                    ),
+                    format!("可征兵比例 {:.1}%", l.soldier_ratio * 100.0),
+                    format!("征兵转化 {:.1}%/日", l.conscription_conversion_rate * 100.0),
                 ],
             })
             .collect(),
@@ -250,19 +256,16 @@ fn build_law_tiers(
                 cooldown_days: l.cooldown_days,
                 effects: {
                     let mut effects = vec![
-                        format!("Worker wages x{:.2}", l.wage_multiplier_worker),
-                        format!(
-                            "Construction speed {:+.0}%",
-                            l.construction_speed_modifier * 100.0
-                        ),
-                        format!("Consumer goods demand x{:.2}", l.consumer_goods_factor),
+                        format!("工人工资 x{:.2}", l.wage_multiplier_worker),
+                        format!("建设速度 {:+.0}%", l.construction_speed_modifier * 100.0),
+                        format!("消费品需求 x{:.2}", l.consumer_goods_factor),
                     ];
                     if l.id == "corporatist_war_economy" {
-                        effects.push("Military industry government orders".to_owned());
-                        effects.push("MEFO auto financing until risk cap".to_owned());
+                        effects.push("军工获得政府订单".to_owned());
+                        effects.push("MEFO 自动融资直到风险上限".to_owned());
                     }
                     if let Some(trade_law) = &l.forces_trade_law {
-                        effects.push(format!("Forced trade law: {}", trade_law));
+                        effects.push(format!("强制贸易法律：{}", trade_law));
                     }
                     effects
                 },
@@ -277,13 +280,13 @@ fn build_law_tiers(
                 pp_cost: l.pp_cost,
                 cooldown_days: l.cooldown_days,
                 effects: vec![
-                    format!("Import efficiency {:.0}%", l.import_efficiency * 100.0),
-                    format!("Export efficiency {:.0}%", l.export_efficiency * 100.0),
-                    format!("Import tariff {:.0}%", l.import_tariff_rate * 100.0),
+                    format!("进口效率 {:.0}%", l.import_efficiency * 100.0),
+                    format!("出口效率 {:.0}%", l.export_efficiency * 100.0),
+                    format!("进口关税 {:.0}%", l.import_tariff_rate * 100.0),
                     if l.foreign_exchange_control {
-                        "Foreign exchange control: on".to_owned()
+                        "外汇管制：启用".to_owned()
                     } else {
-                        "Foreign exchange control: off".to_owned()
+                        "外汇管制：关闭".to_owned()
                     },
                 ],
             })
@@ -297,9 +300,9 @@ fn build_law_tiers(
                 pp_cost: l.pp_cost,
                 cooldown_days: l.cooldown_days,
                 effects: vec![
-                    format!("Income tax {:.0}%", l.income_tax_rate * 100.0),
-                    format!("Consumption tax {:.0}%", l.consumption_tax_rate * 100.0),
-                    format!("Corporate tax {:.0}%", l.corporate_tax_rate * 100.0),
+                    format!("所得税 {:.0}%", l.income_tax_rate * 100.0),
+                    format!("消费税 {:.0}%", l.consumption_tax_rate * 100.0),
+                    format!("企业税 {:.0}%", l.corporate_tax_rate * 100.0),
                 ],
             })
             .collect(),
@@ -312,8 +315,8 @@ fn build_law_tiers(
                 pp_cost: l.pp_cost,
                 cooldown_days: l.cooldown_days,
                 effects: vec![
-                    format!("Research slots {}", l.research_slots),
-                    format!("Welfare rate {:.0}%", l.welfare_rate * 100.0),
+                    format!("科研槽 {}", l.research_slots),
+                    format!("福利率 {:.0}%", l.welfare_rate * 100.0),
                 ],
             })
             .collect(),
@@ -325,10 +328,79 @@ fn build_law_tiers(
                 name: localized_content_name(&l.id, &l.name),
                 pp_cost: l.pp_cost,
                 cooldown_days: l.cooldown_days,
-                effects: vec![format!("Loyalty decay x{:.2}", l.loyalty_decay_multiplier)],
+                effects: vec![format!("忠诚衰减 x{:.2}", l.loyalty_decay_multiplier)],
             })
             .collect(),
     }
+}
+
+fn build_law_slot_entries(
+    law_set: Option<&hoi4_state::LawSet>,
+    db: &hoi4_content::V6Database,
+) -> Vec<hoi4_ui::law_panel::LawSlotEntry> {
+    let Some(ls) = law_set else {
+        return Vec::new();
+    };
+    let categories = [
+        hoi4_state::LawCategory::Conscription,
+        hoi4_state::LawCategory::Economy,
+        hoi4_state::LawCategory::Trade,
+        hoi4_state::LawCategory::Taxation,
+        hoi4_state::LawCategory::CivilRights,
+        hoi4_state::LawCategory::InformationControl,
+    ];
+    categories
+        .iter()
+        .map(|&cat| {
+            let slot = &ls.0[cat.index()];
+            let tiers = build_law_tiers(cat, db);
+            let current_name = tiers
+                .iter()
+                .find(|t| t.id == slot.current)
+                .map(|t| t.name.clone())
+                .unwrap_or_else(|| localized_content_name(&slot.current, &slot.current));
+            hoi4_ui::law_panel::LawSlotEntry {
+                category: cat,
+                current_id: slot.current.clone(),
+                current_name,
+                cooldown_days: slot.cooldown_days,
+                pending: slot.pending.as_ref().map(|(id, rem)| {
+                    let name = tiers
+                        .iter()
+                        .find(|t| t.id == *id)
+                        .map(|t| t.name.clone())
+                        .unwrap_or_else(|| localized_content_name(id, id));
+                    (id.clone(), name, *rem)
+                }),
+                is_locked: slot.is_locked,
+                locked_reason: if slot.is_locked {
+                    Some("计划经济锁定了该法律类别。".to_owned())
+                } else {
+                    None
+                },
+                previous_before_lock: slot.previous_before_lock.clone(),
+                tiers,
+            }
+        })
+        .collect()
+}
+
+fn build_politics_law_entries(
+    law_set: Option<&hoi4_state::LawSet>,
+    db: &hoi4_content::V6Database,
+) -> Vec<hoi4_ui::politics::PoliticsLawEntry> {
+    build_law_slot_entries(law_set, db)
+        .into_iter()
+        .map(|slot| hoi4_ui::politics::PoliticsLawEntry {
+            category: slot.category,
+            current_name: slot.current_name,
+            cooldown_days: slot.cooldown_days,
+            pending: slot
+                .pending
+                .map(|(_, target_name, remaining)| (target_name, remaining)),
+            is_locked: slot.is_locked,
+        })
+        .collect()
 }
 /// Phase 4.2: Game phase state machine.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -367,28 +439,6 @@ enum InGamePanel {
     Situation,
     Settings,
     Saves,
-}
-
-fn in_game_panel_for_panel_kind(kind: hoi4_ui::PanelKind) -> InGamePanel {
-    match kind {
-        hoi4_ui::PanelKind::Politics => InGamePanel::Politics,
-        hoi4_ui::PanelKind::Decisions => InGamePanel::Decisions,
-        hoi4_ui::PanelKind::Laws => InGamePanel::Laws,
-        hoi4_ui::PanelKind::Pops => InGamePanel::Pops,
-        hoi4_ui::PanelKind::Market => InGamePanel::Market,
-        hoi4_ui::PanelKind::Finance => InGamePanel::Finance,
-        hoi4_ui::PanelKind::Trade => InGamePanel::Trade,
-        hoi4_ui::PanelKind::Construction => InGamePanel::ConstructionV6,
-        hoi4_ui::PanelKind::Research => InGamePanel::Research,
-        hoi4_ui::PanelKind::Diplomacy => InGamePanel::Diplomacy,
-        hoi4_ui::PanelKind::Military => InGamePanel::Military,
-        hoi4_ui::PanelKind::Naval => InGamePanel::Naval,
-        hoi4_ui::PanelKind::Air => InGamePanel::Air,
-        hoi4_ui::PanelKind::Logistics => InGamePanel::Logistics,
-        hoi4_ui::PanelKind::Situation => InGamePanel::Situation,
-        hoi4_ui::PanelKind::Settings => InGamePanel::Settings,
-        hoi4_ui::PanelKind::Saves => InGamePanel::Saves,
-    }
 }
 
 // 4.3 Step B (2026-05-18): ?????main ???????`PoliticsTab` ????????ab ?????????????// ??.3 (`tabbedWindowType`) ???????GuiRt-removed ????????????????????????????main ???????
@@ -578,6 +628,7 @@ struct App {
     map_mode: MapMode,
     time_accumulator: f32,
     last_frame: Instant,
+    last_redraw_at: Instant,
     last_status_print: Instant,
     last_perf_diag: Instant,
     perf_last_hours: u64,
@@ -589,6 +640,9 @@ struct App {
     perf_counter_update_us: u64,
     perf_arrow_update_us: u64,
     counter_visibility_cache: CounterVisibilityCache,
+    cached_topbar_sig: u64,
+    cached_topbar_data: Option<hoi4_ui::topbar::TopBarData>,
+    last_topbar_rebuild_at: Instant,
     start_time: Instant,
     dragging: bool,
     heightmap_r16_supported: bool,
@@ -674,6 +728,10 @@ struct App {
     show_province_names: bool,
     /// Phase 4.3: currently open in-game panel (None = no panel).
     open_panel: Option<InGamePanel>,
+    /// Gate 1 panel router: currently open object/detail panel.
+    active_detail_panel: Option<hoi4_ui::ActiveDetailPanel>,
+    /// Gate 1 panel router: currently open short-lived popup.
+    active_popup: Option<hoi4_ui::ActivePopup>,
     /// C.5: diplomacy panel sort toggle.
     diplomacy_sort_by_opinion: bool,
     diplomacy_selected_country_tag: Option<String>,
@@ -739,6 +797,8 @@ struct App {
     prev_armies_hash: u64,
     frontline_overlay_hash: u64,
     trade_routes_hash: u64,
+    last_frontline_arrow_rebuild_at: Instant,
+    last_frontline_overlay_rebuild_at: Instant,
     /// 11.2???urrently selected army (click frontline on map or select in bottom bar).
     selected_army_id: Option<hoi4_state::ArmyId>,
     template_editor_open: bool,
@@ -867,6 +927,7 @@ impl App {
             map_mode: MapMode::Political,
             time_accumulator: 0.0,
             last_frame: Instant::now(),
+            last_redraw_at: Instant::now(),
             last_status_print: Instant::now(),
             last_perf_diag: Instant::now(),
             perf_last_hours: 0,
@@ -878,6 +939,9 @@ impl App {
             perf_counter_update_us: 0,
             perf_arrow_update_us: 0,
             counter_visibility_cache: CounterVisibilityCache::default(),
+            cached_topbar_sig: 0,
+            cached_topbar_data: None,
+            last_topbar_rebuild_at: Instant::now(),
             start_time: Instant::now(),
             dragging: false,
             heightmap_r16_supported: false,
@@ -934,6 +998,8 @@ impl App {
             seasons: seasons_data,
             show_province_names: true,
             open_panel: None,
+            active_detail_panel: None,
+            active_popup: None,
             diplomacy_sort_by_opinion: false,
             diplomacy_selected_country_tag: None,
             construction_mode: None,
@@ -982,6 +1048,8 @@ impl App {
             prev_armies_hash: 0,
             frontline_overlay_hash: 0,
             trade_routes_hash: 0,
+            last_frontline_arrow_rebuild_at: Instant::now(),
+            last_frontline_overlay_rebuild_at: Instant::now(),
             selected_army_id: None,
             template_editor_open: false,
             selected_template_idx: None,
@@ -1037,7 +1105,8 @@ impl App {
 
         self.game_phase = GamePhase::Playing;
         self.world.speed = GameSpeed::Paused;
-        self.open_panel = None;
+        self.close_primary_panel();
+        self.active_popup = None;
         self.demo_visible = false;
         self.b5_demo_visible = false;
         self.debug_overlay = false;
@@ -1697,28 +1766,28 @@ impl App {
 
     fn province_type_name(def: Option<&hoi4_map::ProvinceDefinition>) -> String {
         match def.map(|d| d.province_type) {
-            Some(hoi4_map::ProvinceType::Land) => "???".to_owned(),
-            Some(hoi4_map::ProvinceType::Sea) => "???".to_owned(),
-            Some(hoi4_map::ProvinceType::Lake) => "???".to_owned(),
+            Some(hoi4_map::ProvinceType::Land) => "陆地".to_owned(),
+            Some(hoi4_map::ProvinceType::Sea) => "海域".to_owned(),
+            Some(hoi4_map::ProvinceType::Lake) => "湖泊".to_owned(),
             None => hoi4_ui::i18n::tr("unknown").to_owned(),
         }
     }
 
     fn terrain_display_name(terrain: &str) -> String {
         match terrain {
-            "plains" => "???".to_owned(),
-            "forest" => "???".to_owned(),
-            "hills" => "???".to_owned(),
-            "mountain" => "???".to_owned(),
-            "desert" => "???".to_owned(),
-            "marsh" => "???".to_owned(),
-            "jungle" => "???".to_owned(),
-            "urban" => "???".to_owned(),
-            "ocean" => "???".to_owned(),
-            "lakes" => "???".to_owned(),
-            "water_fjords" => "???".to_owned(),
-            "water_shallow_sea" => "???".to_owned(),
-            "water_deep_ocean" => "???".to_owned(),
+            "plains" => "平原".to_owned(),
+            "forest" => "森林".to_owned(),
+            "hills" => "丘陵".to_owned(),
+            "mountain" => "山地".to_owned(),
+            "desert" => "沙漠".to_owned(),
+            "marsh" => "沼泽".to_owned(),
+            "jungle" => "丛林".to_owned(),
+            "urban" => "城市".to_owned(),
+            "ocean" => "海洋".to_owned(),
+            "lakes" => "湖泊".to_owned(),
+            "water_fjords" => "峡湾".to_owned(),
+            "water_shallow_sea" => "浅海".to_owned(),
+            "water_deep_ocean" => "深海".to_owned(),
             "unknown" | "" => hoi4_ui::i18n::tr("unknown").to_owned(),
             other => other.to_owned(),
         }
@@ -1785,31 +1854,9 @@ impl App {
             Some(s) => s,
             None => return,
         };
-        let player_cid = if self.player_country < self.world.countries.count {
-            Some(hoi4_state::CountryId(self.player_country as u16))
-        } else {
-            None
-        };
+        let player_cid = self.player_country_id();
         let lut_data = build_color_lut(&self.world, self.map_mode, player_cid);
         let mut padded = lut_data;
-
-        // E.4: Combat province red pulse highlight.
-        {
-            let t = (self.world.elapsed_hours as f32 * 0.3).sin() * 0.5 + 0.5; // 0..1 pulse
-            let red_blend = (80.0 + t * 80.0) as u8; // 80..160
-            for div_idx in 0..self.world.divisions.count {
-                if !self.world.divisions.in_combat[div_idx] {
-                    continue;
-                }
-                let prov = self.world.divisions.locations[div_idx].0 as usize;
-                let o = prov * 4;
-                if o + 3 < padded.len() {
-                    padded[o] = padded[o].saturating_add(red_blend);
-                    padded[o + 1] = padded[o + 1].saturating_sub(40);
-                    padded[o + 2] = padded[o + 2].saturating_sub(40);
-                }
-            }
-        }
 
         // P1: selecting a province also highlights its whole state. The single
         // clicked province still gets the shader pulse; this LUT tint makes the
@@ -1832,22 +1879,95 @@ impl App {
         s.window.request_redraw();
     }
 
-    /// Rebuild and upload the occupation stripe LUT.
-    fn refresh_occupation_lut(&self) {
+    fn player_country_id(&self) -> Option<hoi4_state::CountryId> {
+        if self.player_country < self.world.countries.count {
+            Some(hoi4_state::CountryId(self.player_country as u16))
+        } else {
+            None
+        }
+    }
+
+    fn lut_entry_with_highlights(
+        &self,
+        province_idx: usize,
+        player_cid: Option<hoi4_state::CountryId>,
+    ) -> [u8; 4] {
+        let mut entry = color_lut_entry(&self.world, self.map_mode, player_cid, province_idx);
+        let pid = province_idx as u32;
+        if self.selected_province_ids.contains(&pid)
+            || self.construction_highlight_province_ids.contains(&pid)
+        {
+            entry[0] = entry[0].saturating_add(42);
+            entry[1] = entry[1].saturating_add(32);
+            entry[2] = entry[2].saturating_sub(18);
+        }
+        entry
+    }
+
+    fn controller_changes_affect_lut(mode: MapMode) -> bool {
+        matches!(
+            mode,
+            MapMode::Political | MapMode::Cores | MapMode::Ideology
+        )
+    }
+
+    fn refresh_lut_entries(&self, province_indices: &[usize]) {
+        if province_indices.is_empty() || !Self::controller_changes_affect_lut(self.map_mode) {
+            return;
+        }
         let s = match &self.state {
             Some(s) => s,
             None => return,
         };
-        let mut occ_padded = build_occupation_lut(&self.world);
-        occ_padded.resize((s.lut_width * s.lut_height * 4) as usize, 0);
-        upload_lut(
-            &s.queue,
-            &s.occupation_lut_texture,
-            &occ_padded,
-            s.lut_width,
-            s.lut_height,
-        );
-        s.window.request_redraw();
+        if s.lut_width == 0 || s.lut_height == 0 {
+            return;
+        }
+
+        let max_entries = (s.lut_width * s.lut_height) as usize;
+        let mut indices: Vec<usize> = province_indices
+            .iter()
+            .copied()
+            .filter(|pid| *pid < max_entries)
+            .collect();
+        if indices.is_empty() {
+            return;
+        }
+        indices.sort_unstable();
+        indices.dedup();
+
+        let player_cid = self.player_country_id();
+        let lut_width = s.lut_width as usize;
+        let mut run_start = 0usize;
+        let mut run_row = 0usize;
+        let mut prev_pid = 0usize;
+        let mut run_data: Vec<u8> = Vec::with_capacity(64);
+        let mut wrote_any = false;
+
+        for pid in indices {
+            let row = pid / lut_width;
+            let contiguous = !run_data.is_empty() && row == run_row && pid == prev_pid + 1;
+            if !contiguous {
+                if !run_data.is_empty() {
+                    upload_lut_span(&s.queue, &s.lut_texture, &run_data, s.lut_width, run_start);
+                    wrote_any = true;
+                    run_data.clear();
+                }
+                run_start = pid;
+                run_row = row;
+            }
+
+            run_data.extend_from_slice(&self.lut_entry_with_highlights(pid, player_cid));
+            prev_pid = pid;
+        }
+
+        if !run_data.is_empty() {
+            upload_lut_span(&s.queue, &s.lut_texture, &run_data, s.lut_width, run_start);
+            wrote_any = true;
+        }
+
+        if wrote_any {
+            s.window.request_redraw();
+        }
     }
 
     fn rebuild_country_labels_and_refresh(&mut self) {
@@ -1922,22 +2042,6 @@ impl App {
         };
         let lut_data = build_color_lut(&self.world, self.map_mode, player_cid);
         let mut padded = lut_data;
-        {
-            let t = (self.world.elapsed_hours as f32 * 0.3).sin() * 0.5 + 0.5;
-            let red_blend = (80.0 + t * 80.0) as u8;
-            for div_idx in 0..self.world.divisions.count {
-                if !self.world.divisions.in_combat[div_idx] {
-                    continue;
-                }
-                let prov = self.world.divisions.locations[div_idx].0 as usize;
-                let o = prov * 4;
-                if o + 3 < padded.len() {
-                    padded[o] = padded[o].saturating_add(red_blend);
-                    padded[o + 1] = padded[o + 1].saturating_sub(40);
-                    padded[o + 2] = padded[o + 2].saturating_sub(40);
-                }
-            }
-        }
         for pid in self
             .selected_province_ids
             .iter()
@@ -1953,17 +2057,6 @@ impl App {
         padded.resize((s.lut_width * s.lut_height * 4) as usize, 0);
         upload_lut(&s.queue, &s.lut_texture, &padded, s.lut_width, s.lut_height);
 
-        // Refresh occupation stripes when province controller data changes.
-        let mut occ_padded = build_occupation_lut(&self.world);
-        occ_padded.resize((s.lut_width * s.lut_height * 4) as usize, 0);
-        upload_lut(
-            &s.queue,
-            &s.occupation_lut_texture,
-            &occ_padded,
-            s.lut_width,
-            s.lut_height,
-        );
-
         s.window.request_redraw();
     }
 
@@ -1974,6 +2067,17 @@ impl App {
             return;
         }
 
+        let changed_controller_provinces: Vec<usize> = if !owners_changed && controllers_changed {
+            self.map_refresh_controllers
+                .iter()
+                .zip(self.world.provinces.controllers.iter())
+                .enumerate()
+                .filter_map(|(pid, (old, new))| (old != new).then_some(pid))
+                .collect()
+        } else {
+            Vec::new()
+        };
+
         self.map_refresh_owners
             .clone_from(&self.world.provinces.owners);
         self.map_refresh_controllers
@@ -1981,9 +2085,8 @@ impl App {
 
         if owners_changed {
             self.rebuild_country_labels_and_refresh();
-        } else {
-            self.refresh_lut();
-            self.refresh_occupation_lut();
+        } else if !changed_controller_provinces.is_empty() {
+            self.refresh_lut_entries(&changed_controller_provinces);
         }
     }
 
@@ -2373,7 +2476,7 @@ impl App {
         self.perf_arrow_update_us = 0;
     }
 
-    fn visual_division_centroid_overrides(&self) -> HashMap<usize, (f32, f32)> {
+    fn visual_division_motion_overrides(&self) -> HashMap<usize, CounterMotionOverride> {
         let mut overrides = HashMap::new();
         let Some(state) = self.state.as_ref() else {
             return overrides;
@@ -2392,7 +2495,11 @@ impl App {
             let t = (motion.elapsed / motion.duration.max(0.001)).clamp(0.0, 1.0);
             overrides.insert(
                 div_idx,
-                (from_x + (to_x - from_x) * t, from_y + (to_y - from_y) * t),
+                CounterMotionOverride {
+                    current: (from_x + (to_x - from_x) * t, from_y + (to_y - from_y) * t),
+                    target: (to_x, to_y),
+                    remaining_secs: (motion.duration - motion.elapsed).max(0.0),
+                },
             );
         }
         overrides
@@ -2507,7 +2614,8 @@ impl App {
         }
     }
 
-    fn pick_counter_province_at_cursor(&self) -> Option<u32> {
+    fn pick_counter_province_at_cursor(&mut self) -> Option<u32> {
+        self.refresh_counter_hit_regions_for_current_frame();
         let [mx, my] = self.last_mouse;
         let dpi = self
             .state
@@ -2515,6 +2623,18 @@ impl App {
             .map(|s| s.window.scale_factor() as f32)
             .unwrap_or(1.0);
         hit_test(&self._cached_hoi3_hit_regions, mx * dpi, my * dpi).map(|pid| pid as u32)
+    }
+
+    fn refresh_counter_hit_regions_for_current_frame(&mut self) {
+        let Some(s) = self.state.as_ref() else {
+            self._cached_hoi3_hit_regions.clear();
+            return;
+        };
+        let view_proj = self.camera.view_proj();
+        let sw = s.config.width as f32;
+        let sh = s.config.height as f32;
+        let time_secs = self.start_time.elapsed().as_secs_f32();
+        self.refresh_cached_hoi3_counter_screen_positions(&view_proj, sw, sh, time_secs);
     }
 
     fn select_counter_stack_at_province(&mut self, pid: u32, ctrl_held: bool, shift_held: bool) {
@@ -2580,6 +2700,7 @@ impl App {
     }
 
     fn select_counter_stacks_in_rect(&mut self, rect_logical: [f32; 4], additive: bool) -> bool {
+        self.refresh_counter_hit_regions_for_current_frame();
         let Some(s) = self.state.as_ref() else {
             return false;
         };
@@ -2967,7 +3088,7 @@ impl App {
                 .map(|def| def.terrain == "urban")
                 .unwrap_or(false)
             {
-                strategic_nodes.push("???".to_owned());
+                strategic_nodes.push("城市".to_owned());
             }
             let adjacent_enemy = self.world.map.neighbors(new_pid as u16).iter().any(|&adj| {
                 let adj_pi = adj as usize;
@@ -2976,7 +3097,7 @@ impl App {
                     && !self.world.provinces.controllers[adj_pi].is_none()
             });
             if adjacent_enemy {
-                strategic_nodes.push("??????".to_owned());
+                strategic_nodes.push("接敌边境".to_owned());
             }
             // Divisions in this province (all countries visible)
             let div_names: Vec<String> = (0..self.world.divisions.count)
@@ -3119,6 +3240,7 @@ impl App {
                     divisions: div_names,
                 },
                 state: hoi4_ui::province_info::StateEconomicInfo {
+                    state_id: state_id.0,
                     state_name,
                     owner_tag,
                     owner_name,
@@ -3147,6 +3269,12 @@ impl App {
                     },
                 },
             };
+            self.province_info_card.open = false;
+            self.active_detail_panel = Some(hoi4_ui::ActiveDetailPanel::Province(
+                hoi4_ui::ProvinceDetailTarget {
+                    province_id: new_pid,
+                },
+            ));
         }
     }
 
@@ -3161,12 +3289,21 @@ impl App {
     /// cannot leave it layered on top of the new panel.
     fn toggle_in_game_panel(&mut self, panel: InGamePanel) {
         if self.open_panel == Some(panel) {
-            self.open_panel = None;
+            self.close_primary_panel();
         } else {
-            self.open_panel = Some(panel);
-            self.province_info_card.open = false;
-            self.country_info_panel.close();
+            self.open_primary_panel(panel);
         }
+    }
+
+    fn open_primary_panel(&mut self, panel: InGamePanel) {
+        self.open_panel = Some(panel);
+        self.province_info_card.open = false;
+        self.country_info_panel.close();
+    }
+
+    fn close_primary_panel(&mut self) {
+        self.open_panel = None;
+        self.active_detail_panel = None;
     }
 
     fn set_player_country_by_tag(&mut self, tag: &str) -> bool {
@@ -3191,6 +3328,8 @@ impl App {
         self.selected_divisions.clear();
         self.selected_army_id = None;
         self.selected_province_ids.clear();
+        self.active_detail_panel = None;
+        self.active_popup = None;
         self.province_info_card.open = false;
         self.country_info_panel.close();
         self.refresh_lut();
@@ -3441,13 +3580,34 @@ impl App {
 
     /// Generate and upload HOI3-style screen-space counters each frame.
     fn update_hoi3_counter_pass(&mut self, world_objects: WorldObjectPlan) {
+        let view_proj = self.camera.view_proj();
+        let view_proj_uniform = view_proj.to_cols_array_2d();
+        let time_secs = self.start_time.elapsed().as_secs_f32();
+        let (sw, sh) = match self.state.as_ref() {
+            Some(s) => (s.config.width as f32, s.config.height as f32),
+            None => return,
+        };
+
         if !world_objects.counters.visible {
             if let Some(s) = self.state.as_mut() {
                 if s.hoi3_counter_pass.instance_count() > 0 {
-                    let sw = s.config.width as f32;
-                    let sh = s.config.height as f32;
-                    s.hoi3_counter_pass.upload(&s.device, &s.queue, &[], sw, sh);
-                    s.hoi3_counter_pass.update_opacity(&s.queue, 0.0, sw, sh);
+                    s.hoi3_counter_pass.upload(
+                        &s.device,
+                        &s.queue,
+                        &[],
+                        sw,
+                        sh,
+                        view_proj_uniform,
+                        time_secs,
+                    );
+                    s.hoi3_counter_pass.update_opacity(
+                        &s.queue,
+                        0.0,
+                        sw,
+                        sh,
+                        view_proj_uniform,
+                        time_secs,
+                    );
                 }
             }
             self.cached_hoi3_counter_sig = 0;
@@ -3468,20 +3628,15 @@ impl App {
         self.cached_hoi3_counter_sig = sig;
         self.perf_counter_rebuilds = self.perf_counter_rebuilds.saturating_add(1);
 
-        let view_proj = self.camera.view_proj();
         let (visible, spotted) = self.cached_counter_visibility();
         let player = if self.player_country < self.world.countries.count {
             hoi4_state::CountryId(self.player_country as u16)
         } else {
             hoi4_state::CountryId::NONE
         };
-        let visual_centroids_override = self.visual_division_centroid_overrides();
-        let (sw, sh, unit_counter_centroids) = match self.state.as_ref() {
-            Some(s) => (
-                s.config.width as f32,
-                s.config.height as f32,
-                s.unit_counter_centroids.clone(),
-            ),
+        let visual_motion_overrides = self.visual_division_motion_overrides();
+        let unit_counter_centroids = match self.state.as_ref() {
+            Some(s) => s.unit_counter_centroids.clone(),
             None => return,
         };
         let mut counter_selected_province_ids = self.selected_province_ids.clone();
@@ -3501,7 +3656,8 @@ impl App {
             visible.as_ref(),
             spotted.as_ref(),
             player,
-            Some(&visual_centroids_override),
+            Some(&visual_motion_overrides),
+            time_secs,
         );
         if world_objects.counter_selected_only {
             counters.retain(|counter| {
@@ -3628,16 +3784,87 @@ impl App {
             counters = expanded_counters;
         }
 
+        self.prepare_hoi3_counter_instances_for_upload(
+            &mut counters,
+            &view_proj,
+            sw,
+            sh,
+            time_secs,
+        );
         let s = match self.state.as_mut() {
             Some(s) => s,
             None => return,
         };
-        s.hoi3_counter_pass
-            .upload(&s.device, &s.queue, &counters, sw, sh);
-        s.hoi3_counter_pass
-            .update_opacity(&s.queue, world_objects.counters.opacity, sw, sh);
+        s.hoi3_counter_pass.upload(
+            &s.device,
+            &s.queue,
+            &counters,
+            sw,
+            sh,
+            view_proj_uniform,
+            time_secs,
+        );
+        s.hoi3_counter_pass.update_opacity(
+            &s.queue,
+            world_objects.counters.opacity,
+            sw,
+            sh,
+            view_proj_uniform,
+            time_secs,
+        );
         self.perf_counter_instances = counters.len();
         self._cached_hoi3_counter_upload = counters;
+        self.refresh_cached_hoi3_counter_screen_positions(&view_proj, sw, sh, time_secs);
+    }
+
+    fn prepare_hoi3_counter_instances_for_upload(
+        &self,
+        counters: &mut [Hoi3CounterInstance],
+        view_proj: &glam::Mat4,
+        screen_w: f32,
+        screen_h: f32,
+        time_secs: f32,
+    ) {
+        for counter in counters {
+            if let Some(anchor) =
+                project_counter_anchor_screen(counter, view_proj, screen_w, screen_h, time_secs)
+            {
+                counter.screen_offset = [
+                    counter.screen_pos[0] - anchor[0],
+                    counter.screen_pos[1] - anchor[1],
+                ];
+            } else {
+                counter.screen_offset = counter.screen_pos;
+            }
+        }
+    }
+
+    fn refresh_cached_hoi3_counter_screen_positions(
+        &mut self,
+        view_proj: &glam::Mat4,
+        screen_w: f32,
+        screen_h: f32,
+        time_secs: f32,
+    ) {
+        if self._cached_hoi3_counter_upload.is_empty() {
+            self._cached_hoi3_hit_regions.clear();
+            return;
+        }
+        let mut layout_counters = Vec::new();
+        for counter in &mut self._cached_hoi3_counter_upload {
+            counter.screen_pos =
+                project_counter_screen_pos(counter, view_proj, screen_w, screen_h, time_secs)
+                    .unwrap_or([-100000.0, -100000.0]);
+            if (counter.flags & flag_bits::IS_UNDERLAY) == 0 {
+                layout_counters.push(LayoutCounter {
+                    pos: counter.screen_pos,
+                    size: counter.size,
+                    anchor: counter.screen_pos,
+                    province_id: counter.province_id(),
+                });
+            }
+        }
+        self._cached_hoi3_hit_regions = build_hit_regions(&layout_counters);
     }
 
     fn apply_or_rebuild_counter_layout(
@@ -3707,10 +3934,11 @@ impl App {
         let mut h = DefaultHasher::new();
         self.game_phase.hash(&mut h);
         self.player_country.hash(&mut h);
-        self.camera.distance.to_bits().hash(&mut h);
-        self.camera.target.x.to_bits().hash(&mut h);
-        self.camera.target.y.to_bits().hash(&mut h);
-        self.camera.target.z.to_bits().hash(&mut h);
+        ((self.camera.distance * 2.0) as i32).hash(&mut h);
+        if let Some(s) = self.state.as_ref() {
+            ((s.config.width as f32 / 4.0) as i32).hash(&mut h);
+            ((s.config.height as f32 / 4.0) as i32).hash(&mut h);
+        }
         self.selected_province_id.hash(&mut h);
         world_objects.counter_selected_only.hash(&mut h);
         ((world_objects.counters.scale * 100.0) as i32).hash(&mut h);
@@ -3728,7 +3956,6 @@ impl App {
             div_idx.hash(&mut h);
             motion.from.hash(&mut h);
             motion.to.hash(&mut h);
-            ((motion.elapsed * 120.0) as i32).hash(&mut h);
             ((motion.duration * 120.0) as i32).hash(&mut h);
         }
         for i in 0..self.world.divisions.count {
@@ -4121,11 +4348,18 @@ impl App {
     }
 
     fn update_frontline_arrows(&mut self) {
+        let force_rebuild =
+            self.prev_armies_hash == 0 || self.frontline_painter.mode != PainterMode::Idle;
+        if !self.high_speed_visual_rebuild_due(self.last_frontline_arrow_rebuild_at, force_rebuild)
+        {
+            return;
+        }
         let sig = self.frontline_arrow_signature();
         if sig == self.prev_armies_hash {
             return;
         }
         self.prev_armies_hash = sig;
+        self.last_frontline_arrow_rebuild_at = Instant::now();
 
         let arrows = self.collect_order_arrows();
         let s = match self.state.as_mut() {
@@ -4183,11 +4417,18 @@ impl App {
         {
             return;
         }
+        let force_rebuild = self.frontline_overlay_hash == 0;
+        if !self
+            .high_speed_visual_rebuild_due(self.last_frontline_overlay_rebuild_at, force_rebuild)
+        {
+            return;
+        }
         let sig = self.frontline_overlay_signature();
         if sig == self.frontline_overlay_hash {
             return;
         }
         self.frontline_overlay_hash = sig;
+        self.last_frontline_overlay_rebuild_at = Instant::now();
 
         let centroids = match self.state.as_ref() {
             Some(s) => s.unit_counter_centroids.clone(),
@@ -4211,6 +4452,16 @@ impl App {
                 },
                 usage: wgpu::BufferUsages::VERTEX,
             });
+    }
+
+    fn high_speed_visual_rebuild_due(&self, last_rebuild_at: Instant, force: bool) -> bool {
+        if force {
+            return true;
+        }
+        if !matches!(self.world.speed, GameSpeed::Speed4 | GameSpeed::Speed5) {
+            return true;
+        }
+        last_rebuild_at.elapsed().as_secs_f32() >= FAST_VISUAL_REBUILD_INTERVAL_SECS
     }
 
     fn render(&mut self) {
@@ -4269,7 +4520,7 @@ impl App {
             .perf_arrow_update_us
             .saturating_add((arrow_update_ms * 1000.0) as u64);
 
-        let ui_frame_model = ui_binding::build_frame_model(self);
+        let mut ui_frame_model = ui_binding::build_frame_model(self);
         self.ui_panel_cache.begin_frame();
         let app_ui_enabled = !map_phase0_active || map_layer_mask.ui;
 
@@ -4280,12 +4531,18 @@ impl App {
         let demo_visible = app_ui_enabled && self.demo_visible;
         let mut deferred_switch_player_country: Vec<String> = Vec::new();
         let topbar_data = if app_ui_enabled {
-            ui_frame_model.topbar.clone()
+            ui_frame_model.topbar.take()
         } else {
             None
         };
-        let open_panel_kind = if app_ui_enabled {
-            ui_frame_model.open_panel
+        let active_primary_panel = if app_ui_enabled {
+            ui_frame_model.active_primary_panel
+        } else {
+            None
+        };
+        let open_panel_kind = active_primary_panel.map(hoi4_ui::PanelKind::from);
+        let active_detail_panel = if app_ui_enabled {
+            ui_frame_model.active_detail_panel.clone()
         } else {
             None
         };
@@ -4293,12 +4550,16 @@ impl App {
         let surrender_badge_count = self.pending_surrender_notifications.len();
         let mut topbar_speed_cmd: Option<hoi4_ui::topbar::SpeedCommand> = None;
         let mut side_rail_panel_cmd: Option<hoi4_ui::PanelKind> = None;
+        let mut panel_commands: Vec<hoi4_ui::PanelCommand> = Vec::new();
         let open_panel = if app_ui_enabled {
             self.open_panel
         } else {
             None
         };
-        let politics_data = if open_panel == Some(InGamePanel::Politics) {
+        let politics_data = if matches!(
+            open_panel,
+            Some(InGamePanel::Politics) | Some(InGamePanel::Laws)
+        ) {
             let player = player_country;
             let ruling = self
                 .world
@@ -4413,6 +4674,86 @@ impl App {
                 }
             });
             let current_focus_cost_days = current_focus.map(|focus| focus.cost_days);
+            let current_focus_name_for_panel = if focus_available {
+                current_focus_name.clone()
+            } else {
+                None
+            };
+            let current_focus_cost_days_for_panel = if focus_available {
+                current_focus_cost_days
+            } else {
+                None
+            };
+            let ruling_support = pops
+                .iter()
+                .find(|(key, _)| key == &ruling)
+                .map(|(_, pop)| *pop)
+                .unwrap_or(0.0)
+                .clamp(0.0, 1.0);
+            let leader_display = if leader_name.is_empty() {
+                hoi4_ui::i18n::tr("leader_unknown").to_owned()
+            } else {
+                leader_name.clone()
+            };
+            let ideology_display = hoi4_ui::i18n::tr(&ruling).to_owned();
+            let party_display = if party_full_name.is_empty() {
+                ideology_display.clone()
+            } else {
+                party_full_name.clone()
+            };
+            let focus_post_name = current_focus_name_for_panel.clone().unwrap_or_else(|| {
+                if focus_available {
+                    "未选择国策".to_owned()
+                } else {
+                    "国策树未接入".to_owned()
+                }
+            });
+            let focus_post_detail = current_focus_cost_days_for_panel
+                .filter(|days| *days > 0)
+                .map(|days| {
+                    format!(
+                        "{:.0}% 进度",
+                        (current_focus_progress / days as f32).clamp(0.0, 1.0) * 100.0
+                    )
+                })
+                .unwrap_or_else(|| {
+                    if focus_available {
+                        "可打开国策".to_owned()
+                    } else {
+                        "无本国国策树".to_owned()
+                    }
+                });
+            let government_posts = vec![
+                hoi4_ui::politics::GovernmentPostEntry {
+                    office: "国家元首".to_owned(),
+                    name: leader_display,
+                    detail: player_tag_str.clone(),
+                },
+                hoi4_ui::politics::GovernmentPostEntry {
+                    office: "执政党".to_owned(),
+                    name: party_display,
+                    detail: format!("{:.0}% 支持", ruling_support * 100.0),
+                },
+                hoi4_ui::politics::GovernmentPostEntry {
+                    office: "意识形态".to_owned(),
+                    name: ideology_display,
+                    detail: ruling.clone(),
+                },
+                hoi4_ui::politics::GovernmentPostEntry {
+                    office: "当前国策".to_owned(),
+                    name: focus_post_name,
+                    detail: focus_post_detail,
+                },
+                hoi4_ui::politics::GovernmentPostEntry {
+                    office: "顾问系统".to_owned(),
+                    name: "未接入".to_owned(),
+                    detail: "无内阁槽位".to_owned(),
+                },
+            ];
+            let law_slots = build_politics_law_entries(
+                self.world.countries.law_store.law_sets.get(player),
+                &self.v6_db,
+            );
 
             Some(hoi4_ui::politics::PoliticsData {
                 ruling_party: ruling,
@@ -4434,21 +4775,19 @@ impl App {
                     .copied()
                     .unwrap_or(0.0),
                 focus_available,
-                current_focus_name: focus_available.then_some(current_focus_name).flatten(),
+                current_focus_name: current_focus_name_for_panel,
                 current_focus_progress: if focus_available {
                     current_focus_progress
                 } else {
                     0.0
                 },
-                current_focus_cost_days: if focus_available {
-                    current_focus_cost_days
-                } else {
-                    None
-                },
+                current_focus_cost_days: current_focus_cost_days_for_panel,
                 country_tag: player_tag_str,
                 leader_name,
                 leader_portrait_key,
                 party_full_name,
+                government_posts,
+                law_slots,
             })
         } else {
             None
@@ -4492,7 +4831,13 @@ impl App {
         };
         let mut decisions_close = false;
         let mut decisions_cmds: Vec<hoi4_ui::politics::DecisionCommand> = Vec::new();
-        let law_panel_data = if open_panel == Some(InGamePanel::Laws) {
+        let needs_law_panel_data = open_panel == Some(InGamePanel::Laws)
+            || open_panel == Some(InGamePanel::Politics)
+            || matches!(
+                active_detail_panel.as_ref(),
+                Some(hoi4_ui::ActiveDetailPanel::Law { .. })
+            );
+        let law_panel_data = if needs_law_panel_data {
             let player = player_country;
             let pp = self
                 .world
@@ -4501,56 +4846,10 @@ impl App {
                 .get(player)
                 .copied()
                 .unwrap_or(0.0);
-            let player_id = hoi4_state::CountryId(player as u16);
-            let law_set = self.world.countries.law_store.law_sets.get(player).cloned();
-            let slots: Vec<hoi4_ui::law_panel::LawSlotEntry> = if let Some(ls) = law_set {
-                let categories = [
-                    hoi4_state::LawCategory::Conscription,
-                    hoi4_state::LawCategory::Economy,
-                    hoi4_state::LawCategory::Trade,
-                    hoi4_state::LawCategory::Taxation,
-                    hoi4_state::LawCategory::CivilRights,
-                    hoi4_state::LawCategory::InformationControl,
-                ];
-                categories
-                    .iter()
-                    .map(|&cat| {
-                        let slot = &ls.0[cat.index()];
-                        let tiers = build_law_tiers(cat, &self.v6_db);
-                        let current_name = tiers
-                            .iter()
-                            .find(|t| t.id == slot.current)
-                            .map(|t| t.name.clone())
-                            .unwrap_or_else(|| {
-                                localized_content_name(&slot.current, &slot.current)
-                            });
-                        hoi4_ui::law_panel::LawSlotEntry {
-                            category: cat,
-                            current_id: slot.current.clone(),
-                            current_name,
-                            cooldown_days: slot.cooldown_days,
-                            pending: slot.pending.as_ref().map(|(id, rem)| {
-                                let name = tiers
-                                    .iter()
-                                    .find(|t| t.id == *id)
-                                    .map(|t| t.name.clone())
-                                    .unwrap_or_else(|| localized_content_name(id, id));
-                                (id.clone(), name, *rem)
-                            }),
-                            is_locked: slot.is_locked,
-                            locked_reason: if slot.is_locked {
-                                Some("planned economy".to_owned())
-                            } else {
-                                None
-                            },
-                            previous_before_lock: slot.previous_before_lock.clone(),
-                            tiers,
-                        }
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
+            let slots = build_law_slot_entries(
+                self.world.countries.law_store.law_sets.get(player),
+                &self.v6_db,
+            );
             Some(hoi4_ui::law_panel::LawPanelData {
                 political_power: pp,
                 slots,
@@ -4558,9 +4857,14 @@ impl App {
         } else {
             None
         };
-        let mut law_close = false;
+        let law_close = false;
         let mut law_cmds: Vec<hoi4_ui::law_panel::LawCommand> = Vec::new();
-        let pop_panel_data = if open_panel == Some(InGamePanel::Pops) {
+        let needs_pop_panel_data = open_panel == Some(InGamePanel::Pops)
+            || matches!(
+                active_detail_panel.as_ref(),
+                Some(hoi4_ui::ActiveDetailPanel::PopGroup(_))
+            );
+        let pop_panel_data = if needs_pop_panel_data {
             hoi4_app::ui_data::pops::panel_data(
                 &self.world,
                 &self.v6_db,
@@ -4571,7 +4875,12 @@ impl App {
             None
         };
         let mut pop_panel_close = false;
-        let market_panel_data = if open_panel == Some(InGamePanel::Market) {
+        let needs_market_panel_data = open_panel == Some(InGamePanel::Market)
+            || matches!(
+                active_detail_panel.as_ref(),
+                Some(hoi4_ui::ActiveDetailPanel::Goods(_))
+            );
+        let market_panel_data = if needs_market_panel_data {
             hoi4_app::ui_data::cache::cached_market_panel(
                 &mut self.ui_panel_cache,
                 &self.world,
@@ -4583,7 +4892,11 @@ impl App {
             None
         };
         let mut market_close = false;
-        let finance_panel_data = if open_panel == Some(InGamePanel::Finance) {
+        let finance_panel_data = if open_panel == Some(InGamePanel::Finance)
+            || matches!(
+                active_detail_panel.as_ref(),
+                Some(hoi4_ui::ActiveDetailPanel::FinanceDebt)
+            ) {
             hoi4_app::ui_data::cache::cached_finance_panel(
                 &mut self.ui_panel_cache,
                 &self.world,
@@ -4602,7 +4915,14 @@ impl App {
             None
         };
         let mut trade_close = false;
-        let construction_v6_data = if open_panel == Some(InGamePanel::ConstructionV6) {
+        let needs_construction_data = open_panel == Some(InGamePanel::ConstructionV6)
+            || matches!(
+                active_detail_panel.as_ref(),
+                Some(
+                    hoi4_ui::ActiveDetailPanel::Building(_) | hoi4_ui::ActiveDetailPanel::State(_)
+                )
+            );
+        let construction_v6_data = if needs_construction_data {
             hoi4_app::ui_data::cache::cached_construction_panel(
                 &mut self.ui_panel_cache,
                 &self.world,
@@ -4698,16 +5018,24 @@ impl App {
         };
         let mut research_close = false;
         let mut research_cmds: Vec<hoi4_ui::research::ResearchCommand> = Vec::new();
-        let diplomacy_data = if open_panel == Some(InGamePanel::Diplomacy) {
-            let selected_tag = self.diplomacy_selected_country_tag.clone().or_else(|| {
-                self.world
-                    .countries
-                    .tags
-                    .iter()
-                    .enumerate()
-                    .find(|(idx, tag)| *idx != player_country && !tag.is_empty())
-                    .map(|(_, tag)| tag.clone())
-            });
+        let needs_diplomacy_data = open_panel == Some(InGamePanel::Diplomacy)
+            || matches!(
+                active_detail_panel.as_ref(),
+                Some(hoi4_ui::ActiveDetailPanel::Country(_))
+            );
+        let diplomacy_data = if needs_diplomacy_data {
+            let selected_tag = match active_detail_panel.as_ref() {
+                Some(hoi4_ui::ActiveDetailPanel::Country(target)) => Some(target.tag.clone()),
+                _ => self.diplomacy_selected_country_tag.clone().or_else(|| {
+                    self.world
+                        .countries
+                        .tags
+                        .iter()
+                        .enumerate()
+                        .find(|(idx, tag)| *idx != player_country && !tag.is_empty())
+                        .map(|(_, tag)| tag.clone())
+                }),
+            };
             hoi4_app::ui_data::cache::cached_diplomacy_panel(
                 &mut self.ui_panel_cache,
                 &self.world,
@@ -5588,25 +5916,21 @@ impl App {
                 decisions_cmds = cmds;
             }
 
-            if let Some(ref data) = law_panel_data {
-                let (close, cmds) = hoi4_ui::law_panel::LawPanel::show(ctx, data);
-                if close {
-                    law_close = true;
-                }
-                law_cmds = cmds;
-                // P1.3?????????????????????
-            }
+            // Gate 5.2: laws are rendered inside the politics workbench. `law_panel_data`
+            // remains available for LawDetailPanel and no longer opens an isolated V9 report.
 
             if let Some(ref data) = pop_panel_data {
-                let (close, _cmds) = hoi4_ui::pop_panel::PopPanel::show(ctx, data);
+                let (close, cmds) = hoi4_ui::pop_panel::PopPanel::show(ctx, data);
                 if close {
                     pop_panel_close = true;
                 }
+                panel_commands.extend(cmds);
             }
 
             if let Some(ref data) = market_panel_data {
-                let (close, _cmds) = hoi4_ui::market_panel::MarketPanel::show(ctx, data);
+                let (close, cmds) = hoi4_ui::market_panel::MarketPanel::show(ctx, data);
                 if close { market_close = true; }
+                panel_commands.extend(cmds);
             }
 
             if let Some(ref data) = finance_panel_data {
@@ -5616,8 +5940,9 @@ impl App {
             }
 
             if let Some(ref data) = trade_panel_data {
-                let (close, _cmds) = hoi4_ui::trade_panel::TradePanel::show(ctx, data);
+                let (close, cmds) = hoi4_ui::trade_panel::TradePanel::show(ctx, data);
                 if close { trade_close = true; }
+                panel_commands.extend(cmds);
             }
 
             if let Some(ref data) = construction_v6_data {
@@ -5674,9 +5999,11 @@ impl App {
             }
 
             if let Some(ref data) = logistics_data {
-                if hoi4_ui::logistics_panel::LogisticsPanel::show(ctx, data) {
+                let (close, cmds) = hoi4_ui::logistics_panel::LogisticsPanel::show(ctx, data);
+                if close {
                     logistics_close = true;
                 }
+                panel_commands.extend(cmds);
             }
 
             if let Some(ref data) = situation_panel_data {
@@ -5705,6 +6032,36 @@ impl App {
 
             // J.2: Province info card.
             province_info_card.show(ctx, province_info_data);
+
+            if let Some(cmd) = hoi4_ui::detail_panel::DetailPanelHost::show(
+                ctx,
+                active_detail_panel.as_ref(),
+                market_panel_data.as_ref(),
+                finance_panel_data.as_ref(),
+                law_panel_data.as_ref(),
+                construction_v6_data.as_ref(),
+                pop_panel_data.as_ref(),
+                diplomacy_data.as_ref(),
+                Some(province_info_data),
+                military_data.as_ref(),
+                naval_data.as_ref(),
+                air_data.as_ref(),
+                logistics_data.as_ref(),
+                research_data.as_ref(),
+                decisions_panel_data.as_ref(),
+                Some(focus_tree),
+                Some(&completed_focuses),
+                current_focus_ref,
+                current_focus_progress,
+                Some(&available_focus_ids),
+            ) {
+                if let Some(panel_cmd) = cmd.panel_command {
+                    panel_commands.push(panel_cmd);
+                }
+                law_cmds.extend(cmd.law_commands);
+                diplomacy_cmds.extend(cmd.diplomacy_commands);
+                politics_decision_cmds.extend(cmd.decision_commands);
+            }
 
             show_combat_bubble_overlay(ctx, &combat_bubbles, &mut self.selected_combat_bubble);
 
@@ -5831,31 +6188,38 @@ impl App {
 
         if politics_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
 
         if decisions_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
 
         if law_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
             self.law_error_message = None;
         }
 
         if pop_panel_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
 
         if market_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
 
         if finance_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
 
         if trade_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
 
         if !finance_cmds.is_empty() {
@@ -5863,39 +6227,46 @@ impl App {
             for cmd in &finance_cmds {
                 let content_cmd = match cmd {
                     hoi4_ui::finance_panel::FinanceCommand::IssueDomesticBond { amount_rm } => {
-                        hoi4_content::FinanceCommand::IssueDomesticBond {
+                        Some(hoi4_content::FinanceCommand::IssueDomesticBond {
                             amount_rm: *amount_rm,
-                        }
+                        })
                     }
                     hoi4_ui::finance_panel::FinanceCommand::IssueForeignBond { amount_gbp } => {
-                        hoi4_content::FinanceCommand::IssueForeignBond {
+                        Some(hoi4_content::FinanceCommand::IssueForeignBond {
                             amount_gbp: *amount_gbp,
-                        }
+                        })
                     }
                     hoi4_ui::finance_panel::FinanceCommand::PrintMefo => {
-                        hoi4_content::FinanceCommand::PrintMefo
+                        Some(hoi4_content::FinanceCommand::PrintMefo)
                     }
                     hoi4_ui::finance_panel::FinanceCommand::SellGold { kg } => {
-                        hoi4_content::FinanceCommand::SellGold { kg: *kg }
+                        Some(hoi4_content::FinanceCommand::SellGold { kg: *kg })
                     }
                     hoi4_ui::finance_panel::FinanceCommand::BuyForeignCurrency { gbp_amount } => {
-                        hoi4_content::FinanceCommand::BuyForeignCurrency {
+                        Some(hoi4_content::FinanceCommand::BuyForeignCurrency {
                             gbp_amount: *gbp_amount,
-                        }
+                        })
+                    }
+                    hoi4_ui::finance_panel::FinanceCommand::Panel(panel_cmd) => {
+                        panel_commands.push(panel_cmd.clone());
+                        None
                     }
                 };
-                let _ = hoi4_content::execute_finance_command(
-                    &mut self.world,
-                    &self.v6_db,
-                    player,
-                    &content_cmd,
-                );
+                if let Some(content_cmd) = content_cmd {
+                    let _ = hoi4_content::execute_finance_command(
+                        &mut self.world,
+                        &self.v6_db,
+                        player,
+                        &content_cmd,
+                    );
+                }
             }
         }
 
         let mut construction_highlight_changed = false;
         if construction_v6_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
             if self.construction_mode.is_some() {
                 self.construction_mode = None;
                 self.construction_highlight_province_ids.clear();
@@ -5903,6 +6274,10 @@ impl App {
             }
         }
         for cmd in construction_v6_cmds {
+            if let hoi4_ui::construction_v6_panel::ConstructionV6Command::Panel(panel_cmd) = &cmd {
+                panel_commands.push(panel_cmd.clone());
+                continue;
+            }
             let effect =
                 hoi4_app::ui_data::construction_commands::apply_construction_control_command(
                     &cmd,
@@ -5975,6 +6350,9 @@ impl App {
                     DecisionCommand::OpenFocusTree => {
                         self.focus_panel.open = true;
                     }
+                    DecisionCommand::Panel(panel_cmd) => {
+                        panel_commands.push(panel_cmd);
+                    }
                 }
             }
         }
@@ -6011,6 +6389,7 @@ impl App {
 
         if research_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
         for cmd in research_cmds {
             use hoi4_ui::research::ResearchCommand;
@@ -6023,11 +6402,15 @@ impl App {
                         &self.v6_db,
                     );
                 }
+                ResearchCommand::Panel(panel_cmd) => {
+                    panel_commands.push(panel_cmd);
+                }
             }
         }
 
         if diplomacy_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
         for cmd in diplomacy_cmds {
             use hoi4_logic::diplomacy::{execute_action, DiplomaticAction};
@@ -6136,36 +6519,34 @@ impl App {
                             s.lut_width,
                             s.lut_height,
                         );
-
-                        let mut occupation_lut = build_occupation_lut(&self.world);
-                        occupation_lut.resize((s.lut_width * s.lut_height * 4) as usize, 0);
-                        upload_lut(
-                            &s.queue,
-                            &s.occupation_lut_texture,
-                            &occupation_lut,
-                            s.lut_width,
-                            s.lut_height,
-                        );
                         s.window.request_redraw();
                     }
+                }
+                DiplomacyCommand::Panel(panel_cmd) => {
+                    panel_commands.push(panel_cmd);
                 }
             }
         }
 
         if military_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
         if naval_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
         if air_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
         if logistics_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
         if situation_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
         for cmd in situation_cmds {
             use hoi4_ui::situation_panel::SituationCommand;
@@ -6280,6 +6661,9 @@ impl App {
                         count,
                     );
                 }
+                hoi4_ui::naval::NavalCommand::Panel(panel_cmd) => {
+                    panel_commands.push(panel_cmd);
+                }
             }
         }
         for cmd in air_cmds {
@@ -6388,6 +6772,9 @@ impl App {
                         to_wing_id,
                         planes,
                     );
+                }
+                hoi4_ui::air::AirCommand::Panel(panel_cmd) => {
+                    panel_commands.push(panel_cmd);
                 }
             }
         }
@@ -6755,6 +7142,9 @@ impl App {
                     }
                     self.selected_army_id = None;
                 }
+                MilitaryCommand::Panel(panel_cmd) => {
+                    panel_commands.push(panel_cmd);
+                }
                 MilitaryCommand::ExecutePlan(id) => {
                     let aid = hoi4_state::ArmyId(id);
                     match hoi4_logic::military::frontline::execute_plan(&mut self.world, aid) {
@@ -6832,6 +7222,9 @@ impl App {
                     let i = self.player_country;
                     self.world.countries.current_focus[i] = None;
                     self.world.countries.focus_progress[i] = 0.0;
+                }
+                FocusCommand::Panel(panel_cmd) => {
+                    panel_commands.push(panel_cmd);
                 }
             }
         }
@@ -6993,6 +7386,7 @@ impl App {
 
         if settings_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
 
         // CR-4.5: Handle counter right-click menu commands.
@@ -7064,6 +7458,7 @@ impl App {
 
         if saves_close {
             self.open_panel = None;
+            self.active_detail_panel = None;
         }
         for cmd in save_cmds {
             use hoi4_ui::save_browser::SaveCommand;
@@ -7075,6 +7470,7 @@ impl App {
                     } else {
                         self.save_browser.open = false;
                         self.open_panel = None;
+                        self.active_detail_panel = None;
                     }
                 }
                 SaveCommand::Delete(path) => {
@@ -7204,16 +7600,16 @@ impl App {
             s.border_pass.update_params(&s.queue, &bp);
         }
 
-        // Phase 14 POI icons: static source instances are cached at startup.
-        // Only re-upload when crossing the zoom LOD bucket; regenerating and
-        // filtering every frame was visible CPU/GPU upload overhead while time ran.
-        // Cull + LOD.
-        let buckets = build_wrapped_instance_buckets(&s.chunk_grid, &self.camera);
-
-        // Upload per-LOD instance buffers (no-op if empty).
+        // Cull + LOD into reused CPU buckets. Upload per-LOD instance buffers
+        // only when the visible chunk set actually changed.
+        let terrain_bucket_stats = build_wrapped_instance_buckets_into(
+            &s.chunk_grid,
+            &self.camera,
+            &mut s.terrain_buckets,
+        );
         for lod in 0..3 {
-            let bucket_sig = terrain_bucket_signature(&buckets[lod]);
-            let bucket_count = buckets[lod].len() as u32;
+            let bucket_sig = terrain_bucket_stats.signatures[lod];
+            let bucket_count = terrain_bucket_stats.counts[lod];
             if s.terrain_bucket_signature[lod] == bucket_sig
                 && s.terrain_bucket_counts[lod] == bucket_count
             {
@@ -7221,7 +7617,7 @@ impl App {
             }
             s.terrain_bucket_signature[lod] = bucket_sig;
             s.terrain_bucket_counts[lod] = bucket_count;
-            if buckets[lod].is_empty() {
+            if s.terrain_buckets[lod].is_empty() {
                 continue;
             }
             // Grow buffer if needed.
@@ -7238,7 +7634,7 @@ impl App {
             s.queue.write_buffer(
                 &s.instance_buffers[lod],
                 0,
-                bytemuck::cast_slice(&buckets[lod]),
+                bytemuck::cast_slice(&s.terrain_buckets[lod]),
             );
         }
 
@@ -7370,7 +7766,7 @@ impl App {
                     .opacity
                     .max(semantic_overlays.arrows.opacity),
                 naval_dominance_opacity: semantic_overlays.straits.opacity,
-                occupation_opacity: semantic_overlays.occupation_stripes.opacity,
+                occupation_opacity: 0.0,
                 selected_opacity: semantic_overlays.selected_province_pulse.opacity,
                 hover_opacity: semantic_overlays.hover_highlight.opacity,
                 map_mode_overlay_opacity: semantic_overlays.map_mode_overlay.opacity,
@@ -7384,6 +7780,8 @@ impl App {
             world_objects.counters.opacity,
             s.config.width as f32,
             s.config.height as f32,
+            self.camera.view_proj().to_cols_array_2d(),
+            self.start_time.elapsed().as_secs_f32(),
         );
 
         params.object_opacity = world_objects.trees.opacity;
@@ -7636,7 +8034,7 @@ impl App {
                     },
                 ],
                 overlay_controls: [
-                    semantic_overlays.occupation_stripes.opacity,
+                    0.0,
                     semantic_overlays.selected_province_pulse.opacity,
                     semantic_overlays.hover_highlight.opacity,
                     semantic_overlays.map_mode_overlay.opacity,
@@ -7677,7 +8075,7 @@ impl App {
             &mut enc,
             map_draw::MapDrawInput {
                 frame_plan: &map_frame_plan,
-                buckets: &buckets,
+                terrain_counts: s.terrain_bucket_counts,
                 draw_3d_map,
                 show_province_names: self.show_province_names,
                 zoom_factor,
@@ -7779,58 +8177,6 @@ impl App {
                 );
             }
         }
-        let player = self.player_country;
-        let pp = self
-            .world
-            .countries
-            .political_power
-            .get(player)
-            .copied()
-            .unwrap_or(0.0);
-        let manpower = recruitable_manpower(
-            &self.world,
-            &self.v6_db,
-            hoi4_state::CountryId(player as u16),
-        );
-        let stability = self
-            .world
-            .countries
-            .stability
-            .get(player)
-            .copied()
-            .unwrap_or(0.5);
-        let war_support = self
-            .world
-            .countries
-            .war_support
-            .get(player)
-            .copied()
-            .unwrap_or(0.5);
-        let civ = 0u32;
-        let mil = 0u32;
-        let dock = 0u32;
-        let army_xp = self
-            .world
-            .countries
-            .army_xp
-            .get(player)
-            .copied()
-            .unwrap_or(0.0);
-        let navy_xp = self
-            .world
-            .countries
-            .navy_xp
-            .get(player)
-            .copied()
-            .unwrap_or(0.0);
-        let air_xp = self
-            .world
-            .countries
-            .air_xp
-            .get(player)
-            .copied()
-            .unwrap_or(0.0);
-
         // Phase 4.2 (redesign): Switch between menu rendering and topbar rendering.
         if self.game_phase != GamePhase::Playing {
             let dpi = s.window.scale_factor() as f32;
@@ -7985,56 +8331,10 @@ impl App {
             }
         } // end mapname 2D fallback
 
-        let _ = (
-            pp,
-            manpower,
-            stability,
-            war_support,
-            civ,
-            mil,
-            dock,
-            army_xp,
-            navy_xp,
-            air_xp,
-        );
-
         // 4.3 Step B (2026-05-18): ?????`politics_pass::draw_politics_overlay`
         // ?????????????????????????????????????????olitical_title / ideology / focus
         // ???????vanilla `countrypoliticsview.gui` ?????textbox widget ???????        // ??????????????`crate::binding::WorldBinding::query_string(widget_name)`
         // V5 ????????1 debug overlay ???????GuiRt-removed widget ??????????????
-        let _ = player; // ????????????????????????????UI ????????????????player ??????????
-
-        // Draw HOI3 counter stack labels when the counter pass is enabled.
-        if self.game_phase == GamePhase::Playing
-            && s.hoi3_counter_pass.enabled()
-            && !self._cached_hoi3_counter_upload.is_empty()
-        {
-            let centers = hoi4_render::counter_v3::collect_top_counter_screen_centers(
-                &self._cached_hoi3_counter_upload,
-            );
-            let dpi = s.window.scale_factor() as f32;
-            let inv_dpi = 1.0 / dpi.max(1.0);
-            for (cx, cy, sw, sh, stack) in centers.iter().take(512) {
-                if *stack == 0 {
-                    continue;
-                }
-                let label = if *stack > 99 {
-                    "99+".to_string()
-                } else {
-                    stack.to_string()
-                };
-                let logical_h = sh * inv_dpi;
-                let logical_w = sw * inv_dpi;
-                let above_offset = logical_h * 0.55;
-                let font_size = (logical_h * 0.42).clamp(8.0, 18.0);
-                let lx = cx * inv_dpi + logical_w * 0.32;
-                let ly = cy * inv_dpi - logical_h * 0.32;
-                let _ = above_offset;
-                s.text_pass
-                    .draw_text_aligned(&label, lx, ly, TextAlign::Center, font_size);
-            }
-        }
-
         // CR-4.6: Off-screen indicators for selected provinces with counters off-screen.
         if self.game_phase == GamePhase::Playing
             && s.hoi3_counter_pass.enabled()
@@ -8044,6 +8344,8 @@ impl App {
             let inv_dpi = 1.0 / dpi.max(1.0);
             let lw = s.config.width as f32 * inv_dpi;
             let lh = s.config.height as f32 * inv_dpi;
+            let view_proj = self.camera.view_proj();
+            let time_secs = self.start_time.elapsed().as_secs_f32();
             for c in self._cached_hoi3_counter_upload.iter() {
                 if (c.flags & flag_bits::IS_UNDERLAY) != 0 {
                     continue;
@@ -8052,8 +8354,17 @@ impl App {
                 if !self.selected_province_ids.contains(&pid) {
                     continue;
                 }
-                let cx = (c.screen_pos[0] + c.size[0] * 0.5) * inv_dpi;
-                let cy = (c.screen_pos[1] + c.size[1] * 0.5) * inv_dpi;
+                let Some(screen_pos) = project_counter_screen_pos(
+                    c,
+                    &view_proj,
+                    s.config.width as f32,
+                    s.config.height as f32,
+                    time_secs,
+                ) else {
+                    continue;
+                };
+                let cx = (screen_pos[0] + c.size[0] * 0.5) * inv_dpi;
+                let cy = (screen_pos[1] + c.size[1] * 0.5) * inv_dpi;
                 if cx >= 0.0 && cx <= lw && cy >= 0.0 && cy <= lh {
                     continue;
                 }
@@ -8305,6 +8616,7 @@ impl App {
             profiler.map_pending_readback();
         }
         frame.present();
+        self.last_redraw_at = Instant::now();
         let frame_time_ms = render_started.elapsed().as_secs_f32() * 1000.0;
         self.last_frame_cpu_ms = frame_time_ms;
         let capture_result =
@@ -8313,7 +8625,17 @@ impl App {
             ui_binding::apply_topbar_action(self, action);
         }
         if let Some(kind) = side_rail_panel_cmd {
-            self.toggle_in_game_panel(in_game_panel_for_panel_kind(kind));
+            let command = if open_panel_kind == Some(kind) {
+                hoi4_ui::PanelCommand::ClosePrimary
+            } else {
+                hoi4_ui::PanelCommand::OpenPrimary(hoi4_ui::ActivePrimaryPanel::from_panel_kind(
+                    kind,
+                ))
+            };
+            panel_commands.push(command);
+        }
+        if !panel_commands.is_empty() {
+            ui_binding::apply_panel_commands(self, panel_commands);
         }
         for tag in deferred_switch_player_country {
             self.set_player_country_by_tag(&tag);
@@ -8438,18 +8760,6 @@ fn estimate_construction_days_remaining(progress: f32, cost: f32) -> Option<u32>
         return Some(0);
     }
     Some(((1.0 - completion) * 100.0).ceil().max(1.0) as u32)
-}
-
-fn terrain_bucket_signature(bucket: &[ChunkInstance]) -> u64 {
-    let mut h = DefaultHasher::new();
-    bucket.len().hash(&mut h);
-    for instance in bucket {
-        instance.origin_xz[0].to_bits().hash(&mut h);
-        instance.origin_xz[1].to_bits().hash(&mut h);
-        instance.size_xz[0].to_bits().hash(&mut h);
-        instance.size_xz[1].to_bits().hash(&mut h);
-    }
-    h.finish()
 }
 
 fn postprocess_lut_selection_for(
@@ -10444,6 +10754,43 @@ fn upload_lut(queue: &wgpu::Queue, tex: &wgpu::Texture, data: &[u8], w: u32, h: 
         wgpu::Extent3d {
             width: w,
             height: h,
+            depth_or_array_layers: 1,
+        },
+    );
+}
+
+fn upload_lut_span(
+    queue: &wgpu::Queue,
+    tex: &wgpu::Texture,
+    data: &[u8],
+    lut_width: u32,
+    start_idx: usize,
+) {
+    if data.is_empty() || lut_width == 0 {
+        return;
+    }
+    let width = (data.len() / 4) as u32;
+    if width == 0 {
+        return;
+    }
+    let x = (start_idx as u32) % lut_width;
+    let y = (start_idx as u32) / lut_width;
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: tex,
+            mip_level: 0,
+            origin: wgpu::Origin3d { x, y, z: 0 },
+            aspect: wgpu::TextureAspect::All,
+        },
+        data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(1),
+        },
+        wgpu::Extent3d {
+            width,
+            height: 1,
             depth_or_array_layers: 1,
         },
     );

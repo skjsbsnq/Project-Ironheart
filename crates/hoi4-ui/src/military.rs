@@ -9,6 +9,8 @@ use crate::{
     components,
     i18n::tr,
     portrait::{self, PortraitStyle},
+    vanilla_iron::{CommandPanelShell, VanillaIron},
+    ActiveDetailPanel, ActivePrimaryPanel, ArmyDetailTarget, PanelCommand,
 };
 use egui::{Color32, RichText};
 
@@ -200,6 +202,7 @@ pub enum MilitaryCommand {
     AddSelectedDivisionsToArmy(u32),
     ToggleDivisionSelection(usize),
     SelectAllDivisions,
+    Panel(PanelCommand),
 }
 
 pub struct MilitaryPanel;
@@ -1369,188 +1372,359 @@ fn ratio_color(value: f32) -> Color32 {
     }
 }
 
+fn command_show_military(ctx: &egui::Context, data: &MilitaryData) -> (bool, Vec<MilitaryCommand>) {
+    let queued = data
+        .training_queue
+        .iter()
+        .map(|item| item.count as usize)
+        .sum::<usize>();
+    let executing = data.armies.iter().filter(|army| army.executing).count();
+    let accent = if matches!(
+        data.painter_mode,
+        PainterModeInfo::ArmyPainter(_) | PainterModeInfo::ArrowPainter(_)
+    ) {
+        VanillaIron::WARN
+    } else if executing > 0 {
+        VanillaIron::GOOD
+    } else {
+        VanillaIron::BRASS_BRIGHT
+    };
+    let (close, output) = CommandPanelShell::new("military_command_panel", tr("military"))
+        .subtitle("战区 / 集团军 / 师团命令")
+        .footer("Q 关闭 | 点击集团军打开详情 | 底部执行命令")
+        .accent(accent)
+        .show(ctx, |ui, layout| {
+            let mut cmds = Vec::new();
+            military_command_nav(ui, layout.nav, data, &mut cmds);
+            military_command_main(ui, layout.main, data, queued, executing, &mut cmds);
+            military_command_strip(ui, layout.bottom_strip, data, &mut cmds);
+            cmds
+        });
+
+    let mut cmds = output.unwrap_or_default();
+    if data.template_editor_open {
+        show_template_editor_window(ctx, data, &mut cmds);
+    }
+    show_subunit_picker_window(ctx, data, &mut cmds);
+    (close, cmds)
+}
+
+fn military_command_nav(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &MilitaryData,
+    cmds: &mut Vec<MilitaryCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "集团军结构");
+        VanillaIron::info_row(
+            ui,
+            "集团军",
+            format!("{}/{}", data.active_army_count, data.max_armies_per_country),
+        );
+        VanillaIron::info_row(ui, "已选师团", data.selected_division_count.to_string());
+        if data.armies.is_empty() {
+            ui.add_space(8.0);
+            ui.label(
+                RichText::new("暂无集团军。选择师团后可在命令条创建。")
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+            return;
+        }
+        ui.add_space(8.0);
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for army in &data.armies {
+                    let selected = data.selected_army_id == Some(army.id);
+                    egui::Frame::new()
+                        .fill(if selected {
+                            VanillaIron::CARD_SOFT
+                        } else {
+                            VanillaIron::CARD_DEEP
+                        })
+                        .stroke(egui::Stroke::new(
+                            1.0,
+                            if selected {
+                                VanillaIron::BRASS_BRIGHT
+                            } else {
+                                VanillaIron::EDGE_DARK
+                            },
+                        ))
+                        .inner_margin(egui::Margin::symmetric(7, 5))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                let status_color = if army.executing {
+                                    VanillaIron::GOOD
+                                } else if army.has_arrow {
+                                    VanillaIron::BRASS_BRIGHT
+                                } else if army.has_path {
+                                    VanillaIron::WARN
+                                } else {
+                                    VanillaIron::MUTED
+                                };
+                                ui.label(RichText::new("●").color(status_color));
+                                if ui
+                                    .selectable_label(
+                                        selected,
+                                        format!("{}（{} 师）", army.name, army.member_count),
+                                    )
+                                    .on_hover_text("左键选中，右键把当前师团加入")
+                                    .clicked()
+                                {
+                                    cmds.push(MilitaryCommand::SelectArmy(army.id));
+                                }
+                                if ui.small_button("详情").clicked() {
+                                    cmds.push(MilitaryCommand::Panel(PanelCommand::OpenDetail(
+                                        ActiveDetailPanel::Army(ArmyDetailTarget {
+                                            army_id: army.id,
+                                        }),
+                                    )));
+                                }
+                            });
+                            ui.label(
+                                RichText::new(
+                                    army.commander_name.as_deref().unwrap_or("未任命将领"),
+                                )
+                                .small()
+                                .color(VanillaIron::MUTED),
+                            );
+                        })
+                        .response
+                        .context_menu(|ui| {
+                            if data.selected_division_count > 0
+                                && ui.button("加入选中师团").clicked()
+                            {
+                                cmds.push(MilitaryCommand::AddSelectedDivisionsToArmy(army.id));
+                                ui.close_menu();
+                            }
+                        });
+                    ui.add_space(4.0);
+                }
+            });
+    });
+}
+
+fn military_command_main(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &MilitaryData,
+    queued: usize,
+    executing: usize,
+    cmds: &mut Vec<MilitaryCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "作战状态");
+        ui.columns(4, |columns| {
+            VanillaIron::info_row(&mut columns[0], "师团", data.divisions.len().to_string());
+            VanillaIron::info_row(&mut columns[1], "训练中", queued.to_string());
+            VanillaIron::value_row(
+                &mut columns[2],
+                "执行计划",
+                executing.to_string(),
+                if executing > 0 {
+                    VanillaIron::GOOD
+                } else {
+                    VanillaIron::MUTED
+                },
+            );
+            VanillaIron::info_row(&mut columns[3], "模板", data.templates.len().to_string());
+        });
+        ui.add_space(8.0);
+        if let Some(army_id) = data.selected_army_id {
+            if let Some(army) = data.armies.iter().find(|army| army.id == army_id) {
+                VanillaIron::section_heading(ui, "选中集团军");
+                key_value_military(ui, "名称", &army.name);
+                key_value_military(
+                    ui,
+                    "状态",
+                    if army.executing {
+                        "执行计划中"
+                    } else if army.active {
+                        "已激活"
+                    } else {
+                        "待命"
+                    },
+                );
+                key_value_military(ui, "组织", &format!("{} 个师", army.member_count));
+                key_value_military(ui, "前线", if army.has_path { "已有" } else { "无" });
+                key_value_military(ui, "进攻箭头", if army.has_arrow { "已有" } else { "无" });
+                if VanillaIron::compact_button(ui, "打开军队详情").clicked() {
+                    cmds.push(MilitaryCommand::Panel(PanelCommand::OpenDetail(
+                        ActiveDetailPanel::Army(ArmyDetailTarget { army_id: army.id }),
+                    )));
+                }
+            }
+        } else {
+            VanillaIron::warning_row(
+                ui,
+                "尚未选中集团军。左侧选择集团军，或在地图/底栏选择师团后创建。",
+            );
+        }
+        ui.add_space(8.0);
+        VanillaIron::section_heading(ui, "师团状态");
+        if data.divisions.is_empty() {
+            ui.label(
+                RichText::new("暂无师团数据。")
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+        } else {
+            egui::ScrollArea::vertical()
+                .max_height((rect.height() - 210.0).max(120.0))
+                .show(ui, |ui| {
+                    egui::Grid::new("military_command_divisions")
+                        .striped(true)
+                        .spacing(egui::vec2(8.0, 3.0))
+                        .show(ui, |ui| {
+                            for div in data.divisions.iter().take(18) {
+                                if ui.selectable_label(false, tr(&div.name)).clicked() {
+                                    let modifiers = ui.ctx().input(|i| i.modifiers);
+                                    if modifiers.shift {
+                                        cmds.push(MilitaryCommand::SelectAllDivisions);
+                                    } else if modifiers.ctrl {
+                                        cmds.push(MilitaryCommand::ToggleDivisionSelection(
+                                            div.index,
+                                        ));
+                                    }
+                                }
+                                ui.label(
+                                    RichText::new(div.army_name.as_deref().unwrap_or("未编入"))
+                                        .small()
+                                        .color(VanillaIron::MUTED),
+                                );
+                                ui.label(
+                                    RichText::new(format!("组织 {:.0}", div.organisation))
+                                        .small()
+                                        .color(if div.organisation < div.max_organisation * 0.5 {
+                                            VanillaIron::WARN
+                                        } else {
+                                            VanillaIron::TEXT
+                                        }),
+                                );
+                                ui.label(
+                                    RichText::new(format!(
+                                        "装备 {:.0}%",
+                                        div.equipment_ratio * 100.0
+                                    ))
+                                    .small()
+                                    .color(
+                                        if div.equipment_ratio < 0.8 {
+                                            VanillaIron::BAD
+                                        } else {
+                                            VanillaIron::GOOD
+                                        },
+                                    ),
+                                );
+                                ui.label(
+                                    RichText::new(&div.province_name)
+                                        .small()
+                                        .color(VanillaIron::MUTED),
+                                );
+                                ui.end_row();
+                            }
+                        });
+                });
+        }
+    });
+}
+
+fn military_command_strip(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &MilitaryData,
+    cmds: &mut Vec<MilitaryCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        ui.horizontal_wrapped(|ui| {
+            if VanillaIron::compact_button(ui, "新建模板").clicked() {
+                cmds.push(MilitaryCommand::NewTemplate);
+            }
+            if let Some(idx) = data.template_editor.selected_template {
+                if VanillaIron::compact_button(ui, "编辑模板").clicked() {
+                    cmds.push(MilitaryCommand::OpenTemplateEditor(idx));
+                }
+            }
+            let can_create = data.selected_division_count > 0
+                && data.active_army_count < data.max_armies_per_country;
+            if ui
+                .add_enabled(can_create, egui::Button::new("创建集团军"))
+                .clicked()
+            {
+                cmds.push(MilitaryCommand::CreateArmy);
+            }
+            if let Some(army_id) = data.selected_army_id {
+                if let Some(army) = data.armies.iter().find(|army| army.id == army_id) {
+                    if VanillaIron::compact_button(
+                        ui,
+                        if army.has_path {
+                            "重画前线"
+                        } else {
+                            "画前线"
+                        },
+                    )
+                    .clicked()
+                    {
+                        cmds.push(MilitaryCommand::DrawFrontline(army.id));
+                    }
+                    if ui
+                        .add_enabled(army.has_path, egui::Button::new("画进攻箭头"))
+                        .clicked()
+                    {
+                        cmds.push(MilitaryCommand::DrawArrow(army.id));
+                    }
+                    if army.executing {
+                        if VanillaIron::compact_button(ui, "停止计划").clicked() {
+                            cmds.push(MilitaryCommand::HaltPlan(army.id));
+                        }
+                    } else if ui
+                        .add_enabled(army.has_arrow, egui::Button::new("执行计划"))
+                        .clicked()
+                    {
+                        cmds.push(MilitaryCommand::ExecutePlan(army.id));
+                    }
+                    if VanillaIron::compact_button(ui, "清除前线").clicked() {
+                        cmds.push(MilitaryCommand::ClearFrontline(army.id));
+                    }
+                    if VanillaIron::compact_button(ui, "军队详情").clicked() {
+                        cmds.push(MilitaryCommand::Panel(PanelCommand::OpenDetail(
+                            ActiveDetailPanel::Army(ArmyDetailTarget { army_id: army.id }),
+                        )));
+                    }
+                }
+            }
+            if VanillaIron::compact_button(ui, "物流").clicked() {
+                cmds.push(MilitaryCommand::Panel(PanelCommand::OpenPrimary(
+                    ActivePrimaryPanel::Logistics,
+                )));
+            }
+            if VanillaIron::compact_button(
+                ui,
+                if data.frontline_overlay_visible {
+                    "隐藏叠层"
+                } else {
+                    "显示叠层"
+                },
+            )
+            .clicked()
+            {
+                cmds.push(MilitaryCommand::ToggleOverlay);
+            }
+        });
+    });
+}
+
+fn key_value_military(ui: &mut egui::Ui, key: &str, value: &str) {
+    VanillaIron::info_row(ui, key, value.to_owned());
+}
+
 impl MilitaryPanel {
-    #[allow(unreachable_code)]
     pub fn show_side_panel(
         ctx: &egui::Context,
         data: &MilitaryData,
     ) -> (bool, Vec<MilitaryCommand>) {
-        return v9_show_military(ctx, data);
-
-        let mut close = false;
-        let mut cmds = Vec::new();
-
-        egui::SidePanel::left("military_panel")
-            .default_width(540.0)
-            .min_width(460.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                components::panel_header(ui, tr("military"), &mut close);
-                render_military_summary(ui, data);
-                render_military_status_banner(ui, data);
-
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        components::section(ui, tr("templates"), |ui| {
-                            ui.horizontal_wrapped(|ui| {
-                                if components::action_button(ui, true, "新建空模板").clicked() {
-                                    cmds.push(MilitaryCommand::NewTemplate);
-                                }
-                                if let Some(idx) = data.template_editor.selected_template {
-                                    if components::action_button(ui, true, "打开编辑器").clicked() {
-                                        cmds.push(MilitaryCommand::OpenTemplateEditor(idx));
-                                    }
-                                }
-                            });
-                            ui.add_space(4.0);
-                            if data.templates.is_empty() {
-                                components::empty_state(ui, tr("no_templates"), "新建模板后即可训练师团。");
-                            } else {
-                                for t in &data.templates {
-                                    egui::Frame::new()
-                                        .fill(PANEL_CARD)
-                                        .stroke(egui::Stroke::new(1.0, STROKE_DARK))
-                                        .inner_margin(egui::Margin::symmetric(8, 6))
-                                        .show(ui, |ui| {
-                                            ui.horizontal_wrapped(|ui| {
-                                                let selected = data.template_editor.selected_template == Some(t.index);
-                                                if ui.selectable_label(selected, RichText::new(tr(&t.name)).strong()).clicked() {
-                                                    cmds.push(MilitaryCommand::SelectTemplate(t.index));
-                                                }
-                                                ui.label(RichText::new(format!(
-                                                    "{} 营 / 宽 {:.0} / {} 人 / {:.0} 天 / 库存可训 {:.1}",
-                                                    t.battalion_count,
-                                                    t.combat_width,
-                                                    t.manpower,
-                                                    t.training_days,
-                                                    t.stockpile_satisfied_divisions,
-                                                )).small().color(MUTED));
-                                                if ui.small_button(tr("train")).clicked() {
-                                                    cmds.push(MilitaryCommand::Train(t.index));
-                                                }
-                                                if ui.small_button("编辑").clicked() {
-                                                    cmds.push(MilitaryCommand::OpenTemplateEditor(t.index));
-                                                }
-                                                if ui.small_button("复制").clicked() {
-                                                    cmds.push(MilitaryCommand::CloneTemplate(t.index));
-                                                }
-                                            });
-                                        });
-                                    ui.add_space(4.0);
-                                }
-                            }
-                        });
-
-                        components::section(ui, "训练队列", |ui| {
-                            if data.training_queue.is_empty() {
-                                components::empty_state(ui, "无训练队列", "点击模板旁的训练按钮会进入队列。");
-                            } else {
-                                for item in &data.training_queue {
-                                    ui.horizontal_wrapped(|ui| {
-                                        ui.label(RichText::new(format!("#{} {} x{}", item.id, item.template_name, item.count)).strong());
-                                        ui.add(
-                                            egui::ProgressBar::new(item.progress.clamp(0.0, 1.0))
-                                                .desired_width(140.0)
-                                                .text(format!("{:.0}%", item.progress * 100.0))
-                                                .fill(GOLD),
-                                        );
-                                        ui.label(RichText::new(format!("人力 {}/{}", item.manpower_allocated, item.required_manpower)).small().color(MUTED));
-                                    });
-                                }
-                            }
-                        });
-
-                        components::section(ui, "军团列表", |ui| {
-                            if data.armies.is_empty() {
-                                components::empty_state(ui, "暂无集团军", "选择师团后可在底栏创建集团军。");
-                            } else {
-                                for army in &data.armies {
-                                    let selected = data.selected_army_id == Some(army.id);
-                                    let status = if army.executing { "执行计划中" } else if army.active { "进行中" } else { "待命" };
-                                    ui.horizontal_wrapped(|ui| {
-                                        let dot_color = if army.executing { GOOD } else if army.active { GOLD } else { MUTED };
-                                        ui.label(RichText::new("●").color(dot_color));
-                                        let resp = ui.selectable_label(selected, format!("{}（{} 师）", army.name, army.member_count));
-                                        if resp.clicked() {
-                                            cmds.push(MilitaryCommand::SelectArmy(army.id));
-                                        }
-                                        if resp.secondary_clicked() && data.selected_division_count > 0 {
-                                            cmds.push(MilitaryCommand::AddSelectedDivisionsToArmy(army.id));
-                                        }
-                                        ui.label(RichText::new(status).small().color(dot_color));
-                                        if army.has_path {
-                                            ui.label(RichText::new("前线").small().color(GOLD));
-                                        }
-                                        if army.has_arrow {
-                                            ui.label(RichText::new("进攻箭头").small().color(GOLD_BRIGHT));
-                                        }
-                                    });
-                                }
-                            }
-                            if let Some(army_id) = data.selected_army_id {
-                                if let Some(army) = data.armies.iter().find(|a| a.id == army_id) {
-                                    ui.add_space(6.0);
-                                    ui.label(RichText::new("选中军团详情").strong().color(GOLD));
-                                    ui.label(format!(
-                                        "{}：{} 个师，{}，{}，{}",
-                                        army.name,
-                                        army.member_count,
-                                        if army.active { "进行中" } else { "待命" },
-                                        if army.has_path { "已有前线" } else { "无前线" },
-                                        if army.has_arrow { "已有进攻箭头" } else { "无进攻箭头" },
-                                    ));
-                                }
-                            }
-                        });
-
-                        components::section(ui, &format!("{} ({})", tr("divisions_list"), data.divisions.len()), |ui| {
-                            if data.divisions.is_empty() {
-                                components::empty_state(ui, "暂无师团", "地图上选中己方师团后会显示在这里。");
-                            } else {
-                                for div in &data.divisions {
-                                    ui.horizontal_wrapped(|ui| {
-                                        let combat_color = if div.in_combat { BAD } else { MUTED };
-                                        ui.label(RichText::new("●").color(combat_color));
-                                        if div.in_combat {
-                                            ui.label(RichText::new(tr("status_in_combat")).small().color(BAD));
-                                        }
-                                        let army_info = div.army_name.as_deref().unwrap_or("未编入");
-                                        let label_text = format!("{} [{}]", tr(&div.name), army_info);
-                                        if ui.selectable_label(false, RichText::new(label_text).strong()).clicked() {
-                                            let modifiers = ui.ctx().input(|i| i.modifiers);
-                                            if modifiers.shift {
-                                                cmds.push(MilitaryCommand::SelectAllDivisions);
-                                            } else if modifiers.ctrl {
-                                                cmds.push(MilitaryCommand::ToggleDivisionSelection(div.index));
-                                            }
-                                        }
-                                        let org_frac = if div.max_organisation > 0.0 { div.organisation / div.max_organisation } else { 0.0 };
-                                        let org_color = if org_frac < 0.5 { BAD } else if org_frac < 0.8 { WARN } else { GOOD };
-                                        ui.add(
-                                            egui::ProgressBar::new(org_frac)
-                                                .desired_width(86.0)
-                                                .text(format!("组织 {:.0}", div.organisation))
-                                                .fill(org_color),
-                                        );
-                                        let equip_color = if div.equipment_ratio < 0.8 { WARN } else { GOOD };
-                                        ui.label(RichText::new(format!("装备 {:.0}%", div.equipment_ratio * 100.0)).small().color(equip_color));
-                                        let strength_color = if div.strength < 0.8 { BAD } else { GOOD };
-                                        ui.label(RichText::new(format!("兵力 {:.0}%", div.strength * 100.0)).small().color(strength_color));
-                                        ui.label(RichText::new(&div.province_name).small().color(MUTED));
-                                    });
-                                }
-                            }
-                        });
-                    });
-            });
-
-        if data.template_editor_open {
-            show_template_editor_window(ctx, data, &mut cmds);
-        }
-        show_subunit_picker_window(ctx, data, &mut cmds);
-
-        (close, cmds)
+        command_show_military(ctx, data)
     }
 
     pub fn show_bottom_bar(ctx: &egui::Context, data: &MilitaryData) -> Vec<MilitaryCommand> {

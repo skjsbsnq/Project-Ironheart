@@ -17,7 +17,8 @@ struct Uniforms {
     // x=screen_w, y=screen_h（物理像素，与 Hoi3CounterInstance.screen_pos 一致）。
     screen_size: vec2<f32>,
     opacity: f32,
-    _pad0: f32,
+    time_secs: f32,
+    view_proj: mat4x4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -38,6 +39,10 @@ struct VsIn {
     @location(4) state_pack: vec4<u32>,
     // strength | experience_level | hierarchy_level | _pad0（Uint8x4）
     @location(5) hierarchy_pack: vec4<u32>,
+    @location(6) screen_offset: vec2<f32>,
+    @location(7) world_pos: vec3<f32>,
+    @location(8) motion_delta: vec3<f32>,
+    @location(9) motion_times: vec2<f32>,
 };
 
 struct VsOut {
@@ -51,7 +56,23 @@ struct VsOut {
 
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
-    let pixel = in.screen_pos + in.corner * in.size;
+    var motion_t = 0.0;
+    if (in.motion_times.y > 0.001) {
+        motion_t = clamp((u.time_secs - in.motion_times.x) / in.motion_times.y, 0.0, 1.0);
+    }
+    let world = in.world_pos + in.motion_delta * motion_t;
+    let anchor_clip = u.view_proj * vec4<f32>(world, 1.0);
+    var anchor_px = vec2<f32>(-100000.0, -100000.0);
+    if (anchor_clip.w > 0.0) {
+        let ndc_anchor = anchor_clip.xyz / anchor_clip.w;
+        if (ndc_anchor.z >= 0.0 && ndc_anchor.z <= 1.0) {
+            anchor_px = vec2<f32>(
+                (ndc_anchor.x * 0.5 + 0.5) * max(u.screen_size.x, 1.0),
+                (1.0 - (ndc_anchor.y * 0.5 + 0.5)) * max(u.screen_size.y, 1.0)
+            );
+        }
+    }
+    let pixel = anchor_px + in.screen_offset + in.corner * in.size;
     // 屏幕像素 → NDC（Y 翻转：屏幕 Y 向下，NDC Y 向上）。
     let ndc = vec2<f32>(
         (pixel.x / max(u.screen_size.x, 1.0)) * 2.0 - 1.0,
@@ -82,6 +103,62 @@ fn atlas_u_for(idx: u32, local_x: f32) -> f32 {
     let cell_w = 1.0 / 16.0;
     let u0 = f32(idx) * cell_w;
     return u0 + local_x * cell_w;
+}
+
+fn digit_segments(d: u32) -> u32 {
+    // bits: top, upper-right, lower-right, bottom, lower-left, upper-left, middle.
+    if (d == 0u) { return 0x3fu; }
+    if (d == 1u) { return 0x06u; }
+    if (d == 2u) { return 0x5bu; }
+    if (d == 3u) { return 0x4fu; }
+    if (d == 4u) { return 0x66u; }
+    if (d == 5u) { return 0x6du; }
+    if (d == 6u) { return 0x7du; }
+    if (d == 7u) { return 0x07u; }
+    if (d == 8u) { return 0x7fu; }
+    if (d == 9u) { return 0x6fu; }
+    return 0u;
+}
+
+fn in_rect(p: vec2<f32>, x0: f32, y0: f32, x1: f32, y1: f32) -> bool {
+    return p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1;
+}
+
+fn seven_seg_digit_mask(d: u32, p: vec2<f32>, scale: f32) -> f32 {
+    let bits = digit_segments(d);
+    let w = 5.0 * scale;
+    let h = 7.0 * scale;
+    let t = max(0.9 * scale, 0.75);
+    var on = false;
+    if ((bits & 0x01u) != 0u) { on = on || in_rect(p, t, 0.0, w - t, t); }
+    if ((bits & 0x02u) != 0u) { on = on || in_rect(p, w - t, t, w, h * 0.5 - t * 0.35); }
+    if ((bits & 0x04u) != 0u) { on = on || in_rect(p, w - t, h * 0.5 + t * 0.35, w, h - t); }
+    if ((bits & 0x08u) != 0u) { on = on || in_rect(p, t, h - t, w - t, h); }
+    if ((bits & 0x10u) != 0u) { on = on || in_rect(p, 0.0, h * 0.5 + t * 0.35, t, h - t); }
+    if ((bits & 0x20u) != 0u) { on = on || in_rect(p, 0.0, t, t, h * 0.5 - t * 0.35); }
+    if ((bits & 0x40u) != 0u) { on = on || in_rect(p, t, h * 0.5 - t * 0.5, w - t, h * 0.5 + t * 0.5); }
+    return select(0.0, 1.0, on);
+}
+
+fn stack_number_mask(value: u32, local_px: vec2<f32>, size_px: vec2<f32>) -> f32 {
+    let display = min(value, 99u);
+    let scale = clamp(size_px.x / 58.0, 0.60, 1.20);
+    let digit_w = 5.0 * scale;
+    let digit_h = 7.0 * scale;
+    let gap = 1.3 * scale;
+    var total_w = digit_w;
+    if (display >= 10u) {
+        total_w = digit_w * 2.0 + gap;
+    }
+    let origin = vec2<f32>(size_px.x - total_w - 4.0, 4.0);
+    var mask = 0.0;
+    if (display >= 10u) {
+        mask = max(mask, seven_seg_digit_mask(display / 10u, local_px - origin, scale));
+        mask = max(mask, seven_seg_digit_mask(display % 10u, local_px - origin - vec2<f32>(digit_w + gap, 0.0), scale));
+    } else {
+        mask = seven_seg_digit_mask(display, local_px - origin, scale);
+    }
+    return mask;
 }
 
 @fragment
@@ -258,24 +335,33 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         }
     }
 
-    // V7 视觉优化：堆叠数徽章缩小 r 7→5.5 配合兵牌缩小
+    // Stack count is drawn in-shader so high-speed camera movement does not
+    // require hundreds of CPU text draws every frame.
     let stack = in.state_pack.z; // stack_count
-    if (stack > 1u) {
+    if (stack > 0u) {
         let badge_local = in.uv * in.size_px;
-        let badge_cx = in.size_px.x - 7.5;
-        let badge_cy = 7.5;
-        let badge_r = 5.5;
-        let bdx = badge_local.x - badge_cx;
-        let bdy = badge_local.y - badge_cy;
-        let badge_dist = sqrt(bdx * bdx + bdy * bdy) - badge_r;
-        if (badge_dist < 1.5) {
-            let badge_bg = vec3<f32>(0.102, 0.102, 0.102); // #1a1a1a
-            let badge_border = vec3<f32>(0.784, 0.627, 0.251); // #c8a040
-            if (badge_dist < -1.0) {
-                rgb = badge_bg;
-            } else {
-                rgb = badge_border;
+        let display = min(stack, 99u);
+        let digit_scale = clamp(in.size_px.x / 58.0, 0.60, 1.20);
+        let digit_w = 5.0 * digit_scale;
+        let digit_h = 7.0 * digit_scale;
+        let digit_gap = 1.3 * digit_scale;
+        var digits_w = digit_w;
+        if (display >= 10u) {
+            digits_w = digit_w * 2.0 + digit_gap;
+        }
+        let bg0 = vec2<f32>(in.size_px.x - digits_w - 6.0, 2.0);
+        let bg1 = vec2<f32>(in.size_px.x - 2.0, 4.0 + digit_h + 2.0);
+        if (badge_local.x >= bg0.x && badge_local.x <= bg1.x && badge_local.y >= bg0.y && badge_local.y <= bg1.y) {
+            rgb = mix(rgb, vec3<f32>(0.05, 0.05, 0.05), 0.62);
+        }
+        let digit_mask = stack_number_mask(stack, badge_local, in.size_px);
+        if (digit_mask > 0.0) {
+            let lum = dot(in.country_color.rgb, vec3<f32>(0.299, 0.587, 0.114));
+            var digit_color = vec3<f32>(0.98, 0.94, 0.78);
+            if (lum > 0.58) {
+                digit_color = vec3<f32>(0.06, 0.05, 0.04);
             }
+            rgb = mix(rgb, digit_color, 0.96);
         }
     }
 

@@ -6,18 +6,9 @@
 //!
 //! 右键徽章 → 取消选中。
 
-use egui::{Color32, RichText};
+use egui::Color32;
 
-use crate::{
-    military::{MilitaryCommand, MilitaryData},
-    portrait::{self, PortraitStyle},
-};
-
-const PANEL_BG: Color32 = Color32::from_rgba_premultiplied(0x1a, 0x12, 0x0a, 232);
-const GOLD: Color32 = Color32::from_rgb(0xc9, 0xa5, 0x5b);
-const GOLD_BRIGHT: Color32 = Color32::from_rgb(0xe0, 0xc0, 0x78);
-const MUTED: Color32 = Color32::from_gray(150);
-const GOOD: Color32 = Color32::from_rgb(0x70, 0xc8, 0x78);
+use crate::military::{MilitaryCommand, MilitaryData};
 
 pub struct ArmyBadge;
 
@@ -138,97 +129,7 @@ fn v9_badge_accent(army: &crate::military::ArmyEntry) -> Color32 {
 }
 
 impl ArmyBadge {
-    #[allow(unreachable_code)]
     pub fn show(ctx: &egui::Context, data: &MilitaryData) -> Vec<MilitaryCommand> {
-        return v9_show_army_badge(ctx, data);
-
-        let mut cmds = Vec::new();
-
-        let Some(army_id) = data.selected_army_id else {
-            return cmds;
-        };
-        let Some(army) = data.armies.iter().find(|a| a.id == army_id) else {
-            return cmds;
-        };
-
-        let screen = ctx.screen_rect();
-        let badge_w = 220.0;
-        let badge_h = 60.0;
-        let pos = egui::pos2(screen.right() - badge_w - 16.0, screen.top() + 60.0);
-
-        egui::Area::new(egui::Id::new("army_summary_badge"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(pos)
-            .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(PANEL_BG)
-                    .stroke(egui::Stroke::new(1.2, GOLD))
-                    .inner_margin(egui::Margin::same(6))
-                    .show(ui, |ui| {
-                        ui.set_min_width(badge_w - 12.0);
-                        ui.set_max_width(badge_w - 12.0);
-                        ui.set_min_height(badge_h - 12.0);
-
-                        let response = ui
-                            .horizontal(|ui| {
-                                portrait::draw_general_portrait(
-                                    ui,
-                                    army.commander_name.as_deref(),
-                                    PortraitStyle::Medium,
-                                );
-                                ui.add_space(6.0);
-                                ui.vertical(|ui| {
-                                    ui.label(
-                                        RichText::new(&army.name)
-                                            .strong()
-                                            .size(13.0)
-                                            .color(GOLD_BRIGHT),
-                                    );
-                                    let status = status_text(army);
-                                    ui.horizontal(|ui| {
-                                        ui.label(
-                                            RichText::new(format!("{} 师", army.member_count))
-                                                .size(11.0)
-                                                .color(GOLD),
-                                        );
-                                        ui.label(RichText::new("·").color(MUTED));
-                                        ui.label(
-                                            RichText::new(status.0).size(11.0).color(status.1),
-                                        );
-                                    });
-                                });
-                            })
-                            .response;
-
-                        let interact = ui.interact(
-                            response.rect,
-                            egui::Id::new("army_badge_interact"),
-                            egui::Sense::click(),
-                        );
-                        if interact.secondary_clicked() {
-                            cmds.push(MilitaryCommand::ClearArmySelection);
-                        }
-                        interact.on_hover_text("右键取消选中集团军");
-                    });
-            });
-
-        cmds
-    }
-}
-
-fn status_text(army: &crate::military::ArmyEntry) -> (&'static str, Color32) {
-    let over_limit = army
-        .command_limit
-        .is_some_and(|limit| army.member_count > limit as usize);
-    if over_limit {
-        ("超限", Color32::from_rgb(0xe0, 0x60, 0x58))
-    } else if army.executing {
-        ("执行中", GOOD)
-    } else if army.has_arrow {
-        ("计划", GOLD_BRIGHT)
-    } else if army.has_path {
-        ("前线", GOLD)
-    } else {
-        ("待命", MUTED)
+        v9_show_army_badge(ctx, data)
     }
 }

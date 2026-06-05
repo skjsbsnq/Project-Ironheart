@@ -317,7 +317,9 @@ fn build_building_employment_entries(
                 building_qualification(world, building_idx, &pms);
 
             Some(hoi4_ui::pop_panel::PopBuildingEmploymentEntry {
+                building_key: building.building_def_id.clone(),
                 building_name,
+                state_id: building.state.0,
                 state_name,
                 level: building.level,
                 employed,

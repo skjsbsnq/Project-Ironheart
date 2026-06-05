@@ -30,7 +30,8 @@ use hoi4_logic::research::ResearchState;
 use hoi4_state::World;
 
 use crate::ai_runtime::{
-    ai_daily, ai_daily_bucket_0, ai_daily_bucket_1, ai_daily_bucket_2, ai_daily_bucket_3, AiState,
+    ai_daily, ai_daily_bucket_0, ai_daily_bucket_1, ai_daily_bucket_2, ai_daily_bucket_3,
+    ai_daily_bucket_4, ai_daily_bucket_5, ai_daily_bucket_6, ai_daily_bucket_7, AiState,
 };
 use crate::content_runtime::ContentRuntimeState;
 use crate::script_runtime::{script_daily, script_monthly, ScriptState};
@@ -548,6 +549,10 @@ impl SystemSchedule {
                     ai_daily_bucket_1 as SystemFn,
                     ai_daily_bucket_2 as SystemFn,
                     ai_daily_bucket_3 as SystemFn,
+                    ai_daily_bucket_4 as SystemFn,
+                    ai_daily_bucket_5 as SystemFn,
+                    ai_daily_bucket_6 as SystemFn,
+                    ai_daily_bucket_7 as SystemFn,
                 ] {
                     self.pending_interactive_tasks
                         .push_back(PendingInteractiveTask::Run { id, f: part });

@@ -23,9 +23,11 @@
     ),
     (
         tag: "SPR",
-        name: "Manuel Azana",
+        character_key: "SPR_niceto_alcala_zamora",
+        name: "Niceto Alcalá-Zamora",
+        portrait_gfx: "GFX_portrait_SPR_niceto_alcala_zamora",
         title: "President of the Republic",
-        notes: "Spanish Republic 1936 display leader for the civil war start.",
+        notes: "HOI4 vanilla 1936 starting country leader and historical Spanish president on 1936-01-01.",
     ),
     (
         tag: "CZE",

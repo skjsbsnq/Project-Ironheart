@@ -2,7 +2,7 @@
 
 #![allow(dead_code, deprecated)]
 
-use crate::{components, i18n::tr};
+use crate::{components, i18n::tr, ActiveDetailPanel, CountryDetailTarget, PanelCommand};
 use egui::{Color32, Pos2, Rect, RichText, Sense, Vec2};
 
 const GOLD: Color32 = Color32::from_rgb(0xc9, 0xa5, 0x5b);
@@ -165,12 +165,12 @@ pub enum DiplomacyCommand {
         war_id: u32,
         winning_side: PeaceSide,
     },
+    Panel(PanelCommand),
 }
 
 pub struct DiplomacyPanel;
 
 impl DiplomacyPanel {
-    #[allow(unreachable_code)]
     pub fn show(
         ctx: &egui::Context,
         data: &DiplomacyData,
@@ -178,39 +178,7 @@ impl DiplomacyPanel {
         selected_tag: &mut Option<String>,
         icon_bank: &mut crate::icons::IconBank,
     ) -> (bool, Vec<DiplomacyCommand>) {
-        return v9_show_diplomacy(ctx, data, sort_by_opinion, selected_tag, icon_bank);
-
-        let mut close = false;
-        let mut cmds = Vec::new();
-
-        egui::SidePanel::left("diplomacy_panel")
-            .default_width(380.0)
-            .min_width(320.0)
-            .max_width(460.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                ui.set_max_width(440.0);
-                components::panel_header(ui, tr("diplomacy"), &mut close);
-                render_summary(ui, data);
-                render_status_banner(ui, data);
-
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| {
-                        render_wars(ui, data, &mut cmds);
-                        render_home_card(ui, data, &mut cmds);
-                        render_requests(ui, data);
-                        render_country_list(ui, data, sort_by_opinion, selected_tag, icon_bank);
-                        if let Some(detail) = selected_detail(data, selected_tag) {
-                            diplomacy_card(ui, "选中国家详情", |ui| {
-                                render_country_diplomacy_detail(ui, detail, &mut cmds);
-                            });
-                        }
-                        render_factions(ui, data);
-                    });
-            });
-
-        (close, cmds)
+        v9_show_diplomacy(ctx, data, sort_by_opinion, selected_tag, icon_bank)
     }
 }
 
@@ -301,6 +269,7 @@ fn v9_diplomacy_body(
             sort_by_opinion,
             selected_tag,
             icon_bank,
+            cmds,
         );
         v9_diplomacy_detail(
             ui,
@@ -320,6 +289,7 @@ fn v9_diplomacy_country_list(
     sort_by_opinion: &mut bool,
     selected_tag: &mut Option<String>,
     icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DiplomacyCommand>,
 ) {
     use crate::v9::{
         primitives::{Button, ButtonSize, ButtonVariant, Card},
@@ -387,6 +357,11 @@ fn v9_diplomacy_country_list(
                     v9_country_row(ui, row_rect, country, selected, icon_bank);
                     if response.clicked() {
                         *selected_tag = Some(country.tag.clone());
+                        cmds.push(DiplomacyCommand::Panel(PanelCommand::OpenDetail(
+                            ActiveDetailPanel::Country(CountryDetailTarget {
+                                tag: country.tag.clone(),
+                            }),
+                        )));
                     }
                     ui.add_space(spacing::S2);
                 }
@@ -524,20 +499,36 @@ fn v9_diplomacy_detail(
             palette::GOOD
         },
     );
-    let faction_label = detail.faction_name.as_deref().unwrap_or("无阵营");
     v9_diplomacy_badge(
         ui,
         Rect::from_min_size(
             Pos2::new(flag_rect.right() + spacing::S5 + 150.0, inner.top() + 34.0),
             Vec2::new(180.0, 24.0),
         ),
-        faction_label,
+        detail.faction_name.as_deref().unwrap_or("无阵营"),
         if detail.same_faction {
             palette::GOOD
         } else {
             palette::BRASS_BRIGHT
         },
     );
+
+    let detail_button_rect = Rect::from_min_size(
+        Pos2::new(inner.right() - 118.0, inner.top() + 2.0),
+        Vec2::new(112.0, 28.0),
+    );
+    if crate::v9::primitives::Button::new("打开详情")
+        .size(crate::v9::primitives::ButtonSize::Sm)
+        .variant(crate::v9::primitives::ButtonVariant::Primary)
+        .show_at(ui, detail_button_rect)
+        .clicked()
+    {
+        cmds.push(DiplomacyCommand::Panel(PanelCommand::OpenDetail(
+            ActiveDetailPanel::Country(CountryDetailTarget {
+                tag: detail.tag.clone(),
+            }),
+        )));
+    }
 
     let metric_y = inner.top() + 82.0;
     v9_detail_metric(
@@ -568,7 +559,7 @@ fn v9_diplomacy_detail(
         palette::GOLD,
     );
 
-    let mut y = metric_y + 64.0;
+    let mut y = metric_y + 68.0;
     if let Some(overlord) = &detail.overlord_name {
         v9_text_line(ui, inner.left(), y, "宗主国", overlord, palette::WARN);
         y += 22.0;
@@ -597,7 +588,6 @@ fn v9_diplomacy_detail(
             Vec2::new(inner.width() * 0.66, 10.0),
         );
         draw_progress_bar(ui, bar, detail.justify_progress, palette::WARN);
-        y += 48.0;
     } else if detail.has_wargoal {
         v9_text_line(
             ui,
@@ -607,61 +597,15 @@ fn v9_diplomacy_detail(
             tr("wargoal_ready"),
             palette::GOOD,
         );
-        y += 28.0;
-    }
-    if !detail.wargoals.is_empty() {
-        ui.painter().text(
-            Pos2::new(inner.left(), y),
-            egui::Align2::LEFT_TOP,
-            "战争目标",
-            TextRole::Heading.font_id(),
-            palette::BRASS_BRIGHT,
+    } else {
+        v9_text_line(
+            ui,
+            inner.left(),
+            y,
+            "外交动作",
+            "可从下方按钮执行",
+            palette::INFO,
         );
-        y += 28.0;
-        for goal in detail.wargoals.iter().take(4) {
-            let state = goal
-                .target_state
-                .map(|s| format!(" 州 {}", s))
-                .unwrap_or_default();
-            v9_text_line(
-                ui,
-                inner.left(),
-                y,
-                &goal.kind,
-                &format!("{}{}", goal.status, state),
-                if goal.progress >= 1.0 {
-                    palette::GOOD
-                } else {
-                    palette::WARN
-                },
-            );
-            y += 22.0;
-        }
-    }
-    if !detail.relation_factors.is_empty() {
-        ui.painter().text(
-            Pos2::new(inner.left(), y + 4.0),
-            egui::Align2::LEFT_TOP,
-            "关系因素",
-            TextRole::Heading.font_id(),
-            palette::BRASS_BRIGHT,
-        );
-        y += 34.0;
-        for factor in detail.relation_factors.iter().take(5) {
-            v9_text_line(
-                ui,
-                inner.left(),
-                y,
-                &factor.label,
-                &factor.value,
-                if factor.positive {
-                    palette::GOOD
-                } else {
-                    palette::WARN
-                },
-            );
-            y += 21.0;
-        }
     }
 
     let action_y = inner.bottom() - 40.0;
@@ -770,83 +714,6 @@ fn v9_text_line(ui: &mut egui::Ui, x: f32, y: f32, label: &str, value: &str, col
         crate::v9::TextRole::Body.font_id(),
         color,
     );
-}
-
-fn render_summary(ui: &mut egui::Ui, data: &DiplomacyData) {
-    let faction = data
-        .player_faction
-        .as_ref()
-        .map(|f| f.name.clone())
-        .unwrap_or_else(|| "无阵营".to_owned());
-    let ready_wars = data
-        .countries
-        .iter()
-        .filter_map(|c| c.detail.as_ref())
-        .filter(|detail| detail.declare_war_action.enabled)
-        .count();
-    ui.add_space(6.0);
-    components::summary_strip(
-        ui,
-        &[
-            (tr("world_tension"), format!("{:.0}%", data.world_tension)),
-            ("当前战争", data.active_wars.len().to_string()),
-            (tr("faction"), faction),
-            ("请求", data.requests.len().to_string()),
-            ("可宣战目标", ready_wars.to_string()),
-        ],
-    );
-    ui.add_space(6.0);
-}
-
-fn render_status_banner(ui: &mut egui::Ui, data: &DiplomacyData) {
-    let ready_wars = data
-        .countries
-        .iter()
-        .filter_map(|c| c.detail.as_ref())
-        .filter(|detail| detail.declare_war_action.enabled)
-        .count();
-    let pending_requests = data
-        .requests
-        .iter()
-        .filter(|r| r.status == "Pending")
-        .count();
-    let (label, text, color) = if !data.active_wars.is_empty() {
-        (
-            "战争进行中",
-            format!(
-                "当前有 {} 场战争，和平会议集中在战争卡。",
-                data.active_wars.len()
-            ),
-            BAD,
-        )
-    } else if pending_requests > 0 {
-        (
-            "请求待处理",
-            format!("当前有 {} 个外交请求等待处理或结果。", pending_requests),
-            WARN,
-        )
-    } else if ready_wars > 0 {
-        (
-            "战争目标可用",
-            format!("已有 {} 个目标可宣战。", ready_wars),
-            WARN,
-        )
-    } else if data.player_faction.is_none() {
-        (
-            "外交孤立",
-            "我国尚未加入阵营，可创建阵营或改善关系后邀请盟友。".to_owned(),
-            WARN,
-        )
-    } else {
-        (
-            "外交稳定",
-            "当前没有直接战争风险，继续维护阵营和通行权。".to_owned(),
-            GOOD,
-        )
-    };
-
-    components::status_banner(ui, color, label, &text);
-    ui.add_space(4.0);
 }
 
 fn render_home_card(ui: &mut egui::Ui, data: &DiplomacyData, cmds: &mut Vec<DiplomacyCommand>) {

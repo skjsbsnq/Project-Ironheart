@@ -2,7 +2,12 @@
 
 use egui::{Color32, RichText};
 
-use crate::{components, i18n::tr};
+use crate::{
+    components,
+    i18n::tr,
+    vanilla_iron::{VanillaIron, WorkbenchShell},
+    ActiveDetailPanel, BuildingDetailTarget, PanelCommand, StateDetailTarget,
+};
 
 const GOLD: Color32 = components::GOLD;
 const GOLD_BRIGHT: Color32 = components::GOLD_BRIGHT;
@@ -15,6 +20,7 @@ const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
 #[derive(Debug, Clone)]
 pub struct BuildingStateV6Entry {
     pub building_idx: usize,
+    pub state_id: u16,
     pub state_name: String,
     pub level: u8,
     pub employment_rate: f32,
@@ -66,6 +72,8 @@ pub struct BuildingTypeV6Entry {
     pub total_level: u32,
     pub employment_rate: f32,
     pub profit_rm_weekly: f64,
+    pub outputs: Vec<BuildingGoodFlowEntry>,
+    pub inputs: Vec<BuildingGoodFlowEntry>,
     pub output_summary: String,
     pub input_summary: String,
     pub warnings: Vec<String>,
@@ -74,8 +82,17 @@ pub struct BuildingTypeV6Entry {
 }
 
 #[derive(Debug, Clone)]
+pub struct BuildingGoodFlowEntry {
+    pub good_id: String,
+    pub good_name: String,
+    pub amount: f32,
+}
+
+#[derive(Debug, Clone)]
 pub struct ConstructionQueueV6Entry {
+    pub building_key: String,
     pub building_name: String,
+    pub state_id: u16,
     pub state_name: String,
     pub current_level: u8,
     pub target_level: u8,
@@ -195,6 +212,7 @@ pub enum ConstructionV6Command {
         group: String,
         pm_id: String,
     },
+    Panel(PanelCommand),
 }
 
 const EMPLOYMENT_CLASS_COLORS: [Color32; 6] = [
@@ -283,132 +301,590 @@ fn construction_v9_tab_order() -> [ConstructionPanelTab; 10] {
 }
 
 impl ConstructionV6Panel {
-    #[allow(unreachable_code)]
     pub fn show(
         ctx: &egui::Context,
         data: &ConstructionV6PanelData,
     ) -> (bool, Vec<ConstructionV6Command>) {
-        return v9_show_construction(ctx, data);
+        workbench_show_construction(ctx, data)
+    }
+}
 
-        let mut close = false;
-        let mut cmds: Vec<ConstructionV6Command> = Vec::new();
-
-        let tab_id = egui::Id::new("buildings_panel_tab");
-        let search_id = egui::Id::new("buildings_panel_search");
-        let selected_building_id = egui::Id::new("buildings_panel_selected_building");
-        let selected_catalog_id = egui::Id::new("buildings_panel_selected_catalog");
-        let mut tab = ctx
-            .data_mut(|d| d.get_persisted::<ConstructionPanelTab>(tab_id))
-            .unwrap_or(ConstructionPanelTab::Catalog);
-        let mut search = ctx
-            .data_mut(|d| d.get_persisted::<String>(search_id))
-            .unwrap_or_default();
-        let mut selected_building = ctx
-            .data_mut(|d| d.get_persisted::<Option<String>>(selected_building_id))
-            .unwrap_or(None);
-        let mut selected_catalog = ctx
-            .data_mut(|d| d.get_persisted::<Option<String>>(selected_catalog_id))
-            .unwrap_or(None);
-
-        egui::SidePanel::left("buildings_panel")
-            .default_width(760.0)
-            .min_width(620.0)
-            .max_width(980.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                components::panel_header(ui, tr("buildings_panel_title"), &mut close);
-                components::panel_hint(
-                    ui,
-                    "经济主入口：统一管理可建建筑、建造队列、现有建筑和生产方式",
-                );
-                ui.add_space(4.0);
-
-                let cp_ratio = if data.total_cp > 0.0 {
-                    data.available_cp / data.total_cp
-                } else {
-                    0.0
-                };
-                render_summary(ui, data);
-                render_status_banner(ui, data, cp_ratio);
-                ui.add_space(4.0);
-                render_command_bar(ui, data, cp_ratio, &mut cmds);
-                ui.add_space(4.0);
-                ui.separator();
-
-                render_tabs(ui, &mut tab, data);
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("搜索").small().color(Color32::from_gray(150)));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut search)
-                            .hint_text("输入建筑、州、分组或警告")
-                            .desired_width(260.0),
-                    );
-                    if !search.is_empty() && ui.small_button("清空").clicked() {
-                        search.clear();
-                    }
-                });
-                ui.separator();
-
-                let tab_content_height = ui.available_height().max(200.0);
-
-                match tab {
-                    ConstructionPanelTab::Overview | ConstructionPanelTab::AutoBuild => {
-                        render_overview_tab(ui, data, &mut cmds, tab_content_height);
-                    }
-                    ConstructionPanelTab::Catalog => {
-                        render_catalog_tab(
-                            ui,
-                            data,
-                            &search,
-                            &mut selected_catalog,
-                            &mut cmds,
-                            tab_content_height,
-                        );
-                    }
-                    ConstructionPanelTab::Queue => {
-                        egui::ScrollArea::vertical()
-                            .max_height(tab_content_height)
-                            .show(ui, |ui| render_queue(ui, &data.queue, &mut cmds));
-                    }
-                    ConstructionPanelTab::Primary
-                    | ConstructionPanelTab::Secondary
-                    | ConstructionPanelTab::Tertiary
-                    | ConstructionPanelTab::Infrastructure
-                    | ConstructionPanelTab::Military => {
-                        let visible = filtered_entries_for_tab(data, tab);
-                        render_existing_tab(
-                            ui,
-                            &visible,
-                            &search,
-                            false,
-                            &mut selected_building,
-                            &mut cmds,
-                            tab_content_height,
-                        );
-                    }
-                    ConstructionPanelTab::Bottlenecks => {
-                        render_existing_tab(
-                            ui,
-                            &data.entries,
-                            &search,
-                            true,
-                            &mut selected_building,
-                            &mut cmds,
-                            tab_content_height,
-                        );
-                    }
-                }
-            });
-
-        ctx.data_mut(|d| {
-            d.insert_persisted(tab_id, tab);
-            d.insert_persisted(search_id, search);
-            d.insert_persisted(selected_building_id, selected_building);
-            d.insert_persisted(selected_catalog_id, selected_catalog);
+fn workbench_show_construction(
+    ctx: &egui::Context,
+    data: &ConstructionV6PanelData,
+) -> (bool, Vec<ConstructionV6Command>) {
+    let tab_id = egui::Id::new("buildings_panel_workbench_tab");
+    let selected_catalog_id = egui::Id::new("buildings_panel_workbench_selected_catalog");
+    let selected_building_id = egui::Id::new("buildings_panel_workbench_selected_building");
+    let mut tab = ctx
+        .data_mut(|d| d.get_persisted::<ConstructionPanelTab>(tab_id))
+        .unwrap_or(ConstructionPanelTab::Catalog);
+    let mut selected_catalog = ctx
+        .data_mut(|d| d.get_persisted::<Option<String>>(selected_catalog_id))
+        .unwrap_or_else(|| {
+            data.buildable_catalog
+                .first()
+                .map(|entry| entry.building_def_id.clone())
+        });
+    let mut selected_building = ctx
+        .data_mut(|d| d.get_persisted::<Option<String>>(selected_building_id))
+        .unwrap_or_else(|| {
+            data.entries
+                .first()
+                .map(|entry| entry.building_def_id.clone())
         });
 
-        (close, cmds)
+    let cp_ratio = if data.total_cp > 0.0 {
+        (data.available_cp / data.total_cp).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let active_building_name = data.active_construction_key.as_deref().and_then(|key| {
+        data.buildable_catalog
+            .iter()
+            .find(|entry| entry.building_def_id == key)
+            .map(|entry| entry.building_name.as_str())
+    });
+    let subtitle = active_building_name
+        .map(|name| format!("建造模式：{name}"))
+        .unwrap_or_else(|| "建筑目录 / 施工队列 / 建设瓶颈".to_owned());
+
+    let (close, output) =
+        WorkbenchShell::new("construction_v6_workbench", tr("buildings_panel_title"))
+            .subtitle(&subtitle)
+            .footer("Q 关闭  |  点击建筑打开详情")
+            .accent(if data.blocked_cp > 0.0 || cp_ratio < 0.15 {
+                VanillaIron::WARN
+            } else {
+                VanillaIron::BRASS_BRIGHT
+            })
+            .show(ctx, |ui, layout| {
+                let mut cmds = Vec::new();
+                let nav = layout.nav.shrink2(egui::Vec2::new(8.0, 7.0));
+                ui.allocate_ui_at_rect(nav, |ui| {
+                    workbench_construction_nav(ui, data, &mut tab, &mut cmds);
+                });
+
+                let main = layout.main.shrink2(egui::Vec2::new(8.0, 7.0));
+                ui.allocate_ui_at_rect(main, |ui| {
+                    workbench_construction_main(
+                        ui,
+                        data,
+                        tab,
+                        &mut selected_catalog,
+                        &mut selected_building,
+                        &mut cmds,
+                    );
+                });
+
+                let side = layout.side.shrink2(egui::Vec2::new(8.0, 7.0));
+                ui.allocate_ui_at_rect(side, |ui| {
+                    workbench_construction_side(
+                        ui,
+                        data,
+                        cp_ratio,
+                        &selected_catalog,
+                        &selected_building,
+                        &mut cmds,
+                    );
+                });
+                cmds
+            });
+
+    ctx.data_mut(|d| {
+        d.insert_persisted(tab_id, tab);
+        d.insert_persisted(selected_catalog_id, selected_catalog);
+        d.insert_persisted(selected_building_id, selected_building);
+    });
+
+    (close, output.unwrap_or_default())
+}
+
+fn workbench_construction_nav(
+    ui: &mut egui::Ui,
+    data: &ConstructionV6PanelData,
+    tab: &mut ConstructionPanelTab,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    VanillaIron::section_heading(ui, "建设状态");
+    VanillaIron::info_row(
+        ui,
+        "建造力",
+        format!("{:.0}/{:.0}", data.available_cp, data.total_cp),
+    );
+    VanillaIron::info_row(ui, "队列", format!("{} 项", data.queue.len()));
+    VanillaIron::info_row(ui, "受阻 CP", format!("{:.0}", data.blocked_cp));
+    ui.add_space(8.0);
+
+    for next in [
+        ConstructionPanelTab::Catalog,
+        ConstructionPanelTab::Queue,
+        ConstructionPanelTab::Bottlenecks,
+        ConstructionPanelTab::Primary,
+        ConstructionPanelTab::Secondary,
+        ConstructionPanelTab::Tertiary,
+        ConstructionPanelTab::Infrastructure,
+        ConstructionPanelTab::Military,
+        ConstructionPanelTab::AutoBuild,
+    ] {
+        let label = match next {
+            ConstructionPanelTab::Queue => format!("{} ({})", next.label(), data.queue.len()),
+            ConstructionPanelTab::Bottlenecks => {
+                format!("{} ({})", next.label(), count_bottlenecks(data))
+            }
+            ConstructionPanelTab::Catalog => {
+                format!("{} ({})", next.label(), data.buildable_catalog.len())
+            }
+            ConstructionPanelTab::Primary
+            | ConstructionPanelTab::Secondary
+            | ConstructionPanelTab::Tertiary
+            | ConstructionPanelTab::Infrastructure
+            | ConstructionPanelTab::Military => {
+                format!("{} ({})", next.label(), count_entries_for_tab(data, next))
+            }
+            ConstructionPanelTab::Overview | ConstructionPanelTab::AutoBuild => {
+                next.label().to_owned()
+            }
+        };
+        if ui
+            .selectable_label(*tab == next, RichText::new(label).color(VanillaIron::TEXT))
+            .clicked()
+        {
+            *tab = next;
+        }
     }
+
+    ui.add_space(10.0);
+    let mut enabled = data.auto_build_enabled;
+    if ui.checkbox(&mut enabled, "自动建设").changed() {
+        cmds.push(ConstructionV6Command::ToggleAutoBuild(enabled));
+    }
+    ui.label(
+        RichText::new("地图建造模式会高亮可建设州。")
+            .small()
+            .color(VanillaIron::MUTED),
+    );
+}
+
+fn workbench_construction_main(
+    ui: &mut egui::Ui,
+    data: &ConstructionV6PanelData,
+    tab: ConstructionPanelTab,
+    selected_catalog: &mut Option<String>,
+    selected_building: &mut Option<String>,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    match tab {
+        ConstructionPanelTab::Queue => {
+            VanillaIron::section_heading(ui, "施工队列");
+            workbench_queue_rows(ui, data, data.queue.iter().enumerate(), cmds);
+        }
+        ConstructionPanelTab::Bottlenecks => {
+            VanillaIron::section_heading(ui, "瓶颈与问题");
+            let blocked = data.queue.iter().enumerate().filter(|(_, entry)| {
+                entry.blocked_cp > 0.0
+                    || entry.paused
+                    || !matches!(entry.bottleneck_label.as_str(), "none" | "idle")
+            });
+            workbench_queue_rows(ui, data, blocked, cmds);
+            ui.add_space(8.0);
+            for entry in data
+                .entries
+                .iter()
+                .filter(|entry| is_problem_entry(entry))
+                .take(8)
+            {
+                workbench_existing_row(ui, entry, selected_building, cmds);
+            }
+        }
+        ConstructionPanelTab::AutoBuild | ConstructionPanelTab::Overview => {
+            VanillaIron::section_heading(ui, "建设总览");
+            VanillaIron::info_row(ui, "投资池", format_rm_stock(data.investment_pool.total_rm));
+            VanillaIron::info_row(ui, "建设支出", format_rm(data.construction_spend_rm));
+            VanillaIron::info_row(
+                ui,
+                "失业率",
+                format!("{:.1}%", data.unemployment_rate * 100.0),
+            );
+            ui.add_space(8.0);
+            render_auto_build_explanations(ui, data);
+            ui.add_space(8.0);
+            workbench_queue_rows(ui, data, data.queue.iter().enumerate().take(6), cmds);
+        }
+        ConstructionPanelTab::Catalog => {
+            VanillaIron::section_heading(ui, "建筑目录");
+            workbench_catalog_rows(
+                ui,
+                data,
+                ConstructionPanelTab::Catalog,
+                selected_catalog,
+                cmds,
+            );
+        }
+        ConstructionPanelTab::Primary
+        | ConstructionPanelTab::Secondary
+        | ConstructionPanelTab::Tertiary
+        | ConstructionPanelTab::Infrastructure
+        | ConstructionPanelTab::Military => {
+            VanillaIron::section_heading(ui, tab.label());
+            workbench_catalog_rows(ui, data, tab, selected_catalog, cmds);
+            ui.add_space(8.0);
+            for entry in filtered_entries_for_tab(data, tab) {
+                workbench_existing_row(ui, &entry, selected_building, cmds);
+            }
+        }
+    }
+}
+
+fn workbench_catalog_rows(
+    ui: &mut egui::Ui,
+    data: &ConstructionV6PanelData,
+    tab: ConstructionPanelTab,
+    selected_catalog: &mut Option<String>,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    let visible: Vec<&BuildableBuildingEntry> = data
+        .buildable_catalog
+        .iter()
+        .filter(|entry| catalog_entry_matches_tab(entry, tab))
+        .collect();
+    if visible.is_empty() {
+        ui.label(
+            RichText::new("当前分类没有可建建筑。")
+                .small()
+                .color(VanillaIron::MUTED),
+        );
+        return;
+    }
+
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for entry in visible {
+                let selected = selected_catalog.as_deref() == Some(entry.building_def_id.as_str());
+                egui::Frame::new()
+                    .fill(if selected {
+                        VanillaIron::CARD_SOFT
+                    } else {
+                        VanillaIron::CARD_DEEP
+                    })
+                    .stroke(egui::Stroke::new(
+                        1.0,
+                        if selected {
+                            VanillaIron::BRASS_BRIGHT
+                        } else {
+                            VanillaIron::EDGE_DARK
+                        },
+                    ))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let label = format!(
+                                "{}  CP {:.0}  {}",
+                                entry.building_name, entry.recipe_cp_cost, entry.group_name
+                            );
+                            if ui
+                                .selectable_label(
+                                    selected,
+                                    RichText::new(label).color(VanillaIron::TEXT),
+                                )
+                                .clicked()
+                            {
+                                *selected_catalog = Some(entry.building_def_id.clone());
+                                cmds.push(ConstructionV6Command::Panel(building_detail_command(
+                                    &entry.building_def_id,
+                                    None,
+                                )));
+                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui
+                                        .add_enabled(
+                                            entry.locked_reason.is_none(),
+                                            egui::Button::new("建造"),
+                                        )
+                                        .clicked()
+                                    {
+                                        *selected_catalog = Some(entry.building_def_id.clone());
+                                        cmds.push(ConstructionV6Command::StartConstructionMode {
+                                            building_key: entry.building_def_id.clone(),
+                                        });
+                                    }
+                                },
+                            );
+                        });
+                        if let Some(reason) = &entry.locked_reason {
+                            ui.label(
+                                RichText::new(format!("无法建造：{reason}"))
+                                    .small()
+                                    .color(VanillaIron::BAD),
+                            );
+                        } else if let Some(reason) = &entry.state_limit_reason {
+                            ui.label(
+                                RichText::new(format!("州限制：{reason}"))
+                                    .small()
+                                    .color(VanillaIron::WARN),
+                            );
+                        } else {
+                            ui.label(
+                                RichText::new(format!("材料：{}", entry.recipe_materials_summary))
+                                    .small()
+                                    .color(VanillaIron::MUTED),
+                            );
+                        }
+                    });
+                ui.add_space(4.0);
+            }
+        });
+}
+
+fn workbench_queue_rows<'a>(
+    ui: &mut egui::Ui,
+    data: &ConstructionV6PanelData,
+    entries: impl Iterator<Item = (usize, &'a ConstructionQueueV6Entry)>,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    let mut shown = 0usize;
+    for (idx, entry) in entries {
+        shown += 1;
+        egui::Frame::new()
+            .fill(VanillaIron::CARD_DEEP)
+            .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE_DARK))
+            .inner_margin(egui::Margin::symmetric(8, 6))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(format!(
+                            "{}：{} Lv {} -> {}",
+                            entry.state_name,
+                            entry.building_name,
+                            entry.current_level,
+                            entry.target_level,
+                        ))
+                        .strong()
+                        .color(VanillaIron::TEXT),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("州详情").clicked() {
+                            cmds.push(ConstructionV6Command::Panel(PanelCommand::OpenDetail(
+                                ActiveDetailPanel::State(StateDetailTarget {
+                                    state_id: entry.state_id,
+                                }),
+                            )));
+                        }
+                        if ui.small_button("建筑详情").clicked() {
+                            cmds.push(ConstructionV6Command::Panel(building_detail_command(
+                                &entry.building_key,
+                                Some(entry.state_id),
+                            )));
+                        }
+                    });
+                });
+                ui.add(
+                    egui::ProgressBar::new(entry.progress.clamp(0.0, 1.0))
+                        .text(format!("{:.0}%", entry.progress.clamp(0.0, 1.0) * 100.0)),
+                );
+                ui.label(
+                    RichText::new(format!(
+                        "资金 {}  材料 {:.0}%  CP {:.1}/{:.1}  瓶颈 {}",
+                        entry.funding_source_label,
+                        entry.material_fulfillment * 100.0,
+                        entry.effective_cp,
+                        entry.allocated_cp,
+                        entry.bottleneck_label,
+                    ))
+                    .small()
+                    .color(if entry.blocked_cp > 0.0 || entry.paused {
+                        VanillaIron::WARN
+                    } else {
+                        VanillaIron::MUTED
+                    }),
+                );
+                ui.horizontal_wrapped(|ui| {
+                    let mut paused = entry.paused;
+                    if ui.checkbox(&mut paused, "暂停").changed() {
+                        cmds.push(ConstructionV6Command::ToggleProjectPaused(idx, paused));
+                    }
+                    if ui.add_enabled(idx > 0, egui::Button::new("上移")).clicked() {
+                        cmds.push(ConstructionV6Command::MoveUp(idx));
+                    }
+                    if ui
+                        .add_enabled(idx + 1 < data.queue.len(), egui::Button::new("下移"))
+                        .clicked()
+                    {
+                        cmds.push(ConstructionV6Command::MoveDown(idx));
+                    }
+                    if ui.button("取消").clicked() {
+                        cmds.push(ConstructionV6Command::Remove(idx));
+                    }
+                });
+            });
+        ui.add_space(5.0);
+    }
+    if shown == 0 {
+        ui.label(
+            RichText::new("当前没有施工队列项。")
+                .small()
+                .color(VanillaIron::MUTED),
+        );
+    }
+}
+
+fn workbench_existing_row(
+    ui: &mut egui::Ui,
+    entry: &BuildingTypeV6Entry,
+    selected_building: &mut Option<String>,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    let selected = selected_building.as_deref() == Some(entry.building_def_id.as_str());
+    let response = egui::Frame::new()
+        .fill(if selected {
+            VanillaIron::CARD_SOFT
+        } else {
+            VanillaIron::CARD_DEEP
+        })
+        .stroke(egui::Stroke::new(
+            1.0,
+            if selected {
+                VanillaIron::BRASS_BRIGHT
+            } else {
+                VanillaIron::EDGE_DARK
+            },
+        ))
+        .inner_margin(egui::Margin::symmetric(8, 6))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!(
+                        "{} Lv {}  就业 {:.0}%  {}",
+                        entry.building_name,
+                        entry.total_level,
+                        entry.employment_rate * 100.0,
+                        signed_rm_stock(entry.profit_rm_weekly),
+                    ))
+                    .color(VanillaIron::TEXT),
+                );
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.small_button("详情").clicked() {
+                        cmds.push(ConstructionV6Command::Panel(building_detail_command(
+                            &entry.building_def_id,
+                            None,
+                        )));
+                    }
+                });
+            });
+            if !entry.warnings.is_empty() {
+                ui.label(
+                    RichText::new(entry.warnings.join(" | "))
+                        .small()
+                        .color(VanillaIron::WARN),
+                );
+            } else if !entry.output_summary.is_empty() {
+                ui.label(
+                    RichText::new(format!("产出：{}", entry.output_summary))
+                        .small()
+                        .color(VanillaIron::MUTED),
+                );
+            }
+        })
+        .response;
+    if response.clicked() {
+        *selected_building = Some(entry.building_def_id.clone());
+        cmds.push(ConstructionV6Command::Panel(building_detail_command(
+            &entry.building_def_id,
+            None,
+        )));
+    }
+    ui.add_space(4.0);
+}
+
+fn workbench_construction_side(
+    ui: &mut egui::Ui,
+    data: &ConstructionV6PanelData,
+    cp_ratio: f32,
+    selected_catalog: &Option<String>,
+    selected_building: &Option<String>,
+    cmds: &mut Vec<ConstructionV6Command>,
+) {
+    VanillaIron::section_heading(ui, "当前选择摘要");
+    VanillaIron::info_row(ui, "可用 CP", format!("{:.0}%", cp_ratio * 100.0));
+    VanillaIron::info_row(ui, "闲置 CP", format!("{:.0}", data.idle_cp));
+    VanillaIron::info_row(ui, "投资池", format_rm_stock(data.investment_pool.total_rm));
+    ui.add_space(8.0);
+
+    if let Some(entry) = selected_building.as_deref().and_then(|id| {
+        data.entries
+            .iter()
+            .find(|entry| entry.building_def_id == id)
+    }) {
+        VanillaIron::section_heading(ui, &entry.building_name);
+        VanillaIron::info_row(ui, "等级", entry.total_level.to_string());
+        VanillaIron::info_row(ui, "就业", format!("{:.0}%", entry.employment_rate * 100.0));
+        VanillaIron::info_row(ui, "每周收支", signed_rm_stock(entry.profit_rm_weekly));
+        if !entry.output_summary.is_empty() {
+            ui.label(
+                RichText::new(format!("产出：{}", entry.output_summary))
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+        }
+        if VanillaIron::compact_button(ui, "打开建筑详情").clicked() {
+            cmds.push(ConstructionV6Command::Panel(building_detail_command(
+                &entry.building_def_id,
+                None,
+            )));
+        }
+        return;
+    }
+
+    if let Some(entry) = selected_catalog.as_deref().and_then(|id| {
+        data.buildable_catalog
+            .iter()
+            .find(|entry| entry.building_def_id == id)
+    }) {
+        VanillaIron::section_heading(ui, &entry.building_name);
+        VanillaIron::info_row(ui, "分组", entry.group_name.clone());
+        VanillaIron::info_row(ui, "CP 成本", format!("{:.0}", entry.recipe_cp_cost));
+        VanillaIron::info_row(ui, "资金", format_rm_stock(entry.recipe_funds_rm));
+        if !entry.recipe_materials_summary.is_empty() {
+            ui.label(
+                RichText::new(format!("材料：{}", entry.recipe_materials_summary))
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+        }
+        if VanillaIron::compact_button(ui, "打开建筑详情").clicked() {
+            cmds.push(ConstructionV6Command::Panel(building_detail_command(
+                &entry.building_def_id,
+                None,
+            )));
+        }
+        if ui
+            .add_enabled(
+                entry.locked_reason.is_none(),
+                egui::Button::new("进入地图建造"),
+            )
+            .clicked()
+        {
+            cmds.push(ConstructionV6Command::StartConstructionMode {
+                building_key: entry.building_def_id.clone(),
+            });
+        }
+    } else {
+        ui.label(
+            RichText::new("从目录、现有建筑或队列选择对象。")
+                .small()
+                .color(VanillaIron::MUTED),
+        );
+    }
+}
+
+fn building_detail_command(building_key: &str, state_id: Option<u16>) -> PanelCommand {
+    PanelCommand::OpenDetail(ActiveDetailPanel::Building(BuildingDetailTarget {
+        building_key: building_key.to_owned(),
+        state_id,
+    }))
 }
 
 fn v9_show_construction(
@@ -3041,6 +3517,7 @@ mod tests {
     fn sample_state_entry() -> BuildingStateV6Entry {
         BuildingStateV6Entry {
             building_idx: 0,
+            state_id: 51,
             state_name: "莱茵兰".into(),
             level: 2,
             employment_rate: 0.8,
@@ -3076,6 +3553,16 @@ mod tests {
             total_level: 2,
             employment_rate: 0.8,
             profit_rm_weekly: 2_100_000.0,
+            outputs: vec![BuildingGoodFlowEntry {
+                good_id: "steel".into(),
+                good_name: "钢材".into(),
+                amount: 40.0,
+            }],
+            inputs: vec![BuildingGoodFlowEntry {
+                good_id: "coal".into(),
+                good_name: "煤炭".into(),
+                amount: 20.0,
+            }],
             output_summary: "钢材 +40/d".into(),
             input_summary: "煤炭 -20/d".into(),
             warnings: vec!["投入品短缺：煤炭 12%".into()],
@@ -3108,7 +3595,9 @@ mod tests {
 
     fn sample_queue_entry() -> ConstructionQueueV6Entry {
         ConstructionQueueV6Entry {
+            building_key: "steel_mill".into(),
             building_name: "钢铁厂".into(),
+            state_id: 51,
             state_name: "莱茵兰".into(),
             current_level: 2,
             target_level: 3,

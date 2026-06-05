@@ -17,7 +17,6 @@ pub const PROVINCE_SECONDARY_FULL_REBUILD_REASON: &str =
 pub fn generate(world: &World, params: &VanillaRuntimeTargetFrameParams) -> Vec<u8> {
     let province_count = world.map.definitions.len().max(world.provinces.count);
     let mut per_province = vec![[0.0f32; 4]; province_count];
-    let mut occupation_gate = vec![0.0f32; province_count];
 
     let map_mode_lut =
         if params.map_mode != MapMode::Terrain && params.map_mode_overlay_opacity > 0.001 {
@@ -41,25 +40,6 @@ pub fn generate(world: &World, params: &VanillaRuntimeTargetFrameParams) -> Vec<
                 );
             }
         }
-
-        if pid < world.provinces.count {
-            let owner = world.provinces.owners[pid];
-            let controller = world.provinces.controllers[pid];
-            if !owner.is_none() && !controller.is_none() && owner != controller {
-                let at_war = world.diplomacy.at_war_with(owner, controller);
-                let color = if at_war {
-                    [220, 50, 50]
-                } else {
-                    [130, 130, 140]
-                };
-                blend_overlay(
-                    &mut per_province[pid],
-                    color,
-                    (72.0 * params.occupation_opacity).clamp(0.0, 128.0) as u8,
-                );
-                occupation_gate[pid] = params.occupation_opacity.clamp(0.0, 1.0);
-            }
-        }
     }
 
     apply_battle_plan_overlays(world, params, &mut per_province);
@@ -81,7 +61,7 @@ pub fn generate(world: &World, params: &VanillaRuntimeTargetFrameParams) -> Vec<
         }
     }
 
-    expand_to_vanilla_target(world, &per_province, &occupation_gate)
+    expand_to_vanilla_target(world, &per_province)
 }
 
 pub fn signature(world: &World, params: &VanillaRuntimeTargetFrameParams) -> u64 {
@@ -94,17 +74,18 @@ pub fn signature(world: &World, params: &VanillaRuntimeTargetFrameParams) -> u64
         .map(|id| id.raw())
         .unwrap_or(CountryId::NONE.raw())
         .hash(&mut h);
-    quantize_opacity(params.occupation_opacity).hash(&mut h);
     quantize_opacity(params.selected_opacity).hash(&mut h);
     quantize_opacity(params.hover_opacity).hash(&mut h);
     quantize_opacity(params.map_mode_overlay_opacity).hash(&mut h);
     quantize_opacity(params.battle_plan_opacity).hash(&mut h);
     quantize_opacity(params.naval_dominance_opacity).hash(&mut h);
-    for owner in &world.provinces.owners {
-        owner.raw().hash(&mut h);
-    }
-    for controller in &world.provinces.controllers {
-        controller.raw().hash(&mut h);
+    if params.map_mode != MapMode::Terrain && params.map_mode_overlay_opacity > 0.001 {
+        for owner in &world.provinces.owners {
+            owner.raw().hash(&mut h);
+        }
+        for controller in &world.provinces.controllers {
+            controller.raw().hash(&mut h);
+        }
     }
     if params.battle_plan_opacity > 0.001 {
         for army in &world.player_armies {
@@ -233,11 +214,7 @@ fn apply_naval_dominance_overlays(
     }
 }
 
-fn expand_to_vanilla_target(
-    world: &World,
-    per_province: &[[f32; 4]],
-    occupation_gate: &[f32],
-) -> Vec<u8> {
+fn expand_to_vanilla_target(world: &World, per_province: &[[f32; 4]]) -> Vec<u8> {
     let pmap = &world.map.province_map;
     let mut data = vec![
         0u8;
@@ -258,13 +235,7 @@ fn expand_to_vanilla_target(
             data[o] = (rgba[2].clamp(0.0, 1.0) * 255.0).round() as u8;
             data[o + 1] = (rgba[1].clamp(0.0, 1.0) * 255.0).round() as u8;
             data[o + 2] = (rgba[0].clamp(0.0, 1.0) * 255.0).round() as u8;
-            data[o + 3] = occupation_gate
-                .get(pid as usize)
-                .copied()
-                .unwrap_or(0.0)
-                .clamp(0.0, 1.0)
-                .mul_add(255.0, 0.0)
-                .round() as u8;
+            data[o + 3] = 0;
         }
     }
     data
@@ -416,9 +387,11 @@ mod tests {
     }
 
     #[test]
-    fn source_keeps_alpha_as_occupation_gate() {
+    fn source_keeps_alpha_transparent_without_occupation_gate() {
         let source = include_str!("province_secondary.rs");
-        assert!(source.contains("occupation_gate"));
-        assert!(source.contains("data[o + 3] = occupation_gate"));
+        let production_source = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(!production_source.contains("occupation_gate"));
+        assert!(!production_source.contains("data[o + 3] = occupation_gate"));
+        assert!(production_source.contains("data[o + 3] = 0"));
     }
 }

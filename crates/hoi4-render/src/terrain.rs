@@ -199,6 +199,12 @@ impl ChunkInstance {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TerrainBucketStats {
+    pub counts: [u32; 3],
+    pub signatures: [u64; 3],
+}
+
 /// Group culled chunks by LOD into instance buffers.
 /// Returns three Vecs (one per LOD level).
 pub fn build_instance_buckets(
@@ -221,6 +227,22 @@ pub fn build_wrapped_instance_buckets(
     camera: &Camera,
 ) -> [Vec<ChunkInstance>; 3] {
     let mut out: [Vec<ChunkInstance>; 3] = Default::default();
+    build_wrapped_instance_buckets_into(grid, camera, &mut out);
+    out
+}
+
+/// Rebuild wrapped visible chunk buckets in place and compute upload stats in
+/// the same pass.
+pub fn build_wrapped_instance_buckets_into(
+    grid: &ChunkGrid,
+    camera: &Camera,
+    out: &mut [Vec<ChunkInstance>; 3],
+) -> TerrainBucketStats {
+    for bucket in out.iter_mut() {
+        bucket.clear();
+    }
+
+    let mut stats = TerrainBucketStats::default();
     let planes = camera.frustum_planes();
     let eye = camera.eye();
     let map_extent = grid.world_size.x.max(grid.world_size.y);
@@ -248,17 +270,42 @@ pub fn build_wrapped_instance_buckets(
             } else {
                 2
             };
-            out[lod].push(ChunkInstance::from_chunk(&shifted));
+            let instance = ChunkInstance::from_chunk(&shifted);
+            stats.counts[lod] = stats.counts[lod].saturating_add(1);
+            terrain_bucket_mix_instance(&mut stats.signatures[lod], instance);
+            out[lod].push(instance);
         }
     }
 
-    out
+    for lod in 0..3 {
+        terrain_bucket_mix_u64(&mut stats.signatures[lod], stats.counts[lod] as u64);
+    }
+
+    stats
 }
 
 /// Number of triangles in a draw of `grid` quads × `grid` quads.
 pub fn vertex_count_for_lod(lod: usize) -> u32 {
     let g = LOD_GRID[lod];
     g * g * 6
+}
+
+fn terrain_bucket_mix_instance(signature: &mut u64, instance: ChunkInstance) {
+    terrain_bucket_mix_u32(signature, instance.origin_xz[0].to_bits());
+    terrain_bucket_mix_u32(signature, instance.origin_xz[1].to_bits());
+    terrain_bucket_mix_u32(signature, instance.size_xz[0].to_bits());
+    terrain_bucket_mix_u32(signature, instance.size_xz[1].to_bits());
+}
+
+fn terrain_bucket_mix_u32(signature: &mut u64, value: u32) {
+    terrain_bucket_mix_u64(signature, value as u64);
+}
+
+fn terrain_bucket_mix_u64(signature: &mut u64, value: u64) {
+    *signature ^= value
+        .wrapping_add(0x9E37_79B9_7F4A_7C15)
+        .wrapping_add(*signature << 6)
+        .wrapping_add(*signature >> 2);
 }
 
 // `_` prevents unused warnings for crate consumers that only want LOD constants.

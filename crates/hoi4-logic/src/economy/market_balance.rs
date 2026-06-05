@@ -115,8 +115,7 @@ pub fn settle_market(world: &mut World, db: &V6Database, ci: usize) {
         let exportable_after_local_demand =
             (stockpile_opening - stockpile_release + stockpile_from_surplus).max(0.0);
         let actual_exports = exports.min(exportable_after_local_demand);
-        let stockpile_closing =
-            (exportable_after_local_demand - actual_exports).max(0.0);
+        let stockpile_closing = (exportable_after_local_demand - actual_exports).max(0.0);
 
         let coverage_days = if total_demand > 0.0 {
             (stockpile_closing / total_demand).min(STOCKPILE_TARGET_DAYS)
@@ -160,10 +159,10 @@ pub fn settle_market(world: &mut World, db: &V6Database, ci: usize) {
             .stockpile_coverage_days
             .insert(good_id.clone(), coverage_days);
 
-        let consumed_from_production =
-            (domestic_production + stockpile_release + imports - stockpile_from_surplus)
-                .max(0.0)
-                .min(domestic_production + stockpile_release + imports);
+        let consumed_from_production = (domestic_production + stockpile_release + imports
+            - stockpile_from_surplus)
+            .max(0.0)
+            .min(domestic_production + stockpile_release + imports);
         let new_supply = (domestic_production - consumed_from_production).max(0.0);
         market.supply.insert(good_id.clone(), new_supply);
     }

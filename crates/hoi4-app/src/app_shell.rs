@@ -36,12 +36,51 @@ impl ApplicationHandler for App {
             event_loop.exit();
             return;
         }
-        self.update();
-        if let Some(s) = &self.state {
-            s.window.request_redraw();
-        }
         let simulation_running =
             self.game_phase == GamePhase::Playing && self.world.speed != GameSpeed::Paused;
+
+        let now = Instant::now();
+        let time_since_redraw = now.saturating_duration_since(self.last_redraw_at);
+        let redraw_due =
+            self.state.is_some() && time_since_redraw.as_secs_f32() >= TARGET_UI_FRAME_SECS;
+        if redraw_due {
+            self.update(0.0);
+            if let Some(s) = &self.state {
+                s.window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::Poll);
+            return;
+        }
+
+        let sim_budget_secs = if simulation_running {
+            (TARGET_UI_FRAME_SECS - time_since_redraw.as_secs_f32() - REDRAW_GUARD_SECS).max(0.0)
+        } else {
+            f32::INFINITY
+        };
+
+        if simulation_running && self.state.is_some() && sim_budget_secs < MIN_SIM_SLICE_SECS {
+            self.update(0.0);
+            if let Some(s) = &self.state {
+                s.window.request_redraw();
+            }
+            event_loop.set_control_flow(ControlFlow::Poll);
+            return;
+        }
+
+        self.update(sim_budget_secs);
+
+        let redraw_after_update = self.map_phase0.is_some()
+            || !simulation_running
+            || Instant::now()
+                .saturating_duration_since(self.last_redraw_at)
+                .as_secs_f32()
+                >= TARGET_UI_FRAME_SECS;
+        if redraw_after_update {
+            if let Some(s) = &self.state {
+                s.window.request_redraw();
+            }
+        }
+
         if simulation_running || self.map_phase0.is_some() {
             event_loop.set_control_flow(ControlFlow::Poll);
         } else {
@@ -212,8 +251,14 @@ impl ApplicationHandler for App {
                                 } else if !self.expanded_stacks.is_empty() {
                                     self.expanded_stacks.clear();
                                     changed = true;
+                                } else if self.active_popup.is_some() {
+                                    self.active_popup = None;
+                                    changed = true;
+                                } else if self.active_detail_panel.is_some() {
+                                    self.active_detail_panel = None;
+                                    changed = true;
                                 } else if self.open_panel.is_some() {
-                                    self.open_panel = None;
+                                    self.close_primary_panel();
                                     changed = true;
                                 } else {
                                     event_loop.exit();
@@ -734,14 +779,7 @@ impl ApplicationHandler for App {
                         self.exit_construction_mode();
                         self.refresh_lut();
                     } else {
-                        let [mx, my] = self.last_mouse;
-                        let dpi = self
-                            .state
-                            .as_ref()
-                            .map(|s| s.window.scale_factor() as f32)
-                            .unwrap_or(1.0);
-                        let counter_hit =
-                            hit_test(&self._cached_hoi3_hit_regions, mx * dpi, my * dpi);
+                        let counter_hit = self.pick_counter_province_at_cursor();
                         if let Some(cpid) = counter_hit {
                             if !self.selected_divisions.is_empty() {
                                 let dest = hoi4_state::ProvinceId(cpid as u16);
@@ -797,7 +835,7 @@ impl ApplicationHandler for App {
                                             if let Some(data) =
                                                 self.build_country_info_data(owner, has_wg)
                                             {
-                                                self.open_panel = None;
+                                                self.close_primary_panel();
                                                 self.province_info_card.open = false;
                                                 self.country_info_panel.open_with(data);
                                             }

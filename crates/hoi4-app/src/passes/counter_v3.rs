@@ -30,7 +30,8 @@ struct Hoi3CounterUniforms {
     screen_size: [f32; 2],
     /// 当前帧物理像素尺寸（与 [`Hoi3CounterInstance::screen_pos`] 同坐标）。
     opacity: f32,
-    _pad0: f32,
+    time_secs: f32,
+    view_proj: [[f32; 4]; 4],
 }
 
 /// HOI3 风格屏幕空间兵牌渲染管线。
@@ -133,7 +134,8 @@ impl Hoi3CounterPass {
             contents: bytemuck::bytes_of(&Hoi3CounterUniforms {
                 screen_size: [1.0, 1.0],
                 opacity: 1.0,
-                _pad0: 0.0,
+                time_secs: 0.0,
+                view_proj: glam::Mat4::IDENTITY.to_cols_array_2d(),
             }),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -194,7 +196,7 @@ impl Hoi3CounterPass {
                             shader_location: 0,
                         }],
                     },
-                    // Vertex buffer 1: per-instance Hoi3CounterInstance (40 bytes).
+                    // Vertex buffer 1: per-instance Hoi3CounterInstance.
                     wgpu::VertexBufferLayout {
                         array_stride: std::mem::size_of::<Hoi3CounterInstance>() as u64,
                         step_mode: wgpu::VertexStepMode::Instance,
@@ -230,6 +232,30 @@ impl Hoi3CounterPass {
                                 format: wgpu::VertexFormat::Uint8x4,
                                 offset: 24,
                                 shader_location: 5,
+                            },
+                            // screen_offset @ 40 → loc 6
+                            wgpu::VertexAttribute {
+                                format: wgpu::VertexFormat::Float32x2,
+                                offset: 40,
+                                shader_location: 6,
+                            },
+                            // world_pos @ 48 → loc 7
+                            wgpu::VertexAttribute {
+                                format: wgpu::VertexFormat::Float32x3,
+                                offset: 48,
+                                shader_location: 7,
+                            },
+                            // motion_delta @ 64 → loc 8
+                            wgpu::VertexAttribute {
+                                format: wgpu::VertexFormat::Float32x3,
+                                offset: 64,
+                                shader_location: 8,
+                            },
+                            // motion_times @ 76 → loc 9
+                            wgpu::VertexAttribute {
+                                format: wgpu::VertexFormat::Float32x2,
+                                offset: 76,
+                                shader_location: 9,
                             },
                         ],
                     },
@@ -334,12 +360,15 @@ impl Hoi3CounterPass {
         instances: &[Hoi3CounterInstance],
         screen_w: f32,
         screen_h: f32,
+        view_proj: [[f32; 4]; 4],
+        time_secs: f32,
     ) {
         // 屏幕尺寸 uniform 每帧刷新（窗口可能 resize 也走同一路径）。
         let u = Hoi3CounterUniforms {
             screen_size: [screen_w.max(1.0), screen_h.max(1.0)],
             opacity: 1.0,
-            _pad0: 0.0,
+            time_secs,
+            view_proj,
         };
         queue.write_buffer(&self.uniforms_buffer, 0, bytemuck::bytes_of(&u));
 
@@ -366,11 +395,20 @@ impl Hoi3CounterPass {
     }
 
     /// 主 render 阶段调用。Pass 已禁用 / 实例数为 0 时直接返回（无 GPU 命令）。
-    pub fn update_opacity(&self, queue: &wgpu::Queue, opacity: f32, screen_w: f32, screen_h: f32) {
+    pub fn update_opacity(
+        &self,
+        queue: &wgpu::Queue,
+        opacity: f32,
+        screen_w: f32,
+        screen_h: f32,
+        view_proj: [[f32; 4]; 4],
+        time_secs: f32,
+    ) {
         let u = Hoi3CounterUniforms {
             screen_size: [screen_w.max(1.0), screen_h.max(1.0)],
             opacity: opacity.clamp(0.0, 1.0),
-            _pad0: 0.0,
+            time_secs,
+            view_proj,
         };
         queue.write_buffer(&self.uniforms_buffer, 0, bytemuck::bytes_of(&u));
     }
@@ -395,14 +433,13 @@ mod tests {
     #[test]
     fn instance_size_matches_vertex_layout() {
         // CR-1.2 vertex buffer 的 array_stride 必须与 Rust 端 size_of 一致；
-        // 偏移 0/8/16/20/24 是硬编码进 Pass::new 的 vertex attribute 表。
-        assert_eq!(std::mem::size_of::<Hoi3CounterInstance>(), 40);
+        // 偏移 0/8/16/20/24/40/48/64/76 是硬编码进 Pass::new 的 vertex attribute 表。
+        assert_eq!(std::mem::size_of::<Hoi3CounterInstance>(), 84);
     }
 
     #[test]
-    fn uniforms_size_is_16() {
-        // wgpu UBO min binding size 通常是 16 字节；保持 16 以满足 std140 + 简单。
-        assert_eq!(std::mem::size_of::<super::Hoi3CounterUniforms>(), 16);
+    fn uniforms_size_is_80() {
+        assert_eq!(std::mem::size_of::<super::Hoi3CounterUniforms>(), 80);
     }
 }
 

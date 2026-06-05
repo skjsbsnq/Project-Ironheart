@@ -184,61 +184,7 @@ impl ProvinceMenu {
         cmd
     }
 
-    #[allow(unreachable_code)]
     pub fn show(&mut self, ctx: &egui::Context) -> Option<ProvinceMenuCommand> {
-        return self.show_v9(ctx);
-
-        if !self.open {
-            return None;
-        }
-        let mut cmd = None;
-        let mut open = self.open;
-
-        egui::Window::new(tr("province_actions"))
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .default_width(220.0)
-            .show(ctx, |ui| {
-                ui.label(format!("{}: {}", tr("owner"), self.owner_name));
-                ui.separator();
-
-                // Move army (always available if divisions selected)
-                if self.has_selected_divisions {
-                    if ui.button(format!("🚶 {}", tr("move_army"))).clicked() {
-                        cmd = Some(ProvinceMenuCommand::MoveArmyHere {
-                            province_id: self.province_id,
-                        });
-                        self.open = false;
-                    }
-                }
-
-                // War actions (only for foreign provinces)
-                if !self.is_own_territory {
-                    if self.has_wargoal {
-                        if ui
-                            .button(format!("⚔ {} {}", tr("declare_war"), self.owner_name))
-                            .clicked()
-                        {
-                            cmd = Some(ProvinceMenuCommand::DeclareWar {
-                                target_tag: self.owner_tag.clone(),
-                            });
-                            self.open = false;
-                        }
-                    } else {
-                        if ui
-                            .button(format!("📋 {} {}", tr("justify_wargoal"), self.owner_name))
-                            .clicked()
-                        {
-                            cmd = Some(ProvinceMenuCommand::JustifyWargoal {
-                                target_tag: self.owner_tag.clone(),
-                            });
-                            self.open = false;
-                        }
-                    }
-                }
-            });
-        self.open = open;
-        cmd
+        self.show_v9(ctx)
     }
 }

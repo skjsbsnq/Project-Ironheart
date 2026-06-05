@@ -1,4 +1,5 @@
 use super::*;
+use hoi4_render::map_mode::build_occupation_lut;
 
 impl App {
     pub(crate) fn init_render(&mut self, window: Arc<Window>) {
@@ -1764,6 +1765,7 @@ impl App {
             instance_capacity: [total_chunks as u32; 3],
             terrain_bucket_signature: [0; 3],
             terrain_bucket_counts: [0; 3],
+            terrain_buckets: std::array::from_fn(|_| Vec::with_capacity(total_chunks as usize)),
             lut_texture,
             lut_width,
             lut_height,

@@ -3,7 +3,12 @@
 //! 上半部分：装备库存（库存/日产/军队需求/采购/缺口）
 //! 下半部分：战略资源速览（只保留摘要，详细供需在市场面板）。
 
-use crate::{components, i18n::tr};
+use crate::{
+    components,
+    i18n::tr,
+    vanilla_iron::{LedgerPanelShell, VanillaIron},
+    ActiveDetailPanel, BuildingDetailTarget, DetailSource, GoodsDetailTarget, PanelCommand,
+};
 use egui::{Color32, RichText};
 
 const GOLD: Color32 = Color32::from_rgb(0xc9, 0xa5, 0x5b);
@@ -58,30 +63,282 @@ pub struct LogisticsData {
 pub struct LogisticsPanel;
 
 impl LogisticsPanel {
-    /// 返回 close_requested。
-    #[allow(unreachable_code)]
-    pub fn show(ctx: &egui::Context, data: &LogisticsData) -> bool {
-        return v9_show_logistics(ctx, data);
+    /// 返回 (close_requested, panel_commands)。
+    pub fn show(ctx: &egui::Context, data: &LogisticsData) -> (bool, Vec<PanelCommand>) {
+        ledger_show_logistics(ctx, data)
+    }
+}
 
-        let mut close = false;
-        egui::SidePanel::left("logistics_panel")
-            .default_width(540.0)
-            .min_width(460.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                components::panel_header(ui, tr("logistics"), &mut close);
-                render_summary(ui, data);
-                render_status_banner(ui, data);
+fn ledger_show_logistics(ctx: &egui::Context, data: &LogisticsData) -> (bool, Vec<PanelCommand>) {
+    let net = data.total_daily_production - data.total_daily_need;
+    let accent = if data.deficit_types > 0 {
+        VanillaIron::BAD
+    } else if net < 0.0 {
+        VanillaIron::WARN
+    } else {
+        VanillaIron::GOOD
+    };
+    let (close, output) = LedgerPanelShell::new("logistics_panel_ledger", tr("logistics"))
+        .subtitle("装备库存 / 日增减 / 缺口来源")
+        .footer("Q 关闭 | 点击缺口打开详情")
+        .accent(accent)
+        .show(ctx, |ui, layout| {
+            let mut commands = Vec::new();
+            logistics_ledger_metrics(ui, layout.top_strip, data, net);
+            logistics_ledger_table(ui, layout.main, data, &mut commands);
+            logistics_ledger_side(ui, layout.side, data, &mut commands);
+            commands
+        });
+    (close, output.unwrap_or_default())
+}
 
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
+fn logistics_ledger_metrics(ui: &mut egui::Ui, rect: egui::Rect, data: &LogisticsData, net: f32) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        ui.columns(6, |columns| {
+            VanillaIron::info_row(&mut columns[0], "类型", data.total_types.to_string());
+            VanillaIron::value_row(
+                &mut columns[1],
+                "缺口",
+                data.deficit_types.to_string(),
+                if data.deficit_types > 0 {
+                    VanillaIron::BAD
+                } else {
+                    VanillaIron::GOOD
+                },
+            );
+            VanillaIron::value_row(
+                &mut columns[2],
+                "生产",
+                signed_one_decimal(data.total_daily_production),
+                VanillaIron::GOOD,
+            );
+            VanillaIron::value_row(
+                &mut columns[3],
+                "需求",
+                format!("-{:.1}/日", data.total_daily_need),
+                VanillaIron::WARN,
+            );
+            VanillaIron::value_row(
+                &mut columns[4],
+                "净值",
+                signed_one_decimal(net),
+                if net < 0.0 {
+                    VanillaIron::BAD
+                } else {
+                    VanillaIron::GOOD
+                },
+            );
+            VanillaIron::info_row(
+                &mut columns[5],
+                "军购",
+                format_rm(data.military_procurement_rm),
+            );
+        });
+    });
+}
+
+fn logistics_ledger_table(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &LogisticsData,
+    commands: &mut Vec<PanelCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "装备与补给账本");
+        ui.add_space(4.0);
+        egui::Grid::new("logistics_ledger_header")
+            .spacing(egui::vec2(10.0, 0.0))
+            .show(ui, |ui| {
+                for label in ["项目", "库存", "日产", "需求", "净值", "缺口", "耗尽"]
+                {
+                    ui.label(
+                        RichText::new(label)
+                            .small()
+                            .strong()
+                            .color(VanillaIron::BRASS_BRIGHT),
+                    );
+                }
+                ui.end_row();
+            });
+        ui.separator();
+        let mut entries: Vec<&LogisticsEntry> = data.entries.iter().collect();
+        entries.sort_by(|a, b| {
+            b.deficit
+                .partial_cmp(&a.deficit)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("logistics_ledger_rows")
+                    .striped(true)
+                    .spacing(egui::vec2(10.0, 4.0))
                     .show(ui, |ui| {
-                        render_equipment_section(ui, data);
-                        render_resource_section(ui, data);
+                        for entry in entries {
+                            let risk = entry.deficit > 0.0
+                                || entry.days_until_empty.is_some_and(|days| days <= 30.0);
+                            if ui
+                                .selectable_label(
+                                    false,
+                                    RichText::new(&entry.name).strong().color(if risk {
+                                        VanillaIron::WARN
+                                    } else {
+                                        VanillaIron::TEXT
+                                    }),
+                                )
+                                .on_hover_text("打开相关商品详情")
+                                .clicked()
+                            {
+                                commands.push(PanelCommand::OpenDetail(ActiveDetailPanel::Goods(
+                                    GoodsDetailTarget::from_source(
+                                        entry.name.clone(),
+                                        DetailSource::Logistics,
+                                    ),
+                                )));
+                            }
+                            logistics_value(
+                                ui,
+                                format!("{:.1}", entry.stockpile),
+                                VanillaIron::TEXT,
+                            );
+                            logistics_value(
+                                ui,
+                                format!("{:.1}", entry.daily_production),
+                                VanillaIron::GOOD,
+                            );
+                            logistics_value(
+                                ui,
+                                format!(
+                                    "{:.1}",
+                                    entry.daily_replenishment_need
+                                        + entry.daily_training_need
+                                        + entry.daily_maintenance_need
+                                        + entry.daily_consumption
+                                ),
+                                VanillaIron::WARN,
+                            );
+                            logistics_value(
+                                ui,
+                                signed_one_decimal(entry.net_change),
+                                if entry.net_change < 0.0 {
+                                    VanillaIron::BAD
+                                } else {
+                                    VanillaIron::GOOD
+                                },
+                            );
+                            logistics_value(
+                                ui,
+                                format!("{:.1}", entry.deficit),
+                                if entry.deficit > 0.0 {
+                                    VanillaIron::BAD
+                                } else {
+                                    VanillaIron::MUTED
+                                },
+                            );
+                            logistics_value(
+                                ui,
+                                entry
+                                    .days_until_empty
+                                    .map(|days| format!("{days:.0}日"))
+                                    .unwrap_or_else(|| "-".to_owned()),
+                                if entry.days_until_empty.is_some_and(|days| days <= 30.0) {
+                                    VanillaIron::BAD
+                                } else {
+                                    VanillaIron::MUTED
+                                },
+                            );
+                            ui.end_row();
+                        }
                     });
             });
-        close
-    }
+    });
+}
+
+fn logistics_ledger_side(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &LogisticsData,
+    commands: &mut Vec<PanelCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "缺口定位");
+        let mut deficits: Vec<&LogisticsEntry> = data
+            .entries
+            .iter()
+            .filter(|entry| entry.deficit > 0.0)
+            .collect();
+        deficits.sort_by(|a, b| {
+            b.deficit
+                .partial_cmp(&a.deficit)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        if deficits.is_empty() {
+            ui.label(
+                RichText::new("暂无装备缺口。")
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+        } else {
+            for entry in deficits.iter().take(5) {
+                if ui
+                    .link(format!("{}：{:.1}/日", entry.name, entry.deficit))
+                    .clicked()
+                {
+                    commands.push(PanelCommand::OpenDetail(ActiveDetailPanel::Goods(
+                        GoodsDetailTarget::from_source(entry.name.clone(), DetailSource::Logistics),
+                    )));
+                }
+            }
+        }
+        ui.separator();
+        VanillaIron::section_heading(ui, "生产来源");
+        for entry in data
+            .entries
+            .iter()
+            .filter(|entry| !entry.production_sources.is_empty())
+            .take(5)
+        {
+            ui.label(
+                RichText::new(&entry.name)
+                    .small()
+                    .strong()
+                    .color(VanillaIron::TEXT),
+            );
+            for source in entry.production_sources.iter().take(3) {
+                if ui.link(source).clicked() {
+                    commands.push(PanelCommand::OpenDetail(ActiveDetailPanel::Building(
+                        BuildingDetailTarget {
+                            building_key: source.clone(),
+                            state_id: None,
+                        },
+                    )));
+                }
+            }
+            ui.add_space(4.0);
+        }
+        ui.separator();
+        VanillaIron::section_heading(ui, "战略资源");
+        for resource in &data.resources {
+            let net = resource.produced - resource.consumed;
+            VanillaIron::value_row(
+                ui,
+                &resource.name,
+                format!("{} / 库存 {:.1}", signed_one_decimal(net), resource.stored),
+                if net < 0.0 {
+                    VanillaIron::WARN
+                } else {
+                    VanillaIron::MUTED
+                },
+            );
+        }
+    });
+}
+
+fn logistics_value(ui: &mut egui::Ui, value: String, color: Color32) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.label(RichText::new(value).monospace().color(color));
+    });
 }
 
 fn v9_show_logistics(ctx: &egui::Context, data: &LogisticsData) -> bool {

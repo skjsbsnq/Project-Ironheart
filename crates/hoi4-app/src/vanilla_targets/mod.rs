@@ -931,7 +931,7 @@ impl Default for VanillaRuntimeTargetFrameParams {
             player_country: None,
             battle_plan_opacity: 1.0,
             naval_dominance_opacity: 0.0,
-            occupation_opacity: 1.0,
+            occupation_opacity: 0.0,
             selected_opacity: 1.0,
             hover_opacity: 1.0,
             map_mode_overlay_opacity: 0.0,

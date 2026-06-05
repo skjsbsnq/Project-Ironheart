@@ -18,6 +18,7 @@ use std::time::SystemTime;
 
 use crate::egui;
 use crate::i18n::tr;
+use crate::vanilla_iron::{UtilityWindowShell, VanillaIron};
 
 /// G.4：存档目录路径。Windows 默认 `%USERPROFILE%/Documents/Ironheart/saves/`，
 /// 其它系统 `~/Documents/Ironheart/saves/`。如果家目录无法解析，回退到当前目录的
@@ -182,49 +183,18 @@ impl SaveBrowser {
         if !self.open {
             return (false, Vec::new());
         }
-        use crate::v9::composites::panel_shell::{
-            draw_summary_tiles, draw_tab_strip, PanelClass, PanelShell,
-        };
-        use crate::v9::tokens::palette;
 
         let mut cmds = Vec::new();
         let mut close_requested = false;
-        let selected_name = self
-            .current()
-            .map(|s| s.display_name.clone())
-            .unwrap_or_else(|| "-".to_owned());
-        let selected_size = self
-            .current()
-            .map(|s| s.size_str())
-            .unwrap_or_else(|| "-".to_owned());
-        let selected_date = self
-            .current()
-            .and_then(|s| s.date_str.clone())
-            .unwrap_or_else(|| "?".to_owned());
 
-        let (shell_close, _) = PanelShell::new("save_browser_v9", tr("saves_title"))
-            .subtitle("存档列表 / 读取 / 重命名 / 删除")
-            .class(PanelClass::Settings)
-            .accent(palette::BRASS_BRIGHT)
-            .footer("Q Close  |  Double click save to load")
-            .show(ctx, |ui, layout| {
-                draw_summary_tiles(
-                    ui,
-                    layout.summary,
-                    &[
-                        (
-                            tr("saves_title"),
-                            self.saves.len().to_string(),
-                            palette::GOLD,
-                        ),
-                        ("选中", selected_name, palette::BRASS_BRIGHT),
-                        (tr("date"), selected_date, palette::INFO),
-                        ("大小", selected_size, palette::PARCHMENT_DIM),
-                    ],
-                );
-                draw_tab_strip(ui, layout.tabs, "存档浏览器", palette::BRASS_BRIGHT);
-                v9_save_browser_body(ui, layout.body, self, &mut cmds, &mut close_requested);
-            });
+        let (shell_close, _) =
+            UtilityWindowShell::new("save_browser_utility_window", tr("saves_title"))
+                .subtitle("存档列表 / 读取 / 重命名 / 删除")
+                .accent(VanillaIron::BRASS_BRIGHT)
+                .footer("Q 关闭 | 双击存档读取")
+                .show(ctx, |ui, layout| {
+                    v9_save_browser_body(ui, layout.main, self, &mut cmds, &mut close_requested);
+                });
 
         let close = shell_close || close_requested;
         if close {
@@ -237,178 +207,8 @@ impl SaveBrowser {
     }
 
     /// 渲染存档浏览器面板。返回 (close_panel, 命令列表)。
-    #[allow(unreachable_code)]
     pub fn show(&mut self, ctx: &egui::Context) -> (bool, Vec<SaveCommand>) {
-        return self.show_v9(ctx);
-
-        if !self.open {
-            return (false, Vec::new());
-        }
-        let mut cmds: Vec<SaveCommand> = Vec::new();
-        let mut close = false;
-        let mut window_open = self.open;
-
-        egui::Window::new(tr("saves_title"))
-            .open(&mut window_open)
-            .default_width(560.0)
-            .default_height(440.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                ui.label(format!("Folder: {}", self.saves_dir.display()));
-                ui.horizontal(|ui| {
-                    if ui.button(tr("refresh")).clicked() {
-                        cmds.push(SaveCommand::Rescan);
-                    }
-                    ui.label(format!("（{} 个存档）", self.saves.len()));
-                });
-                ui.separator();
-
-                if self.saves.is_empty() {
-                    ui.colored_label(egui::Color32::from_rgb(180, 180, 120), tr("no_saves"));
-                } else {
-                    egui::ScrollArea::vertical()
-                        .max_height(ui.available_height().max(220.0))
-                        .show(ui, |ui| {
-                            for (i, save) in self.saves.iter().enumerate() {
-                                let selected = i == self.selected;
-                                let label = format!(
-                                    "{}  ·  {}  ·  {}  ·  {}",
-                                    save.display_name,
-                                    save.date_str.as_deref().unwrap_or("?"),
-                                    save.player_tag.as_deref().unwrap_or("?"),
-                                    save.modified_str(),
-                                );
-                                if ui.selectable_label(selected, label).double_clicked() {
-                                    cmds.push(SaveCommand::Load(save.path.clone()));
-                                }
-                                if ui
-                                    .interact(
-                                        ui.min_rect(),
-                                        egui::Id::new(("save_row", i)),
-                                        egui::Sense::click(),
-                                    )
-                                    .clicked()
-                                {
-                                    self.selected = i;
-                                    self.confirm_delete = false;
-                                    self.renaming = false;
-                                }
-                                let _ = save.size_str();
-                            }
-                        });
-                }
-
-                ui.separator();
-                // ── 操作区 ────────────────────────────────────────
-                let has_selection = self.current().is_some();
-                ui.add_enabled_ui(has_selection, |ui| {
-                    ui.horizontal(|ui| {
-                        if ui.button(tr("load")).clicked() {
-                            if let Some(s) = self.current() {
-                                cmds.push(SaveCommand::Load(s.path.clone()));
-                            }
-                        }
-                        if ui.button(tr("rename")).clicked() {
-                            if let Some(s) = self.current() {
-                                self.rename_buffer = s.display_name.clone();
-                                self.renaming = true;
-                                self.confirm_delete = false;
-                            }
-                        }
-                        if ui.button(tr("delete")).clicked() {
-                            self.confirm_delete = true;
-                            self.renaming = false;
-                        }
-                    });
-                });
-
-                // 重命名子面板。
-                if self.renaming {
-                    ui.separator();
-                    ui.label(format!("{}", tr("new_name")));
-                    ui.text_edit_singleline(&mut self.rename_buffer);
-                    ui.horizontal(|ui| {
-                        if ui.button(tr("confirm")).clicked() {
-                            if let Some(s) = self.current() {
-                                let trimmed = self.rename_buffer.trim();
-                                if trimmed.is_empty() {
-                                    self.last_error = Some("名称不能为空".into());
-                                } else if !is_safe_filename(trimmed) {
-                                    self.last_error = Some("名称包含非法字符".into());
-                                } else {
-                                    let ext = s
-                                        .path
-                                        .extension()
-                                        .and_then(|e| e.to_str())
-                                        .unwrap_or("save");
-                                    let to = s.path.with_file_name(format!("{}.{}", trimmed, ext));
-                                    if to == s.path {
-                                        // No-op rename.
-                                        self.renaming = false;
-                                    } else if to.exists() {
-                                        self.last_error = Some("目标名称已存在".into());
-                                    } else {
-                                        cmds.push(SaveCommand::Rename {
-                                            from: s.path.clone(),
-                                            to,
-                                        });
-                                        self.renaming = false;
-                                        self.last_error = None;
-                                    }
-                                }
-                            }
-                        }
-                        if ui.button(tr("cancel")).clicked() {
-                            self.renaming = false;
-                            self.last_error = None;
-                        }
-                    });
-                }
-
-                // 删除确认。
-                if self.confirm_delete {
-                    ui.separator();
-                    let current_path = self
-                        .current()
-                        .map(|s| (s.path.clone(), s.display_name.clone()));
-                    if let Some((path, name)) = current_path {
-                        ui.colored_label(
-                            egui::Color32::from_rgb(230, 90, 90),
-                            format!("{} '{}'?", tr("confirm_delete"), name),
-                        );
-                        ui.horizontal(|ui| {
-                            if ui.button(tr("yes")).clicked() {
-                                cmds.push(SaveCommand::Delete(path));
-                                self.confirm_delete = false;
-                            }
-                            if ui.button(tr("cancel")).clicked() {
-                                self.confirm_delete = false;
-                            }
-                        });
-                    }
-                }
-
-                if let Some(err) = &self.last_error {
-                    ui.separator();
-                    ui.colored_label(egui::Color32::from_rgb(230, 90, 90), err);
-                }
-
-                ui.separator();
-                if ui.button(tr("close")).clicked() {
-                    close = true;
-                }
-            });
-
-        if !window_open {
-            close = true;
-        }
-        if close {
-            self.open = false;
-            self.renaming = false;
-            self.confirm_delete = false;
-            self.last_error = None;
-        }
-        (close, cmds)
+        self.show_v9(ctx)
     }
 }
 

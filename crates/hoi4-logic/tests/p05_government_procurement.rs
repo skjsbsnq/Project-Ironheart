@@ -54,10 +54,10 @@ fn government_procurement_reduces_steel_availability() {
         if let Some(bucket) = gov_bucket {
             if bucket.fulfilled > 0.0 {
                 let total_consumed: f32 = result.buckets.iter().map(|b| b.fulfilled).sum();
-                let expected_closing = result.stockpile_opening + result.domestic_production
-                    + result.imports
-                    - total_consumed
-                    - result.exports;
+                let expected_closing =
+                    result.stockpile_opening + result.domestic_production + result.imports
+                        - total_consumed
+                        - result.exports;
                 let without_government_procurement = result.stockpile_closing + bucket.fulfilled;
                 let tolerance = (expected_closing.abs() * 0.01).max(1.0);
                 assert!(

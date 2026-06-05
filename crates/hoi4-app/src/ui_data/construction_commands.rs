@@ -146,6 +146,7 @@ pub fn apply_construction_control_command(
             }
             handled()
         }
+        ConstructionV6Command::Panel(_) => ConstructionControlEffect::default(),
     }
 }
 

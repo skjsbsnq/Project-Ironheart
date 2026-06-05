@@ -621,11 +621,13 @@ impl StaticMapDecalSystem {
             plan.infrastructure_overlay = StaticMapDecalDecision::visible(0.65);
         }
 
-        if (static_enabled || overlay_enabled) && zoom >= 0.26 {
+        let network_line_mode =
+            matches!(context.map_mode, MapMode::Supply | MapMode::Infrastructure);
+        if network_line_mode && (static_enabled || overlay_enabled) && zoom >= 0.26 {
             plan.trade_routes =
                 StaticMapDecalDecision::visible(0.42 * smoothstep(0.24, 0.62, zoom));
         }
-        if (static_enabled || overlay_enabled) && zoom >= 0.18 {
+        if network_line_mode && (static_enabled || overlay_enabled) && zoom >= 0.18 {
             plan.straits = StaticMapDecalDecision::visible(0.55 * smoothstep(0.18, 0.55, zoom));
         }
 
@@ -653,7 +655,6 @@ impl SemanticOverlaySystem {
         budget.map_mode *= quality.label_density;
         let strategic = 1.0 - smoothstep(0.72, 0.95, zoom);
         let mid_zoom = smoothstep(0.16, 0.46, zoom);
-        let close_zoom = smoothstep(0.40, 0.72, zoom);
         let interaction_zoom = smoothstep(0.10, 0.28, zoom);
         let has_selection = context.selected_province_id != u32::MAX;
         let has_hover = context.hovered_province_id != u32::MAX
@@ -665,8 +666,6 @@ impl SemanticOverlaySystem {
             ..SemanticOverlayPlan::default()
         };
 
-        plan.occupation_stripes =
-            SemanticOverlayDecision::visible(budget.passive * mix(0.30, 0.72, close_zoom), 20);
         plan.frontlines = SemanticOverlayDecision::visible(
             budget.active * mix(0.58, 0.92, strategic) * mid_zoom,
             70,
@@ -840,8 +839,7 @@ impl MapPassDrawSet {
         let terrain_rivers_fallback =
             static_decals.terrain_rivers.visible && !dedicated_river_active;
         let terrain_semantic_overlays = mask.overlays
-            && (semantic_overlays.occupation_stripes.visible
-                || semantic_overlays.selected_province_pulse.visible
+            && (semantic_overlays.selected_province_pulse.visible
                 || semantic_overlays.hover_highlight.visible
                 || semantic_overlays.map_mode_overlay.visible);
         TerrainMaterialOwnership {
@@ -1265,6 +1263,29 @@ mod tests {
     }
 
     #[test]
+    fn network_lines_do_not_clutter_default_political_map() {
+        let renderer = MapRenderer::new();
+        let mut registry = PassRegistry::new();
+        renderer.register_passes(&mut registry);
+
+        let mut context = test_context(MapLayerMask::all());
+        context.map_mode = MapMode::Political;
+        context.zoom_factor = 0.75;
+        let political = renderer.build_frame_plan(context, &registry);
+        assert!(!political.static_decals.trade_routes.visible);
+        assert!(!political.static_decals.straits.visible);
+        assert!(!political.draw.trade_routes);
+        assert!(!political.draw.straits);
+
+        context.map_mode = MapMode::Supply;
+        let supply = renderer.build_frame_plan(context, &registry);
+        assert!(supply.static_decals.trade_routes.visible);
+        assert!(supply.static_decals.straits.visible);
+        assert!(supply.draw.trade_routes);
+        assert!(supply.draw.straits);
+    }
+
+    #[test]
     fn static_decal_kind_catalog_covers_phase6_scope() {
         assert_eq!(StaticMapDecalKind::ALL.len(), 8);
         assert!(StaticMapDecalKind::ALL.contains(&StaticMapDecalKind::TerrainRivers));
@@ -1307,12 +1328,12 @@ mod tests {
         context.hovered_province_id = 43;
         let plan = renderer.build_frame_plan(context, &registry);
         let overlays = plan.semantic_overlays;
-        assert!(overlays.occupation_stripes.visible);
+        assert!(!overlays.occupation_stripes.visible);
         assert!(overlays.arrows.visible);
         assert!(overlays.selected_province_pulse.visible);
         assert!(overlays.hover_highlight.visible);
         assert!(overlays.arrows.priority > overlays.frontlines.priority);
-        assert!(overlays.selected_province_pulse.priority > overlays.occupation_stripes.priority);
+        assert!(overlays.selected_province_pulse.priority > overlays.frontlines.priority);
     }
 
     #[test]
@@ -1512,7 +1533,7 @@ mod tests {
         );
         assert!(!ownership.terrain_water_final_color);
         assert!(!ownership.terrain_sdf_borders);
-        assert!(ownership.terrain_overlays);
+        assert!(!ownership.terrain_overlays);
 
         let river_fallback = plan.draw.terrain_material_ownership(
             MapLayerMask::all(),

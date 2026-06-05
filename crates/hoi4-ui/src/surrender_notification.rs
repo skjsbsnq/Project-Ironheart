@@ -10,14 +10,7 @@
 //! - 玩家点击「确认」后关闭当前通知，队列非空时显示下一条。
 //! - 通知全部确认后恢复游戏速度。
 
-use egui::{Color32, RichText};
-
 use crate::i18n::tr;
-
-const GOLD: Color32 = Color32::from_rgb(0xc9, 0xa5, 0x5b);
-const BAD: Color32 = Color32::from_rgb(0xe0, 0x60, 0x58);
-const GOOD: Color32 = Color32::from_rgb(0x70, 0xc8, 0x78);
-const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
 
 /// 单条投降/和平通知。
 #[derive(Debug, Clone)]
@@ -287,147 +280,11 @@ fn surrender_result_color(kind: SurrenderResultKind) -> egui::Color32 {
 /// - `notification`: 当前要显示的通知（来自队列前端）
 ///
 /// 返回 `Some(Acknowledge)` 表示玩家已确认；`None` = 未交互。
-#[allow(unreachable_code)]
 pub fn show_surrender_notification(
     ctx: &egui::Context,
     notification: &SurrenderNotification,
     queue_remaining: usize,
     index: usize,
 ) -> Option<SurrenderNotificationCommand> {
-    return show_surrender_notification_v9(ctx, notification, queue_remaining, index);
-
-    let mut cmd = None;
-
-    let kind_label = match notification.kind {
-        SurrenderKind::ScriptedSurrender => "投降",
-        SurrenderKind::AutoPeaceConference => "和平会议",
-        SurrenderKind::EmptyWarCleanup => "战争结束",
-    };
-
-    let title = if queue_remaining > 0 {
-        if notification.target_tag.is_empty() {
-            format!(
-                "{}  (+{} {})",
-                kind_label,
-                queue_remaining,
-                tr("more_events")
-            )
-        } else {
-            format!(
-                "{}: {} {}  (+{} {})",
-                kind_label,
-                notification.target_name,
-                tr("surrendered"),
-                queue_remaining,
-                tr("more_events")
-            )
-        }
-    } else {
-        if notification.target_tag.is_empty() {
-            kind_label.to_owned()
-        } else {
-            format!(
-                "{}: {} {}",
-                kind_label,
-                notification.target_name,
-                tr("surrendered")
-            )
-        }
-    };
-
-    let screen_rect = ctx.screen_rect();
-    let center = screen_rect.center();
-
-    egui::Window::new(&title)
-        .id(egui::Id::new(("surrender_notification", index)))
-        .pivot(egui::Align2::CENTER_CENTER)
-        .default_pos(center)
-        .collapsible(false)
-        .resizable(false)
-        .movable(false)
-        .default_width(520.0)
-        .show(ctx, |ui| {
-            ui.set_min_width(420.0);
-            ui.set_max_width(640.0);
-
-            // 顶部横幅
-            egui::Frame::new()
-                .fill(PANEL_CARD)
-                .stroke(egui::Stroke::new(1.0, BAD))
-                .inner_margin(egui::Margin::symmetric(10, 7))
-                .show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        if notification.winner_tag.is_empty() {
-                            ui.label(
-                                RichText::new(format!(
-                                    "{} {}",
-                                    notification.target_name,
-                                    tr("surrendered")
-                                ))
-                                .strong()
-                                .color(GOLD),
-                            );
-                        } else {
-                            ui.label(
-                                RichText::new(format!(
-                                    "{} {} {} {}",
-                                    notification.winner_name,
-                                    tr("defeated"),
-                                    notification.target_name,
-                                    tr("surrender_long")
-                                ))
-                                .strong()
-                                .color(GOLD),
-                            );
-                        }
-                    });
-                });
-
-            ui.add_space(6.0);
-
-            // 结果列表
-            if !notification.results.is_empty() {
-                ui.label(RichText::new(tr("peace_results")).strong().color(GOLD));
-                ui.add_space(4.0);
-                for entry in &notification.results {
-                    let (icon, color) = match entry.kind {
-                        SurrenderResultKind::Annexed => ("⚙", BAD),
-                        SurrenderResultKind::Puppeted => ("⛓", Color32::from_rgb(0xc0, 0xe0, 0xff)),
-                        SurrenderResultKind::StateTransferred => {
-                            ("🗺", Color32::from_rgb(0xe0, 0xc0, 0x80))
-                        }
-                        SurrenderResultKind::GovernmentToppled => {
-                            ("🏛", Color32::from_rgb(0xff, 0xc0, 0x60))
-                        }
-                        SurrenderResultKind::WhitePeace => ("☮", GOOD),
-                        SurrenderResultKind::WarRemoved => ("🗡", Color32::from_gray(180)),
-                    };
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(icon).color(color));
-                        ui.label(RichText::new(&entry.detail).color(color));
-                    });
-                }
-            } else {
-                ui.label(
-                    RichText::new(tr("war_concluded_no_territorial_change"))
-                        .color(Color32::from_gray(180)),
-                );
-            }
-
-            ui.add_space(8.0);
-            ui.separator();
-
-            // 确认按钮
-            ui.vertical_centered(|ui| {
-                let btn = ui.add_sized(
-                    [200.0, 32.0],
-                    egui::Button::new(RichText::new(tr("acknowledge")).strong()),
-                );
-                if btn.clicked() {
-                    cmd = Some(SurrenderNotificationCommand::Acknowledge);
-                }
-            });
-        });
-
-    cmd
+    show_surrender_notification_v9(ctx, notification, queue_remaining, index)
 }

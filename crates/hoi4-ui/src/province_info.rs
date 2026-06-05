@@ -3,7 +3,7 @@
 //! V3-economy: show what this province/state produces — resources (actual output),
 //! buildings, and construction projects.
 
-use crate::{components, data_table, i18n::tr};
+use crate::i18n::tr;
 
 /// Snapshot of province/state data for display.
 #[derive(Default)]
@@ -32,6 +32,7 @@ pub struct ProvinceTacticalInfo {
 
 #[derive(Default)]
 pub struct StateEconomicInfo {
+    pub state_id: u16,
     pub state_name: String,
     pub owner_tag: String,
     pub owner_name: String,
@@ -164,164 +165,8 @@ impl ProvinceInfoCard {
         self.open = open;
     }
 
-    #[allow(unreachable_code)]
     pub fn show(&mut self, ctx: &egui::Context, data: &ProvinceInfoData) {
-        return self.show_v9(ctx, data);
-
-        if !self.open {
-            self.last_rect = None;
-            return;
-        }
-        let gold = egui::Color32::from_rgb(0xc9, 0xa5, 0x5b);
-        let muted = egui::Color32::from_rgb(0x99, 0x99, 0x99);
-        let mut open = self.open;
-        let y_offset = -(8.0 + self.bottom_bar_height);
-        let response = egui::Window::new(tr("state_province_info"))
-            .open(&mut open)
-            .anchor(egui::Align2::LEFT_BOTTOM, [8.0, y_offset])
-            .order(egui::Order::Background)
-            .interactable(true)
-            .movable(false)
-            .collapsible(false)
-            .resizable(false)
-            .default_width(430.0)
-            .show(ctx, |ui| {
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false; 2])
-                    .max_height(ui.available_height().max(320.0))
-                    .show(ui, |ui| {
-                        section(ui, gold, tr("province_tactical_info"), |ui| {
-                            egui::Grid::new("province_tactical_grid")
-                                .num_columns(2)
-                                .spacing([18.0, 4.0])
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    key_value(ui, tr("province"), &data.province.province_name);
-                                    key_value(ui, tr("belongs_to_state"), &data.province.state_name);
-                                    key_value(ui, tr("owner"), &data.province.owner_name);
-                                    if data.province.owner_tag != data.province.controller_tag {
-                                        key_value(ui, tr("controller"), &data.province.controller_name);
-                                    }
-                                    key_value(ui, tr("province_kind"), format!("{} / {}", data.province.province_type, data.province.terrain));
-                                    key_value(ui, tr("supply"), format!("{:.0}", data.province.supply));
-                                    if data.province.coastal {
-                                        key_value(ui, "海岸", tr("coastal_province"));
-                                    }
-                                    if data.province.victory_points > 0 {
-                                        key_value(ui, tr("victory_points_label"), data.province.victory_points.to_string());
-                                    }
-                                    if !data.province.strategic_nodes.is_empty() {
-                                        key_value(ui, tr("strategic_nodes"), data.province.strategic_nodes.join("、"));
-                                    }
-                                });
-                            ui.add_space(4.0);
-                            ui.label("驻军与战术状态");
-                            if data.province.divisions.is_empty() {
-                                ui.colored_label(muted, tr("no_divisions"));
-                            } else {
-                                for name in &data.province.divisions {
-                                    ui.label(format!("- {}", name));
-                                }
-                            }
-                        });
-
-                        section(ui, gold, tr("state_economic_info"), |ui| {
-                            egui::Grid::new("state_economy_grid")
-                                .num_columns(2)
-                                .spacing([18.0, 4.0])
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    key_value(ui, "州", &data.state.state_name);
-                                    key_value(ui, tr("owner"), &data.state.owner_name);
-                                    if data.state.owner_tag != data.state.controller_tag {
-                                        key_value(ui, tr("controller"), &data.state.controller_name);
-                                    }
-                                    key_value(ui, "人口", format_population(data.state.population));
-                                    key_value(ui, tr("state_category_label"), &data.state.state_category);
-                                    key_value(ui, tr("infrastructure_label"), format!("{}/10", data.state.infrastructure));
-                                    key_value(ui, tr("slots_label"), format!("{}/{}", data.state.slots_used, data.state.slots_max));
-                                });
-                        });
-
-                        section(ui, gold, tr("state_buildings"), |ui| {
-                            if data.state.buildings.is_empty() {
-                                ui.colored_label(muted, tr("no_buildings"));
-                            } else {
-                                egui::Grid::new("state_building_table")
-                                    .num_columns(5)
-                                    .spacing([12.0, 4.0])
-                                    .striped(true)
-                                    .show(ui, |ui| {
-                                        table_header(ui, "建筑");
-                                        table_header(ui, "等级");
-                                        table_header(ui, tr("employment_rate"));
-                                        table_header(ui, "利润");
-                                        table_header(ui, "警告");
-                                        ui.end_row();
-                                        for building in &data.state.buildings {
-                                            ui.label(&building.name);
-                                            ui.label(format!("Lv {}", building.level));
-                                            ui.label(format!("{:.0}%", building.employment_rate.clamp(0.0, 1.0) * 100.0));
-                                            let profit_color = if building.profit_rm_weekly >= 0.0 { egui::Color32::LIGHT_GREEN } else { egui::Color32::LIGHT_RED };
-                                            ui.colored_label(profit_color, format!("{:+.1}M RM/周", building.profit_rm_weekly / 1_000_000.0));
-                                            if building.warnings.is_empty() {
-                                                ui.colored_label(muted, "无");
-                                            } else {
-                                                ui.colored_label(egui::Color32::from_rgb(0xff, 0xc0, 0x60), building.warnings.join("；"));
-                                            }
-                                            ui.end_row();
-                                        }
-                                    });
-                            }
-                        });
-
-                        section(ui, gold, tr("state_construction_projects"), |ui| {
-                            if data.state.construction_projects.is_empty() {
-                                ui.colored_label(muted, tr("no_state_construction"));
-                            } else {
-                                for item in &data.state.construction_projects {
-                                    let progress = item.progress.clamp(0.0, 1.0);
-                                    ui.horizontal(|ui| {
-                                        ui.label(format!("{} Lv {} -> {}", item.building_name, item.current_level, item.target_level));
-                                        let eta = item.estimated_days_remaining
-                                            .map(|days| format!("预计 {} 天", days))
-                                            .unwrap_or_else(|| "预计时间未知".to_owned());
-                                        ui.colored_label(muted, eta);
-                                    });
-                                    ui.add(egui::ProgressBar::new(progress).desired_width(360.0).text(format!("{:.0}%", progress * 100.0)));
-                                }
-                            }
-                        });
-
-                        section(ui, gold, tr("resources_label"), |ui| {
-                            ui.colored_label(muted, "本州资源与市场面板联动：产出进入全国市场，消费来源请在市场详情中查看。");
-                            if data.state.resources.is_empty() {
-                                ui.colored_label(muted, tr("no_resources"));
-                            } else {
-                                egui::Grid::new("state_resource_table")
-                                    .num_columns(4)
-                                    .spacing([16.0, 4.0])
-                                    .striped(true)
-                                    .show(ui, |ui| {
-                                        table_header(ui, "资源");
-                                        table_header(ui, "基础储量");
-                                        table_header(ui, "估算产出");
-                                        table_header(ui, "市场链接");
-                                        ui.end_row();
-                                        for ((name, level), (_, output)) in data.state.resources.iter().zip(data.state.resources_output.iter()) {
-                                            ui.label(name);
-                                            ui.label(format!("{:.0}", level));
-                                            ui.label(format!("{:.0}/日", output));
-                                            ui.colored_label(gold, "市场详情");
-                                            ui.end_row();
-                                        }
-                                    });
-                            }
-                        });
-                    });
-            });
-        self.last_rect = response.map(|inner| inner.response.rect);
-        self.open = open;
+        self.show_v9(ctx, data);
     }
 }
 
@@ -619,23 +464,6 @@ fn v9_heading(text: &str) -> egui::RichText {
     egui::RichText::new(text)
         .font(crate::v9::tokens::TextRole::Subheading.font_id())
         .color(crate::v9::tokens::palette::BRASS_BRIGHT)
-}
-
-fn section(
-    ui: &mut egui::Ui,
-    _color: egui::Color32,
-    title: &str,
-    add_contents: impl FnOnce(&mut egui::Ui),
-) {
-    components::section(ui, title, add_contents);
-}
-
-fn key_value(ui: &mut egui::Ui, key: &str, value: impl ToString) {
-    data_table::key_value(ui, key, value);
-}
-
-fn table_header(ui: &mut egui::Ui, text: &str) {
-    data_table::header(ui, text);
 }
 
 fn format_population(value: u64) -> String {

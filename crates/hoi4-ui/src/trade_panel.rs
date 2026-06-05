@@ -2,7 +2,11 @@
 //!
 //! V6.E 验收要求：面板显示进出口流量、贸易路线状态、封锁警告。
 
-use crate::i18n::tr;
+use crate::{
+    i18n::tr,
+    vanilla_iron::{LedgerPanelShell, VanillaIron},
+    ActiveDetailPanel, CountryDetailTarget, DetailSource, GoodsDetailTarget, PanelCommand,
+};
 use egui::{Color32, RichText};
 
 fn localized_trade_name(id: &str, fallback: &str) -> String {
@@ -59,10 +63,12 @@ pub struct TradePanelData {
 pub struct TradePanel;
 
 impl TradePanel {
-    #[allow(unreachable_code)]
-    pub fn show(ctx: &egui::Context, data: &TradePanelData) -> (bool, Vec<()>) {
-        return v9_show_trade(ctx, data);
+    pub fn show(ctx: &egui::Context, data: &TradePanelData) -> (bool, Vec<PanelCommand>) {
+        ledger_show_trade(ctx, data)
+    }
 
+    #[allow(dead_code)]
+    fn legacy_show(ctx: &egui::Context, data: &TradePanelData) -> (bool, Vec<()>) {
         let mut close = false;
 
         egui::SidePanel::left("trade_panel")
@@ -296,6 +302,280 @@ impl TradePanel {
 
         (close, Vec::new())
     }
+}
+
+fn ledger_show_trade(ctx: &egui::Context, data: &TradePanelData) -> (bool, Vec<PanelCommand>) {
+    let cap = if data.trade_capacity > 0.0 {
+        (data.trade_capacity_used / data.trade_capacity).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let accent = if data.is_blockaded {
+        VanillaIron::BAD
+    } else if data.is_fx_control || cap > 0.9 {
+        VanillaIron::WARN
+    } else {
+        VanillaIron::BRASS_BRIGHT
+    };
+
+    let (close, output) = LedgerPanelShell::new("trade_panel_ledger", tr("v6_trade_panel_title"))
+        .subtitle("路线 / 国家 / 关税 / 限制")
+        .footer("Q 关闭  |  点击商品或国家打开详情")
+        .accent(accent)
+        .show(ctx, |ui, layout| {
+            let mut cmds = Vec::new();
+            let top = layout.top_strip.shrink2(egui::Vec2::new(8.0, 7.0));
+            ui.allocate_ui_at_rect(top, |ui| trade_ledger_status(ui, data, cap));
+
+            let main = layout.main.shrink2(egui::Vec2::new(8.0, 7.0));
+            ui.allocate_ui_at_rect(main, |ui| trade_ledger_main(ui, data, &mut cmds));
+
+            let side = layout.side.shrink2(egui::Vec2::new(8.0, 7.0));
+            ui.allocate_ui_at_rect(side, |ui| trade_ledger_side(ui, data, cap));
+            cmds
+        });
+
+    (close, output.unwrap_or_default())
+}
+
+fn trade_ledger_status(ui: &mut egui::Ui, data: &TradePanelData, cap: f32) {
+    ui.columns(5, |columns| {
+        trade_metric(
+            &mut columns[0],
+            "外汇储备",
+            format!("£ {:.1}M", data.reserve_gbp / 1_000_000.0),
+            VanillaIron::GOOD,
+        );
+        trade_metric(
+            &mut columns[1],
+            "汇率",
+            format!("{:.2} RM/£", data.exchange_rate),
+            VanillaIron::TEXT,
+        );
+        trade_metric(
+            &mut columns[2],
+            "贸易差额",
+            format!("{:+.1}M £/日", data.trade_balance_daily_gbp / 1_000_000.0),
+            if data.trade_balance_daily_gbp >= 0.0 {
+                VanillaIron::GOOD
+            } else {
+                VanillaIron::BAD
+            },
+        );
+        trade_metric(
+            &mut columns[3],
+            "运力",
+            if data.trade_capacity > 0.0 {
+                format!("{:.0}/{:.0}", data.trade_capacity_used, data.trade_capacity)
+            } else {
+                "未限制".to_owned()
+            },
+            if cap > 0.9 {
+                VanillaIron::WARN
+            } else {
+                VanillaIron::TEXT
+            },
+        );
+        trade_metric(
+            &mut columns[4],
+            "状态",
+            if data.is_blockaded {
+                "封锁".to_owned()
+            } else if data.is_fx_control {
+                "外汇管制".to_owned()
+            } else {
+                "正常".to_owned()
+            },
+            if data.is_blockaded {
+                VanillaIron::BAD
+            } else if data.is_fx_control {
+                VanillaIron::WARN
+            } else {
+                VanillaIron::GOOD
+            },
+        );
+    });
+}
+
+fn trade_metric(ui: &mut egui::Ui, label: &str, value: String, color: Color32) {
+    ui.label(RichText::new(label).small().color(VanillaIron::MUTED));
+    ui.label(RichText::new(value).strong().color(color));
+}
+
+fn trade_ledger_main(ui: &mut egui::Ui, data: &TradePanelData, cmds: &mut Vec<PanelCommand>) {
+    VanillaIron::section_heading(ui, "贸易路线");
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            if data.routes.is_empty() {
+                ui.label(
+                    RichText::new("当前没有登记的贸易路线。")
+                        .small()
+                        .color(VanillaIron::MUTED),
+                );
+            }
+            for route in &data.routes {
+                egui::Frame::new()
+                    .fill(VanillaIron::CARD_DEEP)
+                    .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE_DARK))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .link(localized_trade_name(&route.good_id, &route.good_name))
+                                .clicked()
+                            {
+                                cmds.push(goods_detail_command(&route.good_id));
+                            }
+                            ui.label(RichText::new(&route.kind).small().color(VanillaIron::MUTED));
+                            if !route.partner_tag.is_empty()
+                                && ui.link(&route.partner_name).clicked()
+                            {
+                                cmds.push(country_detail_command(&route.partner_tag));
+                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new(format!("{:.1}/日", route.throughput)).color(
+                                            if route.is_blockaded {
+                                                VanillaIron::BAD
+                                            } else {
+                                                VanillaIron::TEXT
+                                            },
+                                        ),
+                                    );
+                                },
+                            );
+                        });
+                        let status = if route.is_blockaded {
+                            "封锁"
+                        } else if route.historical {
+                            "历史路线"
+                        } else {
+                            "正常"
+                        };
+                        ui.label(
+                            RichText::new(format!(
+                                "状态：{status}  影响：{}",
+                                route.affected.join("、")
+                            ))
+                            .small()
+                            .color(if route.is_blockaded {
+                                VanillaIron::WARN
+                            } else {
+                                VanillaIron::MUTED
+                            }),
+                        );
+                    });
+                ui.add_space(4.0);
+            }
+
+            ui.add_space(8.0);
+            VanillaIron::section_heading(ui, "商品-国家关系");
+            for flow in data.flows.iter().filter(|flow| {
+                flow.imports.abs() >= 0.001
+                    || flow.exports.abs() >= 0.001
+                    || flow.failure_reason.is_some()
+            }) {
+                egui::Frame::new()
+                    .fill(VanillaIron::CARD_DEEP)
+                    .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE_DARK))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .link(localized_trade_name(&flow.good_id, &flow.good_name))
+                                .clicked()
+                            {
+                                cmds.push(goods_detail_command(&flow.good_id));
+                            }
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(format!(
+                                        "进口 {:.1}  出口 {:.1}",
+                                        flow.imports, flow.exports
+                                    ));
+                                },
+                            );
+                        });
+                        ui.label(
+                            RichText::new(format!(
+                                "关税：进口 {:.0}% / 出口 {:.0}%  限制：{}",
+                                flow.import_tariff_rate * 100.0,
+                                flow.export_tariff_rate * 100.0,
+                                flow.failure_reason
+                                    .as_deref()
+                                    .map(trade_failure_label)
+                                    .unwrap_or("无"),
+                            ))
+                            .small()
+                            .color(if flow.failure_reason.is_some() {
+                                VanillaIron::WARN
+                            } else {
+                                VanillaIron::MUTED
+                            }),
+                        );
+                    });
+                ui.add_space(4.0);
+            }
+        });
+}
+
+fn trade_ledger_side(ui: &mut egui::Ui, data: &TradePanelData, cap: f32) {
+    VanillaIron::section_heading(ui, "贸易制度");
+    VanillaIron::info_row(ui, "当前法律", data.current_trade_law_name.clone());
+    VanillaIron::info_row(
+        ui,
+        "关税收入",
+        format!("{:.1} RM/日", data.tariff_income_daily_rm),
+    );
+    VanillaIron::info_row(ui, "运力占用", format!("{:.0}%", cap * 100.0));
+    ui.add_space(8.0);
+    if data.is_blockaded {
+        VanillaIron::warning_row(ui, tr("v6_blockade_warning"));
+    } else if data.is_fx_control {
+        VanillaIron::warning_row(ui, "当前贸易法启用外汇管制，进口受外汇储备和法律限制。");
+    }
+    ui.add_space(8.0);
+    VanillaIron::section_heading(ui, "伙伴");
+    let mut partners: Vec<(&str, &str)> = data
+        .routes
+        .iter()
+        .filter(|route| !route.partner_tag.is_empty())
+        .map(|route| (route.partner_tag.as_str(), route.partner_name.as_str()))
+        .collect();
+    partners.sort_by(|a, b| a.0.cmp(b.0));
+    partners.dedup_by(|a, b| a.0 == b.0);
+    if partners.is_empty() {
+        ui.label(
+            RichText::new("暂无贸易伙伴。")
+                .small()
+                .color(VanillaIron::MUTED),
+        );
+    } else {
+        for (tag, name) in partners.into_iter().take(8) {
+            ui.label(
+                RichText::new(format!("{name} ({tag})"))
+                    .small()
+                    .color(VanillaIron::TEXT),
+            );
+        }
+    }
+}
+
+fn goods_detail_command(good_id: &str) -> PanelCommand {
+    PanelCommand::OpenDetail(ActiveDetailPanel::Goods(GoodsDetailTarget::from_source(
+        good_id,
+        DetailSource::Trade,
+    )))
+}
+
+fn country_detail_command(tag: &str) -> PanelCommand {
+    PanelCommand::OpenDetail(ActiveDetailPanel::Country(CountryDetailTarget {
+        tag: tag.to_owned(),
+    }))
 }
 
 fn v9_show_trade(ctx: &egui::Context, data: &TradePanelData) -> (bool, Vec<()>) {

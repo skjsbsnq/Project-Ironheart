@@ -1,4 +1,8 @@
-use crate::components;
+use crate::{
+    components,
+    vanilla_iron::{CommandPanelShell, VanillaIron},
+    ActiveDetailPanel, ActivePrimaryPanel, FleetDetailTarget, PanelCommand,
+};
 use egui::{Color32, RichText};
 
 const GOLD: Color32 = Color32::from_rgb(0xc9, 0xa5, 0x5b);
@@ -110,6 +114,7 @@ pub enum NavalCommand {
         to_fleet_id: u32,
         count: usize,
     },
+    Panel(PanelCommand),
 }
 
 pub struct NavalPanel;
@@ -464,31 +469,237 @@ fn ratio_palette(value: f32) -> Color32 {
     }
 }
 
-impl NavalPanel {
-    #[allow(unreachable_code)]
-    pub fn show(ctx: &egui::Context, data: &NavalData) -> (bool, Vec<NavalCommand>) {
-        return v9_show_naval(ctx, data);
+fn command_show_naval(ctx: &egui::Context, data: &NavalData) -> (bool, Vec<NavalCommand>) {
+    let damaged: usize = data.fleets.iter().map(|fleet| fleet.damaged_ships).sum();
+    let max_risk = data
+        .fleets
+        .iter()
+        .map(|fleet| fleet.convoy_risk_pct)
+        .fold(0.0_f32, f32::max);
+    let accent = if max_risk >= 12.0 {
+        VanillaIron::BAD
+    } else if damaged > 0 {
+        VanillaIron::WARN
+    } else {
+        VanillaIron::BRASS_BRIGHT
+    };
+    let (close, output) = CommandPanelShell::new("naval_command_panel", "海军司令部")
+        .subtitle("舰队 / 任务海域 / 维修与补给")
+        .footer("Q 关闭 | 点击舰队打开详情")
+        .accent(accent)
+        .show(ctx, |ui, layout| {
+            let mut commands = Vec::new();
+            naval_command_nav(ui, layout.nav, data, &mut commands);
+            naval_command_main(ui, layout.main, data, damaged, max_risk, &mut commands);
+            naval_command_strip(ui, layout.bottom_strip, data, &mut commands);
+            commands
+        });
+    (close, output.unwrap_or_default())
+}
 
-        let mut close = false;
-        let mut commands = Vec::new();
-        egui::SidePanel::left("naval_panel")
-            .default_width(560.0)
-            .min_width(500.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                components::panel_header(ui, "海军司令部", &mut close);
-                render_summary(ui, data);
-                render_selection_banner(ui, data, &mut commands);
-                render_status_banner(ui, data);
-
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
+fn naval_command_nav(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &NavalData,
+    commands: &mut Vec<NavalCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "舰队");
+        VanillaIron::info_row(ui, "舰队数", data.fleets.len().to_string());
+        VanillaIron::info_row(
+            ui,
+            "舰船",
+            data.fleets
+                .iter()
+                .map(|fleet| fleet.ship_count)
+                .sum::<usize>()
+                .to_string(),
+        );
+        ui.add_space(8.0);
+        if data.fleets.is_empty() {
+            ui.label(
+                RichText::new("暂无舰队。")
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+            return;
+        }
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for fleet in &data.fleets {
+                let accent = if fleet.convoy_risk_pct >= 12.0 {
+                    VanillaIron::BAD
+                } else if fleet.damaged_ships > 0 || fleet.target_region_id.is_some() {
+                    VanillaIron::WARN
+                } else {
+                    VanillaIron::BRASS_BRIGHT
+                };
+                egui::Frame::new()
+                    .fill(VanillaIron::CARD_DEEP)
+                    .stroke(egui::Stroke::new(1.0, accent))
+                    .inner_margin(egui::Margin::symmetric(7, 5))
                     .show(ui, |ui| {
-                        render_fleet_section(ui, data, &mut commands);
-                        render_help_card(ui);
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&fleet.name).strong().color(VanillaIron::TEXT));
+                            if ui.small_button("详情").clicked() {
+                                commands.push(NavalCommand::Panel(PanelCommand::OpenDetail(
+                                    ActiveDetailPanel::Fleet(FleetDetailTarget {
+                                        fleet_id: fleet.id,
+                                    }),
+                                )));
+                            }
+                        });
+                        ui.label(
+                            RichText::new(format!(
+                                "{} / 海区 {} / {} 艘",
+                                fleet.mission.label(),
+                                fleet.region_id,
+                                fleet.ship_count
+                            ))
+                            .small()
+                            .color(VanillaIron::MUTED),
+                        );
+                    });
+                ui.add_space(4.0);
+            }
+        });
+    });
+}
+
+fn naval_command_main(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &NavalData,
+    damaged: usize,
+    max_risk: f32,
+    commands: &mut Vec<NavalCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "海军态势");
+        ui.columns(4, |columns| {
+            VanillaIron::info_row(&mut columns[0], "运输船", format!("{:.0}", data.convoys));
+            VanillaIron::info_row(
+                &mut columns[1],
+                "舰船库存",
+                format!("{:.0}", data.naval_vessels),
+            );
+            VanillaIron::value_row(
+                &mut columns[2],
+                "受损舰船",
+                damaged.to_string(),
+                if damaged > 0 {
+                    VanillaIron::WARN
+                } else {
+                    VanillaIron::MUTED
+                },
+            );
+            VanillaIron::value_row(
+                &mut columns[3],
+                "最高风险",
+                format!("{max_risk:.0}%"),
+                if max_risk >= 12.0 {
+                    VanillaIron::BAD
+                } else {
+                    VanillaIron::GOOD
+                },
+            );
+        });
+        ui.add_space(8.0);
+        if let Some(id) = data.transfer_source_fleet {
+            VanillaIron::warning_row(ui, &format!("舰队 #{id} 已设为转移来源。"));
+        }
+        if let Some(id) = data.pending_move_fleet {
+            VanillaIron::warning_row(ui, &format!("舰队 #{id} 正等待地图选择目标海区。"));
+        }
+        ui.add_space(8.0);
+        VanillaIron::section_heading(ui, "舰队状态");
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("naval_command_fleet_grid")
+                    .striped(true)
+                    .spacing(egui::vec2(8.0, 4.0))
+                    .show(ui, |ui| {
+                        for fleet in &data.fleets {
+                            if ui.link(&fleet.name).clicked() {
+                                commands.push(NavalCommand::Panel(PanelCommand::OpenDetail(
+                                    ActiveDetailPanel::Fleet(FleetDetailTarget {
+                                        fleet_id: fleet.id,
+                                    }),
+                                )));
+                            }
+                            ui.label(fleet.mission.label());
+                            ui.label(format!("海区 {}", fleet.region_id));
+                            ui.label(format!("{} 艘", fleet.ship_count));
+                            ui.label(
+                                RichText::new(format!("受损 {}", fleet.damaged_ships)).color(
+                                    if fleet.damaged_ships > 0 {
+                                        VanillaIron::WARN
+                                    } else {
+                                        VanillaIron::MUTED
+                                    },
+                                ),
+                            );
+                            ui.label(
+                                RichText::new(format!("{:.0}% 风险", fleet.convoy_risk_pct)).color(
+                                    if fleet.convoy_risk_pct >= 12.0 {
+                                        VanillaIron::BAD
+                                    } else {
+                                        VanillaIron::MUTED
+                                    },
+                                ),
+                            );
+                            ui.end_row();
+                        }
                     });
             });
-        (close, commands)
+    });
+}
+
+fn naval_command_strip(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &NavalData,
+    commands: &mut Vec<NavalCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        ui.horizontal_wrapped(|ui| {
+            if let Some(fleet) = data.fleets.first() {
+                if VanillaIron::compact_button(ui, "舰队详情").clicked() {
+                    commands.push(NavalCommand::Panel(PanelCommand::OpenDetail(
+                        ActiveDetailPanel::Fleet(FleetDetailTarget { fleet_id: fleet.id }),
+                    )));
+                }
+                if VanillaIron::compact_button(ui, "移动到选中海区").clicked() {
+                    commands.push(NavalCommand::MoveToSelectedSeaRegion { fleet_id: fleet.id });
+                }
+                if VanillaIron::compact_button(ui, "设为转移来源").clicked() {
+                    commands.push(NavalCommand::SetTransferSource { fleet_id: fleet.id });
+                }
+                if VanillaIron::compact_button(ui, "巡逻").clicked() {
+                    commands.push(NavalCommand::SetMission {
+                        fleet_id: fleet.id,
+                        mission: NavalMissionUi::Patrol,
+                    });
+                }
+                if VanillaIron::compact_button(ui, "护航").clicked() {
+                    commands.push(NavalCommand::SetMission {
+                        fleet_id: fleet.id,
+                        mission: NavalMissionUi::ConvoyEscort,
+                    });
+                }
+            }
+            if VanillaIron::compact_button(ui, "打开物流").clicked() {
+                commands.push(NavalCommand::Panel(PanelCommand::OpenPrimary(
+                    ActivePrimaryPanel::Logistics,
+                )));
+            }
+        });
+    });
+}
+
+impl NavalPanel {
+    pub fn show(ctx: &egui::Context, data: &NavalData) -> (bool, Vec<NavalCommand>) {
+        command_show_naval(ctx, data)
     }
 }
 

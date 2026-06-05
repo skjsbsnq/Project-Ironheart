@@ -25,6 +25,7 @@ use std::path::PathBuf;
 use crate::egui;
 use crate::i18n::{self, tr, Language};
 use crate::v9::accessibility::{AccessibilitySettings, ColorBlindMode, FontScale};
+use crate::vanilla_iron::{UtilityWindowShell, VanillaIron};
 
 /// G.3 唯一的 settings 值对象。所有字段都是显式默认值，没有 `Option`。
 #[derive(Debug, Clone, PartialEq)]
@@ -394,70 +395,17 @@ impl SettingsPanel {
         if !self.open {
             return (false, Vec::new());
         }
-        use crate::v9::composites::panel_shell::{
-            draw_summary_tiles, draw_tab_strip, PanelClass, PanelShell,
-        };
-        use crate::v9::tokens::palette;
 
         let mut cmds: Vec<SettingsCommand> = Vec::new();
         let mut close_requested = false;
-        let resolution = self
-            .draft
-            .resolution
-            .map(|(w, h)| format!("{}x{}", w, h))
-            .unwrap_or_else(|| tr("current").to_owned());
-        let terrain = if self.draft.enable_3d_terrain {
-            "3D".to_owned()
-        } else {
-            tr("legacy").to_owned()
-        };
-
-        let (shell_close, _) = PanelShell::new("settings_panel_v9", tr("settings_title"))
-            .subtitle(tr("settings_subtitle"))
-            .class(PanelClass::Settings)
-            .accent(palette::INFO)
-            .footer("Q Close  |  Apply writes settings.toml")
-            .show(ctx, |ui, layout| {
-                draw_summary_tiles(
-                    ui,
-                    layout.summary,
-                    &[
-                        (
-                            tr("language"),
-                            self.draft.language.display_name().to_owned(),
-                            palette::GOLD,
-                        ),
-                        (tr("resolution"), resolution, palette::INFO),
-                        (
-                            tr("fullscreen"),
-                            if self.draft.fullscreen {
-                                tr("on")
-                            } else {
-                                tr("off")
-                            }
-                            .to_owned(),
-                            if self.draft.fullscreen {
-                                palette::GOOD
-                            } else {
-                                palette::MUTED
-                            },
-                        ),
-                        (
-                            tr("speed"),
-                            self.draft.max_speed.to_string(),
-                            palette::BRASS_BRIGHT,
-                        ),
-                        (
-                            tr("font"),
-                            self.draft.font_scale.label().to_owned(),
-                            palette::INFO,
-                        ),
-                        (tr("terrain"), terrain, palette::GOLD),
-                    ],
-                );
-                draw_tab_strip(ui, layout.tabs, tr("settings_tabs"), palette::INFO);
-                v9_settings_body(ui, layout.body, self, &mut cmds, &mut close_requested);
-            });
+        let (shell_close, _) =
+            UtilityWindowShell::new("settings_utility_window", tr("settings_title"))
+                .subtitle(tr("settings_subtitle"))
+                .accent(VanillaIron::BRASS_BRIGHT)
+                .footer("Q 关闭 | 保存写入 settings.toml")
+                .show(ctx, |ui, layout| {
+                    v9_settings_body(ui, layout.main, self, &mut cmds, &mut close_requested);
+                });
 
         let close = shell_close || close_requested;
         if close {
@@ -468,221 +416,8 @@ impl SettingsPanel {
 
     /// 渲染面板。返回 (`close_panel`, 副作用命令列表)。caller 应在 [`close_panel=true`] 时
     /// 关闭其外部状态对应的面板（与 InGamePanel::Settings 联动）。
-    #[allow(unreachable_code)]
     pub fn show(&mut self, ctx: &egui::Context) -> (bool, Vec<SettingsCommand>) {
-        return self.show_v9(ctx);
-
-        if !self.open {
-            return (false, Vec::new());
-        }
-        use crate::components;
-        let mut cmds: Vec<SettingsCommand> = Vec::new();
-        let mut close = false;
-        let mut window_open = self.open;
-        egui::Window::new(tr("settings_title"))
-            .open(&mut window_open)
-            .default_width(440.0)
-            .resizable(false)
-            .frame(
-                egui::Frame::new()
-                    .fill(egui::Color32::from_rgb(0x22, 0x18, 0x10))
-                    .stroke(egui::Stroke::new(1.5, components::GOLD_DIM))
-                    .inner_margin(egui::Margin::symmetric(12, 10)),
-            )
-            .show(ctx, |ui| {
-                // ── 语言 ────────────────────────────────────────
-                components::section(ui, tr("language"), |ui| {
-                    ui.horizontal(|ui| {
-                        let prev_lang = self.draft.language;
-                        for &lang in Language::all() {
-                            ui.selectable_value(
-                                &mut self.draft.language,
-                                lang,
-                                lang.display_name(),
-                            );
-                        }
-                        if prev_lang != self.draft.language {
-                            i18n::set_language(self.draft.language);
-                            cmds.push(SettingsCommand::SetLanguage(self.draft.language));
-                        }
-                    });
-                });
-
-                // ── 显示 ────────────────────────────────────────
-                components::section(ui, tr("display"), |ui| {
-                    let was_fs = self.draft.fullscreen;
-                    ui.checkbox(&mut self.draft.fullscreen, tr("fullscreen"));
-                    if was_fs != self.draft.fullscreen {
-                        cmds.push(SettingsCommand::SetFullscreen(self.draft.fullscreen));
-                    }
-
-                    ui.add_enabled_ui(!self.draft.fullscreen, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label(format!("{}:", tr("resolution")));
-                            let prev_idx = self.resolution_idx;
-                            egui::ComboBox::from_id_salt("settings_res")
-                                .selected_text(format!(
-                                    "{} × {}",
-                                    COMMON_RESOLUTIONS[self.resolution_idx].0,
-                                    COMMON_RESOLUTIONS[self.resolution_idx].1
-                                ))
-                                .show_ui(ui, |ui| {
-                                    for (i, (w, h)) in COMMON_RESOLUTIONS.iter().enumerate() {
-                                        ui.selectable_value(
-                                            &mut self.resolution_idx,
-                                            i,
-                                            format!("{} × {}", w, h),
-                                        );
-                                    }
-                                });
-                            if prev_idx != self.resolution_idx {
-                                let (w, h) = COMMON_RESOLUTIONS[self.resolution_idx];
-                                self.draft.resolution = Some((w, h));
-                                cmds.push(SettingsCommand::SetResolution(w, h));
-                            }
-                        });
-                    });
-
-                    let prev_3d_terrain = self.draft.enable_3d_terrain;
-                    ui.checkbox(&mut self.draft.enable_3d_terrain, tr("enable_3d_terrain"));
-                    if prev_3d_terrain != self.draft.enable_3d_terrain {
-                        cmds.push(SettingsCommand::SetEnable3dTerrain(
-                            self.draft.enable_3d_terrain,
-                        ));
-                    }
-                });
-
-                // ── 音量 ────────────────────────────────────────
-                components::section(ui, tr("audio"), |ui| {
-                    let mut volumes_changed = false;
-                    volumes_changed |= ui
-                        .add(
-                            egui::Slider::new(&mut self.draft.master_volume, 0.0..=1.0)
-                                .text(tr("master_volume")),
-                        )
-                        .changed();
-                    volumes_changed |= ui
-                        .add(
-                            egui::Slider::new(&mut self.draft.music_volume, 0.0..=1.0)
-                                .text(tr("music_volume")),
-                        )
-                        .changed();
-                    volumes_changed |= ui
-                        .add(
-                            egui::Slider::new(&mut self.draft.ui_volume, 0.0..=1.0)
-                                .text(tr("ui_volume")),
-                        )
-                        .changed();
-                    if volumes_changed {
-                        cmds.push(SettingsCommand::SetVolumes);
-                    }
-                });
-
-                // ── 速度上限 ────────────────────────────────────
-                components::section(ui, tr("game"), |ui| {
-                    let prev_speed = self.draft.max_speed;
-                    ui.horizontal(|ui| {
-                        ui.label(format!("{}:", tr("max_speed")));
-                        for n in 1u8..=5 {
-                            ui.selectable_value(&mut self.draft.max_speed, n, format!("{}", n));
-                        }
-                    });
-                    if prev_speed != self.draft.max_speed {
-                        cmds.push(SettingsCommand::SetMaxSpeed(self.draft.max_speed));
-                    }
-                });
-
-                // ── 自动暂停 ────────────────────────────────────
-                components::section(ui, tr("auto_pause"), |ui| {
-                    ui.checkbox(
-                        &mut self.draft.auto_pause.major_events,
-                        tr("auto_pause_major_events"),
-                    );
-                    ui.checkbox(
-                        &mut self.draft.auto_pause.focus_completed,
-                        tr("auto_pause_focus_completed"),
-                    );
-                    ui.checkbox(
-                        &mut self.draft.auto_pause.war_started,
-                        tr("auto_pause_war_started"),
-                    );
-                    ui.checkbox(
-                        &mut self.draft.auto_pause.decision_completed,
-                        tr("auto_pause_decision_completed"),
-                    );
-                    ui.checkbox(
-                        &mut self.draft.auto_pause.tension_spike,
-                        tr("auto_pause_tension_spike"),
-                    );
-                });
-
-                // ── 调试 ────────────────────────────────────────
-                components::section(ui, tr("debug"), |ui| {
-                    let prev_show_all = self.draft.show_all_units;
-                    ui.checkbox(&mut self.draft.show_all_units, tr("show_all_units"));
-                    if prev_show_all != self.draft.show_all_units {
-                        cmds.push(SettingsCommand::SetShowAllUnits(self.draft.show_all_units));
-                    }
-                    let prev_hide_ai_frontlines = self.draft.hide_ai_frontlines;
-                    ui.checkbox(&mut self.draft.hide_ai_frontlines, tr("hide_ai_frontlines"));
-                    if prev_hide_ai_frontlines != self.draft.hide_ai_frontlines {
-                        cmds.push(SettingsCommand::SetHideAiFrontlines(
-                            self.draft.hide_ai_frontlines,
-                        ));
-                    }
-                    let prev_instant = self.draft.instant_war;
-                    ui.checkbox(&mut self.draft.instant_war, tr("instant_war"));
-                    if prev_instant != self.draft.instant_war {
-                        cmds.push(SettingsCommand::SetInstantWar(self.draft.instant_war));
-                    }
-                });
-
-                // ── 操作按钮 ────────────────────────────────────
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    if components::action_button_colored(
-                        ui,
-                        true,
-                        tr("apply_save"),
-                        components::GOOD,
-                    )
-                    .clicked()
-                    {
-                        cmds.push(SettingsCommand::Save);
-                        self.committed = self.draft.clone();
-                    }
-                    if components::action_button_colored(ui, true, tr("revert"), components::WARN)
-                        .clicked()
-                    {
-                        let prev_lang = self.draft.language;
-                        self.draft = self.committed.clone();
-                        self.resolution_idx = COMMON_RESOLUTIONS
-                            .iter()
-                            .position(|r| Some(*r) == self.draft.resolution)
-                            .unwrap_or(0);
-                        i18n::set_language(self.draft.language);
-                        if prev_lang != self.draft.language {
-                            cmds.push(SettingsCommand::SetLanguage(self.draft.language));
-                        }
-                    }
-                    if components::action_button_colored(ui, true, tr("close"), components::MUTED)
-                        .clicked()
-                    {
-                        close = true;
-                    }
-                });
-                if let Some(err) = &self.last_error {
-                    ui.add_space(4.0);
-                    ui.colored_label(components::BAD, err);
-                }
-            });
-        if !window_open {
-            close = true;
-        }
-        if close {
-            self.open = false;
-        }
-        (close, cmds)
+        self.show_v9(ctx)
     }
 }
 

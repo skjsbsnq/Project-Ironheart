@@ -2,7 +2,12 @@
 //!
 //! 先让玩家能看到 POP 的总量、阶级结构和州分布，不接入新的经济或政治规则。
 
-use crate::{components, data_table, i18n::tr};
+use crate::{
+    components, data_table,
+    i18n::tr,
+    vanilla_iron::{VanillaIron, WorkbenchShell},
+    ActiveDetailPanel, BuildingDetailTarget, PanelCommand, PopGroupDetailTarget, StateDetailTarget,
+};
 use egui::{Color32, RichText};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,7 +107,9 @@ pub struct PopStateEntry {
 
 #[derive(Debug, Clone)]
 pub struct PopBuildingEmploymentEntry {
+    pub building_key: String,
     pub building_name: String,
+    pub state_id: u16,
     pub state_name: String,
     pub level: u8,
     pub employed: u32,
@@ -161,359 +168,614 @@ pub fn pop_v9_secondary_tabs() -> &'static [(&'static str, &'static str)] {
 pub struct PopPanel;
 
 impl PopPanel {
-    #[allow(unreachable_code)]
-    pub fn show(ctx: &egui::Context, data: &PopPanelData) -> (bool, Vec<()>) {
-        return v9_show_pop(ctx, data);
+    pub fn show(ctx: &egui::Context, data: &PopPanelData) -> (bool, Vec<PanelCommand>) {
+        workbench_show_pop(ctx, data)
+    }
+}
 
-        let mut close = false;
+fn legacy_show_pop(ctx: &egui::Context, data: &PopPanelData) -> (bool, Vec<()>) {
+    let mut close = false;
 
-        egui::SidePanel::left("pop_panel")
-            .default_width(720.0)
-            .min_width(560.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                components::panel_header(ui, tr("pops"), &mut close);
-                components::summary_strip(
-                    ui,
-                    &[
-                        ("总人口", format!("{}", data.total_population)),
-                        ("劳动力", format!("{}", data.workforce)),
-                        ("就业", format!("{}", data.employed)),
-                        ("失业率", format!("{:.1}%", data.unemployment_rate * 100.0)),
-                    ],
-                );
-                components::summary_strip(
-                    ui,
-                    &[
-                        ("识字率", format!("{:.0}%", data.literacy * 100.0)),
-                        ("熟练人口", format!("{:.0}%", data.skilled_ratio * 100.0)),
-                        (
-                            "资质瓶颈",
-                            if data.skilled_ratio < 0.25 || data.literacy < 0.45 {
-                                "严重".to_owned()
-                            } else if data.skilled_ratio < 0.35 || data.literacy < 0.55 {
-                                "中等".to_owned()
-                            } else {
-                                "可控".to_owned()
-                            },
-                        ),
-                        ("教育增长", "大学/职员推动".to_owned()),
-                    ],
-                );
-                components::summary_strip(
-                    ui,
-                    &[
-                        ("激进化", format!("{:.0}%", data.radicalism * 100.0)),
-                        ("罢工风险", format!("{:.0}%", data.strike_risk * 100.0)),
-                        ("征兵抵抗", format!("{:.0}%", data.draft_resistance * 100.0)),
-                        ("政治压力", format!("{} 项", data.political_pressures.len())),
-                    ],
-                );
-                components::summary_strip(
-                    ui,
-                    &[
-                        ("平均工资", format!("{:.1} RM", data.average_wage_rm)),
-                        ("平均收入", format!("{:.1} RM", data.average_income_rm)),
-                        (
-                            "平均可支配",
-                            format!("{:.1} RM", data.average_disposable_income_rm),
-                        ),
-                        ("士兵池", format!("{}", data.soldier_pool)),
-                    ],
-                );
-                components::summary_strip(
-                    ui,
-                    &[
-                        (
-                            "平均满意度",
-                            format!("{:.0}%", data.average_satisfaction * 100.0),
-                        ),
-                        ("平均忠诚", format!("{:.0}%", data.average_loyalty * 100.0)),
-                        (
-                            "生活水平",
-                            format!("{:.0}%", data.average_standard_of_living * 100.0),
-                        ),
-                        (
-                            "需求满足",
-                            format!("{:.0}%", data.needs_fulfillment * 100.0),
-                        ),
-                    ],
-                );
-                components::summary_strip(
-                    ui,
-                    &[
-                        (
-                            "基础需求",
-                            format!("{:.0}%", data.essential_needs_fulfillment * 100.0),
-                        ),
-                        (
-                            "普通需求",
-                            format!("{:.0}%", data.normal_needs_fulfillment * 100.0),
-                        ),
-                        (
-                            "奢侈需求",
-                            format!("{:.0}%", data.luxury_needs_fulfillment * 100.0),
-                        ),
-                        (
-                            "普通/奢侈",
-                            format!(
-                                "{:.0}% / {:.0}%",
-                                data.normal_needs_fulfillment * 100.0,
-                                data.luxury_needs_fulfillment * 100.0
-                            ),
-                        ),
-                    ],
-                );
-
-                if !data.alerts.is_empty() {
-                    ui.add_space(4.0);
-                    for alert in &data.alerts {
-                        ui.colored_label(Color32::from_rgb(0xc0, 0x60, 0x60), alert);
-                    }
-                }
-
-                let zero_pop_states: Vec<_> =
-                    data.states.iter().filter(|s| s.population == 0).collect();
-                if !zero_pop_states.is_empty() {
-                    ui.add_space(4.0);
-                    ui.colored_label(
-                        Color32::from_rgb(0xc0, 0x80, 0x40),
+    egui::SidePanel::left("pop_panel")
+        .default_width(720.0)
+        .min_width(560.0)
+        .resizable(true)
+        .show(ctx, |ui| {
+            components::panel_header(ui, tr("pops"), &mut close);
+            components::summary_strip(
+                ui,
+                &[
+                    ("总人口", format!("{}", data.total_population)),
+                    ("劳动力", format!("{}", data.workforce)),
+                    ("就业", format!("{}", data.employed)),
+                    ("失业率", format!("{:.1}%", data.unemployment_rate * 100.0)),
+                ],
+            );
+            components::summary_strip(
+                ui,
+                &[
+                    ("识字率", format!("{:.0}%", data.literacy * 100.0)),
+                    ("熟练人口", format!("{:.0}%", data.skilled_ratio * 100.0)),
+                    (
+                        "资质瓶颈",
+                        if data.skilled_ratio < 0.25 || data.literacy < 0.45 {
+                            "严重".to_owned()
+                        } else if data.skilled_ratio < 0.35 || data.literacy < 0.55 {
+                            "中等".to_owned()
+                        } else {
+                            "可控".to_owned()
+                        },
+                    ),
+                    ("教育增长", "大学/职员推动".to_owned()),
+                ],
+            );
+            components::summary_strip(
+                ui,
+                &[
+                    ("激进化", format!("{:.0}%", data.radicalism * 100.0)),
+                    ("罢工风险", format!("{:.0}%", data.strike_risk * 100.0)),
+                    ("征兵抵抗", format!("{:.0}%", data.draft_resistance * 100.0)),
+                    ("政治压力", format!("{} 项", data.political_pressures.len())),
+                ],
+            );
+            components::summary_strip(
+                ui,
+                &[
+                    ("平均工资", format!("{:.1} RM", data.average_wage_rm)),
+                    ("平均收入", format!("{:.1} RM", data.average_income_rm)),
+                    (
+                        "平均可支配",
+                        format!("{:.1} RM", data.average_disposable_income_rm),
+                    ),
+                    ("士兵池", format!("{}", data.soldier_pool)),
+                ],
+            );
+            components::summary_strip(
+                ui,
+                &[
+                    (
+                        "平均满意度",
+                        format!("{:.0}%", data.average_satisfaction * 100.0),
+                    ),
+                    ("平均忠诚", format!("{:.0}%", data.average_loyalty * 100.0)),
+                    (
+                        "生活水平",
+                        format!("{:.0}%", data.average_standard_of_living * 100.0),
+                    ),
+                    (
+                        "需求满足",
+                        format!("{:.0}%", data.needs_fulfillment * 100.0),
+                    ),
+                ],
+            );
+            components::summary_strip(
+                ui,
+                &[
+                    (
+                        "基础需求",
+                        format!("{:.0}%", data.essential_needs_fulfillment * 100.0),
+                    ),
+                    (
+                        "普通需求",
+                        format!("{:.0}%", data.normal_needs_fulfillment * 100.0),
+                    ),
+                    (
+                        "奢侈需求",
+                        format!("{:.0}%", data.luxury_needs_fulfillment * 100.0),
+                    ),
+                    (
+                        "普通/奢侈",
                         format!(
-                            "⚠ {} 个州无人口数据（{}）",
-                            zero_pop_states.len(),
-                            zero_pop_states
-                                .iter()
-                                .map(|s| s.state_name.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
+                            "{:.0}% / {:.0}%",
+                            data.normal_needs_fulfillment * 100.0,
+                            data.luxury_needs_fulfillment * 100.0
                         ),
-                    );
-                }
+                    ),
+                ],
+            );
 
+            if !data.alerts.is_empty() {
                 ui.add_space(4.0);
-                ui.separator();
+                for alert in &data.alerts {
+                    ui.colored_label(Color32::from_rgb(0xc0, 0x60, 0x60), alert);
+                }
+            }
 
-                let filter_id = ui.make_persistent_id("pop_integration_filter");
-                let mut filter_index = ctx
-                    .data_mut(|data| data.get_persisted::<usize>(filter_id))
-                    .unwrap_or(0);
-                let mut filter = PopIntegrationFilter::from_index(filter_index);
-                let domestic_population: u64 = data
-                    .states
-                    .iter()
-                    .filter(|row| row.integration_kind == PopIntegrationKind::Domestic)
-                    .map(|row| row.population)
-                    .sum();
-                let colonial_population: u64 = data
-                    .states
-                    .iter()
-                    .filter(|row| row.integration_kind == PopIntegrationKind::Colonial)
-                    .map(|row| row.population)
-                    .sum();
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(RichText::new("人口口径").strong());
-                    if ui
-                        .selectable_label(filter == PopIntegrationFilter::All, "全部")
-                        .clicked()
-                    {
-                        filter = PopIntegrationFilter::All;
-                    }
-                    if ui
-                        .selectable_label(filter == PopIntegrationFilter::Domestic, "本土")
-                        .clicked()
-                    {
-                        filter = PopIntegrationFilter::Domestic;
-                    }
-                    if ui
-                        .selectable_label(filter == PopIntegrationFilter::Colonial, "殖民/占领")
-                        .clicked()
-                    {
-                        filter = PopIntegrationFilter::Colonial;
-                    }
-                    ui.separator();
-                    ui.label(format!("本土 {}", domestic_population));
-                    ui.label(format!("殖民/占领 {}", colonial_population));
-                });
-                filter_index = filter.index();
-                ctx.data_mut(|data| data.insert_persisted(filter_id, filter_index));
-
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    components::section(ui, "阶级", |ui| {
-                        if data.classes.is_empty() {
-                            components::empty_state(
-                                ui,
-                                "没有 POP 数据",
-                                "当前国家尚未注入可统计的人口。 ",
-                            );
-                        } else {
-                            egui::Grid::new("pop_class_grid")
-                                .num_columns(18)
-                                .spacing([10.0, 4.0])
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    data_table::header(ui, "阶级");
-                                    data_table::header(ui, "人口");
-                                    data_table::header(ui, "就业");
-                                    data_table::header(ui, "失业");
-                                    data_table::header(ui, "工资");
-                                    data_table::header(ui, "税负");
-                                    data_table::header(ui, "收入");
-                                    data_table::header(ui, "缴税");
-                                    data_table::header(ui, "可支配");
-                                    data_table::header(ui, "满意度");
-                                    data_table::header(ui, "忠诚");
-                                    data_table::header(ui, "生活");
-                                    data_table::header(ui, "识字");
-                                    data_table::header(ui, "熟练");
-                                    data_table::header(ui, "基础");
-                                    data_table::header(ui, "普通");
-                                    data_table::header(ui, "奢侈");
-                                    data_table::header(ui, "激进");
-                                    ui.end_row();
-
-                                    for row in &data.classes {
-                                        ui.label(RichText::new(&row.class_name).strong());
-                                        ui.label(format!("{}", row.size));
-                                        ui.label(format!("{}", row.employed));
-                                        ui.label(format!("{}", row.unemployed));
-                                        ui.label(format!("{:.1}", row.avg_wage_rm));
-                                        ui.label(format!("{:.2}", row.avg_tax_burden));
-                                        ui.label(format!("{:.1}", row.avg_income_rm));
-                                        ui.label(format!("{:.2}", row.avg_tax_paid_rm));
-                                        ui.label(format!("{:.1}", row.avg_disposable_income_rm));
-                                        ui.label(format!("{:.0}%", row.avg_satisfaction * 100.0));
-                                        ui.label(format!("{:.0}%", row.avg_loyalty * 100.0));
-                                        ui.label(format!(
-                                            "{:.0}%",
-                                            row.avg_standard_of_living * 100.0
-                                        ));
-                                        ui.label(format!("{:.0}%", row.literacy * 100.0));
-                                        ui.label(format!("{:.0}%", row.skilled_ratio * 100.0));
-                                        ui.label(format!(
-                                            "{:.0}%",
-                                            row.essential_needs_fulfillment * 100.0
-                                        ));
-                                        ui.label(format!(
-                                            "{:.0}%",
-                                            row.normal_needs_fulfillment * 100.0
-                                        ));
-                                        ui.label(format!(
-                                            "{:.0}%",
-                                            row.luxury_needs_fulfillment * 100.0
-                                        ));
-                                        ui.label(format!("{:.0}%", row.radicalism * 100.0));
-                                        ui.end_row();
-                                    }
-                                });
-                        }
-                    });
-
-                    components::section(ui, "政治压力", |ui| {
-                        if data.political_pressures.is_empty() {
-                            components::empty_state(
-                                ui,
-                                "没有显著政治压力",
-                                "POP 激进化处于可控范围。 ",
-                            );
-                        } else {
-                            egui::Grid::new("pop_political_pressure_grid")
-                                .num_columns(3)
-                                .spacing([10.0, 4.0])
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    data_table::header(ui, "来源");
-                                    data_table::header(ui, "压力");
-                                    data_table::header(ui, "说明");
-                                    ui.end_row();
-
-                                    for row in &data.political_pressures {
-                                        ui.label(RichText::new(&row.source).strong());
-                                        ui.label(format!("{:.0}%", row.pressure * 100.0));
-                                        ui.label(&row.description);
-                                        ui.end_row();
-                                    }
-                                });
-                        }
-                    });
-
-                    components::section(ui, "生活需求", |ui| {
-                        if data.needs.is_empty() {
-                            components::empty_state(
-                                ui,
-                                "没有需求数据",
-                                "POP 需求尚未进入市场 tick。 ",
-                            );
-                        } else {
-                            egui::Grid::new("pop_needs_grid")
-                                .num_columns(3)
-                                .spacing([10.0, 4.0])
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    data_table::header(ui, "层级");
-                                    data_table::header(ui, "满足率");
-                                    data_table::header(ui, "说明");
-                                    ui.end_row();
-
-                                    for row in &data.needs {
-                                        ui.label(RichText::new(&row.tier_name).strong());
-                                        ui.label(format!("{:.0}%", row.fulfillment * 100.0));
-                                        ui.label(&row.description);
-                                        ui.end_row();
-                                    }
-                                });
-                        }
-                    });
-
-                    components::section(ui, "州分布", |ui| {
-                        let filtered_states: Vec<_> = data
-                            .states
+            let zero_pop_states: Vec<_> =
+                data.states.iter().filter(|s| s.population == 0).collect();
+            if !zero_pop_states.is_empty() {
+                ui.add_space(4.0);
+                ui.colored_label(
+                    Color32::from_rgb(0xc0, 0x80, 0x40),
+                    format!(
+                        "⚠ {} 个州无人口数据（{}）",
+                        zero_pop_states.len(),
+                        zero_pop_states
                             .iter()
-                            .filter(|row| row.integration_kind.matches_filter(filter))
-                            .collect();
-                        if filtered_states.is_empty() {
-                            components::empty_state(
-                                ui,
-                                "没有州数据",
-                                "当前口径下没有可统计的州人口。 ",
-                            );
-                        } else {
-                            egui::Grid::new("pop_state_grid")
-                                .num_columns(10)
-                                .spacing([10.0, 4.0])
-                                .striped(true)
-                                .show(ui, |ui| {
-                                    data_table::header(ui, "州");
-                                    data_table::header(ui, "口径");
-                                    data_table::header(ui, "人口");
-                                    data_table::header(ui, "就业");
-                                    data_table::header(ui, "失业率");
-                                    data_table::header(ui, "平均工资");
-                                    data_table::header(ui, "平均收入");
-                                    data_table::header(ui, "可支配");
-                                    data_table::header(ui, "满意度");
-                                    data_table::header(ui, "主导阶级");
-                                    ui.end_row();
+                            .map(|s| s.state_name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                );
+            }
 
-                                    for row in filtered_states {
-                                        ui.label(RichText::new(&row.state_name).strong());
-                                        ui.label(&row.integration_label);
-                                        ui.label(format!("{}", row.population));
-                                        ui.label(format!("{}", row.employed));
-                                        ui.label(format!("{:.1}%", row.unemployment_rate * 100.0));
-                                        ui.label(format!("{:.1}", row.avg_wage_rm));
-                                        ui.label(format!("{:.1}", row.avg_income_rm));
-                                        ui.label(format!("{:.1}", row.avg_disposable_income_rm));
-                                        ui.label(format!("{:.0}%", row.avg_satisfaction * 100.0));
-                                        ui.label(&row.dominant_class);
-                                        ui.end_row();
-                                    }
-                                });
-                        }
-                    });
+            ui.add_space(4.0);
+            ui.separator();
+
+            let filter_id = ui.make_persistent_id("pop_integration_filter");
+            let mut filter_index = ctx
+                .data_mut(|data| data.get_persisted::<usize>(filter_id))
+                .unwrap_or(0);
+            let mut filter = PopIntegrationFilter::from_index(filter_index);
+            let domestic_population: u64 = data
+                .states
+                .iter()
+                .filter(|row| row.integration_kind == PopIntegrationKind::Domestic)
+                .map(|row| row.population)
+                .sum();
+            let colonial_population: u64 = data
+                .states
+                .iter()
+                .filter(|row| row.integration_kind == PopIntegrationKind::Colonial)
+                .map(|row| row.population)
+                .sum();
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new("人口口径").strong());
+                if ui
+                    .selectable_label(filter == PopIntegrationFilter::All, "全部")
+                    .clicked()
+                {
+                    filter = PopIntegrationFilter::All;
+                }
+                if ui
+                    .selectable_label(filter == PopIntegrationFilter::Domestic, "本土")
+                    .clicked()
+                {
+                    filter = PopIntegrationFilter::Domestic;
+                }
+                if ui
+                    .selectable_label(filter == PopIntegrationFilter::Colonial, "殖民/占领")
+                    .clicked()
+                {
+                    filter = PopIntegrationFilter::Colonial;
+                }
+                ui.separator();
+                ui.label(format!("本土 {}", domestic_population));
+                ui.label(format!("殖民/占领 {}", colonial_population));
+            });
+            filter_index = filter.index();
+            ctx.data_mut(|data| data.insert_persisted(filter_id, filter_index));
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                components::section(ui, "阶级", |ui| {
+                    if data.classes.is_empty() {
+                        components::empty_state(
+                            ui,
+                            "没有 POP 数据",
+                            "当前国家尚未注入可统计的人口。 ",
+                        );
+                    } else {
+                        egui::Grid::new("pop_class_grid")
+                            .num_columns(18)
+                            .spacing([10.0, 4.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                data_table::header(ui, "阶级");
+                                data_table::header(ui, "人口");
+                                data_table::header(ui, "就业");
+                                data_table::header(ui, "失业");
+                                data_table::header(ui, "工资");
+                                data_table::header(ui, "税负");
+                                data_table::header(ui, "收入");
+                                data_table::header(ui, "缴税");
+                                data_table::header(ui, "可支配");
+                                data_table::header(ui, "满意度");
+                                data_table::header(ui, "忠诚");
+                                data_table::header(ui, "生活");
+                                data_table::header(ui, "识字");
+                                data_table::header(ui, "熟练");
+                                data_table::header(ui, "基础");
+                                data_table::header(ui, "普通");
+                                data_table::header(ui, "奢侈");
+                                data_table::header(ui, "激进");
+                                ui.end_row();
+
+                                for row in &data.classes {
+                                    ui.label(RichText::new(&row.class_name).strong());
+                                    ui.label(format!("{}", row.size));
+                                    ui.label(format!("{}", row.employed));
+                                    ui.label(format!("{}", row.unemployed));
+                                    ui.label(format!("{:.1}", row.avg_wage_rm));
+                                    ui.label(format!("{:.2}", row.avg_tax_burden));
+                                    ui.label(format!("{:.1}", row.avg_income_rm));
+                                    ui.label(format!("{:.2}", row.avg_tax_paid_rm));
+                                    ui.label(format!("{:.1}", row.avg_disposable_income_rm));
+                                    ui.label(format!("{:.0}%", row.avg_satisfaction * 100.0));
+                                    ui.label(format!("{:.0}%", row.avg_loyalty * 100.0));
+                                    ui.label(format!("{:.0}%", row.avg_standard_of_living * 100.0));
+                                    ui.label(format!("{:.0}%", row.literacy * 100.0));
+                                    ui.label(format!("{:.0}%", row.skilled_ratio * 100.0));
+                                    ui.label(format!(
+                                        "{:.0}%",
+                                        row.essential_needs_fulfillment * 100.0
+                                    ));
+                                    ui.label(format!(
+                                        "{:.0}%",
+                                        row.normal_needs_fulfillment * 100.0
+                                    ));
+                                    ui.label(format!(
+                                        "{:.0}%",
+                                        row.luxury_needs_fulfillment * 100.0
+                                    ));
+                                    ui.label(format!("{:.0}%", row.radicalism * 100.0));
+                                    ui.end_row();
+                                }
+                            });
+                    }
+                });
+
+                components::section(ui, "政治压力", |ui| {
+                    if data.political_pressures.is_empty() {
+                        components::empty_state(
+                            ui,
+                            "没有显著政治压力",
+                            "POP 激进化处于可控范围。 ",
+                        );
+                    } else {
+                        egui::Grid::new("pop_political_pressure_grid")
+                            .num_columns(3)
+                            .spacing([10.0, 4.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                data_table::header(ui, "来源");
+                                data_table::header(ui, "压力");
+                                data_table::header(ui, "说明");
+                                ui.end_row();
+
+                                for row in &data.political_pressures {
+                                    ui.label(RichText::new(&row.source).strong());
+                                    ui.label(format!("{:.0}%", row.pressure * 100.0));
+                                    ui.label(&row.description);
+                                    ui.end_row();
+                                }
+                            });
+                    }
+                });
+
+                components::section(ui, "生活需求", |ui| {
+                    if data.needs.is_empty() {
+                        components::empty_state(ui, "没有需求数据", "POP 需求尚未进入市场 tick。 ");
+                    } else {
+                        egui::Grid::new("pop_needs_grid")
+                            .num_columns(3)
+                            .spacing([10.0, 4.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                data_table::header(ui, "层级");
+                                data_table::header(ui, "满足率");
+                                data_table::header(ui, "说明");
+                                ui.end_row();
+
+                                for row in &data.needs {
+                                    ui.label(RichText::new(&row.tier_name).strong());
+                                    ui.label(format!("{:.0}%", row.fulfillment * 100.0));
+                                    ui.label(&row.description);
+                                    ui.end_row();
+                                }
+                            });
+                    }
+                });
+
+                components::section(ui, "州分布", |ui| {
+                    let filtered_states: Vec<_> = data
+                        .states
+                        .iter()
+                        .filter(|row| row.integration_kind.matches_filter(filter))
+                        .collect();
+                    if filtered_states.is_empty() {
+                        components::empty_state(
+                            ui,
+                            "没有州数据",
+                            "当前口径下没有可统计的州人口。 ",
+                        );
+                    } else {
+                        egui::Grid::new("pop_state_grid")
+                            .num_columns(10)
+                            .spacing([10.0, 4.0])
+                            .striped(true)
+                            .show(ui, |ui| {
+                                data_table::header(ui, "州");
+                                data_table::header(ui, "口径");
+                                data_table::header(ui, "人口");
+                                data_table::header(ui, "就业");
+                                data_table::header(ui, "失业率");
+                                data_table::header(ui, "平均工资");
+                                data_table::header(ui, "平均收入");
+                                data_table::header(ui, "可支配");
+                                data_table::header(ui, "满意度");
+                                data_table::header(ui, "主导阶级");
+                                ui.end_row();
+
+                                for row in filtered_states {
+                                    ui.label(RichText::new(&row.state_name).strong());
+                                    ui.label(&row.integration_label);
+                                    ui.label(format!("{}", row.population));
+                                    ui.label(format!("{}", row.employed));
+                                    ui.label(format!("{:.1}%", row.unemployment_rate * 100.0));
+                                    ui.label(format!("{:.1}", row.avg_wage_rm));
+                                    ui.label(format!("{:.1}", row.avg_income_rm));
+                                    ui.label(format!("{:.1}", row.avg_disposable_income_rm));
+                                    ui.label(format!("{:.0}%", row.avg_satisfaction * 100.0));
+                                    ui.label(&row.dominant_class);
+                                    ui.end_row();
+                                }
+                            });
+                    }
                 });
             });
+        });
 
-        (close, Vec::new())
+    (close, Vec::new())
+}
+
+fn workbench_show_pop(ctx: &egui::Context, data: &PopPanelData) -> (bool, Vec<PanelCommand>) {
+    let filter_id = egui::Id::new("pop_panel_workbench_filter");
+    let mut filter = PopIntegrationFilter::from_index(
+        ctx.data_mut(|data| data.get_persisted::<usize>(filter_id))
+            .unwrap_or(0),
+    );
+    let accent = if data.radicalism >= 0.45 || data.strike_risk >= 0.35 {
+        VanillaIron::BAD
+    } else if data.unemployment_rate >= 0.12 || data.needs_fulfillment < 0.65 {
+        VanillaIron::WARN
+    } else {
+        VanillaIron::BRASS_BRIGHT
+    };
+
+    let (close, output) = WorkbenchShell::new("pop_panel_workbench", tr("pops"))
+        .subtitle("人群 / 州 / 就业 / 需求")
+        .footer("Q 关闭  |  点击行打开详情")
+        .accent(accent)
+        .show(ctx, |ui, layout| {
+            let mut cmds = Vec::new();
+            let nav = layout.nav.shrink2(egui::Vec2::new(8.0, 7.0));
+            ui.allocate_ui_at_rect(nav, |ui| pop_workbench_nav(ui, data, &mut filter));
+
+            let main = layout.main.shrink2(egui::Vec2::new(8.0, 7.0));
+            ui.allocate_ui_at_rect(main, |ui| {
+                pop_workbench_main(ui, data, filter, &mut cmds);
+            });
+
+            let side = layout.side.shrink2(egui::Vec2::new(8.0, 7.0));
+            ui.allocate_ui_at_rect(side, |ui| {
+                pop_workbench_side(ui, data, &mut cmds);
+            });
+            cmds
+        });
+
+    ctx.data_mut(|data| data.insert_persisted(filter_id, filter.index()));
+    (close, output.unwrap_or_default())
+}
+
+fn pop_workbench_nav(ui: &mut egui::Ui, data: &PopPanelData, filter: &mut PopIntegrationFilter) {
+    VanillaIron::section_heading(ui, "人口总览");
+    VanillaIron::info_row(ui, "总人口", v9_count(data.total_population));
+    VanillaIron::info_row(ui, "就业", v9_count(data.employed));
+    VanillaIron::info_row(ui, "失业", v9_percent(data.unemployment_rate));
+    VanillaIron::info_row(ui, "生活水平", v9_percent(data.average_standard_of_living));
+    ui.add_space(10.0);
+
+    VanillaIron::section_heading(ui, "地区筛选");
+    for (next, label) in [
+        (PopIntegrationFilter::All, "全部"),
+        (PopIntegrationFilter::Domestic, "本土"),
+        (PopIntegrationFilter::Colonial, "殖民/占领"),
+    ] {
+        if ui
+            .selectable_label(
+                *filter == next,
+                RichText::new(label).color(VanillaIron::TEXT),
+            )
+            .clicked()
+        {
+            *filter = next;
+        }
+    }
+    ui.add_space(10.0);
+    VanillaIron::section_heading(ui, "风险");
+    VanillaIron::info_row(ui, "满意度", v9_percent(data.average_satisfaction));
+    VanillaIron::info_row(ui, "需求满足", v9_percent(data.needs_fulfillment));
+    VanillaIron::info_row(ui, "激进化", v9_percent(data.radicalism));
+    VanillaIron::info_row(ui, "罢工风险", v9_percent(data.strike_risk));
+}
+
+fn pop_workbench_main(
+    ui: &mut egui::Ui,
+    data: &PopPanelData,
+    filter: PopIntegrationFilter,
+    cmds: &mut Vec<PanelCommand>,
+) {
+    VanillaIron::section_heading(ui, "人口组");
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            for class in &data.classes {
+                let response = egui::Frame::new()
+                    .fill(VanillaIron::CARD_DEEP)
+                    .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE_DARK))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "{}  {}  失业 {}",
+                                    class.class_name,
+                                    v9_count(class.size),
+                                    v9_count(class.unemployed),
+                                ))
+                                .strong()
+                                .color(VanillaIron::TEXT),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    ui.label(
+                                        RichText::new(v9_percent(class.avg_satisfaction))
+                                            .color(v9_good_percent_color(class.avg_satisfaction)),
+                                    );
+                                },
+                            );
+                        });
+                        ui.label(
+                            RichText::new(format!(
+                                "收入 {:.1} RM  需求 {}  激进 {}",
+                                class.avg_income_rm,
+                                v9_percent(class.needs_fulfillment),
+                                v9_percent(class.radicalism),
+                            ))
+                            .small()
+                            .color(VanillaIron::MUTED),
+                        );
+                    })
+                    .response;
+                if response.clicked() {
+                    cmds.push(PanelCommand::OpenDetail(ActiveDetailPanel::PopGroup(
+                        PopGroupDetailTarget {
+                            pop_group_key: class.class_name.clone(),
+                            state_id: None,
+                        },
+                    )));
+                }
+                ui.add_space(4.0);
+            }
+
+            ui.add_space(8.0);
+            VanillaIron::section_heading(ui, "州人口");
+            for state in data
+                .states
+                .iter()
+                .filter(|state| state.integration_kind.matches_filter(filter))
+            {
+                let response = egui::Frame::new()
+                    .fill(VanillaIron::CARD_DEEP)
+                    .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE_DARK))
+                    .inner_margin(egui::Margin::symmetric(8, 6))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "{}  {}  {}",
+                                    state.state_name,
+                                    state.integration_label,
+                                    v9_count(state.population),
+                                ))
+                                .color(VanillaIron::TEXT),
+                            );
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.small_button("州详情").clicked() {
+                                        cmds.push(PanelCommand::OpenDetail(
+                                            ActiveDetailPanel::State(StateDetailTarget {
+                                                state_id: state.state_id,
+                                            }),
+                                        ));
+                                    }
+                                },
+                            );
+                        });
+                        ui.label(
+                            RichText::new(format!(
+                                "就业 {}  失业 {}  主导阶层 {}",
+                                v9_count(state.employed),
+                                v9_percent(state.unemployment_rate),
+                                state.dominant_class,
+                            ))
+                            .small()
+                            .color(VanillaIron::MUTED),
+                        );
+                    })
+                    .response;
+                if response.clicked() {
+                    cmds.push(PanelCommand::OpenDetail(ActiveDetailPanel::PopGroup(
+                        PopGroupDetailTarget {
+                            pop_group_key: format!("{}人口", state.state_name),
+                            state_id: Some(state.state_id),
+                        },
+                    )));
+                }
+                ui.add_space(4.0);
+            }
+        });
+}
+
+fn pop_workbench_side(ui: &mut egui::Ui, data: &PopPanelData, cmds: &mut Vec<PanelCommand>) {
+    VanillaIron::section_heading(ui, "就业与需求");
+    if data.building_employment.is_empty() {
+        ui.label(
+            RichText::new("暂无建筑就业数据。")
+                .small()
+                .color(VanillaIron::MUTED),
+        );
+    } else {
+        for row in data.building_employment.iter().take(8) {
+            let response = egui::Frame::new()
+                .fill(VanillaIron::CARD_DEEP)
+                .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE_DARK))
+                .inner_margin(egui::Margin::symmetric(7, 5))
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(format!("{} Lv {}", row.building_name, row.level))
+                            .color(VanillaIron::TEXT),
+                    );
+                    ui.label(
+                        RichText::new(format!(
+                            "{}  就业 {}/{}  资质 {}",
+                            row.state_name,
+                            row.employed,
+                            row.demand,
+                            v9_percent(row.qualification_rate),
+                        ))
+                        .small()
+                        .color(if row.employment_rate < 0.75 {
+                            VanillaIron::WARN
+                        } else {
+                            VanillaIron::MUTED
+                        }),
+                    );
+                })
+                .response;
+            if response.clicked() {
+                cmds.push(PanelCommand::OpenDetail(ActiveDetailPanel::Building(
+                    BuildingDetailTarget {
+                        building_key: row.building_key.clone(),
+                        state_id: Some(row.state_id),
+                    },
+                )));
+            }
+            ui.add_space(4.0);
+        }
+    }
+
+    ui.add_space(8.0);
+    VanillaIron::section_heading(ui, "消费需求");
+    for need in &data.needs {
+        VanillaIron::info_row(ui, &need.tier_name, v9_percent(need.fulfillment));
+    }
+    if !data.political_pressures.is_empty() {
+        ui.add_space(8.0);
+        VanillaIron::section_heading(ui, "政治压力");
+        for pressure in data.political_pressures.iter().take(4) {
+            ui.label(
+                RichText::new(format!(
+                    "{}：{}",
+                    pressure.source,
+                    v9_percent(pressure.pressure)
+                ))
+                .small()
+                .color(VanillaIron::WARN),
+            );
+        }
     }
 }
 

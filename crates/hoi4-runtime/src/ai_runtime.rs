@@ -16,7 +16,7 @@ use hoi4_ai::StrategicAi;
 
 use crate::schedule::SimContext;
 
-const INTERACTIVE_AI_BUCKETS: usize = 4;
+const INTERACTIVE_AI_BUCKETS: usize = 8;
 
 /// 战略 AI companion 状态。
 pub struct AiState {
@@ -68,4 +68,20 @@ pub fn ai_daily_bucket_2(ctx: &mut SimContext) {
 
 pub fn ai_daily_bucket_3(ctx: &mut SimContext) {
     ai_daily_bucket(ctx, 3);
+}
+
+pub fn ai_daily_bucket_4(ctx: &mut SimContext) {
+    ai_daily_bucket(ctx, 4);
+}
+
+pub fn ai_daily_bucket_5(ctx: &mut SimContext) {
+    ai_daily_bucket(ctx, 5);
+}
+
+pub fn ai_daily_bucket_6(ctx: &mut SimContext) {
+    ai_daily_bucket(ctx, 6);
+}
+
+pub fn ai_daily_bucket_7(ctx: &mut SimContext) {
+    ai_daily_bucket(ctx, 7);
 }

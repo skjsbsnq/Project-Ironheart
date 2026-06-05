@@ -80,6 +80,29 @@ pub fn build_color_lut(
     lut
 }
 
+pub fn color_lut_entry(
+    world: &World,
+    mode: MapMode,
+    player_country: Option<hoi4_state::CountryId>,
+    province_idx: usize,
+) -> [u8; 4] {
+    let mut entry = match mode {
+        MapMode::Political => political_entry(world, province_idx),
+        MapMode::Terrain => terrain_entry(world, province_idx),
+        MapMode::Manpower => manpower_entry(world, province_idx),
+        MapMode::Factories => factories_entry(world, province_idx),
+        MapMode::Infrastructure => infrastructure_entry(world, province_idx),
+        MapMode::Cores => cores_entry(world, player_country, province_idx),
+        MapMode::Ideology => ideology_entry(world, province_idx),
+        MapMode::Supply => supply_entry(world, province_idx),
+        MapMode::Resistance => resistance_entry(world, province_idx),
+    };
+    if entry[3] == 0 {
+        entry = default_province_entry(world, province_idx);
+    }
+    entry
+}
+
 fn write_pixel(lut: &mut [u8], idx: usize, r: u8, g: u8, b: u8) {
     let o = idx * 4;
     if o + 3 < lut.len() {
@@ -88,6 +111,10 @@ fn write_pixel(lut: &mut [u8], idx: usize, r: u8, g: u8, b: u8) {
         lut[o + 2] = b;
         lut[o + 3] = 255;
     }
+}
+
+fn rgba(r: u8, g: u8, b: u8) -> [u8; 4] {
+    [r, g, b, 255]
 }
 
 fn political_lut_color(color: [u8; 3]) -> (u8, u8, u8) {
@@ -285,42 +312,216 @@ fn fill_resistance(world: &World, lut: &mut [u8]) {
     }
 }
 
-/// Build a per-province "occupation overlay" LUT.
+fn political_entry(world: &World, province_idx: usize) -> [u8; 4] {
+    let Some(&owner) = world.provinces.owners.get(province_idx) else {
+        return [0; 4];
+    };
+    if owner.is_none() {
+        return [0; 4];
+    }
+    let controller = world
+        .provinces
+        .controllers
+        .get(province_idx)
+        .copied()
+        .unwrap_or(CountryId::NONE);
+    let country = country_for_controller_color(world, owner, controller);
+    if country.0 as usize >= world.countries.count {
+        return [0; 4];
+    }
+    let (r, g, b) = political_lut_color(world.countries.colors[country.0 as usize]);
+    rgba(r, g, b)
+}
+
+fn terrain_entry(world: &World, province_idx: usize) -> [u8; 4] {
+    let Some(def) = world
+        .map
+        .definitions
+        .get(province_idx)
+        .and_then(|def| def.as_ref())
+    else {
+        return [0; 4];
+    };
+    let (r, g, b) = match def.terrain.as_str() {
+        "plains" => (180, 200, 130),
+        "forest" => (50, 110, 50),
+        "hills" => (140, 130, 90),
+        "mountain" => (100, 90, 70),
+        "desert" => (220, 200, 130),
+        "marsh" => (90, 110, 80),
+        "jungle" => (30, 100, 30),
+        "urban" => (160, 160, 160),
+        _ => (140, 140, 140),
+    };
+    rgba(r, g, b)
+}
+
+fn manpower_entry(world: &World, province_idx: usize) -> [u8; 4] {
+    let Some(state_idx) = state_idx_for_province(world, province_idx) else {
+        return [0; 4];
+    };
+    let max_mp = world
+        .states
+        .manpower_pool
+        .iter()
+        .copied()
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let mp = world.states.manpower_pool[state_idx];
+    let t = (mp as f32 / max_mp as f32).sqrt();
+    rgba(
+        (50.0 + t * 200.0) as u8,
+        (50.0 + (1.0 - t) * 100.0) as u8,
+        50,
+    )
+}
+
+fn factories_entry(world: &World, province_idx: usize) -> [u8; 4] {
+    let Some(state_idx) = state_idx_for_province(world, province_idx) else {
+        return [0; 4];
+    };
+    let max_total: u32 = (0..world.states.count)
+        .map(|i| world.state_building_levels(hoi4_state::StateId(i as u16)) as u32)
+        .max()
+        .unwrap_or(1)
+        .max(1);
+    let total = world.state_building_levels(hoi4_state::StateId(state_idx as u16)) as u32;
+    let t = (total as f32 / max_total as f32).sqrt();
+    rgba(50, (50.0 + t * 180.0) as u8, (200.0 - t * 100.0) as u8)
+}
+
+fn infrastructure_entry(world: &World, province_idx: usize) -> [u8; 4] {
+    let Some(state_idx) = state_idx_for_province(world, province_idx) else {
+        return [0; 4];
+    };
+    let t = (world.states.infrastructure[state_idx] as f32) / 10.0;
+    rgba((200.0 - t * 150.0) as u8, (50.0 + t * 200.0) as u8, 50)
+}
+
+fn cores_entry(
+    world: &World,
+    player_country: Option<hoi4_state::CountryId>,
+    province_idx: usize,
+) -> [u8; 4] {
+    let Some(country_id) = player_country else {
+        return political_entry(world, province_idx);
+    };
+    let Some(state_idx) = state_idx_for_province(world, province_idx) else {
+        return political_entry(world, province_idx);
+    };
+    if !world
+        .states
+        .cores
+        .get(state_idx)
+        .is_some_and(|cores| cores.contains(&country_id))
+    {
+        return political_entry(world, province_idx);
+    }
+    let is_owned = world
+        .states
+        .owners
+        .get(state_idx)
+        .copied()
+        .is_some_and(|owner| owner == country_id);
+    if is_owned {
+        rgba(200, 60, 60)
+    } else {
+        rgba(120, 30, 30)
+    }
+}
+
+fn ideology_entry(world: &World, province_idx: usize) -> [u8; 4] {
+    let Some(&owner) = world.provinces.owners.get(province_idx) else {
+        return [0; 4];
+    };
+    if owner.is_none() {
+        return [0; 4];
+    }
+    let controller = world
+        .provinces
+        .controllers
+        .get(province_idx)
+        .copied()
+        .unwrap_or(CountryId::NONE);
+    let country = controller_country(owner, controller);
+    if country.0 as usize >= world.countries.count {
+        return [0; 4];
+    }
+    let (r, g, b) = match world.countries.ruling_party[country.0 as usize].as_str() {
+        "democratic" => (60, 90, 170),
+        "communism" => (180, 30, 30),
+        "fascism" => (80, 60, 40),
+        "neutrality" => (140, 140, 140),
+        _ => (100, 100, 100),
+    };
+    rgba(r, g, b)
+}
+
+fn supply_entry(world: &World, province_idx: usize) -> [u8; 4] {
+    let Some(&supply) = world.provinces.supply.get(province_idx) else {
+        return [0; 4];
+    };
+    let t = (supply / 100.0).clamp(0.0, 1.0);
+    rgba(
+        (30.0 + (1.0 - t) * 170.0) as u8,
+        (60.0 + (1.0 - t) * 120.0) as u8,
+        (180.0 - (1.0 - t) * 60.0) as u8,
+    )
+}
+
+fn resistance_entry(world: &World, province_idx: usize) -> [u8; 4] {
+    let Some(state_idx) = state_idx_for_province(world, province_idx) else {
+        return [0; 4];
+    };
+    let t = world.states.compliance[state_idx];
+    rgba(
+        (50.0 + (1.0 - t) * 200.0) as u8,
+        (50.0 + t * 200.0) as u8,
+        50,
+    )
+}
+
+fn state_idx_for_province(world: &World, province_idx: usize) -> Option<usize> {
+    let state = world.provinces.state_of.get(province_idx).copied()?;
+    if state.is_none() {
+        return None;
+    }
+    let state_idx = state.0 as usize;
+    (state_idx < world.states.count).then_some(state_idx)
+}
+
+fn default_province_entry(world: &World, province_idx: usize) -> [u8; 4] {
+    let Some(def) = world
+        .map
+        .definitions
+        .get(province_idx)
+        .and_then(|def| def.as_ref())
+    else {
+        return [0; 4];
+    };
+    let (r, g, b) = match def.province_type {
+        ProvinceType::Sea => (40, 60, 120),
+        ProvinceType::Lake => (60, 80, 140),
+        ProvinceType::Land => (80, 80, 80),
+    };
+    rgba(r, g, b)
+}
+
+/// Build the legacy occupation overlay LUT.
 ///
-/// Layout matches `build_color_lut` (Vec<u8> RGBA, indexed by province ID).
-/// For each province where `controller != owner`, the entry is a stripe colour
-/// + non-zero alpha (alpha doubles as the overlay strength). For peaceful
+/// Layout matches `build_color_lut` (Vec<u8> RGBA, indexed by province ID),
+/// but all entries are transparent because the main colour LUT already uses
+/// controller colours for occupied land.
 /// provinces alpha is 0 → the shader treats this as "no overlay".
 ///
-/// Stripe colour:
+/// This legacy texture is still bound for compatibility, but alpha remains zero.
 /// * If owner and controller are at war → red (`220, 50, 50`).
 /// * Else (peaceful occupation, e.g. via decision) → muted gray (`130, 130, 140`).
 pub fn build_occupation_lut(world: &World) -> Vec<u8> {
     let count = world.map.definitions.len();
-    let mut lut = vec![0u8; count * 4];
-
-    for prov_idx in 0..world.provinces.count {
-        let owner = world.provinces.owners[prov_idx];
-        let controller = world.provinces.controllers[prov_idx];
-        if owner.is_none() || controller.is_none() || owner == controller {
-            continue;
-        }
-        let at_war = world.diplomacy.at_war_with(owner, controller);
-        let (r, g, b) = if at_war {
-            (220, 50, 50)
-        } else {
-            (130, 130, 140)
-        };
-        // Keep occupation stripes as a weak hint; controller colour is the base.
-        let o = prov_idx * 4;
-        if o + 3 < lut.len() {
-            lut[o] = r;
-            lut[o + 1] = g;
-            lut[o + 2] = b;
-            lut[o + 3] = 72;
-        }
-    }
-    lut
+    // Controller colour already carries occupation; keep this legacy overlay transparent.
+    vec![0u8; count * 4]
 }
 
 fn fill_default_water(world: &World, lut: &mut [u8]) {
@@ -567,6 +768,11 @@ mod tests {
         [lut[o], lut[o + 1], lut[o + 2]]
     }
 
+    fn rgba_at(lut: &[u8], province_id: usize) -> [u8; 4] {
+        let o = province_id * 4;
+        [lut[o], lut[o + 1], lut[o + 2], lut[o + 3]]
+    }
+
     #[test]
     fn political_lut_uses_controller_color_and_owner_fallback() {
         let world = test_world();
@@ -619,13 +825,30 @@ mod tests {
     }
 
     #[test]
-    fn occupation_overlay_is_weak_hint_not_full_cover() {
+    fn color_lut_entry_matches_full_lut_for_controller_sensitive_modes() {
+        let world = test_world();
+        let fra = world.country("FRA").unwrap();
+
+        for mode in [MapMode::Political, MapMode::Cores, MapMode::Ideology] {
+            let lut = build_color_lut(&world, mode, Some(fra));
+            for province_id in 1..=2 {
+                assert_eq!(
+                    color_lut_entry(&world, mode, Some(fra), province_id),
+                    rgba_at(&lut, province_id),
+                    "mode {mode:?} province {province_id}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn occupation_overlay_lut_is_transparent() {
         let world = test_world();
         let lut = build_occupation_lut(&world);
         let occupied_alpha = lut[1 * 4 + 3];
         let legal_owner_alpha = lut[2 * 4 + 3];
 
-        assert!(occupied_alpha > 0 && occupied_alpha <= 96);
+        assert_eq!(occupied_alpha, 0);
         assert_eq!(legal_owner_alpha, 0);
     }
 }

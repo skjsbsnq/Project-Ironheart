@@ -5,8 +5,13 @@
 //! V7 视觉重做：Hero 金库头 + 5-tab 布局（总览/预算/债务/外汇/操作），
 //! HoI4 vanilla 金棕边框 + Vic3 报表内排版。
 
-use crate::{components, i18n::tr};
-use egui::{Color32, RichText};
+use crate::{
+    components,
+    i18n::tr,
+    vanilla_iron::{LedgerPanelShell, VanillaIron},
+    ActiveDetailPanel, ActivePrimaryPanel, PanelCommand,
+};
+use egui::{Color32, RichText, Sense, Vec2};
 
 // 调色板 / 视觉 helpers 全部从 components 共享。
 use components::{
@@ -279,6 +284,7 @@ pub enum FinanceCommand {
     PrintMefo,
     SellGold { kg: f64 },
     BuyForeignCurrency { gbp_amount: f64 },
+    Panel(PanelCommand),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -290,56 +296,693 @@ enum FinancePanelTab {
     Actions,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FinanceLedgerView {
+    Overview,
+    Regions,
+    AssetsDebt,
+}
+
 pub struct FinancePanel;
 
 impl FinancePanel {
-    #[allow(unreachable_code)]
     pub fn show(ctx: &egui::Context, data: &FinancePanelData) -> (bool, Vec<FinanceCommand>) {
-        return v9_show_finance(ctx, data);
+        ledger_show_finance(ctx, data)
+    }
+}
 
-        let mut close = false;
-        let mut cmds: Vec<FinanceCommand> = Vec::new();
-        let tab_id = egui::Id::new("finance_panel_tab_v7");
-        let mut tab = ctx
-            .data_mut(|d| d.get_persisted::<FinancePanelTab>(tab_id))
-            .unwrap_or(FinancePanelTab::Overview);
+fn ledger_show_finance(
+    ctx: &egui::Context,
+    data: &FinancePanelData,
+) -> (bool, Vec<FinanceCommand>) {
+    let tab_id = egui::Id::new("finance_panel_ledger_view");
+    let mut view = ctx
+        .data_mut(|d| d.get_persisted::<FinanceLedgerView>(tab_id))
+        .unwrap_or(FinanceLedgerView::Overview);
+    let daily_balance = data.daily_income_rm - data.daily_expense_rm;
+    let debt_ratio = finance_ratio(data.public_debt_rm + data.mefo_debt_rm, data.gdp_rm);
+    let mefo_ratio = finance_ratio(data.mefo_debt_rm, data.gdp_rm);
+    let accent = if daily_balance < 0.0 || debt_ratio > 0.60 || mefo_ratio > 0.25 {
+        VanillaIron::WARN
+    } else {
+        VanillaIron::BRASS_BRIGHT
+    };
 
-        egui::SidePanel::left("finance_panel")
-            .default_width(560.0)
-            .min_width(480.0)
-            .resizable(true)
-            .frame(
-                egui::Frame::new()
-                    .fill(Color32::from_rgb(0x12, 0x13, 0x12))
-                    .stroke(egui::Stroke::new(1.0, Color32::from_rgb(0x3a, 0x32, 0x27)))
-                    .inner_margin(egui::Margin {
-                        left: 8,
-                        right: 8,
-                        top: 6,
-                        bottom: 8,
-                    }),
-            )
-            .show(ctx, |ui| {
-                components::panel_header(ui, tr("v6_finance_panel_title"), &mut close);
-                ui.add_space(4.0);
-                render_hero_treasury(ui, data);
-                ui.add_space(8.0);
-                render_tab_bar(ui, &mut tab);
-                ui.add_space(2.0);
+    let (close, output) =
+        LedgerPanelShell::new("finance_panel_ledger", tr("v6_finance_panel_title"))
+            .subtitle("国家账本 / 收支 / 融资")
+            .accent(accent)
+            .footer("Q 关闭  |  点击行打开详情")
+            .show(ctx, |ui, layout| {
+                let mut cmds = Vec::new();
+                let top = layout.top_strip.shrink2(Vec2::new(8.0, 7.0));
+                ui.allocate_ui_at_rect(top, |ui| {
+                    render_ledger_status_strip(ui, data, daily_balance, debt_ratio, mefo_ratio);
+                });
 
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .show(ui, |ui| match tab {
-                        FinancePanelTab::Overview => render_overview_tab(ui, data),
-                        FinancePanelTab::Budget => render_budget_tab(ui, data),
-                        FinancePanelTab::Debt => render_debt_tab(ui, data, &mut cmds),
-                        FinancePanelTab::Exchange => render_exchange_tab(ui, data),
-                        FinancePanelTab::Actions => render_actions_tab(ui, data, &mut cmds),
-                    });
+                let main = layout.main.shrink2(Vec2::new(8.0, 7.0));
+                ui.allocate_ui_at_rect(main, |ui| {
+                    render_ledger_main(ui, data, view, &mut cmds);
+                });
+
+                let side = layout.side.shrink2(Vec2::new(8.0, 7.0));
+                ui.allocate_ui_at_rect(side, |ui| {
+                    render_ledger_side(ui, data, &mut view, mefo_ratio, &mut cmds);
+                });
+                cmds
             });
 
-        ctx.data_mut(|d| d.insert_persisted(tab_id, tab));
-        (close, cmds)
+    ctx.data_mut(|d| d.insert_persisted(tab_id, view));
+    (close, output.unwrap_or_default())
+}
+
+fn render_ledger_status_strip(
+    ui: &mut egui::Ui,
+    data: &FinancePanelData,
+    daily_balance: f64,
+    debt_ratio: f64,
+    mefo_ratio: f64,
+) {
+    ui.set_min_size(ui.available_size());
+    ui.columns(5, |columns| {
+        ledger_metric(
+            &mut columns[0],
+            "预算余额",
+            signed_million(daily_balance),
+            finance_amount_color(daily_balance, false),
+        );
+        ledger_metric(
+            &mut columns[1],
+            "现金 / 储备",
+            format!(
+                "{} / GBP {}",
+                format_million(data.cash_rm),
+                format_million(data.reserve_gbp)
+            ),
+            VanillaIron::TEXT,
+        );
+        ledger_metric(
+            &mut columns[2],
+            "债务",
+            format!("{:.1}%", debt_ratio * 100.0),
+            finance_debt_color(debt_ratio),
+        );
+        ledger_metric(
+            &mut columns[3],
+            "MEFO",
+            format!("{:.1}%", mefo_ratio * 100.0),
+            finance_mefo_color(mefo_ratio),
+        );
+        ledger_metric(
+            &mut columns[4],
+            "赤字风险",
+            finance_risk_label(daily_balance, debt_ratio, mefo_ratio),
+            finance_risk_color(daily_balance, debt_ratio, mefo_ratio),
+        );
+    });
+}
+
+fn ledger_metric(ui: &mut egui::Ui, label: &str, value: String, color: Color32) {
+    ui.vertical(|ui| {
+        ui.label(RichText::new(label).small().color(VanillaIron::MUTED));
+        ui.add_space(2.0);
+        ui.label(RichText::new(value).strong().color(color));
+    });
+}
+
+fn render_ledger_main(
+    ui: &mut egui::Ui,
+    data: &FinancePanelData,
+    view: FinanceLedgerView,
+    cmds: &mut Vec<FinanceCommand>,
+) {
+    egui::ScrollArea::vertical()
+        .id_salt("finance_ledger_main_scroll")
+        .auto_shrink([false, false])
+        .show(ui, |ui| match view {
+            FinanceLedgerView::Overview => {
+                ledger_section(ui, "收入");
+                for (idx, row) in finance_revenue_rows(data).iter().enumerate() {
+                    render_finance_row(ui, idx, row, cmds);
+                }
+                ledger_total_row(ui, "收入合计", data.daily_income_rm, VanillaIron::GOOD);
+                ui.add_space(8.0);
+                ledger_section(ui, "支出");
+                for (idx, row) in finance_expense_rows(data).iter().enumerate() {
+                    render_finance_row(ui, idx, row, cmds);
+                }
+                ledger_total_row(ui, "支出合计", -data.daily_expense_rm, VanillaIron::BAD);
+                ui.add_space(8.0);
+                ledger_section(ui, "结余");
+                ledger_total_row(
+                    ui,
+                    "日结余",
+                    data.daily_income_rm - data.daily_expense_rm,
+                    finance_amount_color(data.daily_income_rm - data.daily_expense_rm, false),
+                );
+            }
+            FinanceLedgerView::Regions => {
+                ledger_section(ui, "GDP 与地区");
+                for (idx, row) in finance_gdp_rows(data).iter().enumerate() {
+                    render_finance_row(ui, idx, row, cmds);
+                }
+                if data.sector_buildings.is_empty() {
+                    VanillaIron::warning_row(ui, "暂无可细分的地区或行业账本数据。");
+                }
+            }
+            FinanceLedgerView::AssetsDebt => {
+                ledger_section(ui, "资产与债务");
+                for (idx, row) in finance_assets_rows(data).iter().enumerate() {
+                    render_finance_row(ui, idx, row, cmds);
+                }
+                ui.add_space(8.0);
+                ledger_section(ui, "融资");
+                for (idx, row) in finance_financing_rows(data).iter().enumerate() {
+                    render_finance_row(ui, idx, row, cmds);
+                }
+            }
+        });
+}
+
+fn render_ledger_side(
+    ui: &mut egui::Ui,
+    data: &FinancePanelData,
+    view: &mut FinanceLedgerView,
+    mefo_ratio: f64,
+    cmds: &mut Vec<FinanceCommand>,
+) {
+    VanillaIron::section_heading(ui, "视图");
+    finance_view_button(ui, view, FinanceLedgerView::Overview, "总览");
+    finance_view_button(ui, view, FinanceLedgerView::Regions, "州/地区");
+    finance_view_button(ui, view, FinanceLedgerView::AssetsDebt, "资产与债务");
+    ui.add_space(10.0);
+
+    VanillaIron::section_heading(ui, "投资池");
+    VanillaIron::info_row(ui, "合计", format_million(data.investment_pool.total_rm));
+    VanillaIron::info_row(ui, "私人", format_million(data.investment_pool.private_rm));
+    VanillaIron::info_row(ui, "卡特尔", format_million(data.investment_pool.cartel_rm));
+    VanillaIron::info_row(
+        ui,
+        "国家开发银行",
+        format_million(data.investment_pool.state_development_bank_rm),
+    );
+    VanillaIron::info_row(
+        ui,
+        "本日流入",
+        format_million(data.investment_pool.income_rm),
+    );
+    VanillaIron::info_row(
+        ui,
+        "本日支出",
+        format_million(data.investment_pool.spent_rm),
+    );
+    ui.add_space(10.0);
+
+    VanillaIron::section_heading(ui, "财政动作");
+    let deficit = data.daily_expense_rm - data.daily_income_rm;
+    if VanillaIron::compact_button(ui, "发行国内债券").clicked() {
+        cmds.push(FinanceCommand::IssueDomesticBond {
+            amount_rm: 500_000_000.0,
+        });
+    }
+    if ui
+        .add_enabled(
+            data.can_issue_foreign_bond,
+            egui::Button::new(RichText::new("发行外债").color(VanillaIron::TEXT))
+                .fill(VanillaIron::CARD_SOFT)
+                .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE))
+                .min_size(Vec2::new(72.0, 24.0)),
+        )
+        .clicked()
+    {
+        cmds.push(FinanceCommand::IssueForeignBond {
+            amount_gbp: 100_000_000.0,
+        });
+    }
+    let mefo_can = data.can_print_mefo && deficit > 0.0 && mefo_ratio < 0.30;
+    if ui
+        .add_enabled(
+            mefo_can,
+            egui::Button::new(RichText::new("打印 MEFO").color(VanillaIron::TEXT))
+                .fill(VanillaIron::CARD_SOFT)
+                .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE))
+                .min_size(Vec2::new(72.0, 24.0)),
+        )
+        .on_hover_text("MEFO/GDP 低于 30% 且存在赤字时可印发梅福票据")
+        .clicked()
+    {
+        cmds.push(FinanceCommand::PrintMefo);
+    }
+    if ui
+        .add_enabled(
+            data.gold_kg > 0.0,
+            egui::Button::new(RichText::new("出售黄金").color(VanillaIron::TEXT))
+                .fill(VanillaIron::CARD_SOFT)
+                .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE))
+                .min_size(Vec2::new(72.0, 24.0)),
+        )
+        .clicked()
+    {
+        cmds.push(FinanceCommand::SellGold {
+            kg: data.gold_kg * 0.1,
+        });
+    }
+    if ui
+        .add_enabled(
+            !data.is_foreign_exchange_control,
+            egui::Button::new(RichText::new("购买外汇").color(VanillaIron::TEXT))
+                .fill(VanillaIron::CARD_SOFT)
+                .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE))
+                .min_size(Vec2::new(72.0, 24.0)),
+        )
+        .clicked()
+    {
+        cmds.push(FinanceCommand::BuyForeignCurrency {
+            gbp_amount: 10_000_000.0,
+        });
+    }
+}
+
+fn finance_view_button(
+    ui: &mut egui::Ui,
+    current: &mut FinanceLedgerView,
+    target: FinanceLedgerView,
+    label: &str,
+) {
+    let selected = *current == target;
+    let response = ui.add(
+        egui::Button::new(RichText::new(label).color(if selected {
+            VanillaIron::BRASS_BRIGHT
+        } else {
+            VanillaIron::TEXT
+        }))
+        .fill(if selected {
+            VanillaIron::CARD
+        } else {
+            VanillaIron::CARD_DEEP
+        })
+        .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE))
+        .min_size(Vec2::new(ui.available_width().max(72.0), 24.0)),
+    );
+    if response.clicked() {
+        *current = target;
+    }
+}
+
+#[derive(Debug, Clone)]
+struct FinanceLedgerRow {
+    label: &'static str,
+    amount: f64,
+    note: &'static str,
+    action: Option<FinanceRowAction>,
+    inverse_color: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum FinanceRowAction {
+    DebtDetail,
+    OpenConstruction,
+    OpenTrade,
+    OpenLogistics,
+}
+
+fn finance_revenue_rows(data: &FinancePanelData) -> Vec<FinanceLedgerRow> {
+    vec![
+        ledger_row(
+            "POP 所得税",
+            data.fiscal_revenue.pop_income_taxes_rm,
+            "税收",
+            None,
+        ),
+        ledger_row(
+            "消费税",
+            data.fiscal_revenue.consumption_taxes_rm,
+            "税收",
+            None,
+        ),
+        ledger_row(
+            "企业税",
+            data.fiscal_revenue.corporate_taxes_rm,
+            "税收",
+            None,
+        ),
+        ledger_row(
+            "贸易关税",
+            data.fiscal_revenue.trade_tariffs_rm,
+            "点击进入贸易上下文",
+            Some(FinanceRowAction::OpenTrade),
+        ),
+        ledger_row(
+            "国企利润",
+            data.fiscal_revenue.state_profit_rm,
+            "经营收入",
+            None,
+        ),
+        ledger_row(
+            "融资流入",
+            data.fiscal_revenue.financing_rm,
+            "债券与 MEFO",
+            Some(FinanceRowAction::DebtDetail),
+        ),
+        ledger_row("其他收入", data.fiscal_revenue.other_rm, "杂项", None),
+    ]
+}
+
+fn finance_expense_rows(data: &FinancePanelData) -> Vec<FinanceLedgerRow> {
+    vec![
+        ledger_row(
+            "军费",
+            -data.fiscal_expense.military_rm,
+            "点击进入物流上下文",
+            Some(FinanceRowAction::OpenLogistics),
+        )
+        .expense(),
+        ledger_row(
+            "建设支出",
+            -data.fiscal_expense.construction_rm,
+            "点击进入建设工作台",
+            Some(FinanceRowAction::OpenConstruction),
+        )
+        .expense(),
+        ledger_row("福利", -data.fiscal_expense.welfare_rm, "社会支出", None).expense(),
+        ledger_row(
+            "行政",
+            -data.fiscal_expense.administration_rm,
+            "国家机器",
+            None,
+        )
+        .expense(),
+        ledger_row(
+            "债务利息",
+            -data.fiscal_expense.interest_rm,
+            "点击打开债务详情",
+            Some(FinanceRowAction::DebtDetail),
+        )
+        .expense(),
+        ledger_row(
+            "外汇支出",
+            -data.fiscal_expense.foreign_exchange_rm,
+            "进口结算",
+            Some(FinanceRowAction::OpenTrade),
+        )
+        .expense(),
+        ledger_row(
+            "研究经费",
+            -data.fiscal_expense.research_rm,
+            "科研预算",
+            None,
+        )
+        .expense(),
+        ledger_row("其他支出", -data.fiscal_expense.other_rm, "杂项", None).expense(),
+    ]
+}
+
+fn finance_gdp_rows(data: &FinancePanelData) -> Vec<FinanceLedgerRow> {
+    vec![
+        ledger_row(
+            "一产增加值",
+            data.gdp_breakdown.building_primary_rm,
+            "农业与资源",
+            None,
+        ),
+        ledger_row(
+            "二产增加值",
+            data.gdp_breakdown.building_secondary_rm,
+            "工业",
+            None,
+        ),
+        ledger_row(
+            "三产增加值",
+            data.gdp_breakdown.building_tertiary_rm,
+            "服务",
+            None,
+        ),
+        ledger_row(
+            "POP 收入",
+            data.gdp_breakdown.pop_income_rm,
+            "住户部门",
+            None,
+        ),
+        ledger_row(
+            "POP 消费",
+            data.gdp_breakdown.pop_consumption_rm,
+            "消费需求",
+            None,
+        ),
+        ledger_row(
+            "政府服务",
+            data.gdp_breakdown.government_services_rm,
+            "公共部门",
+            None,
+        ),
+        ledger_row(
+            "军工采购",
+            data.gdp_breakdown.military_procurement_rm,
+            "军需",
+            Some(FinanceRowAction::OpenLogistics),
+        ),
+        ledger_row(
+            "净出口",
+            data.gdp_breakdown.net_exports_rm,
+            "贸易",
+            Some(FinanceRowAction::OpenTrade),
+        ),
+        ledger_row(
+            "殖民增加值",
+            data.gdp_breakdown.colonial_value_added_rm,
+            "殖民经济",
+            None,
+        ),
+        ledger_row("总 GDP", data.gdp_rm, "国家产出", None),
+    ]
+}
+
+fn finance_assets_rows(data: &FinancePanelData) -> Vec<FinanceLedgerRow> {
+    vec![
+        ledger_row("现金", data.cash_rm, "RM", None),
+        ledger_row("外汇储备", data.reserve_gbp, "GBP", None),
+        ledger_row("黄金储备", data.gold_kg, "kg", None),
+        ledger_row(
+            "公共债务",
+            -data.public_debt_rm,
+            "点击打开债务详情",
+            Some(FinanceRowAction::DebtDetail),
+        )
+        .expense(),
+        ledger_row(
+            "MEFO 债务",
+            -data.mefo_debt_rm,
+            "点击打开债务详情",
+            Some(FinanceRowAction::DebtDetail),
+        )
+        .expense(),
+        ledger_row("国内 GDP", data.domestic_gdp_rm, "RM", None),
+        ledger_row("殖民 GDP", data.colonial_gdp_rm, "RM", None),
+    ]
+}
+
+fn finance_financing_rows(data: &FinancePanelData) -> Vec<FinanceLedgerRow> {
+    vec![
+        ledger_row(
+            "MEFO 本日签发",
+            data.financing_breakdown.mefo_issued_rm,
+            "赤字覆盖",
+            Some(FinanceRowAction::DebtDetail),
+        ),
+        ledger_row(
+            "MEFO 利息资本化",
+            data.financing_breakdown.mefo_interest_capitalized_rm,
+            "债务滚存",
+            Some(FinanceRowAction::DebtDetail),
+        ),
+        ledger_row(
+            "国内债券本日发行",
+            data.financing_breakdown.domestic_bond_issued_rm,
+            "融资",
+            Some(FinanceRowAction::DebtDetail),
+        ),
+        ledger_row(
+            "MEFO 覆盖赤字",
+            data.mefo_coverage_rm,
+            "不计经营收入",
+            Some(FinanceRowAction::DebtDetail),
+        ),
+    ]
+}
+
+fn ledger_row(
+    label: &'static str,
+    amount: f64,
+    note: &'static str,
+    action: Option<FinanceRowAction>,
+) -> FinanceLedgerRow {
+    FinanceLedgerRow {
+        label,
+        amount,
+        note,
+        action,
+        inverse_color: false,
+    }
+}
+
+impl FinanceLedgerRow {
+    fn expense(mut self) -> Self {
+        self.inverse_color = true;
+        self
+    }
+}
+
+fn ledger_section(ui: &mut egui::Ui, title: &str) {
+    ui.add_space(4.0);
+    VanillaIron::section_heading(ui, title);
+    ui.add_space(3.0);
+}
+
+fn render_finance_row(
+    ui: &mut egui::Ui,
+    idx: usize,
+    row: &FinanceLedgerRow,
+    cmds: &mut Vec<FinanceCommand>,
+) {
+    let height = 27.0;
+    let width = ui.available_width().max(420.0);
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::click());
+    let fill = if response.hovered() {
+        Color32::from_rgb(0x18, 0x1a, 0x16)
+    } else if idx % 2 == 0 {
+        Color32::from_rgba_premultiplied(0x0a, 0x0b, 0x09, 210)
+    } else {
+        Color32::from_rgba_premultiplied(0x10, 0x11, 0x0e, 210)
+    };
+    ui.painter().rect_filled(rect, 0.0, fill);
+    ui.painter().hline(
+        rect.left()..=rect.right(),
+        rect.bottom(),
+        egui::Stroke::new(1.0, VanillaIron::EDGE_DARK),
+    );
+    let amount_color = finance_amount_color(row.amount, row.inverse_color);
+    ui.painter().text(
+        rect.left_center() + Vec2::new(8.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        row.label,
+        crate::v9::TextRole::Body.font_id(),
+        VanillaIron::TEXT,
+    );
+    ui.painter().text(
+        rect.center() + Vec2::new(20.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        row.note,
+        crate::v9::TextRole::Caption.font_id(),
+        VanillaIron::MUTED,
+    );
+    ui.painter().text(
+        rect.right_center() - Vec2::new(8.0, 0.0),
+        egui::Align2::RIGHT_CENTER,
+        signed_million(row.amount),
+        crate::v9::TextRole::Numeric.font_id(),
+        amount_color,
+    );
+    if let Some(action) = row.action {
+        response.clone().on_hover_text("点击打开相关详情");
+        if response.clicked() {
+            cmds.push(FinanceCommand::Panel(finance_row_panel_command(action)));
+        }
+    }
+}
+
+fn ledger_total_row(ui: &mut egui::Ui, label: &str, amount: f64, color: Color32) {
+    let height = 29.0;
+    let width = ui.available_width().max(420.0);
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
+    ui.painter().rect_filled(rect, 0.0, VanillaIron::CARD_SOFT);
+    ui.painter().rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, VanillaIron::EDGE),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().text(
+        rect.left_center() + Vec2::new(8.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        label,
+        crate::v9::TextRole::Subheading.font_id(),
+        VanillaIron::BRASS_BRIGHT,
+    );
+    ui.painter().text(
+        rect.right_center() - Vec2::new(8.0, 0.0),
+        egui::Align2::RIGHT_CENTER,
+        signed_million(amount),
+        crate::v9::TextRole::Numeric.font_id(),
+        color,
+    );
+}
+
+fn finance_row_panel_command(action: FinanceRowAction) -> PanelCommand {
+    match action {
+        FinanceRowAction::DebtDetail => PanelCommand::OpenDetail(ActiveDetailPanel::FinanceDebt),
+        FinanceRowAction::OpenConstruction => {
+            PanelCommand::OpenPrimary(ActivePrimaryPanel::Construction)
+        }
+        FinanceRowAction::OpenTrade => PanelCommand::OpenPrimary(ActivePrimaryPanel::Trade),
+        FinanceRowAction::OpenLogistics => PanelCommand::OpenPrimary(ActivePrimaryPanel::Logistics),
+    }
+}
+
+fn finance_ratio(value: f64, total: f64) -> f64 {
+    if total > 0.0 {
+        value / total
+    } else {
+        0.0
+    }
+}
+
+fn finance_amount_color(amount: f64, inverse: bool) -> Color32 {
+    if amount.abs() < 0.5 {
+        VanillaIron::MUTED
+    } else if (amount >= 0.0) ^ inverse {
+        VanillaIron::GOOD
+    } else {
+        VanillaIron::BAD
+    }
+}
+
+fn finance_debt_color(ratio: f64) -> Color32 {
+    if ratio >= 0.75 {
+        VanillaIron::BAD
+    } else if ratio >= 0.45 {
+        VanillaIron::WARN
+    } else {
+        VanillaIron::GOOD
+    }
+}
+
+fn finance_mefo_color(ratio: f64) -> Color32 {
+    if ratio >= 0.30 {
+        VanillaIron::BAD
+    } else if ratio >= 0.18 {
+        VanillaIron::WARN
+    } else {
+        VanillaIron::GOOD
+    }
+}
+
+fn finance_risk_label(daily_balance: f64, debt_ratio: f64, mefo_ratio: f64) -> String {
+    if daily_balance < 0.0 && mefo_ratio >= 0.30 {
+        "高风险".to_owned()
+    } else if daily_balance < 0.0 || debt_ratio >= 0.45 || mefo_ratio >= 0.18 {
+        "关注".to_owned()
+    } else {
+        "可控".to_owned()
+    }
+}
+
+fn finance_risk_color(daily_balance: f64, debt_ratio: f64, mefo_ratio: f64) -> Color32 {
+    if daily_balance < 0.0 && mefo_ratio >= 0.30 {
+        VanillaIron::BAD
+    } else if daily_balance < 0.0 || debt_ratio >= 0.45 || mefo_ratio >= 0.18 {
+        VanillaIron::WARN
+    } else {
+        VanillaIron::GOOD
     }
 }
 
@@ -482,10 +1125,10 @@ fn v9_finance_overview_body(
 
     ui.allocate_ui_at_rect(rect, |ui| {
         let grid = GridLayout::new(
-            vec![Track::Fr(0.34), Track::Fr(0.36), Track::Fr(0.30)],
+            vec![Track::Fr(0.43), Track::Fr(0.27), Track::Fr(0.30)],
             vec![Track::Fr(0.48), Track::Fr(0.52)],
         )
-        .with_gutter(spacing::S5, spacing::S5);
+        .with_gutter(spacing::S4, spacing::S4);
         let cells = grid.measure(rect);
         v9_finance_tile_grid(
             ui,
@@ -514,19 +1157,117 @@ fn v9_finance_investment_body(ui: &mut egui::Ui, rect: egui::Rect, data: &Financ
     });
 }
 
-fn v9_finance_gdp_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
-    use crate::v9::primitives::{Card, DataTable, TableColumn};
-    use crate::v9::tokens::{palette, TextRole};
-    use egui::{Align2, Pos2, Rect};
+fn v9_finance_section_rect(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    title: &str,
+    accent: Color32,
+) -> egui::Rect {
+    use crate::v9::tokens::{palette, spacing, TextRole};
+    use egui::{Align2, Pos2, Rect, Stroke, Vec2};
 
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        "GDP 构成",
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
+    if rect.width() <= 8.0 || rect.height() <= 8.0 {
+        return rect;
+    }
+
+    let radius = egui::epaint::CornerRadius::same(2);
+    let painter = ui.painter();
+    painter.rect_filled(rect, radius, palette::PANEL_DEEP);
+    painter.rect_filled(
+        Rect::from_min_max(rect.min, Pos2::new(rect.right(), rect.top() + 30.0)),
+        radius,
+        palette::PANEL,
     );
+    painter.rect_filled(
+        Rect::from_min_max(rect.left_top(), Pos2::new(rect.left() + 3.0, rect.bottom())),
+        egui::epaint::CornerRadius::ZERO,
+        accent,
+    );
+    painter.rect_stroke(
+        rect,
+        radius,
+        Stroke::new(1.0, palette::GUNMETAL),
+        egui::StrokeKind::Inside,
+    );
+    painter.hline(
+        (rect.left() + 8.0)..=(rect.right() - 8.0),
+        rect.top() + 30.0,
+        Stroke::new(1.0, palette::HAIRLINE),
+    );
+    painter.text(
+        Pos2::new(rect.left() + 12.0, rect.top() + 15.0),
+        Align2::LEFT_CENTER,
+        title,
+        TextRole::Subheading.font_id(),
+        accent,
+    );
+
+    Rect::from_min_max(
+        Pos2::new(rect.left() + 10.0, rect.top() + 38.0),
+        rect.right_bottom() - Vec2::new(10.0, spacing::S4),
+    )
+}
+
+fn v9_finance_draw_kv_row(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    label: &str,
+    value: &str,
+    color: Color32,
+    row_idx: usize,
+) {
+    use crate::v9::{
+        text::fit_font_to_width,
+        tokens::{palette, spacing, TextRole},
+    };
+    use egui::{Align2, Color32, Pos2, Stroke, Vec2};
+
+    let fill = if row_idx % 2 == 0 {
+        Color32::from_black_alpha(78)
+    } else {
+        Color32::from_black_alpha(118)
+    };
+    ui.painter()
+        .rect_filled(rect, egui::epaint::CornerRadius::ZERO, fill);
+    ui.painter().hline(
+        rect.left()..=rect.right(),
+        rect.bottom() - 0.5,
+        Stroke::new(1.0, palette::HAIRLINE),
+    );
+    let label_rect = egui::Rect::from_min_max(
+        Pos2::new(rect.left() + spacing::S3, rect.top()),
+        Pos2::new(rect.center().x, rect.bottom()),
+    );
+    let value_rect = egui::Rect::from_min_max(
+        Pos2::new(rect.center().x, rect.top()),
+        Pos2::new(rect.right() - spacing::S3, rect.bottom()),
+    );
+    let label_painter = ui.painter().with_clip_rect(label_rect);
+    label_painter.text(
+        Pos2::new(label_rect.left(), label_rect.center().y),
+        Align2::LEFT_CENTER,
+        label,
+        fit_font_to_width(label, TextRole::Body.font_id(), label_rect.width(), 0.78),
+        palette::PARCHMENT_DIM,
+    );
+    let value_painter = ui
+        .painter()
+        .with_clip_rect(value_rect.expand2(Vec2::new(2.0, 0.0)));
+    value_painter.text(
+        Pos2::new(value_rect.right(), value_rect.center().y),
+        Align2::RIGHT_CENTER,
+        value,
+        fit_font_to_width(value, TextRole::Numeric.font_id(), value_rect.width(), 0.72),
+        color,
+    );
+}
+
+fn v9_finance_gdp_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
+    use crate::v9::primitives::{DataTable, TableColumn};
+    use crate::v9::tokens::palette;
+    use egui::{Pos2, Rect};
+
+    let inner = v9_finance_section_rect(ui, rect, "GDP 构成", palette::BRASS_BRIGHT);
 
     let rows = vec![
         gdp_row(
@@ -598,10 +1339,7 @@ fn v9_finance_gdp_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanel
     .row_height(24.0)
     .show_at(
         ui,
-        Rect::from_min_max(
-            Pos2::new(inner.left(), inner.top() + 34.0),
-            inner.right_bottom(),
-        ),
+        Rect::from_min_max(Pos2::new(inner.left(), inner.top()), inner.right_bottom()),
     );
 }
 
@@ -632,23 +1370,16 @@ fn v9_finance_sector_panel(
     data: &FinancePanelData,
     sector_id: &str,
 ) {
-    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
-    use crate::v9::tokens::{palette, TextRole};
-    use egui::{Align2, Pos2, Rect};
+    use crate::v9::primitives::{DataTable, TableCell, TableColumn, TableRow};
+    use crate::v9::tokens::palette;
+    use egui::{Pos2, Rect};
 
     let title = ECONOMY_V9_SECONDARY_TABS
         .iter()
         .find(|(id, _)| *id == sector_id)
         .map(|(_, label)| format!("{}建筑", label))
         .unwrap_or_else(|| "部门建筑".to_owned());
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        title,
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
+    let inner = v9_finance_section_rect(ui, rect, &title, palette::BRASS_BRIGHT);
     let rows: Vec<_> = data
         .sector_buildings
         .iter()
@@ -692,26 +1423,16 @@ fn v9_finance_sector_panel(
     .row_height(24.0)
     .show_at(
         ui,
-        Rect::from_min_max(
-            Pos2::new(inner.left(), inner.top() + 34.0),
-            inner.right_bottom(),
-        ),
+        Rect::from_min_max(Pos2::new(inner.left(), inner.top()), inner.right_bottom()),
     );
 }
 
 fn v9_finance_employment_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
-    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
-    use crate::v9::tokens::{palette, TextRole};
-    use egui::{Align2, Pos2, Rect};
+    use crate::v9::primitives::{DataTable, TableCell, TableColumn, TableRow};
+    use crate::v9::tokens::palette;
+    use egui::{Pos2, Rect};
 
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        "就业",
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
+    let inner = v9_finance_section_rect(ui, rect, "就业", palette::BRASS_BRIGHT);
     let rows = data
         .employment_rows
         .iter()
@@ -743,26 +1464,16 @@ fn v9_finance_employment_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &Finan
     .row_height(26.0)
     .show_at(
         ui,
-        Rect::from_min_max(
-            Pos2::new(inner.left(), inner.top() + 34.0),
-            inner.right_bottom(),
-        ),
+        Rect::from_min_max(Pos2::new(inner.left(), inner.top()), inner.right_bottom()),
     );
 }
 
 fn v9_finance_trade_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
-    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
-    use crate::v9::tokens::{palette, TextRole};
-    use egui::{Align2, Pos2, Rect};
+    use crate::v9::primitives::{DataTable, TableCell, TableColumn, TableRow};
+    use crate::v9::tokens::palette;
+    use egui::{Pos2, Rect};
 
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        "贸易影响",
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
+    let inner = v9_finance_section_rect(ui, rect, "贸易影响", palette::BRASS_BRIGHT);
     let rows = vec![
         v9_finance_value_row(
             "净出口 GDP",
@@ -815,26 +1526,16 @@ fn v9_finance_trade_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePan
     .row_height(28.0)
     .show_at(
         ui,
-        Rect::from_min_max(
-            Pos2::new(inner.left(), inner.top() + 34.0),
-            inner.right_bottom(),
-        ),
+        Rect::from_min_max(Pos2::new(inner.left(), inner.top()), inner.right_bottom()),
     );
 }
 
 fn v9_finance_diagnostics_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
-    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn};
-    use crate::v9::tokens::{palette, TextRole};
-    use egui::{Align2, Pos2, Rect};
+    use crate::v9::primitives::{DataTable, TableCell, TableColumn};
+    use crate::v9::tokens::palette;
+    use egui::{Pos2, Rect};
 
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        "诊断",
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
+    let inner = v9_finance_section_rect(ui, rect, "诊断", palette::BRASS_BRIGHT);
     let rows = data
         .diagnostics
         .iter()
@@ -859,10 +1560,7 @@ fn v9_finance_diagnostics_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &Fina
     .row_height(26.0)
     .show_at(
         ui,
-        Rect::from_min_max(
-            Pos2::new(inner.left(), inner.top() + 34.0),
-            inner.right_bottom(),
-        ),
+        Rect::from_min_max(Pos2::new(inner.left(), inner.top()), inner.right_bottom()),
     );
 }
 
@@ -896,109 +1594,76 @@ fn v9_finance_tile_grid(
     mefo_ratio: f64,
 ) {
     use crate::v9::{
-        layout::{GridLayout, Track},
-        primitives::{draw_progress_bar, Card, Tile, TileTrend},
-        tokens::{palette, spacing, TextRole},
+        primitives::draw_progress_bar,
+        tokens::{palette, TextRole},
     };
     use egui::{Align2, Pos2, Rect, Vec2};
 
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        "国库",
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
-
-    let tile_area = Rect::from_min_max(
-        Pos2::new(inner.left(), inner.top() + 34.0),
-        Pos2::new(inner.right(), inner.bottom() - 72.0),
-    );
-    let grid = GridLayout::new(
-        vec![
-            Track::Fixed(52.0),
-            Track::Fixed(52.0),
-            Track::Fixed(52.0),
-            Track::Fixed(52.0),
-        ],
-        vec![Track::Fr(1.0), Track::Fr(1.0)],
-    )
-    .with_gutter(spacing::S4, spacing::S4);
-    let cells = grid.measure(tile_area);
+    let inner = v9_finance_section_rect(ui, rect, "国库", palette::BRASS_BRIGHT);
     let cash_days = if data.daily_expense_rm > 0.0 {
         data.cash_rm / data.daily_expense_rm
     } else {
         0.0
     };
-    let tiles = [
+    let operating_balance = data.operating_income_rm - data.operating_expense_rm;
+    let rows = [
         (
-            "储备",
+            "现金",
+            format_million(data.cash_rm),
+            v9_finance_balance_color(data.cash_rm),
+        ),
+        (
+            "外汇储备",
             format!("GBP {}", format_million(data.reserve_gbp)),
             palette::INFO,
-            TileTrend::None,
         ),
-        (
-            "黄金",
-            format!("{:.0} kg", data.gold_kg),
-            palette::GOLD,
-            TileTrend::None,
-        ),
-        (
-            "评级",
-            data.credit_rating.clone(),
-            v9_rating_color(&data.credit_rating),
-            TileTrend::None,
-        ),
-        (
-            "汇率",
-            format!("{:.2}", data.exchange_rate_rm_per_gbp),
-            palette::INFO,
-            TileTrend::None,
-        ),
-        (
-            tr("gdp"),
-            format_million(data.gdp_rm),
-            palette::GOLD,
-            TileTrend::None,
-        ),
+        ("黄金", format!("{:.0} kg", data.gold_kg), palette::GOLD),
         (
             "现金覆盖",
-            format!("{:.0}d", cash_days),
+            format!("{:.0} 天", cash_days),
             v9_finance_cover_color(cash_days),
-            TileTrend::None,
         ),
         (
-            "经营",
-            signed_million(data.operating_income_rm - data.operating_expense_rm),
-            v9_finance_balance_color(data.operating_income_rm - data.operating_expense_rm),
-            if data.operating_income_rm >= data.operating_expense_rm {
-                TileTrend::Up
-            } else {
-                TileTrend::Down
-            },
+            "经营结余",
+            signed_million(operating_balance),
+            v9_finance_balance_color(operating_balance),
         ),
         (
-            "融资后",
+            "融资后现金流",
             signed_million(data.post_financing_cash_change_rm),
             v9_finance_balance_color(data.post_financing_cash_change_rm),
-            if data.post_financing_cash_change_rm >= 0.0 {
-                TileTrend::Up
-            } else {
-                TileTrend::Down
-            },
         ),
     ];
-    for (idx, (label, value, color, trend)) in tiles.iter().enumerate() {
-        Tile::new(label, value)
-            .accent(*color)
-            .trend(*trend)
-            .show_at(ui, GridLayout::cell(&cells, idx / 2, idx % 2));
+    let row_h = 25.0;
+    let rows_bottom = (inner.bottom() - 64.0).max(inner.top());
+    for (idx, (label, value, color)) in rows.iter().enumerate() {
+        let top = inner.top() + idx as f32 * row_h;
+        if top + row_h > rows_bottom {
+            break;
+        }
+        v9_finance_draw_kv_row(
+            ui,
+            Rect::from_min_max(
+                Pos2::new(inner.left(), top),
+                Pos2::new(inner.right(), top + row_h),
+            ),
+            label,
+            value,
+            *color,
+            idx,
+        );
     }
 
     let debt_bar = Rect::from_min_size(
-        Pos2::new(inner.left(), inner.bottom() - 54.0),
+        Pos2::new(inner.left(), inner.bottom() - 48.0),
         Vec2::new(inner.width(), 10.0),
+    );
+    ui.painter().text(
+        Pos2::new(inner.left(), debt_bar.top() - 6.0),
+        Align2::LEFT_BOTTOM,
+        "债务/GDP",
+        TextRole::Caption.font_id(),
+        palette::PARCHMENT_DIM,
     );
     draw_progress_bar(
         ui,
@@ -1010,7 +1675,7 @@ fn v9_finance_tile_grid(
         Pos2::new(inner.left(), debt_bar.bottom() + 6.0),
         Align2::LEFT_TOP,
         format!(
-            "Debt {} RM / MEFO {} RM",
+            "国债 {} RM / MEFO {} RM",
             format_million(data.public_debt_rm),
             format_million(data.mefo_debt_rm)
         ),
@@ -1018,7 +1683,7 @@ fn v9_finance_tile_grid(
         palette::PARCHMENT_DIM,
     );
     let mefo_bar = Rect::from_min_size(
-        Pos2::new(inner.left(), inner.bottom() - 24.0),
+        Pos2::new(inner.left(), inner.bottom() - 16.0),
         Vec2::new(inner.width(), 10.0),
     );
     draw_progress_bar(
@@ -1030,18 +1695,11 @@ fn v9_finance_tile_grid(
 }
 
 fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
-    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
-    use crate::v9::tokens::{palette, TextRole};
-    use egui::{Align2, Pos2, Rect};
+    use crate::v9::primitives::{DataTable, TableCell, TableColumn, TableRow};
+    use crate::v9::tokens::palette;
+    use egui::{Pos2, Rect};
 
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        tr("v6_finance_budget"),
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
+    let inner = v9_finance_section_rect(ui, rect, tr("v6_finance_budget"), palette::BRASS_BRIGHT);
 
     let mut rows = Vec::new();
     let revenue_items: [(&str, f64); 7] = [
@@ -1057,15 +1715,25 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
         (tr("v6_budget_income_other"), data.fiscal_revenue.other_rm),
     ];
     for (label, amount) in revenue_items {
-        rows.push(
-            TableRow::new(vec![
-                TableCell::colored("收入", palette::GOOD),
-                TableCell::strong(label),
-                TableCell::colored(format_million(amount), palette::GOOD).right(),
-            ])
-            .accent(palette::GOOD),
-        );
+        if amount.abs() >= 0.5 {
+            rows.push(
+                TableRow::new(vec![
+                    TableCell::colored("收入", palette::GOOD),
+                    TableCell::strong(label),
+                    TableCell::colored(format_million(amount), palette::GOOD).right(),
+                ])
+                .accent(palette::GOOD),
+            );
+        }
     }
+    rows.push(
+        TableRow::new(vec![
+            TableCell::colored("收入", palette::GOOD),
+            TableCell::strong("收入合计"),
+            TableCell::colored(format_million(data.daily_income_rm), palette::GOOD).right(),
+        ])
+        .accent(palette::GOOD),
+    );
 
     let expense_items: [(&str, f64); 8] = [
         ("军费", data.fiscal_expense.military_rm),
@@ -1078,15 +1746,25 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
         ("其他", data.fiscal_expense.other_rm),
     ];
     for (label, amount) in expense_items {
-        rows.push(
-            TableRow::new(vec![
-                TableCell::colored("支出", palette::BAD),
-                TableCell::strong(label),
-                TableCell::colored(format_million(amount), palette::BAD).right(),
-            ])
-            .accent(palette::BAD),
-        );
+        if amount.abs() >= 0.5 {
+            rows.push(
+                TableRow::new(vec![
+                    TableCell::colored("支出", palette::BAD),
+                    TableCell::strong(label),
+                    TableCell::colored(format_million(amount), palette::BAD).right(),
+                ])
+                .accent(palette::BAD),
+            );
+        }
     }
+    rows.push(
+        TableRow::new(vec![
+            TableCell::colored("支出", palette::BAD),
+            TableCell::strong("支出合计"),
+            TableCell::colored(format_million(data.daily_expense_rm), palette::BAD).right(),
+        ])
+        .accent(palette::BAD),
+    );
     rows.push(
         TableRow::new(vec![
             TableCell::colored(
@@ -1113,29 +1791,19 @@ fn v9_finance_budget_table(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePa
         ],
         rows,
     )
-    .row_height(22.0)
+    .row_height(25.0)
     .show_at(
         ui,
-        Rect::from_min_max(
-            Pos2::new(inner.left(), inner.top() + 34.0),
-            inner.right_bottom(),
-        ),
+        Rect::from_min_max(Pos2::new(inner.left(), inner.top()), inner.right_bottom()),
     );
 }
 
 fn v9_finance_construction_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
-    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
-    use crate::v9::tokens::{palette, TextRole};
-    use egui::{Align2, Pos2, Rect};
+    use crate::v9::primitives::{DataTable, TableCell, TableColumn, TableRow};
+    use crate::v9::tokens::palette;
+    use egui::{Pos2, Rect};
 
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        "建造资金路径",
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
+    let inner = v9_finance_section_rect(ui, rect, "建造资金路径", palette::BRASS_BRIGHT);
 
     let rows = vec![
         v9_finance_value_row(
@@ -1185,26 +1853,16 @@ fn v9_finance_construction_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &Fin
     .row_height(20.0)
     .show_at(
         ui,
-        Rect::from_min_max(
-            Pos2::new(inner.left(), inner.top() + 34.0),
-            inner.right_bottom(),
-        ),
+        Rect::from_min_max(Pos2::new(inner.left(), inner.top()), inner.right_bottom()),
     );
 }
 
 fn v9_finance_investment_pool_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &FinancePanelData) {
-    use crate::v9::primitives::{Card, DataTable, TableColumn};
-    use crate::v9::tokens::{palette, TextRole};
-    use egui::{Align2, Pos2, Rect};
+    use crate::v9::primitives::{DataTable, TableColumn};
+    use crate::v9::tokens::palette;
+    use egui::{Pos2, Rect};
 
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        "投资池",
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
+    let inner = v9_finance_section_rect(ui, rect, "投资池", palette::BRASS_BRIGHT);
 
     let rows = vec![
         v9_finance_value_row("私人", data.investment_pool.private_rm, palette::GOOD),
@@ -1238,10 +1896,7 @@ fn v9_finance_investment_pool_panel(ui: &mut egui::Ui, rect: egui::Rect, data: &
     .row_height(18.0)
     .show_at(
         ui,
-        Rect::from_min_max(
-            Pos2::new(inner.left(), inner.top() + 34.0),
-            inner.right_bottom(),
-        ),
+        Rect::from_min_max(Pos2::new(inner.left(), inner.top()), inner.right_bottom()),
     );
 }
 
@@ -1267,19 +1922,12 @@ fn v9_finance_action_panel(
     cmds: &mut Vec<FinanceCommand>,
 ) {
     use crate::v9::primitives::{
-        Button, ButtonSize, ButtonVariant, Card, DataTable, TableCell, TableColumn, TableRow,
+        Button, ButtonSize, ButtonVariant, DataTable, TableCell, TableColumn, TableRow,
     };
     use crate::v9::tokens::{palette, spacing, TextRole};
-    use egui::{Align2, Pos2, Rect, Vec2};
+    use egui::{Pos2, Rect, Vec2};
 
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        tr("v6_finance_actions"),
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
+    let inner = v9_finance_section_rect(ui, rect, tr("v6_finance_actions"), palette::BRASS_BRIGHT);
 
     let deficit = data.daily_expense_rm - data.daily_income_rm;
     let mefo_can = data.can_print_mefo && deficit > 0.0 && mefo_ratio < 0.30;
@@ -1324,7 +1972,7 @@ fn v9_finance_action_panel(
         ),
     ];
 
-    let mut y = inner.top() + 36.0;
+    let mut y = inner.top();
     for (label, enabled, variant, cmd) in actions {
         let button_rect = Rect::from_min_size(
             Pos2::new(inner.left(), y),

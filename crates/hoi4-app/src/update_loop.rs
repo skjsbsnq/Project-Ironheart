@@ -5,10 +5,11 @@ use winit::keyboard::KeyCode;
 
 use crate::{
     runtime, App, GamePhase, EDGE_PAN_MARGIN_PX, EDGE_PAN_SPEED_SCALE, MAX_INTERACTION_DT_SECS,
+    MIN_SIM_SLICE_SECS,
 };
 
 impl App {
-    pub(super) fn update(&mut self) {
+    pub(super) fn update(&mut self, max_sim_budget_secs: f32) {
         let now = Instant::now();
         let dt = (now - self.last_frame).as_secs_f32();
         let interaction_dt = dt.min(MAX_INTERACTION_DT_SECS);
@@ -77,8 +78,9 @@ impl App {
 
         let secs_per_hour = self.world.speed.seconds_per_hour();
         let mut simulation_advanced = false;
-        let (base_max_ticks, tick_budget) =
+        let (base_max_ticks, speed_tick_budget) =
             runtime::systems_runtime::speed_tick_limits(self.world.speed);
+        let tick_budget = speed_tick_budget.min(max_sim_budget_secs.max(0.0));
         let tick_started_at = Instant::now();
         let mut ticks = 0;
         let mut stop_advancing_hours = false;
@@ -88,6 +90,16 @@ impl App {
         let sim_dt = dt.min(0.10);
         if secs_per_hour.is_finite() && secs_per_hour > 0.0 {
             self.time_accumulator += sim_dt;
+        }
+
+        if tick_budget < MIN_SIM_SLICE_SECS {
+            self.update_division_motion(interaction_dt, false);
+            if (now - self.last_status_print).as_secs_f32() >= 1.0 {
+                self.update_title();
+                self.last_status_print = now;
+            }
+            self.print_perf_diag(now);
+            return;
         }
 
         // Daily work can be much heavier than an hourly clock step. Run the

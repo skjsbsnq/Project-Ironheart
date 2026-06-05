@@ -216,19 +216,12 @@ impl<'a> DisplayNameResolver<'a> {
             }
         }
 
-        if let Some(name) = clean_visible_name(state_name) {
-            let unknown = hoi4_ui::i18n::tr("unknown");
-            if name != unknown && name != generic_missing_name(DisplayNameKind::State) {
-                return name.to_owned();
-            }
-        }
-
         self.missing.borrow_mut().record(
             DisplayNameKind::Province,
             format!("internal_province_{}", province_id),
-            "",
+            state_name.unwrap_or_default(),
         );
-        generic_missing_name(DisplayNameKind::Province)
+        format!("省份 #{}", province_id)
     }
 
     pub fn pop_class_name(&self, class: hoi4_state::PopClass) -> String {
@@ -264,7 +257,7 @@ fn generic_missing_name(kind: DisplayNameKind) -> String {
     match kind {
         DisplayNameKind::Country => "未知国家",
         DisplayNameKind::State => "未命名州",
-        DisplayNameKind::Province => "未命名省份",
+        DisplayNameKind::Province => "省份",
         DisplayNameKind::Building => "未命名建筑",
         DisplayNameKind::Good => "未命名商品",
         DisplayNameKind::PopClass => "未知人群",
@@ -313,12 +306,22 @@ mod tests {
     }
 
     #[test]
-    fn province_resolver_hides_internal_province_id() {
+    fn province_resolver_uses_stable_id_label_when_no_place_name_exists() {
         let resolver = DisplayNameResolver::new(None);
 
         let name = resolver.province_name(42, None, None);
 
-        assert!(!name.contains("42"));
+        assert_eq!(name, "省份 #42");
         assert_eq!(resolver.missing_report().entries().len(), 1);
+    }
+
+    #[test]
+    fn province_resolver_does_not_reuse_state_name_as_province_name() {
+        let resolver = DisplayNameResolver::new(None);
+
+        let name = resolver.province_name(42, None, Some("黑森"));
+
+        assert_eq!(name, "省份 #42");
+        assert_ne!(name, "黑森");
     }
 }

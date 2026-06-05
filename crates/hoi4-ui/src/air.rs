@@ -1,4 +1,8 @@
-use crate::components;
+use crate::{
+    components,
+    vanilla_iron::{CommandPanelShell, VanillaIron},
+    ActiveDetailPanel, ActivePrimaryPanel, AirWingDetailTarget, PanelCommand,
+};
 use egui::{Color32, RichText};
 
 const GOLD: Color32 = Color32::from_rgb(0xc9, 0xa5, 0x5b);
@@ -129,6 +133,7 @@ pub enum AirCommand {
         to_wing_id: u32,
         planes: u32,
     },
+    Panel(PanelCommand),
 }
 
 pub struct AirPanel;
@@ -469,30 +474,217 @@ fn efficiency_palette(value: f32) -> Color32 {
     }
 }
 
-impl AirPanel {
-    #[allow(unreachable_code)]
-    pub fn show(ctx: &egui::Context, data: &AirData) -> (bool, Vec<AirCommand>) {
-        return v9_show_air(ctx, data);
+fn command_show_air(ctx: &egui::Context, data: &AirData) -> (bool, Vec<AirCommand>) {
+    let low_planes = data.wings.iter().any(|wing| wing.plane_ratio() < 0.5);
+    let low_org = data.wings.iter().any(|wing| wing.org_ratio() < 0.35);
+    let accent = if data.over_capacity_bases > 0 || low_planes {
+        VanillaIron::BAD
+    } else if low_org {
+        VanillaIron::WARN
+    } else {
+        VanillaIron::BRASS_BRIGHT
+    };
+    let (close, output) = CommandPanelShell::new("air_command_panel", "空军司令部")
+        .subtitle("空域 / 联队 / 机场容量")
+        .footer("Q 关闭 | 点击联队打开详情")
+        .accent(accent)
+        .show(ctx, |ui, layout| {
+            let mut commands = Vec::new();
+            air_command_nav(ui, layout.nav, data, &mut commands);
+            air_command_main(ui, layout.main, data, &mut commands);
+            air_command_strip(ui, layout.bottom_strip, data, &mut commands);
+            commands
+        });
+    (close, output.unwrap_or_default())
+}
 
-        let mut close = false;
-        let mut commands = Vec::new();
-        egui::SidePanel::left("air_panel")
-            .default_width(570.0)
-            .min_width(510.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                components::panel_header(ui, "空军司令部", &mut close);
-                render_summary(ui, data);
-                render_selection_banner(ui, data, &mut commands);
-                render_status_banner(ui, data);
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
+fn air_command_nav(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &AirData,
+    commands: &mut Vec<AirCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "联队");
+        VanillaIron::info_row(ui, "联队数", data.wings.len().to_string());
+        VanillaIron::info_row(ui, "执行任务", data.active_wings.to_string());
+        ui.add_space(8.0);
+        if data.wings.is_empty() {
+            ui.label(
+                RichText::new("暂无联队。")
+                    .small()
+                    .color(VanillaIron::MUTED),
+            );
+            return;
+        }
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for wing in &data.wings {
+                let accent = if wing.plane_ratio() < 0.5 || wing.org_ratio() < 0.35 {
+                    VanillaIron::BAD
+                } else if wing.transferring {
+                    VanillaIron::WARN
+                } else {
+                    VanillaIron::BRASS_BRIGHT
+                };
+                egui::Frame::new()
+                    .fill(VanillaIron::CARD_DEEP)
+                    .stroke(egui::Stroke::new(1.0, accent))
+                    .inner_margin(egui::Margin::symmetric(7, 5))
                     .show(ui, |ui| {
-                        render_wing_section(ui, data, &mut commands);
-                        render_help_card(ui);
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&wing.name).strong().color(VanillaIron::TEXT));
+                            if ui.small_button("详情").clicked() {
+                                commands.push(AirCommand::Panel(PanelCommand::OpenDetail(
+                                    ActiveDetailPanel::AirWing(AirWingDetailTarget {
+                                        air_wing_id: wing.id,
+                                    }),
+                                )));
+                            }
+                        });
+                        ui.label(
+                            RichText::new(format!(
+                                "{} / 空域 {} / {} 架",
+                                wing.mission.label(),
+                                wing.region_id,
+                                wing.planes
+                            ))
+                            .small()
+                            .color(VanillaIron::MUTED),
+                        );
+                    });
+                ui.add_space(4.0);
+            }
+        });
+    });
+}
+
+fn air_command_main(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &AirData,
+    commands: &mut Vec<AirCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        VanillaIron::section_heading(ui, "空军态势");
+        ui.columns(4, |columns| {
+            VanillaIron::info_row(&mut columns[0], "飞机", data.total_planes.to_string());
+            VanillaIron::info_row(
+                &mut columns[1],
+                "库存",
+                format!("{:.0}", data.aircraft_stockpile),
+            );
+            VanillaIron::value_row(
+                &mut columns[2],
+                "超载基地",
+                data.over_capacity_bases.to_string(),
+                if data.over_capacity_bases > 0 {
+                    VanillaIron::BAD
+                } else {
+                    VanillaIron::MUTED
+                },
+            );
+            VanillaIron::info_row(
+                &mut columns[3],
+                "转移来源",
+                data.transfer_source_wing
+                    .map(|id| id.to_string())
+                    .unwrap_or_else(|| "无".to_owned()),
+            );
+        });
+        if let Some(id) = data.pending_transfer_wing {
+            ui.add_space(8.0);
+            VanillaIron::warning_row(ui, &format!("联队 #{id} 正等待地图选择机场州。"));
+        }
+        ui.add_space(8.0);
+        VanillaIron::section_heading(ui, "联队状态");
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                egui::Grid::new("air_command_wing_grid")
+                    .striped(true)
+                    .spacing(egui::vec2(8.0, 4.0))
+                    .show(ui, |ui| {
+                        for wing in &data.wings {
+                            if ui.link(&wing.name).clicked() {
+                                commands.push(AirCommand::Panel(PanelCommand::OpenDetail(
+                                    ActiveDetailPanel::AirWing(AirWingDetailTarget {
+                                        air_wing_id: wing.id,
+                                    }),
+                                )));
+                            }
+                            ui.label(wing.mission.label());
+                            ui.label(format!("基地 {}", wing.base_state));
+                            ui.label(format!("空域 {}", wing.region_id));
+                            ui.label(
+                                RichText::new(format!("{}/{}", wing.planes, wing.max_planes))
+                                    .color(if wing.plane_ratio() < 0.5 {
+                                        VanillaIron::BAD
+                                    } else {
+                                        VanillaIron::TEXT
+                                    }),
+                            );
+                            ui.label(
+                                RichText::new(format!("{:.0}% 效率", wing.mission_efficiency_pct))
+                                    .color(if wing.mission_efficiency_pct < 60.0 {
+                                        VanillaIron::WARN
+                                    } else {
+                                        VanillaIron::MUTED
+                                    }),
+                            );
+                            ui.end_row();
+                        }
                     });
             });
-        (close, commands)
+    });
+}
+
+fn air_command_strip(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    data: &AirData,
+    commands: &mut Vec<AirCommand>,
+) {
+    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
+        ui.horizontal_wrapped(|ui| {
+            if let Some(wing) = data.wings.first() {
+                if VanillaIron::compact_button(ui, "联队详情").clicked() {
+                    commands.push(AirCommand::Panel(PanelCommand::OpenDetail(
+                        ActiveDetailPanel::AirWing(AirWingDetailTarget {
+                            air_wing_id: wing.id,
+                        }),
+                    )));
+                }
+                if VanillaIron::compact_button(ui, "调动到选中州").clicked() {
+                    commands.push(AirCommand::TransferToSelectedState { wing_id: wing.id });
+                }
+                if VanillaIron::compact_button(ui, "切换补员").clicked() {
+                    commands.push(AirCommand::ToggleReinforce { wing_id: wing.id });
+                }
+                if VanillaIron::compact_button(ui, "制空").clicked() {
+                    commands.push(AirCommand::SetMission {
+                        wing_id: wing.id,
+                        mission: AirMissionUi::AirSuperiority,
+                    });
+                }
+                if VanillaIron::compact_button(ui, "近距支援").clicked() {
+                    commands.push(AirCommand::SetMission {
+                        wing_id: wing.id,
+                        mission: AirMissionUi::CloseAirSupport,
+                    });
+                }
+            }
+            if VanillaIron::compact_button(ui, "打开物流").clicked() {
+                commands.push(AirCommand::Panel(PanelCommand::OpenPrimary(
+                    ActivePrimaryPanel::Logistics,
+                )));
+            }
+        });
+    });
+}
+
+impl AirPanel {
+    pub fn show(ctx: &egui::Context, data: &AirData) -> (bool, Vec<AirCommand>) {
+        command_show_air(ctx, data)
     }
 }
 

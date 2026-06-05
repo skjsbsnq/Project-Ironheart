@@ -1,6 +1,6 @@
 //! V9 event modal composite.
 
-use egui::{Align2, Color32, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
+use egui::{Align2, Area, Color32, Order, Pos2, Rect, Sense, Stroke, StrokeKind, Vec2};
 use hoi4_content::Event as ContentEvent;
 
 use crate::{
@@ -8,10 +8,11 @@ use crate::{
     v9::{
         layout::{GridLayout, Track},
         paint,
-        primitives::{Modal, Tooltip},
+        primitives::Tooltip,
         sound,
         tokens::{palette, spacing, TextRole},
     },
+    vanilla_iron::VanillaIron,
 };
 
 pub fn show_event_modal(
@@ -32,15 +33,56 @@ pub fn show_event_modal(
     let modal_h = (292.0 + option_h).clamp(420.0, (screen.height() * 0.82).max(420.0));
     let mut picked = None;
 
-    Modal::new(("v9_event_modal", &event.id), Vec2::new(modal_w, modal_h))
-        .title(&title)
-        .accent(if matches!(event.scope, hoi4_content::EventScope::News) {
-            palette::INFO
-        } else {
-            palette::BRASS_BRIGHT
-        })
-        .open_sound(false)
-        .show(ctx, |ui, body| {
+    let size = Vec2::new(modal_w, modal_h);
+    let pos = Pos2::new(
+        screen.center().x - size.x * 0.5,
+        screen.center().y - size.y * 0.5,
+    );
+    let accent = if matches!(event.scope, hoi4_content::EventScope::News) {
+        palette::INFO
+    } else {
+        VanillaIron::BRASS_BRIGHT
+    };
+
+    Area::new(egui::Id::new(("event_modal_iron_backdrop", &event.id)))
+        .order(Order::Foreground)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            let (rect, _) = ui.allocate_exact_size(screen.size(), Sense::click());
+            ui.painter().rect_filled(
+                rect,
+                egui::epaint::CornerRadius::ZERO,
+                Color32::from_black_alpha(126),
+            );
+        });
+
+    Area::new(egui::Id::new(("event_modal_iron", &event.id)))
+        .order(Order::Foreground)
+        .fixed_pos(pos)
+        .default_size(size)
+        .show(ctx, |ui| {
+            let (outer, _) = ui.allocate_exact_size(size, Sense::click_and_drag());
+            VanillaIron::paint_panel(ui, outer, accent);
+            let header = Rect::from_min_max(
+                outer.left_top() + Vec2::new(14.0, 10.0),
+                Pos2::new(outer.right() - 14.0, outer.top() + 48.0),
+            );
+            ui.painter().text(
+                header.center(),
+                Align2::CENTER_CENTER,
+                &title,
+                TextRole::Display.font_id(),
+                VanillaIron::TEXT,
+            );
+            ui.painter().hline(
+                header.left()..=header.right(),
+                header.bottom(),
+                Stroke::new(1.0, VanillaIron::EDGE),
+            );
+            let body = Rect::from_min_max(
+                Pos2::new(outer.left() + 14.0, header.bottom() + spacing::S4),
+                outer.right_bottom() - Vec2::new(14.0, 12.0),
+            );
             let rows = GridLayout::new(
                 vec![
                     Track::Fixed(26.0),
@@ -86,17 +128,8 @@ fn draw_meta(ui: &mut egui::Ui, rect: Rect, event: &ContentEvent, queue_extra: u
     } else {
         Color32::from_rgba_premultiplied(0x10, 0x12, 0x10, 210)
     };
-    paint::paint_bevel(
-        painter,
-        rect,
-        fill,
-        if is_news {
-            palette::INFO
-        } else {
-            palette::BRASS_DARK
-        },
-        1.0,
-    );
+    let _ = fill;
+    VanillaIron::paint_region(painter, rect, VanillaIron::CARD_DEEP);
     painter.text(
         Pos2::new(rect.left() + spacing::S4, rect.center().y),
         Align2::LEFT_CENTER,
@@ -136,7 +169,7 @@ fn draw_picture_and_description(
     let desc = GridLayout::cell(&cells, 0, 1);
     let painter = ui.painter().clone();
 
-    paint::paint_recessed_panel(&painter, picture, 1.0);
+    VanillaIron::paint_region(&painter, picture, VanillaIron::CARD_DEEP);
     painter.rect_stroke(
         picture,
         egui::epaint::CornerRadius::same(1),
@@ -158,7 +191,7 @@ fn draw_picture_and_description(
         draw_event_picture_fallback(ui, image_rect, event);
     }
 
-    paint::paint_recessed_panel(&painter, desc, 1.0);
+    VanillaIron::paint_region(&painter, desc, VanillaIron::CARD_DEEP);
     let text_rect = desc.shrink2(Vec2::new(spacing::S4, spacing::S4));
     let galley = painter.layout(
         description.to_owned(),
@@ -264,7 +297,16 @@ fn option_row(
     } else {
         palette::HAIRLINE
     };
-    paint::paint_bevel(ui.painter(), rect, fill, stroke, 1.0);
+    let _ = (fill, stroke);
+    VanillaIron::paint_region(
+        ui.painter(),
+        rect,
+        if hovered {
+            VanillaIron::CARD_SOFT
+        } else {
+            VanillaIron::CARD_DEEP
+        },
+    );
     if hovered {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
