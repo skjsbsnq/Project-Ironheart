@@ -970,7 +970,7 @@ git commit -m "refactor(app): gate 20 - finalize split boundaries"
 git push
 ```
 
-## Gate 21 - 技术文档交付
+## [x] Gate 21 - 技术文档交付
 
 目标：产出维护者可用的技术文档，说明拆分后的结构和关键流程。
 
