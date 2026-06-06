@@ -18,7 +18,7 @@
 use std::time::{Duration, Instant};
 
 use hoi4_assets::AssetDb;
-use hoi4_data::GameData;
+use hoi4_data::{CharacterDef, CountryTag, GameData};
 use hoi4_logic::economy::EconomyState;
 use hoi4_logic::politics::PoliticsCache;
 use hoi4_logic::research::ResearchState;
@@ -113,11 +113,45 @@ pub fn load_world() -> Result<World, String> {
     let game_path = cfg.game_path();
     let map =
         std::sync::Arc::new(GameMap::load(game_path).map_err(|e| format!("GameMap::load: {e}"))?);
-    let data =
-        std::sync::Arc::new(GameData::load(game_path).map_err(|e| format!("GameData::load: {e}"))?);
+    let mut data = GameData::load(game_path).map_err(|e| format!("GameData::load: {e}"))?;
+    inject_project_head_of_state_characters(&mut data);
+    let data = std::sync::Arc::new(data);
     let mut world = World::new(map, data);
     let _ = world.populate_from_history();
     Ok(world)
+}
+
+fn inject_project_head_of_state_characters(data: &mut GameData) {
+    let Ok(history) = hoi4_content::Historical1936Database::load() else {
+        return;
+    };
+    for head in history.head_of_states {
+        if head.character_key.is_empty() || head.portrait_gfx.is_empty() {
+            continue;
+        }
+        if data
+            .characters
+            .iter()
+            .any(|character| character.key == head.character_key)
+        {
+            continue;
+        }
+        let tag = CountryTag::new(&head.tag);
+        let idx = data.characters.len();
+        data.characters.push(CharacterDef {
+            key: head.character_key.clone(),
+            tag: tag.clone(),
+            name_loc_key: if head.name.is_empty() {
+                head.character_key
+            } else {
+                head.name
+            },
+            portrait_large: Some(head.portrait_gfx),
+            country_leader_ideology: Some("despotism".to_owned()),
+            source_order: u32::MAX,
+        });
+        data.characters_by_tag.entry(tag).or_default().push(idx);
+    }
 }
 
 /// 推进 `days` 天，每天 24 hour ticks，路由到 [`SystemSchedule`]（Phase 1 真实系统）。

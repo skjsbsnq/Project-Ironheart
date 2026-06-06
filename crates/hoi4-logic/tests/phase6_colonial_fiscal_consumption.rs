@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use hoi4_content::{inject_v6_into_world, V6Database};
 use hoi4_data::{Color, Country, CountryTag, GameData, State};
-use hoi4_logic::economy::{tick_daily_v6, EconomyState};
+use hoi4_logic::economy::{init_world, tick_daily_v6, EconomyState};
 use hoi4_map::{GameMap, Heightmap, ProvinceDefinition, ProvinceMap, ProvinceType, TerrainBitmap};
 use hoi4_state::{StateIntegrationStatus, World};
 
@@ -92,8 +92,12 @@ fn phase6_world(colonial: bool) -> (World, V6Database) {
     add_state(&mut data, "FRA", 303, &mut province_id);
 
     let mut world = World::new(test_map(province_id), Arc::new(data));
+    init_world(&mut world);
     let db = V6Database::load();
     inject_v6_into_world(&mut world, &db);
+    if let Some(fra) = world.country("FRA") {
+        world.player = fra;
+    }
     if !colonial {
         for status in &mut world.states.integration_status {
             *status = StateIntegrationStatus::Metropole;

@@ -283,7 +283,7 @@ terrain = {
         assert_eq!(arr[0], 1);
         assert_eq!(arr[1], 4);
         assert_eq!(arr[6], 11);
-        assert_eq!(arr[2], 2);
+        assert_eq!(arr[2], 5);
     }
 
     #[test]

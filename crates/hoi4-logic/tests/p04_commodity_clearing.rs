@@ -32,6 +32,9 @@ fn build_world_with_v6() -> (World, Arc<GameData>, V6Database) {
     let db = V6Database::load();
     db.assert_no_vanilla_conflict();
     hoi4_content::inject_v6_into_world(&mut world, &db);
+    if let Some(ger) = world.country("GER") {
+        world.player = ger;
+    }
     (world, data, db)
 }
 

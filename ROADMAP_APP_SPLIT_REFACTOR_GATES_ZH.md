@@ -914,7 +914,7 @@ git commit -m "refactor(content): gate 19 - add v6 load diagnostics"
 git push
 ```
 
-## Gate 20 - 最终清理与边界验收
+## [x] Gate 20 - 最终清理与边界验收
 
 目标：确认重构结果没有破坏功能，整理公开边界。
 

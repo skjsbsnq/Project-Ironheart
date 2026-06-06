@@ -452,6 +452,7 @@ fn add_resource_building_def(db: &mut V6Database, building_id: &str, deposit_kin
 
 fn world_with_law(economy_law: &str) -> World {
     let mut world = World::new(test_map(), test_data());
+    world.player = hoi4_state::CountryId(0);
     let ci = 0;
     world.countries.law_store.law_sets[ci].0[LawCategory::Economy.index()] =
         LawSlot::new(LawCategory::Economy, economy_law);

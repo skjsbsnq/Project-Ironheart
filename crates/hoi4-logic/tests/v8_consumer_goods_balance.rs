@@ -117,6 +117,7 @@ fn germany_world() -> (World, V6Database) {
     init_world(&mut world);
     let db = V6Database::load();
     inject_v6_into_world(&mut world, &db);
+    world.player = world.country("GER").expect("GER exists");
     (world, db)
 }
 

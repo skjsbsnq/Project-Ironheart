@@ -127,6 +127,9 @@ fn germany_world() -> (World, V6Database) {
     init_world(&mut world);
     let db = V6Database::load();
     inject_v6_into_world(&mut world, &db);
+    if let Some(ger) = world.country("GER") {
+        world.player = ger;
+    }
     (world, db)
 }
 

@@ -18,7 +18,7 @@ use hoi4_script::events::{EventDef, EventOption, MeanTimeToHappen};
 
 #[test]
 fn schedule_phase1_4_script_active() {
-    let s = hoi4_app::systems::SystemSchedule::with_phase1_systems();
+    let s = hoi4_runtime::SystemSchedule::with_phase1_systems();
     let line = s.report_systems();
     // 1.4 完成后 script 应是 ✓
     assert!(line.contains("script ✓"), "report_systems: {}", line);

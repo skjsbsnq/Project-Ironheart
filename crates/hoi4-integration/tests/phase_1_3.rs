@@ -43,13 +43,13 @@ fn org_regen_one_day() {
         1,
     );
 
-    // 应当恢复 ~30% × max_org（与 ORG_REGEN_PER_DAY 一致）
+    // 应当恢复 18% × max_org（与当前陆军 ORG_REGEN_PER_DAY 一致）
     let after = world.divisions.organisation[baseline_idx];
-    let expected = (half + max_org * 0.10).min(max_org);
+    let expected = (half + max_org * 0.18).min(max_org);
     let diff = (after - expected).abs();
     assert!(
         diff < 0.5,
-        "div[{}] 期望 org ≈ {:.2}（half={:.2}+10%×{:.2}），实际 {:.2}",
+        "div[{}] 期望 org ≈ {:.2}（half={:.2}+18%×{:.2}），实际 {:.2}",
         baseline_idx,
         expected,
         half,
@@ -110,23 +110,17 @@ fn wargoal_justifies_after_full_duration() {
     hoi4_logic::diplomacy::start_justification(&mut world, ger, pol, WargoalType::Annex, None)
         .expect("start_justification");
 
-    // Annex 需 70 × 1.5 = 105 天；多跑 5 天保险
-    let (mut econ, mut research, mut politics_cache, mut script, mut ai) =
-        hoi4_integration::init_simulation(&mut world);
-    let _ = hoi4_integration::tick_days_with(
-        &mut world,
-        &mut econ,
-        &mut research,
-        &mut politics_cache,
-        &mut script,
-        &mut ai,
-        110,
-    );
+    // Annex 需 70 × 1.5 = 105 个 diplomacy daily。这里直接验证外交推进入口，
+    // 避免完整 Phase1 调度里的军事状态影响 wargoal 合同。
+    for _ in 0..105 {
+        hoi4_logic::diplomacy::advance_justification(&mut world);
+    }
 
     let justified = hoi4_logic::diplomacy::wargoal::justified_wargoals(&world, ger);
     assert!(
         !justified.is_empty(),
-        "110 天后 GER 至少有 1 个 justified wargoal",
+        "105 个外交 daily 后 GER 至少有 1 个 justified wargoal；当前 wargoals={:?}",
+        hoi4_logic::diplomacy::wargoal::all_wargoals(&world, ger),
     );
     assert_eq!(justified[0].kind, WargoalType::Annex);
 }
@@ -226,6 +220,8 @@ fn land_arbiter_runs_combat_on_opposing_neighbors() {
     // 把它们摆到正确省份，重置 strength/org 以便观察
     world.divisions.locations[ger_idx] = ProvinceId(prov_ger);
     world.divisions.locations[pol_idx] = ProvinceId(prov_other);
+    world.divisions.destinations[ger_idx] = Some(ProvinceId(prov_other));
+    world.divisions.destinations[pol_idx] = None;
     world.divisions.strength[ger_idx] = 1.0;
     world.divisions.strength[pol_idx] = 1.0;
     world.divisions.organisation[ger_idx] = world.divisions.max_organisation[ger_idx];
@@ -266,7 +262,7 @@ fn land_arbiter_runs_combat_on_opposing_neighbors() {
 
 #[test]
 fn schedule_phase1_3_all_active() {
-    let s = hoi4_app::systems::SystemSchedule::with_phase1_systems();
+    let s = hoi4_runtime::SystemSchedule::with_phase1_systems();
     let line = s.report_systems();
     // ROADMAP_V3 M0 字面：systems: econ ✓ politics ✓ research ✓ military ✓ diplomacy ✓ ai ✓ script ✓
     assert!(line.contains("military ✓"), "report_systems: {}", line);

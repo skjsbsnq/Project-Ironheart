@@ -18,7 +18,7 @@ use hoi4_integration::{init_simulation, load_world, tick_days_with};
 
 #[test]
 fn schedule_phase1_5_ai_active() {
-    let s = hoi4_app::systems::SystemSchedule::with_phase1_systems();
+    let s = hoi4_runtime::SystemSchedule::with_phase1_systems();
     let line = s.report_systems();
     assert!(line.contains("ai ✓"), "report_systems: {}", line);
 }
