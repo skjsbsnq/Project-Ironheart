@@ -122,12 +122,26 @@ struct ChunkUniform {
 
 const LUT_WIDTH: u32 = 256u;
 const SEA_LEVEL: f32 = 95.0 / 255.0;
-const NOISE_AMOUNT: f32 = 0.018;
+const NOISE_AMOUNT: f32 = 0.026;
 const TERRAIN_ATLAS_TILE_SCALE: f32 = 0.95;
-const CLOSE_DETAIL_AMOUNT: f32 = 0.030;
+const CLOSE_DETAIL_AMOUNT: f32 = 0.052;
 const TERRAIN_ID_JITTER_PIXELS: f32 = 0.55;
 const COLORMAP_OVERLAY_STRENGTH_TERRAIN: f32 = 0.75;
 const COLORMAP_MUD_OVERLAY_STRENGTH_TERRAIN: f32 = 0.5;
+const TERRAIN_ATLAS_ALBEDO_STRENGTH: f32 = 0.78;
+const TERRAIN_ATLAS_MAX_DARKEN_TERRAIN: f32 = 0.48;
+const TERRAIN_FOREST_ALBEDO_STRENGTH: f32 = 0.82;
+const TERRAIN_FOREST_POLITICAL_STRENGTH: f32 = 0.48;
+const TERRAIN_ATLAS_NORMAL_STRENGTH: f32 = 0.44;
+const TERRAIN_ATLAS_MIP_BIAS: f32 = -0.70;
+const TERRAIN_MUD_ALBEDO_STRENGTH: f32 = 0.0;
+const TERRAIN_MUD_NORMAL_STRENGTH: f32 = 0.0;
+const TERRAIN_PROJECTED_SHADOW_STRENGTH: f32 = 0.0;
+const TERRAIN_WATER_RELIEF_STRENGTH: f32 = 0.0;
+const TERRAIN_WATER_HEIGHT_BAND_STRENGTH: f32 = 0.0;
+const TERRAIN_WATER_BED_VISIBILITY_STRENGTH: f32 = 0.0;
+const TERRAIN_COAST_WHITE_EDGE_STRENGTH: f32 = 0.0;
+const TERRAIN_WATER_FOAM_STRENGTH: f32 = 0.0;
 const CITY_LIGHTS_INTENSITY_TERRAIN: f32 = 5.5;
 const CITY_LIGHTS_BLOOM_FACTOR_TERRAIN: f32 = 0.3;
 const TERRAIN_CITY_LIGHTS_ENABLED: bool = false;
@@ -304,23 +318,8 @@ fn vs_main(in: VsIn) -> VsOut {
     let h = load_height_bilinear(uv);
     var world_y: f32 = h * height_scale;
 
-    // Phase 11.2 / 3.12.18 — LOD skirt: drop chunk-edge vertices a tiny
-    // amount to fill the hairline gap between adjacent-LOD chunks.
-    //
-    // Previous value `0.05` units was visible as **dark diagonal creases**
-    // on every chunk boundary — the dropped edge formed a vertical wall
-    // the size of a man, lit from a low angle, which read as a black
-    // pixel-wide line through both land and sea.
-    //
-    // 0.005 is small enough to be sub-pixel at all gameplay zoom levels
-    // yet still patches the typical 1-2 hm-pixel LOD mismatch (heightmap
-    // step = 1/255 ≈ 0.004 → height_scale * 0.004 ≈ 0.016 world-y).
-    let on_edge_x = qx_u == 0u || qx_u == grid - 1u;
-    let on_edge_z = qz_u == 0u || qz_u == grid - 1u;
-    if (on_edge_x || on_edge_z) {
-        world_y -= 0.005;
-    }
-
+    // Chunk-edge skirts are disabled here. Even a tiny per-chunk drop reads as
+    // a regular dark grid on land once terrain normals and shadows are applied.
     let tex_dim = vec2<f32>(textureDimensions(heightmap_tex));
     let eps = vec2<f32>(1.0) / tex_dim;
     let h_l = load_height_bilinear(uv - vec2<f32>(eps.x, 0.0));
@@ -391,6 +390,14 @@ fn terrain_category_water(terrain_id: u32) -> bool {
     return (lookup_terrain_flags(terrain_id) & 2u) != 0u;
 }
 
+fn terrain_category_forest(terrain_id: u32) -> bool {
+    return (lookup_terrain_flags(terrain_id) & 4u) != 0u;
+}
+
+fn terrain_category_jungle(terrain_id: u32) -> bool {
+    return (lookup_terrain_flags(terrain_id) & 8u) != 0u;
+}
+
 fn calculate_map_tex_index(terrain_id: u32) -> u32 {
     return lookup_atlas_idx(terrain_id);
 }
@@ -400,13 +407,15 @@ fn sample_atlas_tile(id: u32, map_px: vec2<f32>) -> vec3<f32> {
     let tile_x = f32(atlas_idx % 4u);
     let tile_y = f32(atlas_idx / 4u);
     var tile_uv = fract(vanilla_terrain_tile_repeat(map_px));
-    var inset = 0.0;
+    let atlas_dim = vec2<f32>(textureDimensions(terrain_atlas_tex));
+    let tile_dim = max(min(atlas_dim.x, atlas_dim.y) * 0.25, 1.0);
+    var inset = 0.5 / tile_dim;
     if (terrain_legacy_art_enabled()) {
         tile_uv = fract(vanilla_terrain_tile_repeat(map_px) * TERRAIN_ATLAS_TILE_SCALE);
-        inset = 0.001;
+        inset = max(inset, 0.001);
     }
     let atlas_uv = (vec2<f32>(tile_x, tile_y) + clamp(tile_uv, vec2<f32>(inset), vec2<f32>(1.0 - inset))) * 0.25;
-    return textureSample(terrain_atlas_tex, pass_sampler, atlas_uv).rgb;
+    return textureSampleBias(terrain_atlas_tex, pass_sampler, atlas_uv, TERRAIN_ATLAS_MIP_BIAS).rgb;
 }
 
 fn sample_atlas_normal_tile(id: u32, map_px: vec2<f32>) -> vec3<f32> {
@@ -414,13 +423,15 @@ fn sample_atlas_normal_tile(id: u32, map_px: vec2<f32>) -> vec3<f32> {
     let tile_x = f32(atlas_idx % 4u);
     let tile_y = f32(atlas_idx / 4u);
     var tile_uv = fract(vanilla_terrain_tile_repeat(map_px));
-    var inset = 0.0;
+    let atlas_dim = vec2<f32>(textureDimensions(terrain_atlas_normal_tex));
+    let tile_dim = max(min(atlas_dim.x, atlas_dim.y) * 0.25, 1.0);
+    var inset = 0.5 / tile_dim;
     if (terrain_legacy_art_enabled()) {
         tile_uv = fract(vanilla_terrain_tile_repeat(map_px) * TERRAIN_ATLAS_TILE_SCALE);
-        inset = 0.001;
+        inset = max(inset, 0.001);
     }
     let atlas_uv = (vec2<f32>(tile_x, tile_y) + clamp(tile_uv, vec2<f32>(inset), vec2<f32>(1.0 - inset))) * 0.25;
-    let n_raw = textureSample(terrain_atlas_normal_tex, pass_sampler, atlas_uv).rgb;
+    let n_raw = textureSampleBias(terrain_atlas_normal_tex, pass_sampler, atlas_uv, TERRAIN_ATLAS_MIP_BIAS).rgb;
     return normalize(n_raw * 2.0 - 1.0);
 }
 
@@ -526,7 +537,8 @@ fn sample_season_color(uv: vec2<f32>) -> vec3<f32> {
 fn shadow_pcf(screen_uv: vec2<f32>) -> f32 {
     let packed = textureSample(shadow_map_tex, generic_sampler, clamp(screen_uv, vec2<f32>(0.0), vec2<f32>(1.0)));
     let projected_shadow = packed.r;
-    return mix(1.0 - frame.shadow_fade_factor, 1.0, projected_shadow);
+    let sampled_shadow = mix(1.0 - frame.shadow_fade_factor, 1.0, projected_shadow);
+    return mix(1.0, sampled_shadow, TERRAIN_PROJECTED_SHADOW_STRENGTH);
 }
 
 fn gradient_border_page_uv(uv: vec2<f32>, page: f32) -> vec2<f32> {
@@ -648,8 +660,8 @@ fn terrain_water_height_relief(map_uv: vec2<f32>, depth_ratio: f32) -> f32 {
     let slope_wide = length(vec2<f32>(h_lw - h_rw, h_dw - h_uw)) * 26.0;
     let slope = clamp(slope_near * 0.64 + slope_wide * 0.36, 0.0, 1.0);
     let shelf = 1.0 - smoothstep(0.54, 0.98, depth_ratio);
-    let contour = (0.5 + 0.5 * sin((SEA_LEVEL - h) * 220.0)) * shelf * 0.10;
-    return clamp(slope * (0.42 + shelf * 0.52) + contour, 0.0, 1.0);
+    let contour = (0.5 + 0.5 * sin((SEA_LEVEL - h) * 220.0)) * shelf * 0.10 * TERRAIN_WATER_HEIGHT_BAND_STRENGTH;
+    return clamp((slope * (0.42 + shelf * 0.52) + contour) * TERRAIN_WATER_RELIEF_STRENGTH, 0.0, 1.0);
 }
 
 fn terrain_water_backdrop(frag: VsOut, real_h: f32, dedicated_water: bool) -> vec3<f32> {
@@ -666,9 +678,12 @@ fn terrain_water_backdrop(frag: VsOut, real_h: f32, dedicated_water: bool) -> ve
     let ridge = fbm2d(frag.world_pos.xz * 2.20 + vec2<f32>(91.0, 12.0)) - 0.5;
     let grain = vnoise2d(frag.world_pos.xz * 9.0 + vec2<f32>(23.0, 5.0)) - 0.5;
     let shelf_visibility = 1.0 - smoothstep(0.52, 0.96, depth_ratio);
-    let height_band = (0.5 + 0.5 * sin((SEA_LEVEL - real_h) * 380.0 + slope * 2.2)) * shelf_visibility;
+    let height_band =
+        (0.5 + 0.5 * sin((SEA_LEVEL - real_h) * 380.0 + slope * 2.2)) *
+        shelf_visibility *
+        TERRAIN_WATER_HEIGHT_BAND_STRENGTH;
     let procedural = (broad * 0.40 + ridge * 0.28 + grain * 0.12 + height_band * 0.18) * (0.30 + shelf_visibility * 0.70);
-    let relief = clamp(slope * (0.76 + shelf_visibility * 1.18) + procedural, -0.38, 1.22);
+    let relief = clamp(slope * (0.76 + shelf_visibility * 1.18) + procedural, -0.38, 1.22) * TERRAIN_WATER_RELIEF_STRENGTH;
     color = color * (0.74 + relief * (0.26 + shelf_visibility * 0.34));
     color = color + vec3<f32>(0.044, 0.044, 0.026) * height_band * (1.0 - deep) * 0.18;
 
@@ -687,11 +702,17 @@ fn terrain_water_backdrop(frag: VsOut, real_h: f32, dedicated_water: bool) -> ve
     let terrain_bed = bed_texture * bed_tint
         * clamp(0.52 + relief * 0.72 + height_band * 0.18, 0.24, 1.28)
         * (0.44 + shelf_visibility * 0.58);
-    let bed_visibility = clamp(shelf_visibility * (0.26 + slope * 0.30 + height_band * 0.14), 0.0, 0.56);
+    let bed_visibility =
+        clamp(shelf_visibility * (0.26 + slope * 0.30 + height_band * 0.14), 0.0, 0.56) *
+        TERRAIN_WATER_BED_VISIBILITY_STRENGTH;
     color = mix(color, terrain_bed, bed_visibility);
 
     let coast = 1.0 - smoothstep(1.0, 18.0, coast_dist_px(frag.map_uv));
-    color = mix(color, color * vec3<f32>(0.94, 1.02, 1.00), coast * (0.012 + shelf_visibility * 0.018));
+    color = mix(
+        color,
+        color * vec3<f32>(0.94, 1.02, 1.00),
+        coast * (0.012 + shelf_visibility * 0.018) * TERRAIN_COAST_WHITE_EDGE_STRENGTH
+    );
 
     if (dedicated_water) {
         let dedicated_deep = smoothstep(0.54, 0.98, depth_ratio);
@@ -829,7 +850,47 @@ fn get_mud_amount(mud_snow_color: vec4<f32>) -> f32 {
 fn get_mud_color(map_px: vec2<f32>, base_color: vec3<f32>, amount: f32) -> vec3<f32> {
     let mud = textureSample(mud_diffuse_gloss_tex, pass_sampler, map_px * MUD_TILING_TERRAIN);
     let overlaid = get_overlay(base_color, mud.rgb, COLORMAP_MUD_OVERLAY_STRENGTH_TERRAIN);
-    return mix(base_color, overlaid, clamp(amount, 0.0, 1.0));
+    return mix(base_color, overlaid, clamp(amount * TERRAIN_MUD_ALBEDO_STRENGTH, 0.0, 1.0));
+}
+
+fn clamp_dark_terrain_detail(base_color: vec3<f32>, detail_color: vec3<f32>, max_darken: f32) -> vec3<f32> {
+    let luma = vec3<f32>(0.2126, 0.7152, 0.0722);
+    let base_luma = max(dot(base_color, luma), 0.001);
+    let detail_luma = max(dot(detail_color, luma), 0.001);
+    let min_luma = base_luma * (1.0 - clamp(max_darken, 0.0, 0.95));
+    let darken_fix = max(1.0, min_luma / detail_luma);
+    return min(detail_color * darken_fix, vec3<f32>(1.0));
+}
+
+fn terrain_forest_amount(terrain_id: u32) -> f32 {
+    if (terrain_category_jungle(terrain_id)) {
+        return 1.0;
+    }
+    if (terrain_category_forest(terrain_id)) {
+        return 0.82;
+    }
+    return 0.0;
+}
+
+fn apply_forest_terrain_tint(base_color: vec3<f32>, terrain_id: u32, map_px: vec2<f32>, amount_scale: f32) -> vec3<f32> {
+    let amount = terrain_forest_amount(terrain_id) * amount_scale;
+    if (amount <= 0.0) {
+        return base_color;
+    }
+    let forest_tint = select(
+        vec3<f32>(0.105, 0.205, 0.135),
+        vec3<f32>(0.075, 0.185, 0.105),
+        terrain_category_jungle(terrain_id)
+    );
+    let canopy_large = fbm2d(map_px * 0.018 + vec2<f32>(11.3, 47.9));
+    let canopy_small = vnoise2d(map_px * 0.085 + vec2<f32>(3.1, 91.7));
+    let canopy = clamp(canopy_large * 0.70 + canopy_small * 0.30, 0.0, 1.0);
+    let crown_shadow = smoothstep(0.36, 0.88, canopy);
+    let crown_highlight = smoothstep(0.62, 0.96, 1.0 - canopy);
+    var textured_tint = forest_tint * (0.78 + crown_highlight * 0.16);
+    textured_tint = mix(textured_tint, vec3<f32>(0.018, 0.045, 0.030), crown_shadow * 0.34);
+    let forest_overlay = mix(get_overlay(base_color, textured_tint, 0.72), textured_tint, 0.24);
+    return mix(base_color, forest_overlay, clamp(amount, 0.0, 1.0));
 }
 
 fn apply_snow(map_px: vec2<f32>, base_color: vec3<f32>, amount: f32) -> vec3<f32> {
@@ -862,8 +923,22 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
     let political_color = province_color(pid).rgb;
     let atlas_terr = terrain_atlas_color(frag.map_uv, frag.map_px);
     let cmap = sample_season_color(frag.map_uv);
-    var terrain_albedo = get_overlay(atlas_terr, cmap, COLORMAP_OVERLAY_STRENGTH_TERRAIN);
+    let atlas_overlay_raw = get_overlay(atlas_terr, cmap, COLORMAP_OVERLAY_STRENGTH_TERRAIN);
+    let atlas_overlay = clamp_dark_terrain_detail(cmap, atlas_overlay_raw, TERRAIN_ATLAS_MAX_DARKEN_TERRAIN);
+    var terrain_albedo = mix(cmap, atlas_overlay, TERRAIN_ATLAS_ALBEDO_STRENGTH);
+    terrain_albedo = apply_forest_terrain_tint(
+        terrain_albedo,
+        terrain_id,
+        frag.map_px,
+        TERRAIN_FOREST_ALBEDO_STRENGTH
+    );
     var color = mix(political_color, terrain_albedo, weights.map_mode_weight);
+    color = apply_forest_terrain_tint(
+        color,
+        terrain_id,
+        frag.map_px,
+        TERRAIN_FOREST_POLITICAL_STRENGTH * (1.0 - weights.map_mode_weight)
+    );
     if (terrain_legacy_art_enabled()) {
         let atlas_terr2 = terrain_atlas_color(
             frag.map_uv,
@@ -890,8 +965,8 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
         let ny = sqrt(max(0.0, 1.0 - nx * nx - nz * nz));
         let main_normal = normalize(vec3<f32>(nx, ny, nz));
         let micro = terrain_atlas_normal(frag.map_uv, frag.map_px);
-        combined_normal = normalize(rotate_vec_by_vec(main_normal, micro));
-        combined_normal = normalize(mix(frag.world_normal, combined_normal, 0.6));
+        let detailed_normal = normalize(rotate_vec_by_vec(main_normal, micro));
+        combined_normal = normalize(mix(frag.world_normal, detailed_normal, TERRAIN_ATLAS_NORMAL_STRENGTH));
     }
 
     var snow = 0.0;
@@ -906,13 +981,8 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
         mud = get_mud_amount(mud_snow);
         color = get_mud_color(frag.map_px, color, mud);
         color = apply_snow(frag.map_px, color, snow);
-        if (terrain_owns_sdf_borders()) {
-            let gradient_border = apply_gradient_border_channels(color, frag.map_uv);
-            color = gradient_border.color;
-            border_bloom_alpha = gradient_border.bloom_alpha;
-        }
         let mud_n = rotate_vec_by_vec(surface_normal, mud_normal(frag.map_px));
-        surface_normal = normalize(mix(surface_normal, mud_n, mud * 0.30));
+        surface_normal = normalize(mix(surface_normal, mud_n, mud * TERRAIN_MUD_NORMAL_STRENGTH));
         let snow_n = rotate_vec_by_vec(surface_normal, snow_normal(frag.map_px));
         surface_normal = normalize(mix(surface_normal, snow_n, snow * 0.22));
 
@@ -920,13 +990,13 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
             let band_top = SEA_LEVEL + 0.025;
             if (real_h < band_top) {
                 let t = clamp(1.0 - (real_h - SEA_LEVEL) / 0.025, 0.0, 1.0);
-                color = mix(color, vec3<f32>(0.86, 0.79, 0.55), t * 0.20);
+                color = mix(color, vec3<f32>(0.86, 0.79, 0.55), t * 0.20 * TERRAIN_COAST_WHITE_EDGE_STRENGTH);
             }
 
             let cdist_coast_land = coast_dist_px(frag.map_uv);
             let coast_line = 1.0 - smoothstep(0.0, 1.65, cdist_coast_land);
             let coast_aa = smoothstep(0.18, 0.70, params.zoom_factor);
-            color = mix(color, vec3<f32>(0.54, 0.50, 0.36), coast_line * coast_aa * 0.08);
+            color = mix(color, vec3<f32>(0.54, 0.50, 0.36), coast_line * coast_aa * 0.08 * TERRAIN_COAST_WHITE_EDGE_STRENGTH);
 
             let n = triplanar_noise(frag.world_pos, combined_normal);
             color = color * (1.0 + n * NOISE_AMOUNT);
@@ -986,7 +1056,7 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
         let foam = clamp(1.0 - cdist_coast / 1.20, 0.0, 1.0) * (1.0 - deep * 0.75);
         let foam_n = vnoise2d(frag.world_pos.xz * 7.0 + vec2<f32>(frame.global_time * 0.25, 0.0));
         let foam_alpha = foam * smoothstep(0.50, 1.05, foam_n + foam);
-        color = mix(color, vec3<f32>(0.70, 0.84, 0.90), foam_alpha * 0.08);
+        color = mix(color, vec3<f32>(0.70, 0.84, 0.90), foam_alpha * 0.08 * TERRAIN_WATER_FOAM_STRENGTH);
     } else {
         // Final-quality frames let WaterPass own visible water. Terrain still
         // writes depth. Keep the hidden fallback close to the water material so
@@ -1190,23 +1260,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     var color = material.hdr_color;
-
-    // Terrain SDF borders are only a fallback owner. In final-quality frames
-    // BorderPass owns ordinary province/country boundary color.
-    if (terrain_owns_sdf_borders() && !is_water) {
-        let pdist = province_dist_px(in.map_uv);
-        let inner_bright = 1.0 + smoothstep(0.0, 12.0, pdist) * 0.08;
-        color = color * inner_bright;
-
-        let aa = clamp(fwidth(pdist) * 0.85, 0.08, 0.45);
-        let p_fade = smoothstep(0.18, 0.52, params.zoom_factor);
-        let outer_width = params.border_province_px * mix(0.85, 1.15, params.zoom_factor);
-        let core_width = max(outer_width * 0.42, 0.26);
-        let outer = (1.0 - smoothstep(outer_width - aa, outer_width + aa, pdist)) * p_fade;
-        let core = (1.0 - smoothstep(core_width - aa, core_width + aa, pdist)) * p_fade;
-        color = mix(color, vec3<f32>(0.28, 0.27, 0.23), outer * 0.18);
-        color = mix(color, vec3<f32>(0.07, 0.075, 0.07), core * 0.34);
-    }
 
     // ── 大气 / 云影 ──
     if (terrain_legacy_art_enabled()) {

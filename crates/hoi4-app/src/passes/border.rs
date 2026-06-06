@@ -18,7 +18,7 @@
 //!
 //! TerrainPass → RiverPass → WaterPass → **BorderPass** → MapSymbolPass
 
-use hoi4_assets::{dds_upload_plan, AssetDb, DdsImage, FsAssetDb, MapResRole};
+use hoi4_assets::{AssetDb, DdsImage, FsAssetDb, MapResRole, dds_upload_plan};
 use hoi4_paths::PathConfig;
 use hoi4_render::border_extract::{BorderKind, BorderMesh, BorderVertex};
 use hoi4_render::defines::{MAP_SIZE_X, MAP_SIZE_Y};
@@ -119,8 +119,7 @@ impl BorderParams {
         | Self::SEA_MASK
         | Self::SEA_REGION_MASK
         | Self::IMPASSABLE_MASK;
-    pub const DEFAULT_VISIBLE_MASK: u32 =
-        Self::COUNTRY_MASK | Self::SEA_MASK | Self::IMPASSABLE_MASK;
+    pub const DEFAULT_VISIBLE_MASK: u32 = 0;
 }
 
 const _: () = assert!(std::mem::size_of::<BorderParams>() == 48);
@@ -808,6 +807,10 @@ fn debug_allows_kind(kind: u32, is_selected: bool) -> bool {
     return true;
 }
 
+fn suppressed_in_final_view(kind: u32) -> bool {
+    return bparams.debug_view == BORDER_DEBUG_OFF && (kind == KIND_SEA || kind == KIND_SEA_REGION);
+}
+
 fn false_color(kind: u32) -> vec3<f32> {
     if (kind == KIND_COUNTRY) {
         return vec3<f32>(1.0, 0.18, 0.12);
@@ -911,6 +914,9 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (!kind_enabled(kind)) {
         discard;
     }
+    if (suppressed_in_final_view(kind)) {
+        discard;
+    }
 
     let is_selected = selected_border(in);
     if (!debug_allows_kind(kind, is_selected)) {
@@ -1012,6 +1018,8 @@ mod tests {
             "0.014 * province_fade",
             "display_line_color",
             "camera_distance_world",
+            "fn suppressed_in_final_view",
+            "kind == KIND_SEA || kind == KIND_SEA_REGION",
         ] {
             assert!(
                 BORDER_STRIP_WGSL.contains(needle),

@@ -80,10 +80,7 @@ impl SelectionBoxState {
 }
 
 impl App {
-    pub(crate) fn append_frontline_painter_sample(
-        &mut self,
-        prov: hoi4_state::ProvinceId,
-    ) -> bool {
+    pub(crate) fn append_frontline_painter_sample(&mut self, prov: hoi4_state::ProvinceId) -> bool {
         let Some(&last) = self.frontline_painter.samples.last() else {
             self.frontline_painter.samples.push(prov);
             return true;

@@ -778,7 +778,7 @@ impl WorldObjectSystem {
             plan.poi_detail_level = 0;
             plan.buildings = WorldObjectDecision::OFF;
 
-            let tree_noise_gate = smoothstep(0.24, 0.58, zoom);
+            let tree_noise_gate = smoothstep(0.18, 0.46, zoom);
             let tree_close_quality = 1.0 - (very_close * 0.12);
             plan.trees = WorldObjectDecision::visible(
                 budget.objects * tree_noise_gate * tree_close_quality,
@@ -832,13 +832,12 @@ impl MapPassDrawSet {
         mask: MapLayerMask,
         dedicated_water_loaded: bool,
         dedicated_river_loaded: bool,
-        dedicated_border_loaded: bool,
+        _dedicated_border_loaded: bool,
         static_decals: StaticMapDecalPlan,
         semantic_overlays: SemanticOverlayPlan,
     ) -> TerrainMaterialOwnership {
         let dedicated_water_active = self.water && dedicated_water_loaded;
         let dedicated_river_active = self.river && dedicated_river_loaded;
-        let dedicated_border_active = self.borders && dedicated_border_loaded;
         let terrain_rivers_fallback =
             static_decals.terrain_rivers.visible && !dedicated_river_active;
         let terrain_semantic_overlays = mask.overlays
@@ -847,7 +846,10 @@ impl MapPassDrawSet {
                 || semantic_overlays.map_mode_overlay.visible);
         TerrainMaterialOwnership {
             terrain_water_final_color: self.water && !dedicated_water_active,
-            terrain_sdf_borders: self.borders && !dedicated_border_active,
+            // Do not let terrain consume gradient_border as a visual border
+            // fallback. Those runtime targets are logical-layer banks, and when
+            // treated as ordinary borders they show full-map grid artifacts.
+            terrain_sdf_borders: false,
             terrain_overlays: terrain_rivers_fallback || terrain_semantic_overlays,
         }
     }
@@ -1577,7 +1579,7 @@ mod tests {
             plan.semantic_overlays,
         );
         assert!(fallback.terrain_water_final_color);
-        assert!(fallback.terrain_sdf_borders);
+        assert!(!fallback.terrain_sdf_borders);
     }
 
     #[test]
@@ -1665,13 +1667,13 @@ mod tests {
         );
 
         assert!(prepared.terrain_ownership.terrain_water_final_color);
-        assert!(prepared.terrain_ownership.terrain_sdf_borders);
+        assert!(!prepared.terrain_ownership.terrain_sdf_borders);
         assert!(prepared.fallback_report.terrain_water_fallback);
-        assert!(prepared.fallback_report.terrain_border_fallback);
+        assert!(!prepared.fallback_report.terrain_border_fallback);
         assert!(prepared.fallback_report.water_degraded);
         assert!(prepared.fallback_report.borders_degraded);
         assert!(prepared.fallback_report.is_degraded());
-        assert_eq!(prepared.fallback_report.fallback_count(), 4);
+        assert_eq!(prepared.fallback_report.fallback_count(), 3);
     }
 
     #[test]

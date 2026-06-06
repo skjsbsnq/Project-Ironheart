@@ -17,9 +17,6 @@ use egui::{Color32, RichText};
 const GOLD: Color32 = Color32::from_rgb(0x9f, 0xc1, 0xc8);
 const GOLD_BRIGHT: Color32 = Color32::from_rgb(0xd1, 0xdf, 0xdd);
 const MUTED: Color32 = Color32::from_gray(155);
-const PANEL_CARD: Color32 = Color32::from_rgb(0x0d, 0x10, 0x0f);
-const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x14, 0x18, 0x17);
-const STROKE_DARK: Color32 = Color32::from_rgb(0x28, 0x31, 0x31);
 const GOOD: Color32 = Color32::from_rgb(0x70, 0xc8, 0x78);
 const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
 const BAD: Color32 = Color32::from_rgb(0xe0, 0x60, 0x58);
@@ -211,9 +208,12 @@ const ARMY_CARD_W: f32 = 84.0;
 const ARMY_CARD_H: f32 = 64.0;
 const ADD_SLOT_W: f32 = 58.0;
 const CARD_GAP_W: f32 = 6.0;
-const TOOLBAR_W: f32 = 580.0;
+const TOOLBAR_W: f32 = 610.0;
 const TRAY_MAX_W: f32 = 760.0;
-const BOTTOM_MARGIN: f32 = 30.0;
+const COMMAND_ROW_H: f32 = 36.0;
+const BOTTOM_ROW_GAP: f32 = 6.0;
+const TRAY_ROW_H: f32 = ARMY_CARD_H + 10.0;
+const BOTTOM_MARGIN: f32 = 24.0;
 
 fn army_card(ui: &mut egui::Ui, army: &ArmyEntry, selected: bool) -> egui::Response {
     let size = egui::vec2(ARMY_CARD_W, ARMY_CARD_H);
@@ -223,19 +223,20 @@ fn army_card(ui: &mut egui::Ui, army: &ArmyEntry, selected: bool) -> egui::Respo
         .is_some_and(|limit| army.member_count > limit as usize);
     if ui.is_rect_visible(rect) {
         let fill = if selected {
-            PANEL_CARD_SOFT
+            VanillaIron::CARD_SOFT
         } else {
-            PANEL_CARD
+            VanillaIron::CARD
         };
         let border = if selected {
-            GOLD_BRIGHT
+            VanillaIron::BRASS_BRIGHT
         } else if response.hovered() {
-            GOLD
+            VanillaIron::BRASS
         } else {
-            STROKE_DARK
+            VanillaIron::EDGE_DARK
         };
         let painter = ui.painter();
         painter.rect_filled(rect, 2.0, fill);
+        crate::v9::paint::paint_plate_grain(painter, rect.shrink(3.0), 3.0, 2);
         painter.rect_stroke(
             rect,
             2.0,
@@ -268,11 +269,11 @@ fn army_card(ui: &mut egui::Ui, army: &ArmyEntry, selected: bool) -> egui::Respo
 
         let badge =
             egui::Rect::from_min_size(rect.min + egui::vec2(42.0, 43.0), egui::vec2(32.0, 15.0));
-        painter.rect_filled(badge, 2.0, Color32::from_rgb(0x08, 0x0a, 0x09));
+        painter.rect_filled(badge, 1.0, VanillaIron::CARD_DEEP);
         painter.rect_stroke(
             badge,
-            2.0,
-            egui::Stroke::new(1.0, STROKE_DARK),
+            1.0,
+            egui::Stroke::new(1.0, VanillaIron::EDGE_DARK),
             egui::epaint::StrokeKind::Inside,
         );
         painter.text(
@@ -288,7 +289,7 @@ fn army_card(ui: &mut egui::Ui, army: &ArmyEntry, selected: bool) -> egui::Respo
             egui::Align2::LEFT_CENTER,
             army.commander_name.as_deref().unwrap_or(&army.name),
             egui::FontId::proportional(12.0),
-            GOLD_BRIGHT,
+            VanillaIron::BRASS_BRIGHT,
         );
         let order = if over_limit {
             "超限"
@@ -340,12 +341,27 @@ fn army_card(ui: &mut egui::Ui, army: &ArmyEntry, selected: bool) -> egui::Respo
 }
 
 fn tool_button(ui: &mut egui::Ui, enabled: bool, label: &str, tooltip: &str) -> egui::Response {
+    let text_color = if enabled {
+        VanillaIron::TEXT
+    } else {
+        VanillaIron::MUTED
+    };
+    let fill = if enabled {
+        VanillaIron::CARD_SOFT
+    } else {
+        VanillaIron::CARD_DEEP
+    };
+    let stroke = if enabled {
+        VanillaIron::EDGE
+    } else {
+        VanillaIron::EDGE_DARK
+    };
     ui.add_enabled(
         enabled,
-        egui::Button::new(RichText::new(label).strong().color(GOLD))
-            .fill(PANEL_CARD)
-            .stroke(egui::Stroke::new(1.0, STROKE_DARK))
-            .min_size(egui::vec2(44.0, 28.0)),
+        egui::Button::new(RichText::new(label).strong().color(text_color))
+            .fill(fill)
+            .stroke(egui::Stroke::new(1.0, stroke))
+            .min_size(egui::vec2(46.0, 28.0)),
     )
     .on_hover_text(tooltip)
 }
@@ -363,8 +379,13 @@ fn add_army_slot(ui: &mut egui::Ui, data: &MilitaryData) -> egui::Response {
         "已达到集团军上限"
     });
     let painter = ui.painter();
-    let border = if can_create { GOLD } else { STROKE_DARK };
-    painter.rect_filled(rect, 2.0, PANEL_CARD);
+    let border = if can_create {
+        VanillaIron::BRASS
+    } else {
+        VanillaIron::EDGE_DARK
+    };
+    painter.rect_filled(rect, 2.0, VanillaIron::CARD);
+    crate::v9::paint::paint_plate_grain(painter, rect.shrink(3.0), 3.0, 2);
     painter.rect_stroke(
         rect,
         2.0,
@@ -376,14 +397,18 @@ fn add_army_slot(ui: &mut egui::Ui, data: &MilitaryData) -> egui::Response {
         egui::Align2::CENTER_CENTER,
         "+",
         egui::FontId::proportional(30.0),
-        if can_create { GOLD } else { Color32::GRAY },
+        if can_create {
+            VanillaIron::BRASS_BRIGHT
+        } else {
+            VanillaIron::MUTED
+        },
     );
     painter.text(
         rect.center_bottom() - egui::vec2(0.0, 10.0),
         egui::Align2::CENTER_CENTER,
         format!("{} 师", data.selected_division_count),
         egui::FontId::proportional(10.0),
-        Color32::GRAY,
+        VanillaIron::MUTED,
     );
 
     response
@@ -1738,12 +1763,10 @@ impl MilitaryPanel {
             visible_armies as f32 * ARMY_CARD_W + (visible_armies as f32 * CARD_GAP_W) + ADD_SLOT_W
         };
         let tray_width = (tray_content_width + 24.0).clamp(112.0, TRAY_MAX_W);
-        let area_width = tray_width.max(TOOLBAR_W);
-        let area_height = if data.selected_army_id.is_some() {
-            116.0
-        } else {
-            92.0
-        };
+        let usable_width = (screen.width() - 24.0).max(112.0);
+        let area_width = TRAY_MAX_W.min(usable_width).max(tray_width.max(TOOLBAR_W));
+        let area_height =
+            (COMMAND_ROW_H + BOTTOM_ROW_GAP + TRAY_ROW_H).min((screen.height() - 24.0).max(72.0));
         let area_pos = egui::pos2(
             screen.center().x - area_width * 0.5,
             screen.bottom() - area_height - BOTTOM_MARGIN,
@@ -1755,28 +1778,30 @@ impl MilitaryPanel {
             .show(ctx, |ui| {
                 ui.set_min_width(area_width);
                 ui.set_max_width(area_width);
+                ui.set_min_height(area_height);
+                ui.set_max_height(area_height);
                 ui.vertical_centered(|ui| {
                     match data.painter_mode {
                         PainterModeInfo::ArmyPainter(_) => {
                             egui::Frame::new()
-                                .fill(Color32::from_rgba_premultiplied(0x0d, 0x10, 0x0f, 235))
-                                .stroke(egui::Stroke::new(1.0, WARN))
+                                .fill(VanillaIron::CARD_SOFT)
+                                .stroke(egui::Stroke::new(1.0, VanillaIron::WARN))
                                 .inner_margin(egui::Margin::symmetric(8, 4))
                                 .show(ui, |ui| {
                                     ui.colored_label(
-                                        GOLD,
+                                        VanillaIron::WARN,
                                         "正在绘制前线：在地图上拖拽，松开确认（Esc / 右键取消）",
                                     );
                                 });
                         }
                         PainterModeInfo::ArrowPainter(_) => {
                             egui::Frame::new()
-                                .fill(Color32::from_rgba_premultiplied(0x0d, 0x10, 0x0f, 235))
-                                .stroke(egui::Stroke::new(1.0, WARN))
+                                .fill(VanillaIron::CARD_SOFT)
+                                .stroke(egui::Stroke::new(1.0, VanillaIron::WARN))
                                 .inner_margin(egui::Margin::symmetric(8, 4))
                                 .show(ui, |ui| {
                                     ui.colored_label(
-                                    GOLD,
+                                    VanillaIron::WARN,
                                     "正在绘制进攻箭头：在地图上拖拽，松开确认（Esc / 右键取消）",
                                 );
                                 });
@@ -1784,14 +1809,15 @@ impl MilitaryPanel {
                         PainterModeInfo::Idle => {}
                     }
 
+                    let command_row_top = ui.cursor().top();
                     if let Some(army_id) = data.selected_army_id {
                         if let Some(army) = data.armies.iter().find(|a| a.id == army_id) {
                             ui.horizontal_centered(|ui| {
                                 egui::Frame::new()
-                                    .fill(Color32::from_rgba_premultiplied(0x0d, 0x10, 0x0f, 235))
+                                    .fill(VanillaIron::CARD_DEEP)
                                     .stroke(egui::Stroke::new(
                                         1.0,
-                                        STROKE_DARK,
+                                        VanillaIron::EDGE_DARK,
                                     ))
                                     .inner_margin(egui::Margin::symmetric(6, 4))
                                     .show(ui, |ui| {
@@ -1946,15 +1972,15 @@ impl MilitaryPanel {
                                     });
                             });
                         }
-                    } else {
-                        ui.add_space(24.0);
                     }
+                    let used = ui.cursor().top() - command_row_top;
+                    ui.add_space((COMMAND_ROW_H - used).max(0.0));
 
-                    ui.add_space(2.0);
+                    ui.add_space(BOTTOM_ROW_GAP);
                     ui.horizontal_centered(|ui| {
                         egui::Frame::new()
-                            .fill(Color32::from_rgba_premultiplied(0x0d, 0x10, 0x0f, 230))
-                            .stroke(egui::Stroke::new(1.0, STROKE_DARK))
+                            .fill(VanillaIron::CARD_DEEP)
+                            .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE))
                             .inner_margin(egui::Margin::symmetric(8, 5))
                             .show(ui, |ui| {
                                 ui.spacing_mut().item_spacing.x = CARD_GAP_W;

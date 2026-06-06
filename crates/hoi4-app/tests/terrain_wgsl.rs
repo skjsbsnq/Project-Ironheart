@@ -89,6 +89,20 @@ fn terrain_wgsl_has_phase3_runtime_debug_and_ownership_gates() {
         "fn province_secondary_at",
         "fn gradient_border_page_uv",
         "fn gradient_border_ch3_dist_px",
+        "const TERRAIN_ATLAS_ALBEDO_STRENGTH: f32 = 0.78",
+        "const TERRAIN_ATLAS_MAX_DARKEN_TERRAIN: f32 = 0.48",
+        "const TERRAIN_FOREST_ALBEDO_STRENGTH: f32 = 0.82",
+        "const TERRAIN_FOREST_POLITICAL_STRENGTH: f32 = 0.48",
+        "const TERRAIN_ATLAS_NORMAL_STRENGTH: f32 = 0.44",
+        "const TERRAIN_ATLAS_MIP_BIAS: f32 = -0.70",
+        "const TERRAIN_PROJECTED_SHADOW_STRENGTH: f32 = 0.0",
+        "const TERRAIN_WATER_RELIEF_STRENGTH: f32 = 0.0",
+        "const TERRAIN_COAST_WHITE_EDGE_STRENGTH: f32 = 0.0",
+        "const TERRAIN_WATER_FOAM_STRENGTH: f32 = 0.0",
+        "canopy_large",
+        "crown_shadow",
+        "const TERRAIN_MUD_ALBEDO_STRENGTH: f32 = 0.0",
+        "const TERRAIN_MUD_NORMAL_STRENGTH: f32 = 0.0",
         "province_secondary_color_tex",
         "gradient_border_ch3_tex",
         "fow_tex",
@@ -130,6 +144,17 @@ fn terrain_wgsl_uses_map_mode_blend_in_final_material() {
         material_body.contains("mix(political_color, terrain_albedo, weights.map_mode_weight)"),
         "political/map-mode color should be part of the normal final material, not only a debug view"
     );
+    assert!(
+        material_body.contains("clamp_dark_terrain_detail(cmap, atlas_overlay_raw, TERRAIN_ATLAS_MAX_DARKEN_TERRAIN)")
+            && material_body.contains("mix(cmap, atlas_overlay, TERRAIN_ATLAS_ALBEDO_STRENGTH)"),
+        "political terrain blend should restore atlas color detail while clamping dark grid artifacts"
+    );
+    assert!(
+        material_body.contains("apply_forest_terrain_tint(")
+            && source.contains("fn terrain_category_forest")
+            && source.contains("fn terrain_category_jungle"),
+        "forest and jungle terrain categories should feed the political terrain material"
+    );
 }
 
 #[test]
@@ -158,9 +183,9 @@ fn terrain_wgsl_final_path_gates_semantic_overlay_inputs() {
         "occupation stripe alpha must be controlled by the semantic overlay opacity"
     );
     assert!(
-        material_body.contains("if (terrain_owns_sdf_borders())")
-            && material_body.contains("apply_gradient_border_channels(color, frag.map_uv)"),
-        "GradientBorderChannel1/2 must only feed the final material through the terrain border fallback owner"
+        !material_body.contains("apply_gradient_border_channels(color, frag.map_uv)")
+            && !source.contains("if (terrain_owns_sdf_borders() && !is_water)"),
+        "GradientBorderChannel1/2 must stay out of the final terrain material path"
     );
     assert!(
         !material_body.contains("gradient_border_ch3_dist_px("),

@@ -132,7 +132,8 @@ impl TerrainCatalog {
 
     /// Build a compact 256-entry flag LUT for shader-side terrain metadata.
     ///
-    /// bit 0 = `perm_snow`, bit 1 = water terrain category.
+    /// bit 0 = `perm_snow`, bit 1 = water terrain category,
+    /// bit 2 = forest terrain category, bit 3 = jungle terrain category.
     pub fn terrain_flags_array_256(&self) -> [u8; 256] {
         let mut arr = [0u8; 256];
         for i in 0..=255u8 {
@@ -143,6 +144,12 @@ impl TerrainCatalog {
                 }
                 if entry.category.is_water() {
                     flags |= 2;
+                }
+                if matches!(entry.category, TerrainCategory::Forest) {
+                    flags |= 4;
+                }
+                if matches!(entry.category, TerrainCategory::Jungle) {
+                    flags |= 8;
                 }
                 arr[i as usize] = flags;
             }
@@ -224,12 +231,14 @@ mod tests {
 categories = {
     plains = { color = { 255 129 66 } movement_cost = 1.0 }
     forest = { color = { 89 199 85 } movement_cost = 1.5 }
+    jungle = { color = { 60 120 70 } movement_cost = 1.8 }
     mountain = { color = { 157 192 208 } movement_cost = 2.0 }
 }
 
 terrain = {
     terrain_0 = { type = plains   color = { 0 } texture = 1 }
     terrain_1 = { type = forest   color = { 1 } texture = 4 }
+    terrain_2 = { type = jungle   color = { 2 } texture = 5 }
     terrain_6 = { type = mountain color = { 6 } texture = 11 }
     snow_16   = { type = mountain color = { 16 } texture = 11 perm_snow = yes }
 }
@@ -284,6 +293,9 @@ terrain = {
         let flags = cat.terrain_flags_array_256();
         assert_eq!(atlas[16], 11);
         assert_eq!(flags[16] & 1, 1);
+        assert_eq!(flags[1] & 4, 4);
+        assert_eq!(flags[2] & 8, 8);
+        assert_eq!(flags[0] & 4, 0);
         assert_eq!(atlas[200], 8);
     }
 
