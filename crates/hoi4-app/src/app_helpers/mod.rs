@@ -100,7 +100,7 @@ pub(crate) fn map_mode_from_capture_name(name: &str) -> MapMode {
 
 pub(crate) fn map_mode_terrain_blend_for(map_mode: MapMode) -> f32 {
     match map_mode {
-        MapMode::Political => 0.44,
+        MapMode::Political => 0.30,
         MapMode::Terrain => 0.92,
         _ => 0.58,
     }
