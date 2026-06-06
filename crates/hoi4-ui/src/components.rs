@@ -10,23 +10,23 @@ use egui::{Color32, RichText, Sense};
 
 // ─── 调色板（vanilla HoI4 金棕 + Vic3 报表色阶） ─────────────────
 
-pub const GOLD: Color32 = Color32::from_rgb(0xc9, 0xa5, 0x5b);
-pub const GOLD_BRIGHT: Color32 = Color32::from_rgb(0xe0, 0xc0, 0x78);
-pub const GOLD_DIM: Color32 = Color32::from_rgb(0x8b, 0x6f, 0x3e);
-pub const BRONZE: Color32 = Color32::from_rgb(0x5a, 0x44, 0x2c);
-pub const PARCHMENT: Color32 = Color32::from_rgb(0xe0, 0xd2, 0xa8);
+pub const GOLD: Color32 = Color32::from_rgb(0x9f, 0xc1, 0xc8);
+pub const GOLD_BRIGHT: Color32 = Color32::from_rgb(0xd1, 0xdf, 0xdd);
+pub const GOLD_DIM: Color32 = Color32::from_rgb(0x35, 0x49, 0x4f);
+pub const BRONZE: Color32 = Color32::from_rgb(0x43, 0x56, 0x5c);
+pub const PARCHMENT: Color32 = Color32::from_rgb(0xd8, 0xd6, 0xc8);
 pub const MUTED: Color32 = Color32::from_gray(155);
 
 /// Legacy gold-brown body card. Do not use for newly migrated panel shells.
-pub const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
+pub const PANEL_CARD: Color32 = Color32::from_rgb(0x0d, 0x10, 0x0f);
 /// Legacy gold-brown soft card. Do not use for newly migrated panel shells.
-pub const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x31, 0x24, 0x18);
+pub const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x14, 0x18, 0x17);
 /// Legacy gold-brown deep card. Do not use for newly migrated panel shells.
-pub const PANEL_CARD_DEEP: Color32 = Color32::from_rgb(0x1a, 0x12, 0x0a);
-pub const HERO_FILL: Color32 = Color32::from_rgb(0x16, 0x0e, 0x08);
-pub const ZEBRA_DARK: Color32 = Color32::from_rgb(0x28, 0x1d, 0x14);
-pub const ZEBRA_LIGHT: Color32 = Color32::from_rgb(0x2e, 0x22, 0x18);
-pub const STROKE_TILE: Color32 = Color32::from_rgb(0x48, 0x36, 0x24);
+pub const PANEL_CARD_DEEP: Color32 = Color32::from_rgb(0x06, 0x08, 0x08);
+pub const HERO_FILL: Color32 = Color32::from_rgb(0x07, 0x09, 0x09);
+pub const ZEBRA_DARK: Color32 = Color32::from_rgb(0x0b, 0x0d, 0x0c);
+pub const ZEBRA_LIGHT: Color32 = Color32::from_rgb(0x11, 0x15, 0x14);
+pub const STROKE_TILE: Color32 = Color32::from_rgb(0x28, 0x31, 0x31);
 
 pub const GOOD: Color32 = Color32::from_rgb(0x70, 0xc8, 0x78);
 pub const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
@@ -131,7 +131,7 @@ pub fn subcard(ui: &mut egui::Ui, title: &str, add_contents: impl FnOnce(&mut eg
 /// Vic3 风格状态横幅：左侧 4px 实色块 + 半透暗底 + 强调色标题 + 小字描述。
 pub fn status_banner(ui: &mut egui::Ui, accent: Color32, title: &str, body: &str) {
     let inner = egui::Frame::new()
-        .fill(Color32::from_rgba_premultiplied(0x18, 0x12, 0x0c, 235))
+        .fill(Color32::from_rgba_premultiplied(0x0d, 0x10, 0x0f, 235))
         .stroke(egui::Stroke::new(1.0, accent))
         .inner_margin(egui::Margin {
             left: 14,

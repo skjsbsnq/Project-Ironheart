@@ -27,12 +27,20 @@ fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
     let source_dim = max(params.source_size, vec2<f32>(1.0));
     let uv = pos.xy / target_dim;
     let px = 1.0 / source_dim;
-    let color =
-        textureSample(hdr_pre_water, hdr_sampler, uv).rgb * 0.55 +
-        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>( px.x, 0.0)).rgb * 0.1125 +
-        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>(-px.x, 0.0)).rgb * 0.1125 +
-        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>(0.0,  px.y)).rgb * 0.1125 +
-        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>(0.0, -px.y)).rgb * 0.1125;
+    let center = textureSample(hdr_pre_water, hdr_sampler, uv).rgb;
+    let cardinal =
+        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>( px.x, 0.0)).rgb +
+        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>(-px.x, 0.0)).rgb +
+        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>(0.0,  px.y)).rgb +
+        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>(0.0, -px.y)).rgb;
+    let diagonal =
+        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>( px.x,  px.y)).rgb +
+        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>(-px.x,  px.y)).rgb +
+        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>( px.x, -px.y)).rgb +
+        textureSample(hdr_pre_water, hdr_sampler, uv + vec2<f32>(-px.x, -px.y)).rgb;
+    let blur = center * 0.56 + cardinal * 0.08 + diagonal * 0.03;
+    let luma = dot(blur, vec3<f32>(0.2126, 0.7152, 0.0722));
+    let color = max(mix(vec3<f32>(luma), blur, 1.12), vec3<f32>(0.0));
     return vec4<f32>(color, 1.0);
 }
 "#;
@@ -128,7 +136,7 @@ impl WaterRefractionTarget {
 
     pub fn status_line(&self) -> String {
         format!(
-            "water_refraction=created {}x{} {:?} sampler=linear_clamp producer=fullscreen_4tap",
+            "water_refraction=created {}x{} {:?} sampler=linear_clamp producer=fullscreen_9tap",
             self.width, self.height, self.format
         )
     }
@@ -419,8 +427,11 @@ mod tests {
     fn producer_shader_samples_pre_water_hdr() {
         assert!(WATER_REFRACTION_WGSL.contains("hdr_pre_water"));
         assert!(WATER_REFRACTION_WGSL.contains("textureSample(hdr_pre_water"));
-        assert!(WATER_REFRACTION_WGSL.contains("* 0.55"));
-        assert!(WATER_REFRACTION_WGSL.contains("* 0.1125"));
+        assert!(WATER_REFRACTION_WGSL.contains("let cardinal"));
+        assert!(WATER_REFRACTION_WGSL.contains("let diagonal"));
+        assert!(WATER_REFRACTION_WGSL.contains("center * 0.56"));
+        assert!(WATER_REFRACTION_WGSL.contains("diagonal * 0.03"));
+        assert!(WATER_REFRACTION_WGSL.contains("mix(vec3<f32>(luma), blur, 1.12)"));
         assert!(WATER_REFRACTION_WGSL.contains("target_size"));
         assert!(WATER_REFRACTION_WGSL.contains("source_size"));
         assert!(WATER_REFRACTION_WGSL.contains("@builtin(position) pos"));

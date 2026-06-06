@@ -42,44 +42,23 @@ pub fn generate(world: &World, params: &VanillaRuntimeTargetFrameParams) -> Vec<
         }
     }
 
-    apply_battle_plan_overlays(world, params, &mut per_province);
     apply_naval_dominance_overlays(world, params, &mut per_province);
-
-    for pid in 0..province_count {
-        if pid as u32 == params.selected_province_id {
-            blend_overlay(
-                &mut per_province[pid],
-                [255, 226, 92],
-                (176.0 * params.selected_opacity).clamp(0.0, 210.0) as u8,
-            );
-        } else if pid as u32 == params.hovered_province_id {
-            blend_overlay(
-                &mut per_province[pid],
-                [255, 244, 202],
-                (108.0 * params.hover_opacity).clamp(0.0, 160.0) as u8,
-            );
-        }
-    }
+    // Selection and hover are interactive uniforms in the terrain/water passes;
+    // baking dynamic overlays here would force full 2816x1024 rebuilds while panning.
 
     expand_to_vanilla_target(world, &per_province)
 }
 
 pub fn signature(world: &World, params: &VanillaRuntimeTargetFrameParams) -> u64 {
     let mut h = DefaultHasher::new();
-    params.selected_province_id.hash(&mut h);
-    params.hovered_province_id.hash(&mut h);
     map_mode_code(params.map_mode).hash(&mut h);
     params
         .player_country
         .map(|id| id.raw())
         .unwrap_or(CountryId::NONE.raw())
         .hash(&mut h);
-    quantize_opacity(params.selected_opacity).hash(&mut h);
-    quantize_opacity(params.hover_opacity).hash(&mut h);
-    quantize_opacity(params.map_mode_overlay_opacity).hash(&mut h);
-    quantize_opacity(params.battle_plan_opacity).hash(&mut h);
-    quantize_opacity(params.naval_dominance_opacity).hash(&mut h);
     if params.map_mode != MapMode::Terrain && params.map_mode_overlay_opacity > 0.001 {
+        quantize_opacity(params.map_mode_overlay_opacity).hash(&mut h);
         for owner in &world.provinces.owners {
             owner.raw().hash(&mut h);
         }
@@ -87,29 +66,8 @@ pub fn signature(world: &World, params: &VanillaRuntimeTargetFrameParams) -> u64
             controller.raw().hash(&mut h);
         }
     }
-    if params.battle_plan_opacity > 0.001 {
-        for army in &world.player_armies {
-            army.owner.raw().hash(&mut h);
-            if let Some(player) = params.player_country {
-                if army.owner != player {
-                    continue;
-                }
-            }
-            if let Some(order) = &army.order {
-                order.active.hash(&mut h);
-                order.executing.hash(&mut h);
-                for province in &order.path {
-                    province.raw().hash(&mut h);
-                }
-                if let Some(arrow) = &order.arrow {
-                    for province in &arrow.provinces {
-                        province.raw().hash(&mut h);
-                    }
-                }
-            }
-        }
-    }
     if params.naval_dominance_opacity > 0.001 && params.player_country.is_some() {
+        quantize_opacity(params.naval_dominance_opacity).hash(&mut h);
         world.fleets.count.hash(&mut h);
         for fi in 0..world.fleets.count {
             world.fleets.owners[fi].raw().hash(&mut h);
@@ -128,51 +86,6 @@ pub fn signature(world: &World, params: &VanillaRuntimeTargetFrameParams) -> u64
         }
     }
     h.finish()
-}
-
-fn apply_battle_plan_overlays(
-    world: &World,
-    params: &VanillaRuntimeTargetFrameParams,
-    per_province: &mut [[f32; 4]],
-) {
-    let opacity = params.battle_plan_opacity.clamp(0.0, 1.0);
-    if opacity <= 0.001 {
-        return;
-    }
-    for army in &world.player_armies {
-        if let Some(player) = params.player_country {
-            if army.owner != player {
-                continue;
-            }
-        }
-        let Some(order) = &army.order else {
-            continue;
-        };
-        let path_alpha = if order.active { 72.0 } else { 42.0 };
-        for province in &order.path {
-            let pid = province.raw() as usize;
-            if let Some(dst) = per_province.get_mut(pid) {
-                blend_overlay(
-                    dst,
-                    [82, 174, 255],
-                    (path_alpha * opacity).clamp(0.0, 128.0) as u8,
-                );
-            }
-        }
-        if let Some(arrow) = &order.arrow {
-            let arrow_alpha = if order.executing { 120.0 } else { 88.0 };
-            for province in &arrow.provinces {
-                let pid = province.raw() as usize;
-                if let Some(dst) = per_province.get_mut(pid) {
-                    blend_overlay(
-                        dst,
-                        [255, 184, 62],
-                        (arrow_alpha * opacity).clamp(0.0, 160.0) as u8,
-                    );
-                }
-            }
-        }
-    }
 }
 
 fn apply_naval_dominance_overlays(

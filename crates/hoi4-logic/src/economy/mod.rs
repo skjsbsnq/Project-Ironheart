@@ -779,6 +779,12 @@ fn tick_country_daily_v6(
         }
     }
 
+    if !should_run_full_country_economy(world, ci, day) {
+        construction_tick::run(world, econ, db, ci);
+        v6_events::tick_v6_events(world, db, ci, day);
+        return;
+    }
+
     let current_economy_law = world.countries.law_store.law_sets[ci].0
         [LawCategory::Economy.index()]
     .current
@@ -792,6 +798,21 @@ fn tick_country_daily_v6(
     }
     construction_tick::run(world, econ, db, ci);
     v6_events::tick_v6_events(world, db, ci, day);
+}
+
+fn should_run_full_country_economy(world: &World, ci: usize, day: i64) -> bool {
+    let country = CountryId(ci as u16);
+    if country == world.player {
+        return true;
+    }
+    if world.countries.at_war.get(ci).copied().unwrap_or(false)
+        || world.diplomacy.is_at_war(country)
+    {
+        return true;
+    }
+
+    const PEACE_ECONOMY_CADENCE_DAYS: i64 = 14;
+    (day + ci as i64).rem_euclid(PEACE_ECONOMY_CADENCE_DAYS) == 0
 }
 
 fn private_investment_tick(

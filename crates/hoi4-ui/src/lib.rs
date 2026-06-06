@@ -111,6 +111,10 @@ pub const FRAME_BUDGET_US: u32 = 2_000;
 pub struct UiFrameStats {
     /// `begin_frame`（take_egui_input + ctx.run + UI 闭包）耗时。
     pub begin_us: u32,
+    /// `egui_winit::State::take_egui_input` cost.
+    pub input_us: u32,
+    /// `egui::Context::run` cost, including the caller UI closure.
+    pub run_us: u32,
     /// `paint` 阶段：`Context::tessellate`（Shape → ClippedPrimitive）耗时。
     pub tessellate_us: u32,
     /// `paint` 阶段：`update_texture` + `update_buffers` 写入 GPU 资源耗时。
@@ -208,8 +212,12 @@ impl UiState {
         // V5 阶段 B.7：起点计时；paint 阶段累加其余分桶。
         let t_begin = Instant::now();
         self.pending_begin_started = Some(t_begin);
+        let t_input = Instant::now();
         let raw_input = self.winit_state.take_egui_input(window);
+        self.last_stats.input_us = t_input.elapsed().as_micros() as u32;
+        let t_run = Instant::now();
         let full_output = self.ctx.run(raw_input, run_ui);
+        self.last_stats.run_us = t_run.elapsed().as_micros() as u32;
         self.pending = Some(full_output);
         // begin_us 在这里就锁定（含 take_egui_input + ctx.run + UI 闭包）。
         self.last_stats.begin_us = t_begin.elapsed().as_micros() as u32;

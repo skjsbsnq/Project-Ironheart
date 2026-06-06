@@ -31,6 +31,16 @@ pub fn run(world: &mut World, econ: &mut EconomyState, db: &V6Database, ci: usiz
     if ci >= econ.construction.len() || ci >= world.countries.count {
         return;
     }
+    if econ.construction[ci].items.is_empty() {
+        if CountryId(ci as u16) == world.player {
+            let mut capacity = construction_capacity_breakdown(world, econ, db, ci);
+            capacity.allocated_cp = 0.0;
+            capacity.idle_cp = capacity.total_cp;
+            capacity.blocked_cp = 0.0;
+            econ.construction[ci].capacity = capacity;
+        }
+        return;
+    }
     hydrate_and_validate_queue(world, econ, db, ci);
     let mut capacity = construction_capacity_breakdown(world, econ, db, ci);
     capacity.allocated_cp = 0.0;
@@ -348,22 +358,44 @@ fn compute_labor_ratio(world: &World, ci: usize, state: StateId, labor_need: u32
     if state_idx >= world.states.count || world.states.owners[state_idx] != country {
         return 0.0;
     }
-    let unemployed: u32 = world
-        .countries
-        .pops
-        .groups
-        .iter()
-        .filter(|pg| pg.state == state && pg.class != PopClass::Soldier && pg.employed_at.is_none())
-        .map(|pg| pg.size)
-        .sum();
-    let local_population: u32 = world
-        .countries
-        .pops
-        .groups
-        .iter()
-        .filter(|pg| pg.state == state && pg.class != PopClass::Soldier)
-        .map(|pg| pg.size)
-        .sum();
+    let (unemployed, local_population): (u32, u32) =
+        if let Some(pop_indices) = country_pop_indices(world, ci) {
+            let mut unemployed = 0u32;
+            let mut local_population = 0u32;
+            for &pi in pop_indices {
+                let Some(pg) = world.countries.pops.groups.get(pi) else {
+                    continue;
+                };
+                if pg.state != state || pg.class == PopClass::Soldier {
+                    continue;
+                }
+                local_population = local_population.saturating_add(pg.size);
+                if pg.employed_at.is_none() {
+                    unemployed = unemployed.saturating_add(pg.size);
+                }
+            }
+            (unemployed, local_population)
+        } else {
+            let unemployed: u32 = world
+                .countries
+                .pops
+                .groups
+                .iter()
+                .filter(|pg| {
+                    pg.state == state && pg.class != PopClass::Soldier && pg.employed_at.is_none()
+                })
+                .map(|pg| pg.size)
+                .sum();
+            let local_population: u32 = world
+                .countries
+                .pops
+                .groups
+                .iter()
+                .filter(|pg| pg.state == state && pg.class != PopClass::Soldier)
+                .map(|pg| pg.size)
+                .sum();
+            (unemployed, local_population)
+        };
     let available = unemployed as f32 + local_population as f32 * 0.10;
     (available / labor_need as f32).clamp(0.0, 1.0)
 }
@@ -372,15 +404,26 @@ fn compute_engineering_ratio(world: &World, ci: usize, engineering_need: u32) ->
     if engineering_need == 0 {
         return 1.0;
     }
-    let country = CountryId(ci as u16);
     let mut capacity = 25.0_f32;
-    for building in &world.countries.buildings_v6.buildings {
-        let state_idx = building.state.0 as usize;
-        if state_idx >= world.states.count || world.states.owners[state_idx] != country {
-            continue;
+    if let Some(building_indices) = country_building_indices(world, ci) {
+        for &bi in building_indices {
+            let Some(building) = world.countries.buildings_v6.buildings.get(bi) else {
+                continue;
+            };
+            if building.building_def_id == "construction_sector" {
+                capacity += building.level as f32 * 40.0;
+            }
         }
-        if building.building_def_id == "construction_sector" {
-            capacity += building.level as f32 * 40.0;
+    } else {
+        let country = CountryId(ci as u16);
+        for building in &world.countries.buildings_v6.buildings {
+            let state_idx = building.state.0 as usize;
+            if state_idx >= world.states.count || world.states.owners[state_idx] != country {
+                continue;
+            }
+            if building.building_def_id == "construction_sector" {
+                capacity += building.level as f32 * 40.0;
+            }
         }
     }
     (capacity / engineering_need as f32).clamp(0.0, 1.0)
@@ -470,6 +513,10 @@ pub fn construction_cp_pool(world: &World, ci: usize) -> f32 {
 }
 
 fn national_admin_cp(world: &World, ci: usize) -> f32 {
+    if let Some(states) = country_state_indices(world, ci) {
+        return BASE_NATIONAL_ADMIN_CP
+            + (states.len() as f32 * CP_PER_OWNED_STATE_ADMIN).min(MAX_STATE_ADMIN_CP);
+    }
     let country = CountryId(ci as u16);
     let owned_states = world
         .states
@@ -481,21 +528,52 @@ fn national_admin_cp(world: &World, ci: usize) -> f32 {
 }
 
 fn construction_sector_cp(world: &World, ci: usize) -> f32 {
-    let country = CountryId(ci as u16);
     let mut cp = 0.0;
-    for building in &world.countries.buildings_v6.buildings {
-        let state_idx = building.state.0 as usize;
-        if state_idx >= world.states.count || world.states.owners[state_idx] != country {
-            continue;
+    if let Some(building_indices) = country_building_indices(world, ci) {
+        for &bi in building_indices {
+            let Some(building) = world.countries.buildings_v6.buildings.get(bi) else {
+                continue;
+            };
+            if building.building_def_id == "construction_sector" {
+                cp += building.level as f32 * CP_PER_CONSTRUCTION_SECTOR_LEVEL;
+            }
         }
-        if building.building_def_id == "construction_sector" {
-            cp += building.level as f32 * CP_PER_CONSTRUCTION_SECTOR_LEVEL;
+    } else {
+        let country = CountryId(ci as u16);
+        for building in &world.countries.buildings_v6.buildings {
+            let state_idx = building.state.0 as usize;
+            if state_idx >= world.states.count || world.states.owners[state_idx] != country {
+                continue;
+            }
+            if building.building_def_id == "construction_sector" {
+                cp += building.level as f32 * CP_PER_CONSTRUCTION_SECTOR_LEVEL;
+            }
         }
     }
     cp
 }
 
 fn regional_labor_cp(world: &World, ci: usize) -> f32 {
+    if let Some(states) = country_state_indices(world, ci) {
+        if states.is_empty() {
+            return 0.0;
+        }
+        let Some(pop_indices) = country_pop_indices(world, ci) else {
+            return BASE_REGIONAL_LABOR_CP;
+        };
+        if pop_indices.is_empty() {
+            return BASE_REGIONAL_LABOR_CP;
+        }
+        let unemployed: u32 = pop_indices
+            .iter()
+            .filter_map(|&pi| world.countries.pops.groups.get(pi))
+            .filter(|pg| pg.class != PopClass::Soldier && pg.employed_at.is_none())
+            .map(|pg| pg.size)
+            .sum();
+        return (BASE_REGIONAL_LABOR_CP + unemployed as f32 / UNEMPLOYED_POP_PER_LABOR_CP)
+            .min(MAX_REGIONAL_LABOR_CP);
+    }
+
     let country = CountryId(ci as u16);
     let owned_states: std::collections::HashSet<StateId> = world
         .states
@@ -539,6 +617,15 @@ fn engineering_equipment_cp(world: &World, ci: usize) -> f32 {
 }
 
 fn construction_sector_levels(world: &World, ci: usize) -> u32 {
+    if let Some(building_indices) = country_building_indices(world, ci) {
+        return building_indices
+            .iter()
+            .filter_map(|&bi| world.countries.buildings_v6.buildings.get(bi))
+            .filter(|building| building.building_def_id == "construction_sector")
+            .map(|building| building.level as u32)
+            .sum();
+    }
+
     let country = CountryId(ci as u16);
     world
         .countries
@@ -917,6 +1004,27 @@ fn default_active_pms(
 fn country_owns_state(world: &World, ci: usize, state: StateId) -> bool {
     let state_idx = state.0 as usize;
     state_idx < world.states.count && world.states.owners[state_idx] == CountryId(ci as u16)
+}
+
+fn country_state_indices(world: &World, ci: usize) -> Option<&[StateId]> {
+    world
+        .runtime_country_indexes_valid
+        .then(|| world.country_state_index.get(ci).map(Vec::as_slice))
+        .flatten()
+}
+
+fn country_pop_indices(world: &World, ci: usize) -> Option<&[usize]> {
+    world
+        .runtime_country_indexes_valid
+        .then(|| world.country_pop_index.get(ci).map(Vec::as_slice))
+        .flatten()
+}
+
+fn country_building_indices(world: &World, ci: usize) -> Option<&[usize]> {
+    world
+        .runtime_country_indexes_valid
+        .then(|| world.country_building_index.get(ci).map(Vec::as_slice))
+        .flatten()
 }
 
 fn requires_law_satisfied(

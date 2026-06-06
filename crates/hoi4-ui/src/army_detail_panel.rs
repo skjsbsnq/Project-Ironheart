@@ -17,12 +17,15 @@ use crate::{
 
 pub struct ArmyDetailPanel;
 
-fn v9_show_army_detail(ctx: &egui::Context, data: &MilitaryData) -> Vec<MilitaryCommand> {
-    use crate::v9::{
-        frame::{FrameStyle, PanelFrame},
-        layout::{GridLayout, Track},
-        primitives::{Button, ButtonSize, ButtonVariant},
-        tokens::{palette, spacing, Elevation, TextRole},
+fn iron_show_army_detail(ctx: &egui::Context, data: &MilitaryData) -> Vec<MilitaryCommand> {
+    use crate::{
+        v9::{
+            composites::side_rail::SIDE_RAIL_PANEL_LEFT,
+            layout::{GridLayout, Track},
+            text::fit_font_to_width,
+            tokens::{spacing, TextRole},
+        },
+        vanilla_iron::VanillaIron,
     };
     use egui::{Align2, Area, Id, Order, Pos2, Rect, Sense, Stroke, Vec2};
 
@@ -39,20 +42,20 @@ fn v9_show_army_detail(ctx: &egui::Context, data: &MilitaryData) -> Vec<Military
         .iter()
         .filter(|d| d.army_id == Some(army.id))
         .collect();
-    let accent = v9_army_accent(army, divisions.len());
+    let accent = army_accent(army, divisions.len());
     let limit = army
         .command_limit
         .map(|limit| format!("{}/{}", divisions.len(), limit))
         .unwrap_or_else(|| "无将领".to_owned());
 
     let screen = ctx.screen_rect();
-    let reserved_left = if screen.width() >= 900.0 {
-        88.0
+    let reserved_left = if screen.width() >= 420.0 {
+        SIDE_RAIL_PANEL_LEFT
     } else {
         spacing::S4
     };
     let available_w = (screen.width() - reserved_left - spacing::S6).max(260.0);
-    let width = (screen.width() * 0.24).clamp(340.0, 460.0).min(available_w);
+    let width = (screen.width() * 0.25).clamp(360.0, 480.0).min(available_w);
     let height = (screen.height() * 0.52)
         .clamp(360.0, 620.0)
         .min((screen.height() - 164.0).max(300.0));
@@ -64,22 +67,19 @@ fn v9_show_army_detail(ctx: &egui::Context, data: &MilitaryData) -> Vec<Military
     );
     let footer_text = format!("{} 师团 | 指挥 {}", divisions.len(), limit);
 
-    Area::new(Id::new("army_detail_tactical_drawer_v9"))
+    Area::new(Id::new("army_detail_tactical_drawer_iron"))
         .order(Order::Foreground)
         .fixed_pos(pos)
         .show(ctx, |ui| {
             let (outer, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
-            let frame = PanelFrame::new(FrameStyle::Glass, outer)
-                .with_accent(accent)
-                .with_elevation(Elevation::E2);
-            frame.draw(ui.painter());
+            VanillaIron::paint_panel(ui, outer, accent);
 
-            let inner = frame.inner_rect();
+            let inner = outer.shrink2(Vec2::new(12.0, 10.0));
             let grid = GridLayout::new(
                 vec![
-                    Track::Fixed(56.0),
+                    Track::Fixed(54.0),
+                    Track::Fixed(70.0),
                     Track::Fixed(74.0),
-                    Track::Fixed(72.0),
                     Track::Fr(1.0),
                     Track::Fixed(26.0),
                 ],
@@ -93,49 +93,53 @@ fn v9_show_army_detail(ctx: &egui::Context, data: &MilitaryData) -> Vec<Military
             let roster = GridLayout::cell(&cells, 3, 0);
             let footer = GridLayout::cell(&cells, 4, 0);
 
-            crate::v9::paint::paint_recessed_panel(ui.painter(), header, 1.0);
+            VanillaIron::paint_region(ui.painter(), header, VanillaIron::CARD_DEEP);
             ui.painter().hline(
                 header.left()..=header.right(),
                 header.bottom() - 1.0,
-                Stroke::new(1.0, accent),
+                Stroke::new(1.0, VanillaIron::EDGE),
             );
             let close_rect = Rect::from_min_size(
-                Pos2::new(header.right() - 30.0, header.top() + 8.0),
-                Vec2::new(24.0, 24.0),
+                Pos2::new(header.right() - 28.0, header.top() + 6.0),
+                Vec2::new(23.0, 23.0),
             );
             let title_clip = Rect::from_min_max(
-                header.left_top(),
+                header.left_top() + Vec2::new(spacing::S4, spacing::S3),
                 Pos2::new(close_rect.left() - spacing::S3, header.bottom()),
             );
             let title_painter = ui.painter().with_clip_rect(title_clip);
-            title_painter.text(
-                Pos2::new(header.left() + spacing::S5, header.top() + 10.0),
-                Align2::LEFT_TOP,
+            let title_font = fit_font_to_width(
                 army.name.as_str(),
                 TextRole::Heading.font_id(),
-                palette::GOLD_HOT,
+                title_clip.width(),
+                0.70,
             );
             title_painter.text(
-                Pos2::new(header.left() + spacing::S5, header.bottom() - spacing::S3),
+                title_clip.left_top(),
+                Align2::LEFT_TOP,
+                army.name.as_str(),
+                title_font,
+                VanillaIron::TEXT,
+            );
+            title_painter.text(
+                Pos2::new(title_clip.left(), title_clip.bottom() - spacing::S2),
                 Align2::LEFT_BOTTOM,
                 army.commander_name.as_deref().unwrap_or("无将领"),
                 TextRole::Caption.font_id(),
-                palette::PARCHMENT_DIM,
+                VanillaIron::MUTED,
             );
-            if Button::new("×")
-                .size(ButtonSize::Sm)
-                .variant(ButtonVariant::Ghost)
-                .show_at(ui, close_rect)
+            if VanillaIron::close_button(ui, close_rect, ("army_detail_close", army.id))
+                .on_hover_text("取消选中")
                 .clicked()
             {
                 cmds.push(MilitaryCommand::ClearArmySelection);
             }
 
-            crate::v9::composites::panel_shell::draw_summary_tiles(
+            iron_metric_tiles(
                 ui,
                 summary,
                 &[
-                    ("师团", divisions.len().to_string(), palette::GOLD),
+                    ("师团", divisions.len().to_string(), VanillaIron::BRASS),
                     ("指挥", limit.clone(), accent),
                     (
                         "效率",
@@ -148,52 +152,106 @@ fn v9_show_army_detail(ctx: &egui::Context, data: &MilitaryData) -> Vec<Military
                             "+{:.0}/+{:.0}%",
                             army.attack_bonus_pct, army.defense_bonus_pct
                         ),
-                        palette::GOLD,
+                        VanillaIron::BRASS,
                     ),
                 ],
             );
 
-            v9_army_status_card(ui, status, army, accent, &mut cmds);
-            v9_army_roster_card(ui, roster, divisions.as_slice());
+            iron_army_status_card(ui, status, army, accent, &mut cmds);
+            iron_army_roster_card(ui, roster, divisions.as_slice());
 
+            ui.painter().hline(
+                footer.left()..=footer.right(),
+                footer.top(),
+                Stroke::new(1.0, VanillaIron::EDGE_DARK),
+            );
             let footer_painter = ui.painter().with_clip_rect(footer);
             footer_painter.text(
-                Pos2::new(footer.left(), footer.center().y),
+                Pos2::new(footer.left() + spacing::S1, footer.center().y),
                 Align2::LEFT_CENTER,
                 footer_text,
                 TextRole::Caption.font_id(),
-                palette::MUTED,
+                VanillaIron::MUTED,
             );
         });
 
     cmds
 }
 
-fn v9_army_status_card(
+fn iron_metric_tiles(ui: &mut egui::Ui, rect: egui::Rect, items: &[(&str, String, Color32)]) {
+    use crate::{
+        v9::{text::fit_font_to_width, tokens::TextRole},
+        vanilla_iron::VanillaIron,
+    };
+    use egui::{Align2, Pos2, Rect, Vec2};
+
+    if items.is_empty() || rect.width() <= 8.0 || rect.height() <= 8.0 {
+        return;
+    }
+    let gap = 6.0;
+    let cols = if rect.width() < 340.0 { 2 } else { 4 };
+    let rows = items.len().div_ceil(cols);
+    let tile_w = (rect.width() - gap * (cols.saturating_sub(1) as f32)) / cols as f32;
+    let tile_h = (rect.height() - gap * (rows.saturating_sub(1) as f32)) / rows as f32;
+
+    for (idx, (label, value, color)) in items.iter().enumerate() {
+        let col = idx % cols;
+        let row = idx / cols;
+        let tile = Rect::from_min_size(
+            rect.left_top() + Vec2::new(col as f32 * (tile_w + gap), row as f32 * (tile_h + gap)),
+            Vec2::new(tile_w, tile_h),
+        );
+        VanillaIron::paint_region(ui.painter(), tile, VanillaIron::CARD);
+        let inner = tile.shrink2(Vec2::new(7.0, 5.0));
+        ui.painter().with_clip_rect(inner).text(
+            inner.left_top(),
+            Align2::LEFT_TOP,
+            *label,
+            fit_font_to_width(label, TextRole::Caption.font_id(), inner.width(), 0.70),
+            VanillaIron::MUTED,
+        );
+        ui.painter().with_clip_rect(inner).text(
+            Pos2::new(inner.left(), inner.bottom()),
+            Align2::LEFT_BOTTOM,
+            value,
+            fit_font_to_width(value, TextRole::Subheading.font_id(), inner.width(), 0.64),
+            *color,
+        );
+    }
+}
+
+fn iron_army_status_card(
     ui: &mut egui::Ui,
     rect: egui::Rect,
     army: &ArmyEntry,
     accent: Color32,
     cmds: &mut Vec<MilitaryCommand>,
 ) {
-    use crate::v9::primitives::{Button, ButtonSize, ButtonVariant, Card};
-    use crate::v9::tokens::{palette, TextRole};
+    use crate::{
+        v9::{text::fit_font_to_width, tokens::TextRole},
+        vanilla_iron::VanillaIron,
+    };
     use egui::{Align2, Pos2, Rect, Vec2};
 
-    let inner = Card::new().as_ornate().show_at(ui, rect);
+    VanillaIron::paint_region(ui.painter(), rect, VanillaIron::CARD_SOFT);
+    let inner = rect.shrink2(Vec2::new(10.0, 8.0));
     let (status, status_color) = if army.executing {
-        ("执行中", palette::GOOD)
+        ("执行中", VanillaIron::GOOD)
     } else if army.has_arrow {
-        ("计划就绪", palette::GOLD_HOT)
+        ("计划就绪", VanillaIron::BRASS_BRIGHT)
     } else if army.has_path {
-        ("已有前线", palette::GOLD)
+        ("已有前线", VanillaIron::BRASS)
     } else {
-        ("待命", palette::MUTED)
+        ("待命", VanillaIron::MUTED)
     };
 
+    let clear_rect = Rect::from_min_size(
+        Pos2::new(inner.right() - 96.0, inner.center().y - 13.0),
+        Vec2::new(92.0, 26.0),
+    );
     let title_clip = Rect::from_min_max(
         inner.left_top(),
-        Pos2::new(inner.right() - 112.0, inner.bottom()),
+        Pos2::new(clear_rect.left() - 8.0, inner.bottom()),
     );
     let painter = ui.painter().with_clip_rect(title_clip);
     painter.text(
@@ -203,58 +261,55 @@ fn v9_army_status_card(
         TextRole::Subheading.font_id(),
         accent,
     );
+    let status_font = fit_font_to_width(
+        status,
+        TextRole::Heading.font_id(),
+        title_clip.width(),
+        0.72,
+    );
     painter.text(
         Pos2::new(inner.left(), inner.top() + 26.0),
         Align2::LEFT_TOP,
         status,
-        TextRole::Heading.font_id(),
+        status_font,
         status_color,
     );
-    painter.text(
-        Pos2::new(inner.left(), inner.top() + 50.0),
-        Align2::LEFT_TOP,
-        format!(
+    draw_army_wrapped_text(
+        ui,
+        Rect::from_min_max(
+            Pos2::new(inner.left(), inner.top() + 49.0),
+            Pos2::new(title_clip.right(), inner.bottom()),
+        ),
+        &format!(
             "计划 +{:.0}%  恢复 +{:.0}%  补给 -{:.0}%",
             army.planning_bonus_pct, army.org_recovery_bonus_pct, army.supply_reduction_pct
         ),
-        TextRole::Caption.font_id(),
-        palette::PARCHMENT_DIM,
+        TextRole::Caption,
+        VanillaIron::MUTED,
     );
 
-    let clear_rect = Rect::from_min_size(
-        Pos2::new(inner.right() - 104.0, inner.center().y - 14.0),
-        Vec2::new(100.0, 28.0),
-    );
-    if Button::new("取消选中")
-        .size(ButtonSize::Sm)
-        .variant(ButtonVariant::Secondary)
-        .show_at(ui, clear_rect)
+    if VanillaIron::compact_button_at(ui, clear_rect, "取消选中", ("army_detail_clear", army.id))
         .clicked()
     {
         cmds.push(MilitaryCommand::ClearArmySelection);
     }
 }
 
-fn v9_army_roster_card(ui: &mut egui::Ui, rect: egui::Rect, divisions: &[&DivisionEntry]) {
-    use crate::v9::primitives::Card;
-    use crate::v9::tokens::{palette, spacing, TextRole};
-    use egui::{Align2, Pos2, Rect, Sense, Vec2};
+fn iron_army_roster_card(ui: &mut egui::Ui, rect: egui::Rect, divisions: &[&DivisionEntry]) {
+    use crate::{v9::tokens::spacing, vanilla_iron::VanillaIron};
+    use egui::{Pos2, Rect, Sense, Vec2};
 
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        format!("师团列表 ({})", divisions.len()),
-        TextRole::Subheading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
+    VanillaIron::paint_region(ui.painter(), rect, VanillaIron::CARD_DEEP);
+    let title_rect =
+        Rect::from_min_max(rect.left_top(), Pos2::new(rect.right(), rect.top() + 28.0));
+    VanillaIron::section_title_at(ui, title_rect, &format!("师团列表 ({})", divisions.len()));
 
     let list_rect = Rect::from_min_max(
-        Pos2::new(inner.left(), inner.top() + 30.0),
-        inner.right_bottom(),
+        Pos2::new(rect.left() + spacing::S4, title_rect.bottom() + spacing::S3),
+        rect.right_bottom() - Vec2::new(spacing::S4, spacing::S4),
     );
     if divisions.is_empty() {
-        crate::v9::composites::panel_shell::draw_empty_state(
+        draw_army_empty_state(
             ui,
             list_rect,
             "暂无师团",
@@ -277,25 +332,20 @@ fn v9_army_roster_card(ui: &mut egui::Ui, rect: egui::Rect, divisions: &[&Divisi
                         Vec2::new(ui.available_width(), row_h),
                         Sense::hover(),
                     );
-                    v9_draw_division_row(ui, row, div);
+                    iron_draw_division_row(ui, row, div);
                     ui.add_space(spacing::S2);
                 }
             });
     });
 }
 
-fn v9_draw_division_row(ui: &mut egui::Ui, row: egui::Rect, div: &DivisionEntry) {
+fn iron_draw_division_row(ui: &mut egui::Ui, row: egui::Rect, div: &DivisionEntry) {
     use crate::v9::primitives::{draw_progress_bar, CounterIcon};
-    use crate::v9::tokens::{palette, spacing, TextRole};
+    use crate::v9::tokens::{spacing, TextRole};
+    use crate::vanilla_iron::VanillaIron;
     use egui::{Align2, Pos2, Rect, Vec2};
 
-    crate::v9::paint::paint_bevel(
-        ui.painter(),
-        row,
-        palette::SOOT_BLACK,
-        palette::EDGE_DARK,
-        2.0,
-    );
+    VanillaIron::paint_region(ui.painter(), row, VanillaIron::CARD);
 
     let counter_w: f32 = if row.width() < 360.0 { 132.0 } else { 158.0 };
     let counter_rect = Rect::from_min_size(
@@ -305,9 +355,9 @@ fn v9_draw_division_row(ui: &mut egui::Ui, row: egui::Rect, div: &DivisionEntry)
     let archetype = nato_icon::archetype_from_template_name(&div.name);
     CounterIcon::new(tr(&div.name), archetype)
         .accent(if div.in_combat {
-            palette::BAD
+            VanillaIron::BAD
         } else {
-            palette::BRASS_BRIGHT
+            VanillaIron::BRASS_BRIGHT
         })
         .show_at(ui, counter_rect);
 
@@ -361,24 +411,64 @@ fn v9_draw_division_row(ui: &mut egui::Ui, row: egui::Rect, div: &DivisionEntry)
         Align2::RIGHT_CENTER,
         stats,
         TextRole::Caption.font_id(),
-        palette::PARCHMENT_DIM,
+        VanillaIron::MUTED,
     );
 }
 
-fn v9_army_accent(army: &ArmyEntry, division_count: usize) -> Color32 {
+fn draw_army_empty_state(ui: &mut egui::Ui, rect: egui::Rect, title: &str, body: &str) {
+    use crate::{v9::tokens::TextRole, vanilla_iron::VanillaIron};
+    use egui::{Align2, Pos2};
+
+    ui.painter().text(
+        Pos2::new(rect.center().x, rect.center().y - 10.0),
+        Align2::CENTER_CENTER,
+        title,
+        TextRole::Subheading.font_id(),
+        VanillaIron::MUTED,
+    );
+    draw_army_wrapped_text(
+        ui,
+        egui::Rect::from_min_max(
+            Pos2::new(rect.left() + 16.0, rect.center().y + 8.0),
+            rect.right_bottom() - egui::Vec2::new(16.0, 8.0),
+        ),
+        body,
+        TextRole::Caption,
+        VanillaIron::MUTED,
+    );
+}
+
+fn draw_army_wrapped_text(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    text: &str,
+    role: crate::v9::TextRole,
+    color: Color32,
+) {
+    if rect.width() <= 1.0 || rect.height() <= 1.0 {
+        return;
+    }
+    let painter = ui.painter().with_clip_rect(rect);
+    let galley = painter.layout(text.to_owned(), role.font_id(), color, rect.width());
+    painter.galley(rect.left_top(), galley, color);
+}
+
+fn army_accent(army: &ArmyEntry, division_count: usize) -> Color32 {
+    use crate::vanilla_iron::VanillaIron;
+
     if army
         .command_limit
         .is_some_and(|limit| division_count > limit as usize)
     {
-        crate::v9::tokens::palette::BAD
+        VanillaIron::BAD
     } else if army.executing {
-        crate::v9::tokens::palette::GOOD
+        VanillaIron::GOOD
     } else if army.has_arrow {
-        crate::v9::tokens::palette::GOLD_HOT
+        VanillaIron::BRASS_BRIGHT
     } else if army.has_path {
-        crate::v9::tokens::palette::GOLD
+        VanillaIron::BRASS
     } else {
-        crate::v9::tokens::palette::BRASS_BRIGHT
+        VanillaIron::BRASS_BRIGHT
     }
 }
 
@@ -391,17 +481,19 @@ fn div_org_ratio(div: &DivisionEntry) -> f32 {
 }
 
 fn ratio_color(value: f32) -> Color32 {
+    use crate::vanilla_iron::VanillaIron;
+
     if value < 0.5 {
-        crate::v9::tokens::palette::BAD
+        VanillaIron::BAD
     } else if value < 0.8 {
-        crate::v9::tokens::palette::WARN
+        VanillaIron::WARN
     } else {
-        crate::v9::tokens::palette::GOOD
+        VanillaIron::GOOD
     }
 }
 
 impl ArmyDetailPanel {
     pub fn show(ctx: &egui::Context, data: &MilitaryData) -> Vec<MilitaryCommand> {
-        v9_show_army_detail(ctx, data)
+        iron_show_army_detail(ctx, data)
     }
 }

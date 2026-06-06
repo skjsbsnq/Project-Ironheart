@@ -79,7 +79,7 @@ impl TradePanel {
                 ui.horizontal(|ui| {
                     ui.heading(
                         RichText::new(tr("v6_trade_panel_title"))
-                            .color(Color32::from_rgb(0xe0, 0xc0, 0x78)),
+                            .color(Color32::from_rgb(0xd1, 0xdf, 0xdd)),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("✕").clicked() {

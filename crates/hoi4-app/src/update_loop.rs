@@ -4,8 +4,8 @@ use hoi4_runtime::ContentTickEvents;
 use winit::keyboard::KeyCode;
 
 use crate::{
-    runtime, App, GamePhase, EDGE_PAN_MARGIN_PX, EDGE_PAN_SPEED_SCALE, MAX_INTERACTION_DT_SECS,
-    MIN_SIM_SLICE_SECS,
+    runtime, App, GamePhase, EDGE_PAN_MARGIN_PX, EDGE_PAN_SPEED_SCALE,
+    INTERACTIVE_FAST_SIM_BUDGET_SECS, MAX_INTERACTION_DT_SECS, MIN_SIM_SLICE_SECS,
 };
 
 impl App {
@@ -24,6 +24,7 @@ impl App {
             return;
         }
 
+        self.update_edge_pan_test_cursor(now);
         self.update_smooth_zoom(interaction_dt);
 
         // Arrow-key and HOI4-style screen-edge panning. WASD is reserved for panels/hotkeys.
@@ -59,6 +60,13 @@ impl App {
                 pan_z += edge_pan_speed;
             }
         }
+        let viewport_interacting = pan_x != 0.0
+            || pan_z != 0.0
+            || self.dragging
+            || self.smooth_zoom_target_distance.is_some();
+        if viewport_interacting {
+            self.last_viewport_interaction_at = Some(now);
+        }
         if pan_x != 0.0 || pan_z != 0.0 {
             self.camera.pan(pan_x, pan_z);
             self.upload_camera();
@@ -80,7 +88,16 @@ impl App {
         let mut simulation_advanced = false;
         let (base_max_ticks, speed_tick_budget) =
             runtime::systems_runtime::speed_tick_limits(self.world.speed);
-        let tick_budget = speed_tick_budget.min(max_sim_budget_secs.max(0.0));
+        let interaction_budget = if viewport_interacting
+            && matches!(
+                self.world.speed,
+                hoi4_state::GameSpeed::Speed4 | hoi4_state::GameSpeed::Speed5
+            ) {
+            INTERACTIVE_FAST_SIM_BUDGET_SECS
+        } else {
+            speed_tick_budget
+        };
+        let tick_budget = interaction_budget.min(max_sim_budget_secs.max(0.0));
         let tick_started_at = Instant::now();
         let mut ticks = 0;
         let mut stop_advancing_hours = false;

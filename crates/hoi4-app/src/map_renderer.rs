@@ -186,6 +186,9 @@ impl MapRenderPass {
     fn allowed_by_quality(self, preset: MapQualityPreset) -> bool {
         let controls = preset.controls();
         match self {
+            Self::ShadowCaster | Self::ProjectedFowShadow | Self::Particles => {
+                !matches!(preset, MapQualityPreset::LowEnd)
+            }
             Self::Postprocess => controls.postprocess_chain,
             Self::WaterRefraction => preset.water_refraction_enabled(),
             _ => true,
@@ -1451,6 +1454,26 @@ mod tests {
         );
         assert_eq!(high_plan.world_objects.poi_detail_level, 0);
         assert_eq!(ultra_plan.world_objects.poi_detail_level, 0);
+    }
+
+    #[test]
+    fn low_end_quality_skips_expensive_dynamic_effect_passes() {
+        let renderer = MapRenderer::new();
+        let mut registry = PassRegistry::new();
+        renderer.register_passes(&mut registry);
+
+        let mut low = test_context(MapLayerMask::all());
+        low.settings =
+            MapRenderSettings::with_quality(MapLayerMask::all(), MapQualityPreset::LowEnd);
+        let plan = renderer.build_frame_plan(low, &registry);
+
+        assert!(plan.draw.terrain);
+        assert!(plan.draw.water);
+        assert!(!plan.draw.shadow_caster);
+        assert!(!plan.draw.projected_fow_shadow);
+        assert!(!plan.draw.water_refraction);
+        assert!(!plan.draw.particles);
+        assert!(!plan.draw.postprocess);
     }
 
     #[test]

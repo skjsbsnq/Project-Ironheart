@@ -31,7 +31,11 @@ fn v9_show_army_badge(ctx: &egui::Context, data: &MilitaryData) -> Vec<MilitaryC
 
     let screen = ctx.screen_rect();
     let size = Vec2::new(254.0, 72.0);
-    let pos = Pos2::new(screen.right() - size.x - spacing::S6, screen.top() + 58.0);
+    let topbar_clearance = if screen.height() >= 760.0 { 94.0 } else { 64.0 };
+    let pos = Pos2::new(
+        screen.right() - size.x - spacing::S5,
+        screen.top() + topbar_clearance,
+    );
     egui::Area::new(egui::Id::new("army_summary_badge_v9"))
         .order(egui::Order::Foreground)
         .fixed_pos(pos)

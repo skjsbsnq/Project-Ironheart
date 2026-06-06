@@ -34,12 +34,21 @@ struct CpuPointLight {
 }
 
 pub fn generate(inputs: VanillaRuntimeTargetInputs<'_>) -> PointLightTargetData {
+    let centroids = compute_province_centroids(&inputs.world.map.province_map);
+    generate_with_centroids(inputs, &centroids)
+}
+
+pub fn generate_with_centroids(
+    inputs: VanillaRuntimeTargetInputs<'_>,
+    centroids: &[(f32, f32)],
+) -> PointLightTargetData {
     let width = inputs.world.map.province_map.width;
     let height = inputs.world.map.province_map.height;
     let index_width = align_to(width.div_ceil(LIGHT_INDEX_TILE_PX).max(1), 64);
     let index_height = height.div_ceil(LIGHT_INDEX_TILE_PX).max(1);
     generate_with_dimensions(
         inputs.world,
+        centroids,
         inputs.world_scale,
         inputs.height_scale,
         index_width,
@@ -71,8 +80,11 @@ pub fn signature(world: &World) -> u64 {
 
     world.divisions.count.hash(&mut hasher);
     for idx in 0..world.divisions.count {
+        if !world.divisions.in_combat[idx] {
+            continue;
+        }
+        idx.hash(&mut hasher);
         world.divisions.locations[idx].0.hash(&mut hasher);
-        world.divisions.in_combat[idx].hash(&mut hasher);
         world.divisions.strength[idx].to_bits().hash(&mut hasher);
     }
     hasher.finish()
@@ -80,13 +92,13 @@ pub fn signature(world: &World) -> u64 {
 
 fn generate_with_dimensions(
     world: &World,
+    centroids: &[(f32, f32)],
     world_scale: f32,
     height_scale: f32,
     index_width: u32,
     index_height: u32,
 ) -> PointLightTargetData {
-    let centroids = compute_province_centroids(&world.map.province_map);
-    let mut lights = collect_point_lights(world, &centroids, world_scale, height_scale);
+    let mut lights = collect_point_lights(world, centroids, world_scale, height_scale);
     lights.sort_by(|a, b| {
         b.priority
             .total_cmp(&a.priority)

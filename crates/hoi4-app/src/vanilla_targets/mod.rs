@@ -3,7 +3,10 @@ pub mod gradient_border;
 pub mod point_lights;
 pub mod province_secondary;
 
+use std::time::Instant;
+
 use hoi4_render::map_mode::MapMode;
+use hoi4_render::railways::compute_province_centroids;
 use hoi4_state::{CountryId, World};
 
 use crate::vanilla_resource_views::{BindingAuditEntry, BindingBlockingLevel, BindingProvenance};
@@ -875,6 +878,7 @@ pub struct VanillaRuntimeTargets {
     province_secondary_signature: u64,
     mud_snow_signature: u64,
     point_light_signature: u64,
+    province_centroids: Vec<(f32, f32)>,
     province_secondary_data: Vec<u8>,
     mud_snow_data: Vec<u8>,
     point_light_data: point_lights::PointLightTargetData,
@@ -959,7 +963,8 @@ impl VanillaRuntimeTargets {
         let mud_snow_data = fow::generate_neutral_snow_mud(width, height);
         let mud_snow_signature = fow::mud_snow_signature(&frame_params);
         let fow_data = fow::generate_default_fow(width, height);
-        let point_light_data = point_lights::generate(inputs);
+        let province_centroids = compute_province_centroids(&inputs.world.map.province_map);
+        let point_light_data = point_lights::generate_with_centroids(inputs, &province_centroids);
         let point_light_signature = point_lights::signature(inputs.world);
 
         Self {
@@ -1050,6 +1055,7 @@ impl VanillaRuntimeTargets {
             province_secondary_signature,
             mud_snow_signature,
             point_light_signature,
+            province_centroids,
             province_secondary_data,
             mud_snow_data,
             point_light_data,
@@ -1104,50 +1110,89 @@ impl VanillaRuntimeTargets {
         world: &World,
         params: &VanillaRuntimeTargetFrameParams,
     ) {
+        let profile_started = Instant::now();
+        let country_sig_started = Instant::now();
         let map_mode_code = province_secondary::map_mode_code(params.map_mode);
         let country_border_signature = gradient_border::producer_signature(world, map_mode_code);
+        let profile_country_sig_ms = country_sig_started.elapsed().as_secs_f32() * 1000.0;
+        let mut profile_country_update_ms = 0.0;
         if country_border_signature != self.country_border_signature {
+            let update_started = Instant::now();
             let gradient = gradient_border::generate_runtime_channels(world, map_mode_code);
             self.gradient_border.ch1.write(queue, &gradient.ch1);
             self.gradient_border.ch2.write(queue, &gradient.ch2);
             self.gradient_border.ch3.write(queue, &gradient.ch3);
             self.country_border_signature = country_border_signature;
+            profile_country_update_ms = update_started.elapsed().as_secs_f32() * 1000.0;
         }
 
+        let secondary_sig_started = Instant::now();
         let secondary_signature = province_secondary::signature(world, params);
+        let profile_secondary_sig_ms = secondary_sig_started.elapsed().as_secs_f32() * 1000.0;
+        let mut profile_secondary_update_ms = 0.0;
         if secondary_signature != self.province_secondary_signature {
+            let update_started = Instant::now();
             self.province_secondary_data = province_secondary::generate(world, params);
             self.province_secondary_color
                 .write(queue, &self.province_secondary_data);
             self.province_secondary_signature = secondary_signature;
+            profile_secondary_update_ms = update_started.elapsed().as_secs_f32() * 1000.0;
         }
 
+        let mud_sig_started = Instant::now();
         let mud_snow_signature = fow::mud_snow_signature(params);
+        let profile_mud_sig_ms = mud_sig_started.elapsed().as_secs_f32() * 1000.0;
+        let mut profile_mud_update_ms = 0.0;
         if mud_snow_signature != self.mud_snow_signature {
+            let update_started = Instant::now();
             self.mud_snow_data = fow::generate_neutral_snow_mud(
                 world.map.province_map.width,
                 world.map.province_map.height,
             );
             self.mud_snow.write(queue, &self.mud_snow_data);
             self.mud_snow_signature = mud_snow_signature;
+            profile_mud_update_ms = update_started.elapsed().as_secs_f32() * 1000.0;
         }
 
+        let light_sig_started = Instant::now();
         let point_light_signature = point_lights::signature(world);
+        let profile_light_sig_ms = light_sig_started.elapsed().as_secs_f32() * 1000.0;
+        let mut profile_light_update_ms = 0.0;
         if point_light_signature != self.point_light_signature {
-            self.point_light_data = point_lights::generate(VanillaRuntimeTargetInputs {
-                world,
-                country_sdf: &[],
-                province_sdf: &[],
-                coast_sdf: &[],
-                world_scale: self.world_scale,
-                height_scale: self.height_scale,
-                default_map_mode_code: province_secondary::map_mode_code(params.map_mode),
-            });
+            let update_started = Instant::now();
+            self.point_light_data = point_lights::generate_with_centroids(
+                VanillaRuntimeTargetInputs {
+                    world,
+                    country_sdf: &[],
+                    province_sdf: &[],
+                    coast_sdf: &[],
+                    world_scale: self.world_scale,
+                    height_scale: self.height_scale,
+                    default_map_mode_code: province_secondary::map_mode_code(params.map_mode),
+                },
+                &self.province_centroids,
+            );
             self.light_data
                 .write(queue, &self.point_light_data.light_data);
             self.light_index
                 .write(queue, &self.point_light_data.light_index);
             self.point_light_signature = point_light_signature;
+            profile_light_update_ms = update_started.elapsed().as_secs_f32() * 1000.0;
+        }
+        let profile_total_ms = profile_started.elapsed().as_secs_f32() * 1000.0;
+        if profile_total_ms >= 25.0 {
+            println!(
+                "[vanilla-prof] total={:.2}ms country_sig={:.2}ms country_update={:.2}ms secondary_sig={:.2}ms secondary_update={:.2}ms mud_sig={:.2}ms mud_update={:.2}ms light_sig={:.2}ms light_update={:.2}ms",
+                profile_total_ms,
+                profile_country_sig_ms,
+                profile_country_update_ms,
+                profile_secondary_sig_ms,
+                profile_secondary_update_ms,
+                profile_mud_sig_ms,
+                profile_mud_update_ms,
+                profile_light_sig_ms,
+                profile_light_update_ms,
+            );
         }
     }
 

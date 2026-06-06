@@ -4,7 +4,7 @@ use std::time::Instant;
 use hoi4_data::GameData;
 use hoi4_map::GameMap;
 use hoi4_paths::{PathConfig, ResolveOverrides};
-use hoi4_state::World;
+use hoi4_state::{GameSpeed, World};
 
 use hoi4_runtime::{init_simulation, HourlyRuntime, SystemSchedule};
 
@@ -21,6 +21,9 @@ pub struct Cli {
     pub map_audit_output: std::path::PathBuf,
     pub map_image_diff: Option<(std::path::PathBuf, std::path::PathBuf)>,
     pub map_image_diff_output: std::path::PathBuf,
+    pub edge_pan_test: bool,
+    pub edge_pan_test_seconds: f32,
+    pub edge_pan_test_country: String,
     pub help_requested: bool,
 }
 
@@ -38,6 +41,9 @@ pub fn parse_cli() -> Cli {
         map_audit_output: std::path::PathBuf::from("target/map_audit"),
         map_image_diff: None,
         map_image_diff_output: crate::map_image_diff::default_output_path(),
+        edge_pan_test: false,
+        edge_pan_test_seconds: 45.0,
+        edge_pan_test_country: "GER".to_owned(),
         help_requested: false,
     };
     let mut args = std::env::args().skip(1);
@@ -57,6 +63,19 @@ pub fn parse_cli() -> Cli {
             "--headless-days" => {
                 if let Some(v) = args.next() {
                     out.headless_days = v.parse().unwrap_or(1);
+                }
+            }
+            "--edge-pan-test" => out.edge_pan_test = true,
+            "--edge-pan-test-seconds" => {
+                if let Some(v) = args.next() {
+                    out.edge_pan_test = true;
+                    out.edge_pan_test_seconds = v.parse().unwrap_or(out.edge_pan_test_seconds);
+                }
+            }
+            "--edge-pan-test-country" => {
+                if let Some(v) = args.next() {
+                    out.edge_pan_test = true;
+                    out.edge_pan_test_country = v;
                 }
             }
             "--map-phase0" | "--map-baseline-phase0" | "--map-parity-capture" => {
@@ -131,6 +150,9 @@ OPTIONS:
     --mod <PATH>            mod root directory (repeatable, first listed = highest priority)
     --headless              no window; load world, tick N days, exit (CI smoke)
     --headless-days <N>     days to tick in headless mode (default 1)
+    --edge-pan-test         launch windowed GER speed-5 internal edge-pan test
+    --edge-pan-test-seconds N duration for --edge-pan-test (default 45)
+    --edge-pan-test-country TAG country tag for --edge-pan-test (default GER)
     --map-audit             write map resource audit to target/map_audit/latest.json, then exit
     --map-audit-output DIR  output directory for map audit (default target/map_audit)
     --map-phase0            capture Map Renderer V2 Phase 0 screenshots, reports, audit, then exit
@@ -255,6 +277,7 @@ pub fn run_headless(mut world: World, days: u32) {
         .position(|t| t == "GER")
         .unwrap_or(0);
     world.player = hoi4_state::CountryId(default_player as u16);
+    world.speed = GameSpeed::Speed5;
 
     let (mut econ, mut research, mut politics_cache, mut script, mut ai) =
         init_simulation(&mut world);

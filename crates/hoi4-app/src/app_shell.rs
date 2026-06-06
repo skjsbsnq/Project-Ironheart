@@ -28,6 +28,10 @@ impl ApplicationHandler for App {
                 .unwrap(),
         );
         self.init_render(window);
+        self.start_edge_pan_test();
+        if let Some(s) = &self.state {
+            s.window.request_redraw();
+        }
         self.update_title();
     }
 
@@ -36,15 +40,25 @@ impl ApplicationHandler for App {
             event_loop.exit();
             return;
         }
+        let now = Instant::now();
+        if self.edge_pan_test_should_finish(now) {
+            self.finish_edge_pan_test();
+            event_loop.exit();
+            return;
+        }
         let simulation_running =
             self.game_phase == GamePhase::Playing && self.world.speed != GameSpeed::Paused;
 
-        let now = Instant::now();
         let time_since_redraw = now.saturating_duration_since(self.last_redraw_at);
         let redraw_due =
             self.state.is_some() && time_since_redraw.as_secs_f32() >= TARGET_UI_FRAME_SECS;
         if redraw_due {
-            self.update(0.0);
+            let sim_budget = if simulation_running {
+                REDRAW_OVERDUE_SIM_BUDGET_SECS
+            } else {
+                0.0
+            };
+            self.update(sim_budget);
             if let Some(s) = &self.state {
                 s.window.request_redraw();
             }
@@ -70,7 +84,6 @@ impl ApplicationHandler for App {
         self.update(sim_budget_secs);
 
         let redraw_after_update = self.map_phase0.is_some()
-            || !simulation_running
             || Instant::now()
                 .saturating_duration_since(self.last_redraw_at)
                 .as_secs_f32()
@@ -81,12 +94,13 @@ impl ApplicationHandler for App {
             }
         }
 
-        if simulation_running || self.map_phase0.is_some() {
+        if simulation_running || self.map_phase0.is_some() || redraw_after_update {
             event_loop.set_control_flow(ControlFlow::Poll);
         } else {
-            event_loop.set_control_flow(ControlFlow::WaitUntil(
-                Instant::now() + Duration::from_millis(16),
-            ));
+            let now = Instant::now();
+            let next_redraw_at =
+                self.last_redraw_at + Duration::from_secs_f32(TARGET_UI_FRAME_SECS);
+            event_loop.set_control_flow(ControlFlow::WaitUntil(next_redraw_at.max(now)));
         }
     }
 
@@ -94,9 +108,6 @@ impl ApplicationHandler for App {
         // Give egui first chance to consume input events.
         let consumed = if let Some(s) = self.state.as_mut() {
             let response = s.ui.on_window_event(&s.window, &event);
-            if response.repaint {
-                s.window.request_redraw();
-            }
             response.consumed
         } else {
             false
@@ -863,39 +874,13 @@ impl ApplicationHandler for App {
                     if is_painting {
                         self.last_mouse = [x, y];
                         self.suppress_next_map_click = true;
-                        let now = std::time::Instant::now();
-                        let elapsed = now.duration_since(self.frontline_painter.last_sample_at);
-                        if elapsed.as_millis() >= 33 {
-                            let pid = self.pick_province_at_cursor();
-                            if pid != u32::MAX {
-                                let prov = hoi4_state::ProvinceId(pid as u16);
-                                let last_differs = self
-                                    .frontline_painter
-                                    .samples
-                                    .last()
-                                    .map_or(true, |&last| last != prov);
-                                if last_differs {
-                                    if self.frontline_painter.samples.len()
-                                        < hoi4_logic::military::frontline::MAX_SAMPLES
-                                    {
-                                        self.frontline_painter.samples.push(prov);
-                                    } else {
-                                        let n = self.frontline_painter.samples.len();
-                                        let step = n / (n - 1).max(1);
-                                        let mut deduped: Vec<hoi4_state::ProvinceId> =
-                                            Vec::with_capacity(n);
-                                        let mut i = 0;
-                                        while i < n {
-                                            deduped.push(self.frontline_painter.samples[i]);
-                                            i += if i + step < n { step } else { 1 };
-                                        }
-                                        deduped.push(prov);
-                                        self.frontline_painter.samples = deduped;
-                                    }
-                                    self.frontline_painter.last_sample_at = now;
-                                    if let Some(s) = &self.state {
-                                        s.window.request_redraw();
-                                    }
+                        let pid = self.pick_province_at_cursor();
+                        if pid != u32::MAX {
+                            let prov = hoi4_state::ProvinceId(pid as u16);
+                            if self.append_frontline_painter_sample(prov) {
+                                self.frontline_painter.last_sample_at = std::time::Instant::now();
+                                if let Some(s) = &self.state {
+                                    s.window.request_redraw();
                                 }
                             }
                         }
@@ -922,9 +907,6 @@ impl ApplicationHandler for App {
                     if self.ui_blocks_map_clicks() {
                         if self.hovered_province_id != u32::MAX {
                             self.hovered_province_id = u32::MAX;
-                            if let Some(s) = &self.state {
-                                s.window.request_redraw();
-                            }
                         }
                     } else {
                         let now = std::time::Instant::now();
@@ -935,9 +917,6 @@ impl ApplicationHandler for App {
                             let new_hover = self.pick_province_at_cursor();
                             if new_hover != self.hovered_province_id {
                                 self.hovered_province_id = new_hover;
-                                if let Some(s) = &self.state {
-                                    s.window.request_redraw();
-                                }
                             }
                         }
                     }
@@ -991,10 +970,14 @@ impl ApplicationHandler for App {
     }
 }
 
-pub(crate) fn run_windowed(world: hoi4_state::World, path_cfg: hoi4_paths::PathConfig) {
+pub(crate) fn run_windowed(
+    world: hoi4_state::World,
+    path_cfg: hoi4_paths::PathConfig,
+    edge_pan_test: Option<EdgePanTestConfig>,
+) {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Wait);
-    let mut app = App::new(world, path_cfg);
+    let mut app = App::new(world, path_cfg, edge_pan_test);
     event_loop.run_app(&mut app).unwrap();
 }
 
@@ -1006,7 +989,7 @@ pub(crate) fn run_map_phase0(
 ) {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Wait);
-    let mut app = App::new(world, path_cfg);
+    let mut app = App::new(world, path_cfg, None);
     app.enable_map_phase0(output_dir, reference_root);
     event_loop.run_app(&mut app).unwrap();
 }

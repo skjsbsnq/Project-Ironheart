@@ -83,10 +83,13 @@ impl App {
             format,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: wgpu::PresentMode::AutoVsync,
+            // The app drives its own 60 Hz redraw cadence. Avoid blocking CPU
+            // submission on vblank; high-DPI/high-quality frames otherwise show
+            // up as 33/50 ms present stalls when one refresh interval is missed.
+            present_mode: wgpu::PresentMode::AutoNoVsync,
             alpha_mode: caps.alpha_modes[0],
             view_formats: vec![],
-            desired_maximum_frame_latency: 2,
+            desired_maximum_frame_latency: 1,
         };
         surface.configure(&device, &config);
 

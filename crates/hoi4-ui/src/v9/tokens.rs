@@ -30,11 +30,11 @@ pub mod palette {
     pub const PANEL_DEEP: Color32 = Color32::from_rgb(0x05, 0x06, 0x06);
     pub const ZEBRA_DARK: Color32 = Color32::from_rgb(0x0b, 0x0d, 0x0c);
     pub const ZEBRA_LIGHT: Color32 = Color32::from_rgb(0x11, 0x13, 0x12);
-    pub const HAIRLINE: Color32 = Color32::from_rgb(0x24, 0x26, 0x23);
-    pub const STROKE_DARK: Color32 = Color32::from_rgb(0x30, 0x28, 0x19);
-    pub const STROKE_MED: Color32 = Color32::from_rgb(0x5b, 0x49, 0x2a);
-    pub const PARCHMENT: Color32 = Color32::from_rgb(0xd7, 0xcc, 0xa7);
-    pub const PARCHMENT_DIM: Color32 = Color32::from_rgb(0x9f, 0x97, 0x82);
+    pub const HAIRLINE: Color32 = Color32::from_rgb(0x25, 0x2a, 0x29);
+    pub const STROKE_DARK: Color32 = Color32::from_rgb(0x18, 0x20, 0x22);
+    pub const STROKE_MED: Color32 = Color32::from_rgb(0x43, 0x56, 0x5c);
+    pub const PARCHMENT: Color32 = Color32::from_rgb(0xd8, 0xd6, 0xc8);
+    pub const PARCHMENT_DIM: Color32 = Color32::from_rgb(0xa1, 0xa7, 0xa2);
     pub const MUTED: Color32 = Color32::from_rgb(0x73, 0x76, 0x70);
 
     // Dark iron material tokens for the reference-2 HUD style.
@@ -43,21 +43,21 @@ pub mod palette {
     pub const IRON_BLACK: Color32 = Color32::from_rgb(0x03, 0x04, 0x04);
     pub const IRON_DARK: Color32 = Color32::from_rgb(0x09, 0x0b, 0x0b);
     pub const IRON: Color32 = Color32::from_rgb(0x15, 0x18, 0x16);
-    pub const IRON_LIGHT: Color32 = Color32::from_rgb(0x2c, 0x30, 0x2b);
-    pub const GUNMETAL: Color32 = Color32::from_rgb(0x3e, 0x42, 0x3b);
-    pub const STEEL_FACE: Color32 = Color32::from_rgb(0x4d, 0x52, 0x49);
-    pub const EDGE_LIGHT: Color32 = Color32::from_rgb(0x80, 0x72, 0x53);
-    pub const EDGE_DARK: Color32 = Color32::from_rgb(0x12, 0x0f, 0x09);
-    pub const RUST: Color32 = Color32::from_rgb(0x5a, 0x2d, 0x20);
+    pub const IRON_LIGHT: Color32 = Color32::from_rgb(0x2c, 0x33, 0x31);
+    pub const GUNMETAL: Color32 = Color32::from_rgb(0x3f, 0x48, 0x45);
+    pub const STEEL_FACE: Color32 = Color32::from_rgb(0x4e, 0x59, 0x55);
+    pub const EDGE_LIGHT: Color32 = Color32::from_rgb(0x83, 0x95, 0x98);
+    pub const EDGE_DARK: Color32 = Color32::from_rgb(0x0c, 0x12, 0x13);
+    pub const RUST: Color32 = Color32::from_rgb(0x54, 0x22, 0x26);
 
     // Muted brass / old gold.
-    pub const BRASS_SHADOW: Color32 = Color32::from_rgb(0x2f, 0x24, 0x14);
-    pub const BRASS_DARK: Color32 = Color32::from_rgb(0x43, 0x32, 0x1d);
-    pub const BRASS: Color32 = Color32::from_rgb(0x72, 0x58, 0x2e);
-    pub const BRASS_WORN: Color32 = Color32::from_rgb(0x9b, 0x7a, 0x3f);
-    pub const BRASS_BRIGHT: Color32 = Color32::from_rgb(0xb0, 0x8a, 0x43);
-    pub const GOLD: Color32 = Color32::from_rgb(0xcc, 0xa2, 0x49);
-    pub const GOLD_HOT: Color32 = Color32::from_rgb(0xe3, 0xc1, 0x66);
+    pub const BRASS_SHADOW: Color32 = Color32::from_rgb(0x10, 0x18, 0x1a);
+    pub const BRASS_DARK: Color32 = Color32::from_rgb(0x1d, 0x2d, 0x33);
+    pub const BRASS: Color32 = Color32::from_rgb(0x3e, 0x5f, 0x68);
+    pub const BRASS_WORN: Color32 = Color32::from_rgb(0x67, 0x83, 0x89);
+    pub const BRASS_BRIGHT: Color32 = Color32::from_rgb(0x91, 0xac, 0xb1);
+    pub const GOLD: Color32 = Color32::from_rgb(0x9f, 0xc1, 0xc8);
+    pub const GOLD_HOT: Color32 = Color32::from_rgb(0xd1, 0xdf, 0xdd);
 
     // 派系
     pub const IDEO_FASCISM: Color32 = Color32::from_rgb(0x9e, 0x32, 0x32);
@@ -77,7 +77,7 @@ pub mod palette {
     pub const INFO: Color32 = Color32::from_rgb(0x68, 0x96, 0xc8);
 
     // 统计色
-    pub const STAT_PRIMARY: Color32 = Color32::from_rgb(0xc9, 0xa5, 0x5b);
+    pub const STAT_PRIMARY: Color32 = Color32::from_rgb(0x9f, 0xc1, 0xc8);
     pub const STAT_SECONDARY: Color32 = Color32::from_rgb(0x68, 0x96, 0xc8);
     pub const STAT_TERTIARY: Color32 = Color32::from_rgb(0x8a, 0x8a, 0x8a);
 }

@@ -121,7 +121,7 @@ impl DemoWindow {
                 let footer_color = if over {
                     Color32::from_rgb(0xff, 0x60, 0x60)
                 } else {
-                    Color32::from_rgb(0xc9, 0xa5, 0x5b)
+                    Color32::from_rgb(0x9f, 0xc1, 0xc8)
                 };
                 let budget_us = crate::FRAME_BUDGET_US;
                 ui.colored_label(

@@ -14,11 +14,11 @@ impl VanillaIron {
     pub const CARD: Color32 = Color32::from_rgb(0x0d, 0x0f, 0x0d);
     pub const CARD_SOFT: Color32 = Color32::from_rgb(0x12, 0x14, 0x12);
     pub const CARD_DEEP: Color32 = Color32::from_rgb(0x05, 0x06, 0x05);
-    pub const EDGE: Color32 = Color32::from_rgb(0x55, 0x48, 0x31);
-    pub const EDGE_DARK: Color32 = Color32::from_rgb(0x28, 0x22, 0x18);
-    pub const BRASS: Color32 = Color32::from_rgb(0x9d, 0x84, 0x48);
-    pub const BRASS_BRIGHT: Color32 = Color32::from_rgb(0xd0, 0xb0, 0x6a);
-    pub const TEXT: Color32 = Color32::from_rgb(0xd6, 0xca, 0x9b);
+    pub const EDGE: Color32 = Color32::from_rgb(0x43, 0x56, 0x5c);
+    pub const EDGE_DARK: Color32 = Color32::from_rgb(0x18, 0x20, 0x22);
+    pub const BRASS: Color32 = Color32::from_rgb(0x67, 0x83, 0x89);
+    pub const BRASS_BRIGHT: Color32 = Color32::from_rgb(0xd1, 0xdf, 0xdd);
+    pub const TEXT: Color32 = Color32::from_rgb(0xd8, 0xd6, 0xc8);
     pub const MUTED: Color32 = Color32::from_rgb(0x8d, 0x8b, 0x80);
     pub const GOOD: Color32 = Color32::from_rgb(0x70, 0xc8, 0x78);
     pub const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
@@ -160,6 +160,39 @@ impl VanillaIron {
         )
     }
 
+    pub fn compact_button_at(
+        ui: &mut egui::Ui,
+        rect: Rect,
+        text: &str,
+        id_source: impl std::hash::Hash,
+    ) -> egui::Response {
+        let response = ui.interact(rect, Id::new(id_source), Sense::click());
+        let fill = if response.hovered() {
+            Self::CARD_SOFT
+        } else {
+            Self::CARD
+        };
+        ui.painter().rect_filled(rect, 1.0, fill);
+        Self::paint_border(ui.painter(), rect);
+        let font = crate::v9::text::fit_font_to_width(
+            text,
+            crate::v9::TextRole::Caption.font_id(),
+            (rect.width() - 10.0).max(1.0),
+            0.68,
+        );
+        ui.painter().text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            text,
+            font,
+            Self::TEXT,
+        );
+        if response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        response
+    }
+
     pub fn section_heading(ui: &mut egui::Ui, title: &str) {
         ui.label(
             RichText::new(title)
@@ -185,7 +218,7 @@ impl VanillaIron {
 
     pub fn warning_row(ui: &mut egui::Ui, text: &str) {
         egui::Frame::new()
-            .fill(Color32::from_rgba_premultiplied(0x18, 0x12, 0x0c, 235))
+            .fill(Color32::from_rgba_premultiplied(0x0d, 0x10, 0x0f, 235))
             .stroke(Stroke::new(1.0, Self::WARN))
             .inner_margin(egui::Margin::symmetric(8, 6))
             .show(ui, |ui| {

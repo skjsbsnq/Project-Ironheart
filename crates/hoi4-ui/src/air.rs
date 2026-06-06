@@ -5,12 +5,12 @@ use crate::{
 };
 use egui::{Color32, RichText};
 
-const GOLD: Color32 = Color32::from_rgb(0xc9, 0xa5, 0x5b);
-const GOLD_BRIGHT: Color32 = Color32::from_rgb(0xe0, 0xc0, 0x78);
+const GOLD: Color32 = Color32::from_rgb(0x9f, 0xc1, 0xc8);
+const GOLD_BRIGHT: Color32 = Color32::from_rgb(0xd1, 0xdf, 0xdd);
 const MUTED: Color32 = Color32::from_gray(155);
-const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
-const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x31, 0x24, 0x18);
-const STROKE_DARK: Color32 = Color32::from_rgb(0x5a, 0x44, 0x2c);
+const PANEL_CARD: Color32 = Color32::from_rgb(0x0d, 0x10, 0x0f);
+const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x14, 0x18, 0x17);
+const STROKE_DARK: Color32 = Color32::from_rgb(0x28, 0x31, 0x31);
 const GOOD: Color32 = Color32::from_rgb(0x70, 0xc8, 0x78);
 const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
 const BAD: Color32 = Color32::from_rgb(0xe0, 0x60, 0x58);

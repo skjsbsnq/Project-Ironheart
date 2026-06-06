@@ -123,16 +123,16 @@ fn install_visuals(ctx: &Context) {
     let mut v = Visuals::dark();
 
     // 木纹暗褐底（vanilla `tiled_window_transparent.dds` 的色温平均值近似）。
-    v.window_fill = Color32::from_rgb(0x2a, 0x1f, 0x17);
-    v.panel_fill = Color32::from_rgb(0x32, 0x25, 0x1b);
-    v.extreme_bg_color = Color32::from_rgb(0x1a, 0x12, 0x0c);
-    v.faint_bg_color = Color32::from_rgb(0x3a, 0x2c, 0x20);
-    v.code_bg_color = Color32::from_rgb(0x1f, 0x16, 0x10);
+    v.window_fill = Color32::from_rgb(0x08, 0x0a, 0x09);
+    v.panel_fill = Color32::from_rgb(0x0d, 0x10, 0x0f);
+    v.extreme_bg_color = Color32::from_rgb(0x03, 0x04, 0x04);
+    v.faint_bg_color = Color32::from_rgb(0x16, 0x1a, 0x19);
+    v.code_bg_color = Color32::from_rgb(0x07, 0x09, 0x09);
 
     // 暖金强调色（vanilla 按钮 highlight / focus 节点完成色 / 进度条暖光近似）。
-    let gold = Color32::from_rgb(0xc9, 0xa5, 0x5b);
-    let gold_bright = Color32::from_rgb(0xe0, 0xc0, 0x78);
-    let gold_dark = Color32::from_rgb(0x8b, 0x6f, 0x3e);
+    let gold = Color32::from_rgb(0x8e, 0xa9, 0xaf);
+    let gold_bright = Color32::from_rgb(0xc9, 0xd8, 0xd8);
+    let gold_dark = Color32::from_rgb(0x35, 0x49, 0x4f);
 
     // hyperlink / 选中态走亮金。
     v.hyperlink_color = gold_bright;
@@ -141,35 +141,35 @@ fn install_visuals(ctx: &Context) {
     v.warn_fg_color = gold_bright;
 
     // 文本主色：暖羊皮纸（vanilla tooltip / label 默认文本近似）。
-    let parchment = Color32::from_rgb(0xe0, 0xd2, 0xa8);
+    let parchment = Color32::from_rgb(0xd8, 0xd6, 0xc8);
     v.override_text_color = Some(parchment);
 
     // 控件三态：inactive 暗木 / hovered 暖金棕 / active 亮金。
-    let stroke_dark = Stroke::new(1.0, Color32::from_rgb(0x5a, 0x44, 0x2c));
+    let stroke_dark = Stroke::new(1.0, Color32::from_rgb(0x28, 0x31, 0x31));
     let stroke_gold = Stroke::new(1.5, gold);
     let stroke_gold_bright = Stroke::new(1.5, gold_bright);
 
-    v.widgets.noninteractive.bg_fill = Color32::from_rgb(0x3a, 0x2c, 0x20);
-    v.widgets.noninteractive.weak_bg_fill = Color32::from_rgb(0x32, 0x25, 0x1b);
+    v.widgets.noninteractive.bg_fill = Color32::from_rgb(0x12, 0x15, 0x14);
+    v.widgets.noninteractive.weak_bg_fill = Color32::from_rgb(0x0d, 0x10, 0x0f);
     v.widgets.noninteractive.bg_stroke = stroke_dark;
     v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, parchment);
 
-    v.widgets.inactive.bg_fill = Color32::from_rgb(0x4a, 0x38, 0x26);
-    v.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x3f, 0x2f, 0x20);
+    v.widgets.inactive.bg_fill = Color32::from_rgb(0x17, 0x1c, 0x1b);
+    v.widgets.inactive.weak_bg_fill = Color32::from_rgb(0x11, 0x15, 0x14);
     v.widgets.inactive.bg_stroke = stroke_dark;
     v.widgets.inactive.fg_stroke = Stroke::new(1.0, parchment);
 
-    v.widgets.hovered.bg_fill = Color32::from_rgb(0x6e, 0x56, 0x34);
-    v.widgets.hovered.weak_bg_fill = Color32::from_rgb(0x5a, 0x44, 0x2c);
+    v.widgets.hovered.bg_fill = Color32::from_rgb(0x24, 0x31, 0x33);
+    v.widgets.hovered.weak_bg_fill = Color32::from_rgb(0x1a, 0x25, 0x27);
     v.widgets.hovered.bg_stroke = stroke_gold;
     v.widgets.hovered.fg_stroke = Stroke::new(1.5, gold_bright);
 
-    v.widgets.active.bg_fill = Color32::from_rgb(0x8b, 0x6f, 0x3e);
-    v.widgets.active.weak_bg_fill = Color32::from_rgb(0x6e, 0x56, 0x34);
+    v.widgets.active.bg_fill = Color32::from_rgb(0x35, 0x49, 0x4f);
+    v.widgets.active.weak_bg_fill = Color32::from_rgb(0x24, 0x31, 0x33);
     v.widgets.active.bg_stroke = stroke_gold_bright;
     v.widgets.active.fg_stroke = Stroke::new(1.5, Color32::WHITE);
 
-    v.widgets.open.bg_fill = Color32::from_rgb(0x4a, 0x38, 0x26);
+    v.widgets.open.bg_fill = Color32::from_rgb(0x17, 0x1c, 0x1b);
     v.widgets.open.bg_stroke = stroke_gold;
     v.widgets.open.fg_stroke = Stroke::new(1.0, gold_bright);
 

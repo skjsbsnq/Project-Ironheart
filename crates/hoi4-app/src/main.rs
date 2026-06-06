@@ -1,6 +1,6 @@
 // Phase 0.2: Entry point (moved from hoi4-render). Render module is now a library.
 use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -131,9 +131,12 @@ const UNIT_BOX_SELECT_HOLD_MS: u128 = 180;
 const EDGE_PAN_MARGIN_PX: f32 = 12.0;
 const EDGE_PAN_SPEED_SCALE: f32 = 0.65;
 const MAX_INTERACTION_DT_SECS: f32 = 1.0 / 30.0;
+const INTERACTIVE_RENDER_QUALITY_HOLD_SECS: f32 = 0.18;
 const TARGET_UI_FRAME_SECS: f32 = 1.0 / 60.0;
 const REDRAW_GUARD_SECS: f32 = 0.002;
 const MIN_SIM_SLICE_SECS: f32 = 0.001;
+const REDRAW_OVERDUE_SIM_BUDGET_SECS: f32 = 0.002;
+const INTERACTIVE_FAST_SIM_BUDGET_SECS: f32 = 0.002;
 const FAST_VISUAL_REBUILD_INTERVAL_SECS: f32 = 1.0 / 20.0;
 const SMOOTH_ZOOM_RESPONSE: f32 = 18.0;
 const HOVER_PICK_INTERVAL_MS: u128 = 33;
@@ -485,12 +488,67 @@ impl Default for FrontlinePainterState {
     }
 }
 
+fn reconstruct_sample_bridge(
+    parent: &HashMap<u16, u16>,
+    start: u16,
+    end: u16,
+) -> Vec<hoi4_state::ProvinceId> {
+    let mut raw = end;
+    let mut path = vec![hoi4_state::ProvinceId(raw)];
+    while raw != start {
+        let Some(&p) = parent.get(&raw) else {
+            break;
+        };
+        raw = p;
+        path.push(hoi4_state::ProvinceId(raw));
+    }
+    path.reverse();
+    path
+}
+
 #[derive(Debug, Clone, Copy)]
 struct SelectionBoxState {
     active: bool,
     start: [f32; 2],
     current: [f32; 2],
     pressed_at: Instant,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct EdgePanTestConfig {
+    country_tag: String,
+    duration_secs: f32,
+}
+
+#[derive(Debug, Clone)]
+struct EdgePanTestRun {
+    config: EdgePanTestConfig,
+    started_at: Option<Instant>,
+    last_cursor_log_at: Instant,
+    frames: u32,
+    slow_frames: u32,
+    max_frame_ms: f32,
+    max_surface_ms: f32,
+    max_present_ms: f32,
+    max_egui_ms: f32,
+    max_vanilla_ms: f32,
+}
+
+impl EdgePanTestRun {
+    fn new(config: EdgePanTestConfig) -> Self {
+        Self {
+            config,
+            started_at: None,
+            last_cursor_log_at: Instant::now(),
+            frames: 0,
+            slow_frames: 0,
+            max_frame_ms: 0.0,
+            max_surface_ms: 0.0,
+            max_present_ms: 0.0,
+            max_egui_ms: 0.0,
+            max_vanilla_ms: 0.0,
+        }
+    }
 }
 
 impl Default for SelectionBoxState {
@@ -631,6 +689,7 @@ struct App {
     last_redraw_at: Instant,
     last_status_print: Instant,
     last_perf_diag: Instant,
+    last_render_profile_log: Instant,
     perf_last_hours: u64,
     perf_counter_rebuilds: u32,
     perf_counter_cache_hits: u32,
@@ -671,6 +730,7 @@ struct App {
     border_debug_view: passes::BorderDebugView,
     postprocess_debug_view: PostProcessDebugView,
     map_quality_preset: MapQualityPreset,
+    last_viewport_interaction_at: Option<Instant>,
     force_water_pass: bool,
     last_frame_cpu_ms: f32,
     last_map_prepare_cpu_ms: f32,
@@ -811,6 +871,7 @@ struct App {
     last_law_error_toast: Option<String>,
     ui_panel_cache: UiPanelCache,
     map_phase0: Option<MapPhase0Run>,
+    edge_pan_test: Option<EdgePanTestRun>,
 }
 
 #[derive(Default)]
@@ -822,7 +883,11 @@ struct CounterVisibilityCache {
 }
 
 impl App {
-    fn new(mut world: World, path_cfg: PathConfig) -> Self {
+    fn new(
+        mut world: World,
+        path_cfg: PathConfig,
+        edge_pan_test: Option<EdgePanTestConfig>,
+    ) -> Self {
         let map_w = world.map.province_map.width as f32 * WORLD_SCALE;
         let map_d = world.map.province_map.height as f32 * WORLD_SCALE;
         let camera = Camera::new(Vec2::new(map_w, map_d), 16.0 / 9.0);
@@ -930,6 +995,7 @@ impl App {
             last_redraw_at: Instant::now(),
             last_status_print: Instant::now(),
             last_perf_diag: Instant::now(),
+            last_render_profile_log: Instant::now(),
             perf_last_hours: 0,
             perf_counter_rebuilds: 0,
             perf_counter_cache_hits: 0,
@@ -961,6 +1027,7 @@ impl App {
             border_debug_view: passes::BorderDebugView::Off,
             postprocess_debug_view: PostProcessDebugView::Final,
             map_quality_preset: MapQualityPreset::High,
+            last_viewport_interaction_at: None,
             force_water_pass: false,
             last_frame_cpu_ms: 0.0,
             last_map_prepare_cpu_ms: 0.0,
@@ -1061,6 +1128,7 @@ impl App {
             last_law_error_toast: None,
             ui_panel_cache: UiPanelCache::default(),
             map_phase0: None,
+            edge_pan_test: edge_pan_test.map(EdgePanTestRun::new),
         }
     }
 
@@ -1116,6 +1184,163 @@ impl App {
         self.postprocess_debug_view = PostProcessDebugView::Final;
         self.map_mode = MapMode::Political;
         self.map_phase0 = Some(run);
+    }
+
+    fn start_edge_pan_test(&mut self) {
+        let Some(run) = self.edge_pan_test.as_ref() else {
+            return;
+        };
+        if run.started_at.is_some() {
+            return;
+        }
+        let country_tag = run.config.country_tag.clone();
+        let duration_secs = run.config.duration_secs.max(1.0);
+
+        let _ = self.set_player_country_by_tag(&country_tag);
+        self.game_phase = GamePhase::Playing;
+        self.world.speed = GameSpeed::Speed5;
+        self.time_accumulator = 0.0;
+        self.close_primary_panel();
+        self.active_popup = None;
+        self.province_info_card.open = false;
+        self.country_info_panel.close();
+        self.reset_menu_state();
+
+        let now = Instant::now();
+        if let Some(run) = self.edge_pan_test.as_mut() {
+            run.config.duration_secs = duration_secs;
+            run.started_at = Some(now);
+            run.last_cursor_log_at = now;
+        }
+        self.update_edge_pan_test_cursor(now);
+        println!(
+            "[edge-pan-test] started country={} speed=5 duration={:.1}s",
+            country_tag, duration_secs
+        );
+        if let Some(s) = &self.state {
+            s.window.request_redraw();
+        }
+    }
+
+    fn update_edge_pan_test_cursor(&mut self, now: Instant) {
+        let Some(started_at) = self.edge_pan_test.as_ref().and_then(|run| run.started_at) else {
+            return;
+        };
+        if self.game_phase != GamePhase::Playing {
+            return;
+        }
+        if self.world.speed != GameSpeed::Speed5 {
+            self.world.speed = GameSpeed::Speed5;
+            self.pre_event_speed = None;
+        }
+        let Some((w, h)) = self.state.as_ref().map(|s| {
+            let dpi = s.window.scale_factor() as f32;
+            (
+                s.config.width as f32 / dpi.max(0.0001),
+                s.config.height as f32 / dpi.max(0.0001),
+            )
+        }) else {
+            return;
+        };
+
+        let edge = (EDGE_PAN_MARGIN_PX * 0.5).clamp(2.0, 24.0);
+        let elapsed = now.saturating_duration_since(started_at).as_secs_f32();
+        let segment_secs = 2.0;
+        let segment = (elapsed / segment_secs).floor() as u32 % 4;
+        let phase = (elapsed / segment_secs).fract();
+        let travel_x = edge + phase * (w - edge * 2.0).max(1.0);
+        let travel_y = edge + phase * (h - edge * 2.0).max(1.0);
+        self.last_mouse = match segment {
+            0 => [w - edge, travel_y],
+            1 => [w - travel_x, h - edge],
+            2 => [edge, h - travel_y],
+            _ => [travel_x, edge],
+        };
+
+        if now.duration_since(self.last_hover_pick_at).as_millis() >= HOVER_PICK_INTERVAL_MS {
+            self.last_hover_pick_at = now;
+            if !self.ui_blocks_map_clicks() {
+                let new_hover = self.pick_province_at_cursor();
+                if new_hover != self.hovered_province_id {
+                    self.hovered_province_id = new_hover;
+                }
+            }
+        }
+
+        let mut should_log = false;
+        if let Some(run) = self.edge_pan_test.as_mut() {
+            if now
+                .saturating_duration_since(run.last_cursor_log_at)
+                .as_secs_f32()
+                >= 5.0
+            {
+                run.last_cursor_log_at = now;
+                should_log = true;
+            }
+        }
+        if should_log {
+            println!(
+                "[edge-pan-test] t={:.1}s cursor=({:.0},{:.0}) date={} speed=5",
+                elapsed, self.last_mouse[0], self.last_mouse[1], self.world.date
+            );
+        }
+    }
+
+    fn edge_pan_test_should_finish(&self, now: Instant) -> bool {
+        self.edge_pan_test
+            .as_ref()
+            .and_then(|run| run.started_at.map(|started| (run, started)))
+            .is_some_and(|(run, started)| {
+                now.saturating_duration_since(started).as_secs_f32()
+                    >= run.config.duration_secs.max(1.0)
+            })
+    }
+
+    fn finish_edge_pan_test(&mut self) {
+        let Some(run) = self.edge_pan_test.take() else {
+            return;
+        };
+        let elapsed = run
+            .started_at
+            .map(|started| started.elapsed().as_secs_f32())
+            .unwrap_or(0.0);
+        println!(
+            "[edge-pan-test] finished elapsed={:.1}s frames={} slow_frames={} max_frame={:.2}ms max_surface={:.2}ms max_present={:.2}ms max_egui={:.2}ms max_vanilla={:.2}ms date={}",
+            elapsed,
+            run.frames,
+            run.slow_frames,
+            run.max_frame_ms,
+            run.max_surface_ms,
+            run.max_present_ms,
+            run.max_egui_ms,
+            run.max_vanilla_ms,
+            self.world.date,
+        );
+    }
+
+    fn record_edge_pan_test_frame(
+        &mut self,
+        frame_ms: f32,
+        surface_ms: f32,
+        present_ms: f32,
+        egui_ms: f32,
+        vanilla_ms: f32,
+    ) {
+        let Some(run) = self.edge_pan_test.as_mut() else {
+            return;
+        };
+        if run.started_at.is_none() {
+            return;
+        }
+        run.frames = run.frames.saturating_add(1);
+        if frame_ms >= 25.0 {
+            run.slow_frames = run.slow_frames.saturating_add(1);
+        }
+        run.max_frame_ms = run.max_frame_ms.max(frame_ms);
+        run.max_surface_ms = run.max_surface_ms.max(surface_ms);
+        run.max_present_ms = run.max_present_ms.max(present_ms);
+        run.max_egui_ms = run.max_egui_ms.max(egui_ms);
+        run.max_vanilla_ms = run.max_vanilla_ms.max(vanilla_ms);
     }
 
     fn map_phase0_finished(&self) -> bool {
@@ -2437,7 +2662,7 @@ impl App {
             GameSpeed::Speed5 => "5",
         };
         println!(
-            "[perf] speed={} date={} sim={:.2}d/s acc={:.3}s divs={} moving={} wars={} armies={} path={} pdi={} counters={} rebuild/s={} cache/s={} render={:.2}ms counter={:.2}ms arrows={:.2}ms ui={:.2}ms(begin={:.2} tess={:.2} buf={:.2} paint={:.2} prim={} tris={}) panels={} {}",
+            "[perf] speed={} date={} sim={:.2}d/s acc={:.3}s divs={} moving={} wars={} armies={} path={} pdi={} counters={} rebuild/s={} cache/s={} render={:.2}ms counter={:.2}ms arrows={:.2}ms ui={:.2}ms(begin={:.2} input={:.2} run={:.2} tess={:.2} buf={:.2} paint={:.2} prim={} tris={}) panels={} {}",
             speed,
             self.world.date,
             days_per_sec,
@@ -2456,6 +2681,8 @@ impl App {
             arrow_avg_ms,
             ui_stats.total_us as f64 / 1000.0,
             ui_stats.begin_us as f64 / 1000.0,
+            ui_stats.input_us as f64 / 1000.0,
+            ui_stats.run_us as f64 / 1000.0,
             ui_stats.tessellate_us as f64 / 1000.0,
             ui_stats.buffers_us as f64 / 1000.0,
             ui_stats.paint_us as f64 / 1000.0,
@@ -2525,6 +2752,104 @@ impl App {
 
     fn state_population(&self, state: hoi4_state::StateId) -> u64 {
         self.world.state_population(state)
+    }
+
+    fn append_frontline_painter_sample(&mut self, prov: hoi4_state::ProvinceId) -> bool {
+        let Some(&last) = self.frontline_painter.samples.last() else {
+            self.frontline_painter.samples.push(prov);
+            return true;
+        };
+        if last == prov {
+            return false;
+        }
+
+        let bridge = self
+            .short_land_sample_bridge(last, prov, 14)
+            .unwrap_or_else(|| vec![last, prov]);
+        let mut changed = false;
+        for pid in bridge.into_iter().skip(1) {
+            if self.frontline_painter.samples.last() == Some(&pid) {
+                continue;
+            }
+            if self.frontline_painter.samples.len() >= hoi4_logic::military::frontline::MAX_SAMPLES
+            {
+                self.thin_frontline_painter_samples();
+            }
+            if self.frontline_painter.samples.len() < hoi4_logic::military::frontline::MAX_SAMPLES {
+                self.frontline_painter.samples.push(pid);
+                changed = true;
+            }
+        }
+        changed
+    }
+
+    fn thin_frontline_painter_samples(&mut self) {
+        let len = self.frontline_painter.samples.len();
+        if len <= 2 {
+            return;
+        }
+        let mut thinned = Vec::with_capacity(len / 2 + 2);
+        for (idx, &pid) in self.frontline_painter.samples.iter().enumerate() {
+            if idx == 0 || idx + 1 == len || idx % 2 == 0 {
+                if thinned.last() != Some(&pid) {
+                    thinned.push(pid);
+                }
+            }
+        }
+        self.frontline_painter.samples = thinned;
+    }
+
+    fn short_land_sample_bridge(
+        &self,
+        from: hoi4_state::ProvinceId,
+        to: hoi4_state::ProvinceId,
+        max_depth: u32,
+    ) -> Option<Vec<hoi4_state::ProvinceId>> {
+        if from == to {
+            return Some(vec![from]);
+        }
+        let raw_from = from.0 as usize;
+        let raw_to = to.0 as usize;
+        if raw_from >= self.world.map.adjacencies.len()
+            || raw_to >= self.world.map.adjacencies.len()
+            || !self.is_land_province_raw(from.0)
+            || !self.is_land_province_raw(to.0)
+        {
+            return None;
+        }
+
+        let mut parent: HashMap<u16, u16> = HashMap::new();
+        let mut visited: HashSet<u16> = HashSet::new();
+        let mut queue: VecDeque<(u16, u32)> = VecDeque::new();
+        visited.insert(from.0);
+        queue.push_back((from.0, 0));
+
+        while let Some((node, depth)) = queue.pop_front() {
+            if depth >= max_depth || (node as usize) >= self.world.map.adjacencies.len() {
+                continue;
+            }
+            for &nb in &self.world.map.adjacencies[node as usize] {
+                if !self.is_land_province_raw(nb) || !visited.insert(nb) {
+                    continue;
+                }
+                parent.insert(nb, node);
+                if nb == to.0 {
+                    return Some(reconstruct_sample_bridge(&parent, from.0, to.0));
+                }
+                queue.push_back((nb, depth + 1));
+            }
+        }
+        None
+    }
+
+    fn is_land_province_raw(&self, raw: u16) -> bool {
+        self.world
+            .map
+            .definitions
+            .get(raw as usize)
+            .and_then(|def| def.as_ref())
+            .map(|def| matches!(def.province_type, hoi4_map::ProvinceType::Land))
+            .unwrap_or(false)
     }
 
     /// Pure province pick: returns the province ID under the current cursor,
@@ -4464,8 +4789,32 @@ impl App {
         last_rebuild_at.elapsed().as_secs_f32() >= FAST_VISUAL_REBUILD_INTERVAL_SECS
     }
 
+    fn effective_render_quality_preset(&self, now: Instant) -> MapQualityPreset {
+        let Some(last_interaction_at) = self.last_viewport_interaction_at else {
+            return self.map_quality_preset;
+        };
+        let high_speed_interaction =
+            matches!(self.world.speed, GameSpeed::Speed4 | GameSpeed::Speed5)
+                && now
+                    .saturating_duration_since(last_interaction_at)
+                    .as_secs_f32()
+                    <= INTERACTIVE_RENDER_QUALITY_HOLD_SECS;
+        if high_speed_interaction
+            && matches!(
+                self.map_quality_preset,
+                MapQualityPreset::High | MapQualityPreset::Ultra
+            )
+        {
+            MapQualityPreset::LowEnd
+        } else {
+            self.map_quality_preset
+        }
+    }
+
     fn render(&mut self) {
         let render_started = Instant::now();
+        let render_quality_preset = self.effective_render_quality_preset(render_started);
+        let mut profile_mark = render_started;
         let prepare_started = Instant::now();
         self.prepare_map_phase0_capture();
         let map_layer_mask = self.current_map_layer_mask();
@@ -4501,10 +4850,12 @@ impl App {
                     .map(|s| [s.config.width as f32, s.config.height as f32])
                     .unwrap_or([1.0, 1.0]),
                 layer_mask: map_layer_mask,
-                quality_preset: self.map_quality_preset,
+                quality_preset: render_quality_preset,
             }
             .context(),
         );
+        let profile_world_plan_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
         let counter_started = Instant::now();
         self.update_hoi3_counter_pass(pre_frame_world_objects);
         let counter_update_ms = counter_started.elapsed().as_secs_f32() * 1000.0;
@@ -4519,6 +4870,8 @@ impl App {
         self.perf_arrow_update_us = self
             .perf_arrow_update_us
             .saturating_add((arrow_update_ms * 1000.0) as u64);
+        let profile_visual_updates_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
 
         let mut ui_frame_model = ui_binding::build_frame_model(self);
         self.ui_panel_cache.begin_frame();
@@ -5797,6 +6150,8 @@ impl App {
         let mut saves_close = false;
         let mut save_cmds: Vec<hoi4_ui::save_browser::SaveCommand> = Vec::new();
         let mut end_cmd: Option<hoi4_ui::end_screen::EndCommand> = None;
+        let profile_ui_data_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
         let s = match self.state.as_mut() {
             Some(s) => s,
             None => return,
@@ -6167,6 +6522,9 @@ impl App {
             v9_notifications.show(ctx);
             v9_frame_profile = hoi4_ui::v9::profiler::finish_frame_ctx(ctx);
         });
+        let egui_current_stats = s.ui.last_stats;
+        let profile_egui_begin_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
 
         for event in hoi4_ui::v9::sound::drain(&s.ui.ctx) {
             let sound = match event.event {
@@ -7532,6 +7890,9 @@ impl App {
             }
         }
 
+        let profile_ui_commands_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
+
         // Update render params (zoom factor, time, selected pid).
         let world_extent = self.camera.world_size.x.max(self.camera.world_size.y);
         let max_dist = world_extent * 4.0;
@@ -7638,6 +7999,9 @@ impl App {
             );
         }
 
+        let profile_params_buckets_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
+
         let frame = match s.surface.get_current_texture() {
             Ok(f) => f,
             Err(_) => return,
@@ -7666,6 +8030,8 @@ impl App {
             .map(|texture| texture.create_view(&Default::default()));
         let output_view = capture_view.as_ref().unwrap_or(&surface_view);
         let mut enc = s.device.create_command_encoder(&Default::default());
+        let profile_surface_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
 
         // Phase 3.12.3: ?????shadow_view_proj ???????ShadowPass uniform???        // ????????????????????????GlobalFrameUniform.shadow_view_proj ???????receiver ???
         let world_size = self.camera.world_size;
@@ -7707,6 +8073,8 @@ impl App {
             gu.shadow_view_proj = shadow_vp.to_cols_array_2d();
             s.global_uniform_buf.write(&s.queue, &gu);
         }
+        let profile_shadow_global_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
 
         // Phase 3.12.3 ???directional shadow caster pass???????3D pass ?????????
         // ????????? pass ???PCF ????????????depth map ???????????? Playing ????????
@@ -7723,7 +8091,7 @@ impl App {
                 time_seconds: time,
                 screen_size: [s.config.width as f32, s.config.height as f32],
                 layer_mask: map_layer_mask,
-                quality_preset: self.map_quality_preset,
+                quality_preset: render_quality_preset,
             }
             .context(),
             &s.pass_registry,
@@ -7748,6 +8116,8 @@ impl App {
         let terrain_ownership = prepared_map_frame.terrain_ownership;
         let water_ownership = prepared_map_frame.water_ownership;
         let map_fallback_report = prepared_map_frame.fallback_report;
+        let profile_map_prepare_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
         let runtime_player_country = if self.player_country < self.world.countries.count {
             Some(hoi4_state::CountryId(self.player_country as u16))
         } else {
@@ -7774,6 +8144,8 @@ impl App {
                 season_blend: season_result.season_blend,
             },
         );
+        let profile_vanilla_targets_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
 
         s.hoi3_counter_pass.update_opacity(
             &s.queue,
@@ -7822,13 +8194,13 @@ impl App {
         let water_runtime_quality = if self.force_water_pass {
             MapQualityPreset::High
         } else {
-            self.map_quality_preset
+            render_quality_preset
         };
         let water_refraction_available = draw_3d_map
             && map_frame_plan.draw.water_refraction
             && map_frame_plan.draw.water
             && (s.water_pass.any_loaded || self.force_water_pass)
-            && (self.map_quality_preset.water_refraction_enabled() || self.force_water_pass);
+            && (render_quality_preset.water_refraction_enabled() || self.force_water_pass);
         let selected_water_effect = s
             .water_pass
             .update_runtime_effect(water_refraction_available, water_runtime_quality);
@@ -7896,11 +8268,11 @@ impl App {
         {
             let eye = self.camera.eye();
             s.pdxmesh_pass
-                .set_lod_bias(self.map_quality_preset.controls().object_lod_bias);
+                .set_lod_bias(render_quality_preset.controls().object_lod_bias);
             s.pdxmesh_pass
                 .ensure_lod_uploaded(&s.device, &s.queue, [eye.x, eye.y, eye.z]);
         }
-        let particle_quality = self.map_quality_preset.controls().particle_density;
+        let particle_quality = render_quality_preset.controls().particle_density;
         s.particle_pass.update_params(
             &s.queue,
             80.0 / particle_quality.max(0.25),
@@ -8067,6 +8439,8 @@ impl App {
             };
             s.terrain_pass.update_params(&s.queue, &pdx_params);
         }
+        let profile_pass_params_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
         let postprocess_lut_selection =
             postprocess_lut_selection_for(&self.camera, &self.world, &vanilla_map_space);
         let map_renderer = s.map_renderer.clone();
@@ -8080,15 +8454,26 @@ impl App {
                 show_province_names: self.show_province_names,
                 zoom_factor,
                 postprocess_debug_view: self.postprocess_debug_view,
-                postprocess_chain_enabled: self.map_quality_preset.controls().postprocess_chain,
+                postprocess_chain_enabled: render_quality_preset.controls().postprocess_chain,
                 postprocess_lut_selection,
                 output_view,
             },
         );
         let use_full_chain = map_draw_output.use_full_chain;
+        let profile_map_draw_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
 
         // F4 ??????????????pass ?????/ ????????????DebugOverlay???I ???????text_pass ??????
         let chain_label = map_draw_output.chain_label;
+        let quality_label = if render_quality_preset == self.map_quality_preset {
+            self.map_quality_preset.as_str().to_string()
+        } else {
+            format!(
+                "{}->{}",
+                self.map_quality_preset.as_str(),
+                render_quality_preset.as_str()
+            )
+        };
         let postprocess_summary = s.post_process.calibration.summary();
         let postprocess_lut_summary = s
             .post_process
@@ -8100,7 +8485,7 @@ impl App {
             &format!(
                 "{} quality={} post_debug={} {} {} terrain_debug={} water_debug={} border_debug={} overlay_budget={:.2}/{:.2}/{:.2} map_fallbacks={} degraded={}",
                 chain_label,
-                self.map_quality_preset.as_str(),
+                quality_label,
                 s.post_process.debug_view.name(),
                 postprocess_summary,
                 postprocess_lut_summary,
@@ -8115,7 +8500,7 @@ impl App {
             ),
         );
         s.debug_render_overlay.append_lines([format!(
-            "water_owner={} water_force={} water_refraction={}/{:?} available={} effect={} target={}x{} memory={:.1}MiB producer=fullscreen_4tap",
+            "water_owner={} water_force={} water_refraction={}/{:?} available={} effect={} target={}x{} memory={:.1}MiB producer=fullscreen_9tap",
             if water_ownership.final_color {
                 "water_pass"
             } else {
@@ -8139,7 +8524,7 @@ impl App {
             estimate_frame_texture_memory_bytes(s.config.width, s.config.height, use_full_chain);
         let phase10_lines = phase10_overlay_lines(
             Phase10OverlayInput {
-                preset: self.map_quality_preset,
+                preset: render_quality_preset,
                 width: s.config.width,
                 height: s.config.height,
                 last_frame_cpu_ms: self.last_frame_cpu_ms,
@@ -8493,6 +8878,8 @@ impl App {
             }
         }
 
+        let profile_hud_build_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
         let ui_started = Instant::now();
         s.text_pass.prepare(&s.queue);
         s.panel_pass.prepare(&s.queue);
@@ -8589,6 +8976,8 @@ impl App {
         s.pass_registry
             .record_cpu_ms("ui", ui_started.elapsed().as_secs_f32() * 1000.0);
         s.pass_registry.record_draw_calls("ui", 3);
+        let profile_ui_render_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
 
         let pending_readback = if let (Some(texture), Some(path)) =
             (capture_texture.as_ref(), map_phase0_capture_path)
@@ -8610,17 +8999,70 @@ impl App {
             profiler.finish_frame(&mut enc);
         }
 
+        let profile_pre_submit_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
+        profile_mark = Instant::now();
         s.queue
             .submit(ui_cbufs.into_iter().chain(std::iter::once(enc.finish())));
+        let profile_submit_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
         if let Some(profiler) = s.gpu_profiler.as_mut() {
             profiler.map_pending_readback();
         }
+        let frame_submit_us = render_started.elapsed().as_micros() as u64;
+        let frame_time_ms = frame_submit_us as f32 / 1000.0;
+        let present_started = Instant::now();
         frame.present();
+        let profile_present_ms = present_started.elapsed().as_secs_f32() * 1000.0;
         self.last_redraw_at = Instant::now();
-        let frame_time_ms = render_started.elapsed().as_secs_f32() * 1000.0;
         self.last_frame_cpu_ms = frame_time_ms;
+        if (frame_time_ms >= 25.0 || profile_present_ms >= 10.0)
+            && self.last_render_profile_log.elapsed().as_millis() >= 250
+        {
+            let speed = match self.world.speed {
+                GameSpeed::Paused => "P",
+                GameSpeed::Speed1 => "1",
+                GameSpeed::Speed2 => "2",
+                GameSpeed::Speed3 => "3",
+                GameSpeed::Speed4 => "4",
+                GameSpeed::Speed5 => "5",
+            };
+            println!(
+                "[render-prof] speed={} quality={} chain={} date={} frame={:.2}ms present={:.2}ms world={:.2}ms visual={:.2}ms ui_data={:.2}ms egui_begin={:.2}ms egui_input={:.2}ms egui_run={:.2}ms ui_cmd={:.2}ms params_buckets={:.2}ms surface={:.2}ms shadow_global={:.2}ms map_prepare={:.2}ms vanilla_targets={:.2}ms pass_params={:.2}ms map_draw={:.2}ms hud_build={:.2}ms ui_render={:.2}ms pre_submit={:.2}ms submit={:.2}ms",
+                speed,
+                quality_label,
+                chain_label,
+                self.world.date,
+                frame_time_ms,
+                profile_present_ms,
+                profile_world_plan_ms,
+                profile_visual_updates_ms,
+                profile_ui_data_ms,
+                profile_egui_begin_ms,
+                egui_current_stats.input_us as f32 / 1000.0,
+                egui_current_stats.run_us as f32 / 1000.0,
+                profile_ui_commands_ms,
+                profile_params_buckets_ms,
+                profile_surface_ms,
+                profile_shadow_global_ms,
+                profile_map_prepare_ms,
+                profile_vanilla_targets_ms,
+                profile_pass_params_ms,
+                profile_map_draw_ms,
+                profile_hud_build_ms,
+                profile_ui_render_ms,
+                profile_pre_submit_ms,
+                profile_submit_ms,
+            );
+            self.last_render_profile_log = Instant::now();
+        }
         let capture_result =
             pending_readback.map(|pending| finish_png_readback(&s.device, pending));
+        self.record_edge_pan_test_frame(
+            frame_time_ms,
+            profile_surface_ms,
+            profile_present_ms,
+            profile_egui_begin_ms,
+            profile_vanilla_targets_ms,
+        );
         if let Some(action) = topbar_action {
             ui_binding::apply_topbar_action(self, action);
         }
@@ -8645,9 +9087,7 @@ impl App {
         } else if map_phase0_active {
             self.map_phase0_after_uncaptured_frame();
         }
-        self.perf_render_us = self
-            .perf_render_us
-            .saturating_add(render_started.elapsed().as_micros() as u64);
+        self.perf_render_us = self.perf_render_us.saturating_add(frame_submit_us);
         self.perf_render_frames = self.perf_render_frames.saturating_add(1);
     }
 }
@@ -10939,7 +11379,15 @@ fn main() {
         return;
     }
 
-    app_shell::run_windowed(world, path_cfg);
+    let edge_pan_test = if cli.edge_pan_test {
+        Some(EdgePanTestConfig {
+            country_tag: cli.edge_pan_test_country.clone(),
+            duration_secs: cli.edge_pan_test_seconds,
+        })
+    } else {
+        None
+    };
+    app_shell::run_windowed(world, path_cfg, edge_pan_test);
 }
 
 #[cfg(test)]

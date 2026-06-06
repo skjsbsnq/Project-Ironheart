@@ -2,7 +2,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use hoi4_render::sdf::compute_country_sdf;
-use hoi4_state::{CountryId, World};
+use hoi4_state::World;
 
 use super::VanillaRuntimeTargetInputs;
 
@@ -61,22 +61,12 @@ pub fn generate_runtime_channels(world: &World, map_mode_code: u8) -> GradientBo
     }
 }
 
-pub fn producer_signature(world: &World, map_mode_code: u8) -> u64 {
+pub fn producer_signature(_world: &World, map_mode_code: u8) -> u64 {
     let mut h = DefaultHasher::new();
     map_mode_code.hash(&mut h);
     let anchors = active_anchor_pages(map_mode_code_for_gradient(map_mode_code));
     anchors.page0.hash(&mut h);
     anchors.page1.hash(&mut h);
-    controllers_signature(&world.provinces.controllers).hash(&mut h);
-    h.finish()
-}
-
-fn controllers_signature(controllers: &[CountryId]) -> u64 {
-    let mut h = DefaultHasher::new();
-    controllers.len().hash(&mut h);
-    for controller in controllers {
-        controller.raw().hash(&mut h);
-    }
     h.finish()
 }
 
@@ -513,11 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn producer_signature_tracks_control_and_map_mode_changes() {
-        let mut controllers = vec![CountryId::NONE, CountryId(1), CountryId(1)];
-        let before = controllers_signature(&controllers);
-        controllers[2] = CountryId(2);
-        assert_ne!(before, controllers_signature(&controllers));
+    fn producer_signature_tracks_map_mode_anchor_changes() {
         assert_ne!(active_anchor_pages(0), active_anchor_pages(1));
     }
 }

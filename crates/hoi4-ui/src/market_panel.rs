@@ -1454,7 +1454,7 @@ fn render_selectable_good_buttons(
     ui.label(
         RichText::new(title)
             .strong()
-            .color(Color32::from_rgb(0xc9, 0xa5, 0x5b)),
+            .color(Color32::from_rgb(0x9f, 0xc1, 0xc8)),
     );
     ui.horizontal_wrapped(|ui| {
         for good in goods.iter().take(limit) {
@@ -1634,7 +1634,7 @@ fn render_market_bloc_tab(ui: &mut egui::Ui, data: &MarketPanelData) {
                     ui,
                     "战略商品",
                     &member.strategic_goods,
-                    Color32::from_rgb(0xc9, 0xa5, 0x5b),
+                    Color32::from_rgb(0x9f, 0xc1, 0xc8),
                 );
             });
         }
@@ -1829,7 +1829,7 @@ fn render_subjects_tab(ui: &mut egui::Ui, data: &MarketPanelData) {
                     ui,
                     "资源贡献",
                     &subject.resource_contribution,
-                    Color32::from_rgb(0xc9, 0xa5, 0x5b),
+                    Color32::from_rgb(0x9f, 0xc1, 0xc8),
                 );
             });
         }

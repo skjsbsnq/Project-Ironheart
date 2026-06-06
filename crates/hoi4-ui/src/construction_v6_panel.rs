@@ -12,9 +12,9 @@ use crate::{
 const GOLD: Color32 = components::GOLD;
 const GOLD_BRIGHT: Color32 = components::GOLD_BRIGHT;
 const MUTED: Color32 = components::MUTED;
-const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
-const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x31, 0x24, 0x18);
-const STROKE_DARK: Color32 = Color32::from_rgb(0x5a, 0x44, 0x2c);
+const PANEL_CARD: Color32 = Color32::from_rgb(0x0d, 0x10, 0x0f);
+const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x14, 0x18, 0x17);
+const STROKE_DARK: Color32 = Color32::from_rgb(0x28, 0x31, 0x31);
 const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
 
 #[derive(Debug, Clone)]
@@ -2291,7 +2291,7 @@ fn render_overview_tab(
         columns[0].label(
             RichText::new("待处理重点")
                 .strong()
-                .color(Color32::from_rgb(0xc9, 0xa5, 0x5b)),
+                .color(Color32::from_rgb(0x9f, 0xc1, 0xc8)),
         );
         let mut shown = 0;
         egui::ScrollArea::vertical()
@@ -2317,7 +2317,7 @@ fn render_overview_tab(
         columns[1].label(
             RichText::new("当前建造队列")
                 .strong()
-                .color(Color32::from_rgb(0xc9, 0xa5, 0x5b)),
+                .color(Color32::from_rgb(0x9f, 0xc1, 0xc8)),
         );
         egui::ScrollArea::vertical()
             .max_height(col_height.max(160.0))
@@ -2472,7 +2472,7 @@ fn render_existing_tab(
                 "建筑列表"
             })
             .strong()
-            .color(Color32::from_rgb(0xc9, 0xa5, 0x5b)),
+            .color(Color32::from_rgb(0x9f, 0xc1, 0xc8)),
         );
         egui::ScrollArea::vertical()
             .max_height(col_height.max(160.0))
@@ -2513,7 +2513,7 @@ fn render_existing_tab(
         columns[1].label(
             RichText::new("建筑详情")
                 .strong()
-                .color(Color32::from_rgb(0xc9, 0xa5, 0x5b)),
+                .color(Color32::from_rgb(0x9f, 0xc1, 0xc8)),
         );
         egui::ScrollArea::vertical()
             .max_height(col_height.max(160.0))

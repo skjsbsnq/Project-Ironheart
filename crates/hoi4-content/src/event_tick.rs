@@ -26,6 +26,7 @@ use hoi4_state::{CountryId, World};
 
 use crate::eval::{eval_trigger, run_effects, GlobalFlags};
 use crate::event::{Event, EventDb};
+use crate::focus::Trigger;
 
 /// 调度器：持有事件库 + 运行时状态。
 #[derive(Debug, Clone)]
@@ -125,26 +126,25 @@ impl EventScheduler {
         self.last_tick_key = key;
         self.fire_due_deferred_triggers(world, country, flags, &mut fired, &mut report);
 
-        let ids: Vec<String> = self
-            .db
-            .events
-            .iter()
-            .filter(|e| !e.is_triggered_only)
-            .map(|e| e.id.clone())
-            .collect();
+        let event_count = self.db.events.len();
+        for event_idx in 0..event_count {
+            if self.db.events[event_idx].is_triggered_only {
+                continue;
+            }
+            if self.db.events[event_idx].fire_only_once
+                && self.fired_once.contains(&self.db.events[event_idx].id)
+            {
+                continue;
+            }
+            if trigger_is_date_blocked(&self.db.events[event_idx].trigger, world) {
+                continue;
+            }
 
-        for id in ids {
-            for ci in 0..world.countries.count {
-                if self.fired_once.contains(&id) {
-                    let already = self.db.find(&id).map(|e| e.fire_only_once).unwrap_or(false);
-                    if already {
-                        break;
-                    }
-                }
-                let Some(event) = self.db.find(&id).cloned() else {
-                    break;
-                };
-                let scoped_country = CountryId(ci as u16);
+            let candidate_countries =
+                candidate_countries_for_trigger(&self.db.events[event_idx].trigger, world);
+            let event = self.db.events[event_idx].clone();
+
+            for scoped_country in candidate_countries {
                 if world.diplomacy.annexed_countries.contains(&scoped_country) {
                     continue;
                 }
@@ -174,7 +174,7 @@ impl EventScheduler {
                     self.fire_ai(&event, world, scoped_country, flags, &mut report);
                 }
                 let tag = world.country_tag(scoped_country).unwrap_or("???");
-                fired.push(format!("{id}@{tag}"));
+                fired.push(format!("{}@{tag}", event.id));
                 if event.fire_only_once {
                     break;
                 }
@@ -550,6 +550,82 @@ fn day_key(world: &World) -> u64 {
     (world.date.year as u64) * 400 + (world.date.month as u64) * 32 + world.date.day as u64
 }
 
+fn trigger_is_date_blocked(trigger: &Trigger, world: &World) -> bool {
+    match trigger {
+        Trigger::Date { year, month, day } => {
+            let target = hoi4_state::GameDate {
+                year: *year,
+                month: *month,
+                day: *day,
+                hour: 0,
+            };
+            world.date < target
+        }
+        Trigger::And(parts) => parts
+            .iter()
+            .any(|part| trigger_is_date_blocked(part, world)),
+        Trigger::Or(parts) => {
+            !parts.is_empty()
+                && parts
+                    .iter()
+                    .all(|part| trigger_is_date_blocked(part, world))
+        }
+        Trigger::Not(_) => false,
+        _ => false,
+    }
+}
+
+fn candidate_countries_for_trigger(trigger: &Trigger, world: &World) -> Vec<CountryId> {
+    let Some(tags) = trigger_country_candidates(trigger) else {
+        return (0..world.countries.count)
+            .map(|ci| CountryId(ci as u16))
+            .collect();
+    };
+
+    tags.into_iter()
+        .filter_map(|tag| world.tag_to_country.get(tag).copied())
+        .collect()
+}
+
+fn trigger_country_candidates(trigger: &Trigger) -> Option<Vec<&str>> {
+    match trigger {
+        Trigger::Tag(tag) => Some(vec![tag.as_str()]),
+        Trigger::And(parts) => {
+            let mut out: Option<Vec<&str>> = None;
+            for part in parts {
+                let Some(mut part_tags) = trigger_country_candidates(part) else {
+                    continue;
+                };
+                sort_dedup_tags(&mut part_tags);
+                out = Some(match out {
+                    Some(mut existing) => {
+                        existing.retain(|tag| part_tags.contains(tag));
+                        existing
+                    }
+                    None => part_tags,
+                });
+            }
+            out
+        }
+        Trigger::Or(parts) => {
+            let mut out = Vec::new();
+            for part in parts {
+                let part_tags = trigger_country_candidates(part)?;
+                out.extend(part_tags);
+            }
+            sort_dedup_tags(&mut out);
+            Some(out)
+        }
+        Trigger::Not(_) => None,
+        _ => None,
+    }
+}
+
+fn sort_dedup_tags(tags: &mut Vec<&str>) {
+    tags.sort_unstable();
+    tags.dedup();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -739,6 +815,51 @@ mod tests {
         let (fired, _) = sched.daily_tick(&mut world, CountryId(0), &mut flags);
         assert!(fired.is_empty());
         assert_eq!(sched.pending_len(), 0);
+    }
+
+    #[test]
+    fn tag_trigger_only_evaluates_matching_country() {
+        let db = EventDb {
+            events: vec![ev("pol_only", 0, true, Trigger::Tag("POL".into()))],
+        };
+        let mut sched = EventScheduler::new(db, 1);
+        let mut world = test_world();
+        let mut flags = GlobalFlags::default();
+
+        let (fired, _) = sched.daily_tick(&mut world, CountryId(0), &mut flags);
+
+        assert_eq!(fired, vec!["pol_only@POL".to_owned()]);
+        assert_eq!(world.countries.political_power[1], 10.0);
+        assert_eq!(sched.pending_len(), 0);
+    }
+
+    #[test]
+    fn future_date_trigger_skips_until_reached() {
+        let db = EventDb {
+            events: vec![ev(
+                "future_pol",
+                0,
+                true,
+                Trigger::And(vec![
+                    Trigger::Tag("POL".into()),
+                    Trigger::Date {
+                        year: 1936,
+                        month: 1,
+                        day: 3,
+                    },
+                ]),
+            )],
+        };
+        let mut sched = EventScheduler::new(db, 1);
+        let mut world = test_world();
+        let mut flags = GlobalFlags::default();
+
+        let (before, _) = sched.daily_tick(&mut world, CountryId(0), &mut flags);
+        assert!(before.is_empty());
+
+        world.date.day = 3;
+        let (after, _) = sched.daily_tick(&mut world, CountryId(0), &mut flags);
+        assert_eq!(after, vec!["future_pol@POL".to_owned()]);
     }
 
     #[test]

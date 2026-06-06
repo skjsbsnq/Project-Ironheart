@@ -14,12 +14,12 @@ use crate::{
 };
 use egui::{Color32, RichText};
 
-const GOLD: Color32 = Color32::from_rgb(0xc9, 0xa5, 0x5b);
-const GOLD_BRIGHT: Color32 = Color32::from_rgb(0xe0, 0xc0, 0x78);
+const GOLD: Color32 = Color32::from_rgb(0x9f, 0xc1, 0xc8);
+const GOLD_BRIGHT: Color32 = Color32::from_rgb(0xd1, 0xdf, 0xdd);
 const MUTED: Color32 = Color32::from_gray(155);
-const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
-const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x31, 0x24, 0x18);
-const STROKE_DARK: Color32 = Color32::from_rgb(0x5a, 0x44, 0x2c);
+const PANEL_CARD: Color32 = Color32::from_rgb(0x0d, 0x10, 0x0f);
+const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x14, 0x18, 0x17);
+const STROKE_DARK: Color32 = Color32::from_rgb(0x28, 0x31, 0x31);
 const GOOD: Color32 = Color32::from_rgb(0x70, 0xc8, 0x78);
 const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
 const BAD: Color32 = Color32::from_rgb(0xe0, 0x60, 0x58);
@@ -268,7 +268,7 @@ fn army_card(ui: &mut egui::Ui, army: &ArmyEntry, selected: bool) -> egui::Respo
 
         let badge =
             egui::Rect::from_min_size(rect.min + egui::vec2(42.0, 43.0), egui::vec2(32.0, 15.0));
-        painter.rect_filled(badge, 2.0, Color32::from_rgb(0x1d, 0x16, 0x10));
+        painter.rect_filled(badge, 2.0, Color32::from_rgb(0x08, 0x0a, 0x09));
         painter.rect_stroke(
             badge,
             2.0,
@@ -1759,7 +1759,7 @@ impl MilitaryPanel {
                     match data.painter_mode {
                         PainterModeInfo::ArmyPainter(_) => {
                             egui::Frame::new()
-                                .fill(Color32::from_rgba_premultiplied(0x24, 0x1a, 0x12, 235))
+                                .fill(Color32::from_rgba_premultiplied(0x0d, 0x10, 0x0f, 235))
                                 .stroke(egui::Stroke::new(1.0, WARN))
                                 .inner_margin(egui::Margin::symmetric(8, 4))
                                 .show(ui, |ui| {
@@ -1771,7 +1771,7 @@ impl MilitaryPanel {
                         }
                         PainterModeInfo::ArrowPainter(_) => {
                             egui::Frame::new()
-                                .fill(Color32::from_rgba_premultiplied(0x24, 0x1a, 0x12, 235))
+                                .fill(Color32::from_rgba_premultiplied(0x0d, 0x10, 0x0f, 235))
                                 .stroke(egui::Stroke::new(1.0, WARN))
                                 .inner_margin(egui::Margin::symmetric(8, 4))
                                 .show(ui, |ui| {
@@ -1788,7 +1788,7 @@ impl MilitaryPanel {
                         if let Some(army) = data.armies.iter().find(|a| a.id == army_id) {
                             ui.horizontal_centered(|ui| {
                                 egui::Frame::new()
-                                    .fill(Color32::from_rgba_premultiplied(0x24, 0x1a, 0x12, 235))
+                                    .fill(Color32::from_rgba_premultiplied(0x0d, 0x10, 0x0f, 235))
                                     .stroke(egui::Stroke::new(
                                         1.0,
                                         STROKE_DARK,
@@ -1953,7 +1953,7 @@ impl MilitaryPanel {
                     ui.add_space(2.0);
                     ui.horizontal_centered(|ui| {
                         egui::Frame::new()
-                            .fill(Color32::from_rgba_premultiplied(0x24, 0x1a, 0x12, 230))
+                            .fill(Color32::from_rgba_premultiplied(0x0d, 0x10, 0x0f, 230))
                             .stroke(egui::Stroke::new(1.0, STROKE_DARK))
                             .inner_margin(egui::Margin::symmetric(8, 5))
                             .show(ui, |ui| {

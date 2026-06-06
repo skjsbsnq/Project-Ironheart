@@ -9,16 +9,17 @@
 #![allow(dead_code, deprecated)]
 
 use crate::{
-    components, i18n::tr, law_panel, vanilla_iron::VanillaIron, ActiveDetailPanel, PanelCommand,
+    components, i18n::tr, law_panel, vanilla_iron::VanillaIron, ActiveDetailPanel,
+    ActivePrimaryPanel, PanelCommand,
 };
 use egui::{Color32, Pos2, Rect, RichText, Sense, Vec2};
 
 use hoi4_content::{Decision, DecisionCategory, DecisionMechanicKind, Effect};
 use hoi4_state::LawCategory;
 
-const PANEL_CARD: Color32 = Color32::from_rgb(0x24, 0x1a, 0x12);
-const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x31, 0x24, 0x18);
-const STROKE_DARK: Color32 = Color32::from_rgb(0x5a, 0x44, 0x2c);
+const PANEL_CARD: Color32 = Color32::from_rgb(0x0d, 0x10, 0x0f);
+const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x14, 0x18, 0x17);
+const STROKE_DARK: Color32 = Color32::from_rgb(0x28, 0x31, 0x31);
 const GOOD: Color32 = Color32::from_rgb(0x70, 0xc8, 0x78);
 const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
 const BAD: Color32 = Color32::from_rgb(0xe0, 0x60, 0x58);
@@ -248,8 +249,8 @@ fn vanilla_show_politics(
     } else {
         72.0
     };
-    let panel_w = 820.0_f32.min((screen.width() - left_gap - 8.0).max(420.0));
-    let panel_h = (screen.height() - top_gap - 8.0).max(360.0);
+    let panel_w = 590.0_f32.min((screen.width() - left_gap - 8.0).max(420.0));
+    let panel_h = (screen.height() - top_gap - 8.0).max(360.0).min(900.0);
     let panel_pos = Pos2::new(screen.left() + left_gap, screen.top() + top_gap);
     let panel_size = Vec2::new(panel_w, panel_h);
 
@@ -412,50 +413,19 @@ fn v9_politics_body(
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 let width = ui.available_width().max(360.0);
-                if width >= 760.0 {
-                    let gap = 10.0;
-                    let right_w = 360.0_f32.min((width - gap) * 0.46);
-                    let left_w = (width - gap - right_w).max(360.0);
-                    let top_h =
-                        vanilla_leader_card_height().max(vanilla_government_card_height(data));
-                    let ideas_h = vanilla_ideas_card_height(data);
-                    let base_ideology_h = vanilla_ideology_card_height(data);
-                    let lower_stack_h = ideas_h + VANILLA_CARD_GAP + base_ideology_h;
-                    let target_lower_h =
-                        (rect.height() - top_h - VANILLA_CARD_GAP).max(lower_stack_h);
-                    let aligned_lower_h = lower_stack_h
-                        .max(vanilla_law_systems_card_height(data))
-                        .max(target_lower_h);
-                    let ideology_h = base_ideology_h + (aligned_lower_h - lower_stack_h);
-                    ui.horizontal_top(|ui| {
-                        ui.spacing_mut().item_spacing.x = gap;
-                        ui.allocate_ui_with_layout(
-                            Vec2::new(left_w, 0.0),
-                            egui::Layout::top_down(egui::Align::Min),
-                            |ui| {
-                                ui.set_width(left_w);
-                                vanilla_leader_card(ui, data, icon_bank, cmds, top_h);
-                                vanilla_ideas_card(ui, data, icon_bank, ideas_h);
-                                vanilla_ideology_card(ui, data, ideology_h);
-                            },
-                        );
-                        ui.allocate_ui_with_layout(
-                            Vec2::new(right_w, 0.0),
-                            egui::Layout::top_down(egui::Align::Min),
-                            |ui| {
-                                ui.set_width(right_w);
-                                vanilla_government_card(ui, data, top_h);
-                                vanilla_law_systems_card(ui, data, cmds, aligned_lower_h);
-                            },
-                        );
-                    });
-                } else {
-                    vanilla_leader_card(ui, data, icon_bank, cmds, vanilla_leader_card_height());
-                    vanilla_government_card(ui, data, vanilla_government_card_height(data));
-                    vanilla_ideas_card(ui, data, icon_bank, vanilla_ideas_card_height(data));
-                    vanilla_law_systems_card(ui, data, cmds, vanilla_law_systems_card_height(data));
-                    vanilla_ideology_card(ui, data, vanilla_ideology_card_height(data));
-                }
+                let overview_h = vanilla_overview_card_height(width);
+                let laws_h = vanilla_law_systems_card_height(data, width);
+                let total_h = overview_h + VANILLA_CARD_GAP + laws_h;
+                let (canvas, _) = ui.allocate_exact_size(Vec2::new(width, total_h), Sense::hover());
+                let overview_rect =
+                    Rect::from_min_size(canvas.left_top(), Vec2::new(width, overview_h));
+                let laws_rect = Rect::from_min_size(
+                    Pos2::new(canvas.left(), overview_rect.bottom() + VANILLA_CARD_GAP),
+                    Vec2::new(width, laws_h),
+                );
+
+                vanilla_overview_card_at(ui, data, icon_bank, cmds, overview_rect);
+                vanilla_law_systems_card_at(ui, data, cmds, laws_rect);
             });
     });
 }
@@ -561,10 +531,14 @@ fn vanilla_muted() -> Color32 {
 fn v9_card(ui: &mut egui::Ui, height: f32, add_contents: impl FnOnce(&mut egui::Ui, Rect)) {
     let width = ui.available_width().max(360.0);
     let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
+    v9_card_at(ui, rect, add_contents);
+    ui.add_space(VANILLA_CARD_GAP);
+}
+
+fn v9_card_at(ui: &mut egui::Ui, rect: Rect, add_contents: impl FnOnce(&mut egui::Ui, Rect)) {
     paint_politics_card_frame(ui, rect);
     let inner = rect.shrink2(Vec2::new(9.0, 7.0));
     add_contents(ui, inner);
-    ui.add_space(VANILLA_CARD_GAP);
 }
 
 fn paint_politics_card_frame(ui: &mut egui::Ui, rect: Rect) {
@@ -619,9 +593,568 @@ fn vanilla_government_card_height(data: &PoliticsData) -> f32 {
     (48.0 + rows as f32 * 43.0).max(238.0)
 }
 
-fn vanilla_law_systems_card_height(data: &PoliticsData) -> f32 {
+fn vanilla_law_systems_card_height(data: &PoliticsData, width: f32) -> f32 {
     let rows = data.law_slots.len().max(1);
-    (48.0 + rows as f32 * 43.0).max(294.0)
+    let columns = vanilla_law_columns(width);
+    let visible_rows = (rows + columns - 1) / columns;
+    (48.0 + visible_rows as f32 * 54.0 + visible_rows.saturating_sub(1) as f32 * 7.0).max(272.0)
+}
+
+fn vanilla_law_columns(width: f32) -> usize {
+    if width >= 520.0 {
+        2
+    } else {
+        1
+    }
+}
+
+fn vanilla_overview_card_height(width: f32) -> f32 {
+    let inner_width = width - 18.0;
+    if inner_width >= 540.0 {
+        432.0
+    } else {
+        520.0
+    }
+}
+
+fn vanilla_overview_card(
+    ui: &mut egui::Ui,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+    height: f32,
+) {
+    v9_card(ui, height, |ui, inner| {
+        vanilla_overview_card_contents(ui, inner, data, icon_bank, cmds);
+    });
+}
+
+fn vanilla_overview_card_at(
+    ui: &mut egui::Ui,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+    rect: Rect,
+) {
+    v9_card_at(ui, rect, |ui, inner| {
+        vanilla_overview_card_contents(ui, inner, data, icon_bank, cmds);
+    });
+}
+
+fn vanilla_overview_card_contents(
+    ui: &mut egui::Ui,
+    inner: Rect,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    vanilla_section_title(ui, inner, "\u{56fd}\u{5bb6}\u{6982}\u{89c8}");
+    let content = Rect::from_min_max(
+        Pos2::new(inner.left(), inner.top() + 34.0),
+        inner.right_bottom(),
+    );
+    let link_rect = Rect::from_min_max(
+        Pos2::new(content.left(), content.bottom() - 36.0),
+        content.right_bottom(),
+    );
+    let main = Rect::from_min_max(
+        content.left_top(),
+        Pos2::new(content.right(), link_rect.top() - 8.0),
+    );
+
+    if main.width() >= 540.0 {
+        let portrait_w = 148.0;
+        let portrait_h = 190.0_f32.min(main.height() - 116.0).max(154.0);
+        let portrait_rect = Rect::from_min_size(
+            main.left_top() + Vec2::new(2.0, 2.0),
+            Vec2::new(portrait_w, portrait_h),
+        );
+        draw_vanilla_portrait(ui, portrait_rect, data, icon_bank);
+        vanilla_leader_nameplate(ui, portrait_rect, data);
+
+        let right = Rect::from_min_max(
+            Pos2::new(portrait_rect.right() + 10.0, main.top() + 2.0),
+            main.right_bottom(),
+        );
+        let focus_rect = Rect::from_min_size(right.left_top(), Vec2::new(right.width(), 58.0));
+        vanilla_focus_selector_at(ui, focus_rect, data, cmds);
+
+        let ideas_rect = Rect::from_min_size(
+            Pos2::new(right.left(), focus_rect.bottom() + 8.0),
+            Vec2::new(right.width(), 76.0),
+        );
+        vanilla_idea_strip_at(ui, ideas_rect, data, icon_bank);
+
+        let gov_rect = Rect::from_min_max(
+            Pos2::new(portrait_rect.left(), portrait_rect.bottom() + 40.0),
+            Pos2::new(portrait_rect.right(), main.bottom()),
+        );
+        let ideology_rect = Rect::from_min_max(
+            Pos2::new(right.left(), ideas_rect.bottom() + 8.0),
+            right.right_bottom(),
+        );
+        vanilla_government_mini_at(ui, gov_rect, data);
+        vanilla_ideology_summary_at(ui, ideology_rect, data);
+    } else {
+        let portrait_rect = Rect::from_min_size(
+            main.left_top() + Vec2::new(2.0, 2.0),
+            Vec2::new(118.0, 166.0),
+        );
+        draw_vanilla_portrait(ui, portrait_rect, data, icon_bank);
+        vanilla_leader_nameplate(ui, portrait_rect, data);
+
+        let right = Rect::from_min_max(
+            Pos2::new(portrait_rect.right() + 10.0, main.top() + 2.0),
+            Pos2::new(main.right(), portrait_rect.bottom()),
+        );
+        let focus_rect = Rect::from_min_size(right.left_top(), Vec2::new(right.width(), 58.0));
+        vanilla_focus_selector_at(ui, focus_rect, data, cmds);
+        let ideology_rect = Rect::from_min_max(
+            Pos2::new(right.left(), focus_rect.bottom() + 8.0),
+            right.right_bottom(),
+        );
+        vanilla_ideology_summary_at(ui, ideology_rect, data);
+
+        let ideas_rect = Rect::from_min_size(
+            Pos2::new(main.left(), portrait_rect.bottom() + 34.0),
+            Vec2::new(main.width(), 76.0),
+        );
+        vanilla_idea_strip_at(ui, ideas_rect, data, icon_bank);
+        let gov_rect = Rect::from_min_max(
+            Pos2::new(main.left(), ideas_rect.bottom() + 8.0),
+            main.right_bottom(),
+        );
+        vanilla_government_mini_at(ui, gov_rect, data);
+    }
+    vanilla_politics_link_strip_at(ui, link_rect, cmds);
+}
+
+fn vanilla_politics_link_strip_at(ui: &mut egui::Ui, rect: Rect, cmds: &mut Vec<DecisionCommand>) {
+    let gap = 8.0;
+    let button_w = (rect.width() - gap * 2.0) / 3.0;
+    let buttons = [
+        ("\u{5360}\u{9886}\u{5730}\u{533a}", None),
+        ("\u{9635}\u{8425}\u{56fd}", None),
+        (
+            "\u{5916}\u{4ea4}\u{4e8b}\u{52a1}",
+            Some(ActivePrimaryPanel::Diplomacy),
+        ),
+    ];
+
+    for (idx, (label, panel)) in buttons.iter().enumerate() {
+        let button = Rect::from_min_size(
+            Pos2::new(rect.left() + idx as f32 * (button_w + gap), rect.top()),
+            Vec2::new(button_w, rect.height()),
+        );
+        let response = ui.interact(button, ui.id().with(("politics_link", idx)), Sense::click());
+        let enabled = panel.is_some();
+        let fill = if response.hovered() && enabled {
+            Color32::from_rgb(0x2a, 0x2e, 0x29)
+        } else {
+            Color32::from_rgb(0x23, 0x26, 0x22)
+        };
+        ui.painter().rect_filled(button, 1.0, fill);
+        paint_vanilla_border(ui.painter(), button);
+        ui.painter().text(
+            button.center(),
+            egui::Align2::CENTER_CENTER,
+            *label,
+            fit_text_font(
+                *label,
+                crate::v9::TextRole::Body.font_id(),
+                button.width() - 12.0,
+            ),
+            if enabled {
+                vanilla_text()
+            } else {
+                vanilla_muted()
+            },
+        );
+        if response.clicked() {
+            if let Some(panel) = panel {
+                cmds.push(DecisionCommand::Panel(PanelCommand::OpenPrimary(*panel)));
+            }
+        }
+        if response.hovered() && enabled {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+    }
+}
+
+fn vanilla_leader_nameplate(ui: &mut egui::Ui, portrait_rect: Rect, data: &PoliticsData) {
+    let leader = if data.leader_name.is_empty() {
+        tr("leader_unknown")
+    } else {
+        data.leader_name.as_str()
+    };
+    let party = if data.party_full_name.is_empty() {
+        ideology_label(&data.ruling_party)
+    } else {
+        data.party_full_name.as_str()
+    };
+    let name_rect = Rect::from_min_size(
+        Pos2::new(portrait_rect.left(), portrait_rect.bottom() + 6.0),
+        Vec2::new(portrait_rect.width(), 28.0),
+    );
+    ui.painter().text(
+        Pos2::new(name_rect.center().x, name_rect.top()),
+        egui::Align2::CENTER_TOP,
+        leader,
+        fit_text_font(
+            leader,
+            crate::v9::TextRole::Body.font_id(),
+            name_rect.width(),
+        ),
+        vanilla_text(),
+    );
+    ui.painter().text(
+        Pos2::new(name_rect.center().x, name_rect.top() + 16.0),
+        egui::Align2::CENTER_TOP,
+        party,
+        fit_text_font(
+            party,
+            crate::v9::TextRole::Caption.font_id(),
+            name_rect.width(),
+        ),
+        v9_ideology_color(&data.ruling_party),
+    );
+}
+
+fn vanilla_focus_selector_at(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    data: &PoliticsData,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    let sense = if data.focus_available {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let response = ui.interact(rect, ui.id().with("vanilla_focus_selector"), sense);
+    let fill = if response.hovered() && data.focus_available {
+        Color32::from_rgb(0x1c, 0x27, 0x25)
+    } else {
+        Color32::from_rgb(0x08, 0x13, 0x14)
+    };
+    ui.painter().rect_filled(rect, 1.0, fill);
+    paint_vanilla_border(ui.painter(), rect);
+
+    let progress = focus_progress(data);
+    let label = if let Some(name) = data.current_focus_name.as_deref() {
+        name
+    } else if data.focus_available {
+        "\u{9009}\u{62e9}\u{4e00}\u{4e2a}\u{56fd}\u{7b56}"
+    } else {
+        "\u{56fd}\u{7b56}\u{6811}\u{672a}\u{63a5}\u{5165}"
+    };
+    let title = if data.current_focus_name.is_some() {
+        "\u{5f53}\u{524d}\u{56fd}\u{7b56}"
+    } else {
+        "\u{56fd}\u{7b56}"
+    };
+    ui.painter().text(
+        Pos2::new(rect.left() + 12.0, rect.top() + 8.0),
+        egui::Align2::LEFT_TOP,
+        title,
+        crate::v9::TextRole::Caption.font_id(),
+        vanilla_muted(),
+    );
+    ui.painter().text(
+        Pos2::new(rect.center().x, rect.center().y + 1.0),
+        egui::Align2::CENTER_CENTER,
+        label,
+        fit_text_font(
+            label,
+            crate::v9::TextRole::Subheading.font_id(),
+            rect.width() - 76.0,
+        ),
+        vanilla_text(),
+    );
+
+    if data.current_focus_name.is_some() {
+        let bar_bg = Rect::from_min_max(
+            Pos2::new(rect.left() + 12.0, rect.bottom() - 9.0),
+            Pos2::new(rect.right() - 12.0, rect.bottom() - 5.0),
+        );
+        ui.painter()
+            .rect_filled(bar_bg, 0.0, Color32::from_black_alpha(180));
+        let fill = Rect::from_min_max(
+            bar_bg.left_top(),
+            Pos2::new(bar_bg.left() + bar_bg.width() * progress, bar_bg.bottom()),
+        );
+        ui.painter().rect_filled(fill, 0.0, vanilla_gold());
+    }
+
+    if response.clicked() && data.focus_available {
+        cmds.push(DecisionCommand::OpenFocusTree);
+    }
+    if response.hovered() && data.focus_available {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+}
+
+fn vanilla_idea_strip_at(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+) {
+    vanilla_row_frame(ui, rect);
+    ui.painter().text(
+        Pos2::new(rect.left() + 8.0, rect.top() + 7.0),
+        egui::Align2::LEFT_TOP,
+        tr("national_spirits"),
+        crate::v9::TextRole::Caption.font_id(),
+        vanilla_muted(),
+    );
+
+    let slot_size = 42.0;
+    let gap = 7.0;
+    let first_x = rect.left() + 8.0;
+    let slot_top = rect.top() + 27.0;
+    let max_slots = (((rect.width() - 16.0 + gap) / (slot_size + gap)).floor() as usize).max(1);
+
+    if data.ideas.is_empty() {
+        let slot = Rect::from_min_size(Pos2::new(first_x, slot_top), Vec2::splat(slot_size));
+        vanilla_slot(ui, slot, Color32::from_rgb(0x34, 0x35, 0x30));
+        ui.painter().text(
+            Pos2::new(slot.right() + 10.0, slot.center().y),
+            egui::Align2::LEFT_CENTER,
+            tr("idea_none"),
+            crate::v9::TextRole::Body.font_id(),
+            vanilla_muted(),
+        );
+        return;
+    }
+
+    let visible = if data.ideas.len() > max_slots && max_slots > 1 {
+        max_slots - 1
+    } else {
+        data.ideas.len().min(max_slots)
+    };
+    for (idx, idea) in data.ideas.iter().take(visible).enumerate() {
+        let slot = Rect::from_min_size(
+            Pos2::new(first_x + idx as f32 * (slot_size + gap), slot_top),
+            Vec2::splat(slot_size),
+        );
+        vanilla_slot(ui, slot, vanilla_edge());
+        if let Some(handle) = idea_icon_gfx(idea).and_then(|gfx| icon_bank.get_or_load(&gfx)) {
+            ui.put(
+                slot.shrink(4.0),
+                egui::Image::from_texture(handle).fit_to_exact_size(slot.shrink(4.0).size()),
+            );
+        } else {
+            let letter = idea
+                .name
+                .chars()
+                .find(|c| !c.is_whitespace())
+                .unwrap_or('?');
+            ui.painter().text(
+                slot.center(),
+                egui::Align2::CENTER_CENTER,
+                letter.to_string(),
+                crate::v9::TextRole::Subheading.font_id(),
+                vanilla_gold(),
+            );
+        }
+        ui.interact(
+            slot,
+            ui.id().with(("vanilla_overview_idea", &idea.key)),
+            Sense::hover(),
+        )
+        .on_hover_ui(|ui| render_idea_tooltip(ui, idea));
+    }
+
+    if data.ideas.len() > visible {
+        let extra = data.ideas.len() - visible;
+        let text = format!("+{extra}");
+        let pos = Pos2::new(rect.right() - 8.0, slot_top + slot_size * 0.5);
+        ui.painter().text(
+            pos,
+            egui::Align2::RIGHT_CENTER,
+            text,
+            crate::v9::TextRole::Body.font_id(),
+            vanilla_muted(),
+        );
+    }
+}
+
+fn vanilla_government_mini_at(ui: &mut egui::Ui, rect: Rect, data: &PoliticsData) {
+    vanilla_row_frame(ui, rect);
+    ui.painter().text(
+        Pos2::new(rect.left() + 8.0, rect.top() + 7.0),
+        egui::Align2::LEFT_TOP,
+        "\u{653f}\u{5e9c}",
+        crate::v9::TextRole::Caption.font_id(),
+        vanilla_muted(),
+    );
+
+    if data.government_posts.is_empty() {
+        vanilla_empty_text(
+            ui,
+            rect,
+            "\u{6682}\u{65e0}\u{653f}\u{5e9c}\u{804c}\u{4f4d}\u{6570}\u{636e}",
+        );
+        return;
+    }
+
+    let top = rect.top() + 25.0;
+    let row_gap = 3.0;
+    let min_row_h = 22.0;
+    let available_h = (rect.bottom() - top - 5.0).max(0.0);
+    if available_h < min_row_h {
+        return;
+    }
+    let max_rows_by_height = ((available_h + row_gap) / (min_row_h + row_gap))
+        .floor()
+        .max(1.0) as usize;
+    let rows = data.government_posts.len().min(3).min(max_rows_by_height);
+    let row_h = ((available_h - row_gap * rows.saturating_sub(1) as f32) / rows as f32)
+        .clamp(min_row_h, 30.0);
+    for (idx, post) in data.government_posts.iter().take(rows).enumerate() {
+        let row = Rect::from_min_size(
+            Pos2::new(rect.left() + 7.0, top + idx as f32 * (row_h + row_gap)),
+            Vec2::new(rect.width() - 14.0, row_h),
+        );
+        vanilla_government_mini_row(ui, row, post, idx == 0, &data.ruling_party);
+    }
+}
+
+fn vanilla_government_mini_row(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    post: &GovernmentPostEntry,
+    primary: bool,
+    ruling_party: &str,
+) {
+    ui.painter()
+        .rect_filled(rect, 1.0, Color32::from_rgb(0x0c, 0x0f, 0x0e));
+    ui.painter().rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, Color32::from_black_alpha(210)),
+        egui::epaint::StrokeKind::Inside,
+    );
+    let accent = if primary {
+        v9_ideology_color(ruling_party)
+    } else {
+        vanilla_edge()
+    };
+    let icon = Rect::from_min_size(rect.left_top() + Vec2::new(4.0, 4.0), Vec2::splat(20.0));
+    vanilla_slot(ui, icon, accent);
+    draw_panel_svg_icon(ui, icon.shrink(4.0), PanelSvgIcon::Person, vanilla_muted());
+    let text_left = icon.right() + 7.0;
+    ui.painter().text(
+        Pos2::new(text_left, rect.top() + 2.0),
+        egui::Align2::LEFT_TOP,
+        post.office.as_str(),
+        fit_text_font(
+            post.office.as_str(),
+            crate::v9::TextRole::Caption.font_id(),
+            rect.width() * 0.42,
+        ),
+        vanilla_muted(),
+    );
+    ui.painter().text(
+        Pos2::new(text_left, rect.top() + 15.0),
+        egui::Align2::LEFT_TOP,
+        post.name.as_str(),
+        fit_text_font(
+            post.name.as_str(),
+            crate::v9::TextRole::Caption.font_id(),
+            if rect.width() >= 170.0 && !post.detail.is_empty() {
+                rect.width() * 0.50
+            } else {
+                rect.right() - text_left - 8.0
+            },
+        ),
+        vanilla_text(),
+    );
+    if rect.width() >= 170.0 && !post.detail.is_empty() {
+        ui.painter().text(
+            Pos2::new(rect.right() - 6.0, rect.top() + 8.0),
+            egui::Align2::RIGHT_TOP,
+            post.detail.as_str(),
+            fit_text_font(
+                post.detail.as_str(),
+                crate::v9::TextRole::Caption.font_id(),
+                rect.width() * 0.34,
+            ),
+            accent,
+        );
+    }
+}
+
+fn vanilla_ideology_summary_at(ui: &mut egui::Ui, rect: Rect, data: &PoliticsData) {
+    vanilla_row_frame(ui, rect);
+    ui.painter().text(
+        Pos2::new(rect.left() + 8.0, rect.top() + 7.0),
+        egui::Align2::LEFT_TOP,
+        "\u{610f}\u{8bc6}\u{5f62}\u{6001}",
+        crate::v9::TextRole::Caption.font_id(),
+        vanilla_muted(),
+    );
+    let support = ruling_party_support(data);
+    let label = ideology_label(&data.ruling_party);
+    let accent = v9_ideology_color(&data.ruling_party);
+    let party = if data.party_full_name.is_empty() {
+        label
+    } else {
+        data.party_full_name.as_str()
+    };
+    let compact = rect.height() < 160.0;
+    if !compact {
+        ui.painter().text(
+            Pos2::new(rect.center().x, rect.top() + 28.0),
+            egui::Align2::CENTER_TOP,
+            party,
+            fit_text_font(
+                party,
+                crate::v9::TextRole::Body.font_id(),
+                rect.width() - 16.0,
+            ),
+            accent,
+        );
+    }
+    let donut_top = if compact {
+        rect.top() + 28.0
+    } else {
+        rect.top() + 52.0
+    };
+    let bottom_reserved = if compact { 32.0 } else { 48.0 };
+    let max_donut_h = (rect.bottom() - bottom_reserved - donut_top).max(24.0);
+    let donut_size = max_donut_h.min((rect.width() - 22.0).max(24.0)).min(148.0);
+    let donut = Rect::from_center_size(
+        Pos2::new(rect.center().x, donut_top + donut_size * 0.5),
+        Vec2::splat(donut_size),
+    );
+    draw_vanilla_ideology_donut(ui, donut, &data.party_popularity);
+    ui.painter().text(
+        Pos2::new(rect.center().x, rect.bottom() - 24.0),
+        egui::Align2::CENTER_CENTER,
+        label,
+        fit_text_font(
+            label,
+            crate::v9::TextRole::Body.font_id(),
+            rect.width() - 12.0,
+        ),
+        accent,
+    );
+    ui.painter().text(
+        Pos2::new(rect.center().x, rect.bottom() - 9.0),
+        egui::Align2::CENTER_CENTER,
+        format!("{:.0}% \u{652f}\u{6301}", support * 100.0),
+        crate::v9::TextRole::Caption.font_id(),
+        vanilla_text(),
+    );
+}
+
+fn focus_progress(data: &PoliticsData) -> f32 {
+    data.current_focus_cost_days
+        .filter(|days| *days > 0)
+        .map(|days| (data.current_focus_progress / days as f32).clamp(0.0, 1.0))
+        .unwrap_or(0.0)
 }
 
 fn vanilla_leader_card(
@@ -868,41 +1401,78 @@ fn vanilla_law_systems_card(
     height: f32,
 ) {
     v9_card(ui, height, |ui, inner| {
-        vanilla_section_title(ui, inner, "\u{6cd5}\u{5f8b}\u{4e0e}\u{5236}\u{5ea6}");
-        if data.law_slots.is_empty() {
-            vanilla_empty_text(
-                ui,
-                inner,
-                "\u{6682}\u{65e0}\u{6cd5}\u{5f8b}\u{5236}\u{5ea6}\u{6570}\u{636e}",
-            );
-            return;
-        }
-        let mut y = inner.top() + 36.0;
-        for slot in &data.law_slots {
-            let rect =
-                Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 37.0));
-            let response = ui.interact(
-                rect,
-                ui.id().with((
-                    "politics_law_detail",
-                    law_panel::law_category_key(slot.category),
-                )),
-                Sense::click(),
-            );
-            if response.clicked() {
-                cmds.push(DecisionCommand::Panel(PanelCommand::OpenDetail(
-                    ActiveDetailPanel::Law {
-                        category: law_panel::law_category_key(slot.category).to_owned(),
-                        law_id: None,
-                    },
-                )));
-            }
-            response.on_hover_text("点击打开法律详情");
-            let status = politics_law_status_text(slot);
-            vanilla_law_row(ui, rect, slot, &status);
-            y += 43.0;
-        }
+        vanilla_law_systems_card_contents(ui, inner, data, cmds);
     });
+}
+
+fn vanilla_law_systems_card_at(
+    ui: &mut egui::Ui,
+    data: &PoliticsData,
+    cmds: &mut Vec<DecisionCommand>,
+    rect: Rect,
+) {
+    v9_card_at(ui, rect, |ui, inner| {
+        vanilla_law_systems_card_contents(ui, inner, data, cmds);
+    });
+}
+
+fn vanilla_law_systems_card_contents(
+    ui: &mut egui::Ui,
+    inner: Rect,
+    data: &PoliticsData,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    vanilla_section_title(ui, inner, "\u{653f}\u{6cbb}\u{653f}\u{7b56}");
+    if data.law_slots.is_empty() {
+        vanilla_empty_text(
+            ui,
+            inner,
+            "\u{6682}\u{65e0}\u{653f}\u{7b56}\u{6570}\u{636e}",
+        );
+        return;
+    }
+    let content = Rect::from_min_max(
+        Pos2::new(inner.left(), inner.top() + 36.0),
+        inner.right_bottom(),
+    );
+    let columns = vanilla_law_columns(inner.width());
+    let gap = 8.0;
+    let row_h = 47.0;
+    let row_w = if columns > 1 {
+        (content.width() - gap) * 0.5
+    } else {
+        content.width()
+    };
+    for (idx, slot) in data.law_slots.iter().enumerate() {
+        let col = idx % columns;
+        let row = idx / columns;
+        let rect = Rect::from_min_size(
+            Pos2::new(
+                content.left() + col as f32 * (row_w + gap),
+                content.top() + row as f32 * (row_h + 7.0),
+            ),
+            Vec2::new(row_w, row_h),
+        );
+        let response = ui.interact(
+            rect,
+            ui.id().with((
+                "politics_law_detail",
+                law_panel::law_category_key(slot.category),
+            )),
+            Sense::click(),
+        );
+        if response.clicked() {
+            cmds.push(DecisionCommand::Panel(PanelCommand::OpenDetail(
+                ActiveDetailPanel::Law {
+                    category: law_panel::law_category_key(slot.category).to_owned(),
+                    law_id: None,
+                },
+            )));
+        }
+        response.on_hover_text("\u{70b9}\u{51fb}\u{6253}\u{5f00}\u{6cd5}\u{5f8b}\u{8be6}\u{60c5}");
+        let status = politics_law_status_text(slot);
+        vanilla_law_row(ui, rect, slot, &status);
+    }
 }
 
 fn vanilla_section_title(ui: &mut egui::Ui, inner: Rect, title: &str) {

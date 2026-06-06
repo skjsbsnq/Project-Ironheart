@@ -632,6 +632,75 @@ fn water_surface(world_pos: vec3<f32>, time: f32) -> vec3<f32> {
     return n;
 }
 
+fn terrain_water_height_relief(map_uv: vec2<f32>, depth_ratio: f32) -> f32 {
+    let dim = vec2<f32>(textureDimensions(heightmap_tex));
+    let texel = 1.0 / max(dim, vec2<f32>(1.0));
+    let h = load_height_bilinear(map_uv);
+    let h_l = load_height_bilinear(map_uv - vec2<f32>(texel.x * 2.0, 0.0));
+    let h_r = load_height_bilinear(map_uv + vec2<f32>(texel.x * 2.0, 0.0));
+    let h_d = load_height_bilinear(map_uv - vec2<f32>(0.0, texel.y * 2.0));
+    let h_u = load_height_bilinear(map_uv + vec2<f32>(0.0, texel.y * 2.0));
+    let h_lw = load_height_bilinear(map_uv - vec2<f32>(texel.x * 8.0, 0.0));
+    let h_rw = load_height_bilinear(map_uv + vec2<f32>(texel.x * 8.0, 0.0));
+    let h_dw = load_height_bilinear(map_uv - vec2<f32>(0.0, texel.y * 8.0));
+    let h_uw = load_height_bilinear(map_uv + vec2<f32>(0.0, texel.y * 8.0));
+    let slope_near = length(vec2<f32>(h_l - h_r, h_d - h_u)) * 60.0;
+    let slope_wide = length(vec2<f32>(h_lw - h_rw, h_dw - h_uw)) * 26.0;
+    let slope = clamp(slope_near * 0.64 + slope_wide * 0.36, 0.0, 1.0);
+    let shelf = 1.0 - smoothstep(0.54, 0.98, depth_ratio);
+    let contour = (0.5 + 0.5 * sin((SEA_LEVEL - h) * 220.0)) * shelf * 0.10;
+    return clamp(slope * (0.42 + shelf * 0.52) + contour, 0.0, 1.0);
+}
+
+fn terrain_water_backdrop(frag: VsOut, real_h: f32, dedicated_water: bool) -> vec3<f32> {
+    let depth_ratio = clamp((SEA_LEVEL - real_h) / SEA_LEVEL, 0.0, 1.0);
+    let shelf = smoothstep(0.10, 0.46, depth_ratio);
+    let deep = smoothstep(0.44, 0.98, depth_ratio);
+    let shallow_color = vec3<f32>(0.034, 0.060, 0.052);
+    let shelf_color = vec3<f32>(0.014, 0.040, 0.052);
+    let deep_color = vec3<f32>(0.001, 0.008, 0.028);
+    var color = mix(mix(shallow_color, shelf_color, shelf), deep_color, deep);
+
+    let slope = terrain_water_height_relief(frag.map_uv, depth_ratio);
+    let broad = fbm2d(frag.world_pos.xz * 0.70 + vec2<f32>(11.0, 37.0)) - 0.5;
+    let ridge = fbm2d(frag.world_pos.xz * 2.20 + vec2<f32>(91.0, 12.0)) - 0.5;
+    let grain = vnoise2d(frag.world_pos.xz * 9.0 + vec2<f32>(23.0, 5.0)) - 0.5;
+    let shelf_visibility = 1.0 - smoothstep(0.52, 0.96, depth_ratio);
+    let height_band = (0.5 + 0.5 * sin((SEA_LEVEL - real_h) * 380.0 + slope * 2.2)) * shelf_visibility;
+    let procedural = (broad * 0.40 + ridge * 0.28 + grain * 0.12 + height_band * 0.18) * (0.30 + shelf_visibility * 0.70);
+    let relief = clamp(slope * (0.76 + shelf_visibility * 1.18) + procedural, -0.38, 1.22);
+    color = color * (0.74 + relief * (0.26 + shelf_visibility * 0.34));
+    color = color + vec3<f32>(0.044, 0.044, 0.026) * height_band * (1.0 - deep) * 0.18;
+
+    let atlas_bed = terrain_atlas_color(
+        frag.map_uv,
+        frag.map_px * 0.58 + vec2<f32>(127.0, 311.0),
+    );
+    let cmap_bed = colormap_color(frag.map_uv);
+    let bed_luma = clamp(dot(mix(atlas_bed, cmap_bed, 0.10), vec3<f32>(0.2126, 0.7152, 0.0722)), 0.08, 0.46);
+    let muted_bed = mix(vec3<f32>(bed_luma), mix(atlas_bed, cmap_bed, 0.06), 0.24);
+    let bed_texture = min(muted_bed, vec3<f32>(0.46));
+    let shallow_bed_tint = vec3<f32>(0.42, 0.38, 0.24);
+    let shelf_bed_tint = vec3<f32>(0.18, 0.31, 0.30);
+    let deep_bed_tint = vec3<f32>(0.026, 0.060, 0.112);
+    let bed_tint = mix(mix(shallow_bed_tint, shelf_bed_tint, shelf), deep_bed_tint, deep);
+    let terrain_bed = bed_texture * bed_tint
+        * clamp(0.52 + relief * 0.72 + height_band * 0.18, 0.24, 1.28)
+        * (0.44 + shelf_visibility * 0.58);
+    let bed_visibility = clamp(shelf_visibility * (0.26 + slope * 0.30 + height_band * 0.14), 0.0, 0.56);
+    color = mix(color, terrain_bed, bed_visibility);
+
+    let coast = 1.0 - smoothstep(1.0, 18.0, coast_dist_px(frag.map_uv));
+    color = mix(color, color * vec3<f32>(0.94, 1.02, 1.00), coast * (0.012 + shelf_visibility * 0.018));
+
+    if (dedicated_water) {
+        let dedicated_deep = smoothstep(0.54, 0.98, depth_ratio);
+        color = mix(color, deep_color, dedicated_deep * 0.50);
+        color = color * (0.88 + shelf_visibility * 0.08 - dedicated_deep * 0.12);
+    }
+    return max(color, vec3<f32>(0.0));
+}
+
 fn terrain_control_enabled(value: f32) -> bool {
     return value > 0.5;
 }
@@ -905,16 +974,13 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
     } else if (terrain_owns_water_color()) {
         let depth_ratio = clamp((SEA_LEVEL - real_h) / SEA_LEVEL, 0.0, 1.0);
         let deep = smoothstep(0.18, 0.92, depth_ratio);
-        let shallow_color = vec3<f32>(0.18, 0.42, 0.55);
-        let shelf_color = vec3<f32>(0.075, 0.22, 0.36);
-        let deep_color = vec3<f32>(0.025, 0.085, 0.18);
-        color = mix(mix(shallow_color, shelf_color, smoothstep(0.0, 0.42, depth_ratio)), deep_color, deep);
+        color = terrain_water_backdrop(frag, real_h, false);
 
         surface_normal = water_surface(frag.world_pos, frame.global_time);
         let wave_lo = fbm2d(frag.world_pos.xz * 0.95 + vec2<f32>(frame.global_time * 0.18, frame.global_time * 0.06));
         let wave_hi = fbm2d(frag.world_pos.xz * 2.2 + vec2<f32>(frame.global_time * 0.30, -frame.global_time * 0.12));
         let ripple = wave_lo * 0.72 + wave_hi * 0.28;
-        color = color * (0.94 + 0.045 * ripple);
+        color = color * (0.90 + 0.080 * ripple);
 
         let cdist_coast = coast_dist_px(frag.map_uv);
         let foam = clamp(1.0 - cdist_coast / 1.20, 0.0, 1.0) * (1.0 - deep * 0.75);
@@ -925,11 +991,8 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
         // Final-quality frames let WaterPass own visible water. Terrain still
         // writes depth. Keep the hidden fallback close to the water material so
         // tiny coast coverage gaps cannot show as black seams.
-        let depth_ratio = clamp((SEA_LEVEL - real_h) / SEA_LEVEL, 0.0, 1.0);
-        let shallow_color = vec3<f32>(0.12, 0.32, 0.47);
-        let shelf_color = vec3<f32>(0.060, 0.20, 0.34);
-        let deep_color = vec3<f32>(0.025, 0.085, 0.18);
-        color = mix(mix(shallow_color, shelf_color, smoothstep(0.0, 0.45, depth_ratio)), deep_color, smoothstep(0.25, 0.95, depth_ratio));
+        color = terrain_water_backdrop(frag, real_h, true);
+        surface_normal = water_surface(frag.world_pos, frame.global_time);
     }
 
     let globe_n = calc_globe_normal(frag.map_px, frame.day_night_hour_sun_dir.x);

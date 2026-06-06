@@ -28,6 +28,7 @@
 //!   `IconBank` 走「strip GFX_ prefix + 文件名」的硬编码约定，假设 vanilla
 //!   绝大多数 sprite 名都对应同名 DDS 文件（实测 vanilla `goals/focus_GER_*` 都满足）。
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -176,20 +177,56 @@ impl IconBank {
             return entry;
         }
 
+        let lookup_names = icon_lookup_names(gfx_name);
         let filename = format!("{stem}.dds");
         let mut tried: Vec<PathBuf> = Vec::new();
         let mut last_load_err: Option<String> = None;
 
-        if let Some(texturefile) = self.sprite_texturefiles.get(gfx_name) {
-            if let Some(abs) = self.path_cfg.find(texturefile) {
-                tried.push(abs.clone());
-                match self.load_dds_to_entry(gfx_name, &abs) {
-                    Ok(entry) => return entry,
-                    Err(reason) => last_load_err = Some(reason),
+        for lookup_name in &lookup_names {
+            if let Some(texturefile) = self.sprite_texturefiles.get(lookup_name.as_ref()) {
+                if let Some(abs) = self.path_cfg.find(texturefile) {
+                    tried.push(abs.clone());
+                    match self.load_dds_to_entry(gfx_name, &abs) {
+                        Ok(entry) => return entry,
+                        Err(reason) => last_load_err = Some(reason),
+                    }
+                } else {
+                    tried.push(PathBuf::from(texturefile));
                 }
-            } else {
-                tried.push(PathBuf::from(texturefile));
             }
+        }
+
+        if is_event_picture_gfx(gfx_name) {
+            for lookup_name in &lookup_names {
+                let lookup_stem = lookup_name.strip_prefix("GFX_").unwrap_or(lookup_name);
+                for rel in event_picture_fallback_rel_paths(lookup_stem) {
+                    let abs = match self.path_cfg.find(&rel) {
+                        Some(p) => p,
+                        None => {
+                            tried.push(PathBuf::from(rel));
+                            continue;
+                        }
+                    };
+                    tried.push(abs.clone());
+                    match self.load_dds_to_entry(gfx_name, &abs) {
+                        Ok(entry) => return entry,
+                        Err(reason) => {
+                            last_load_err = Some(reason);
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            return IconEntry::Missing {
+                reason: match last_load_err {
+                    Some(r) => r,
+                    None => format!(
+                        "{gfx_name} event picture not found in sprite map or event-picture dirs (tried {} paths)",
+                        tried.len()
+                    ),
+                },
+            };
         }
 
         for dir in &self.search_dirs {
@@ -376,6 +413,68 @@ impl IconBank {
     }
 }
 
+fn icon_lookup_names(gfx_name: &str) -> Vec<Cow<'_, str>> {
+    let mut names = Vec::with_capacity(4);
+    push_unique_lookup_name(&mut names, Cow::Borrowed(gfx_name));
+
+    if let Some(alias) = event_picture_alias(gfx_name) {
+        push_unique_lookup_name(&mut names, Cow::Borrowed(alias));
+    }
+
+    if let Some(rest) = gfx_name.strip_prefix("GFX_event_") {
+        push_unique_lookup_name(&mut names, Cow::Owned(format!("GFX_news_event_{rest}")));
+        push_unique_lookup_name(&mut names, Cow::Owned(format!("GFX_report_event_{rest}")));
+    }
+
+    names
+}
+
+fn push_unique_lookup_name<'a>(names: &mut Vec<Cow<'a, str>>, candidate: Cow<'a, str>) {
+    if names
+        .iter()
+        .any(|existing| existing.as_ref() == candidate.as_ref())
+    {
+        return;
+    }
+    names.push(candidate);
+}
+
+fn event_picture_alias(gfx_name: &str) -> Option<&'static str> {
+    match gfx_name {
+        "GFX_event_mustard_gas" | "GFX_event_addis_ababa" | "GFX_event_ethiopia_victory" => {
+            Some("GFX_news_event_ETH_ethiopian_warriors")
+        }
+        "GFX_event_selassie_exile" => Some("GFX_news_event_ETH_selassie_league_of_nations"),
+        "GFX_event_italy" | "GFX_event_italy_ethiopia" => {
+            Some("GFX_report_event_generic_italian_celebration")
+        }
+        "GFX_event_chinese_defense" | "GFX_event_chinese_victory" => {
+            Some("GFX_news_event_chinese_soldiers_mountain")
+        }
+        "GFX_event_shanghai_battle" => Some("GFX_news_event_generic_shanghai_clash"),
+        "GFX_event_nanjing" | "GFX_event_chongqing_bombing" => {
+            Some("GFX_news_event_chinese_soldiers_city_ruin")
+        }
+        "GFX_event_marco_polo_bridge" | "GFX_event_japanese_victory_china" => {
+            Some("GFX_report_event_chinese_japanese_handshake")
+        }
+        _ => None,
+    }
+}
+
+fn is_event_picture_gfx(gfx_name: &str) -> bool {
+    gfx_name.starts_with("GFX_event_")
+        || gfx_name.starts_with("GFX_news_event_")
+        || gfx_name.starts_with("GFX_report_event_")
+}
+
+fn event_picture_fallback_rel_paths(stem: &str) -> [String; 2] {
+    [
+        format!("gfx/event_pictures/{stem}.dds"),
+        format!("gfx/interface/{stem}.dds"),
+    ]
+}
+
 fn find_matching_leader_portrait_in_dir(dir_abs: &Path, name_parts: &[String]) -> Option<PathBuf> {
     if !dir_abs.is_dir() {
         return None;
@@ -556,6 +655,39 @@ mod tests {
         assert_eq!(
             name2.strip_prefix("GFX_").unwrap_or(name2),
             "focus_GER_anschluss"
+        );
+    }
+
+    #[test]
+    fn event_picture_lookup_uses_fast_names() {
+        let names: Vec<String> = icon_lookup_names("GFX_event_mustard_gas")
+            .into_iter()
+            .map(Cow::into_owned)
+            .collect();
+
+        assert_eq!(names[0], "GFX_event_mustard_gas");
+        assert!(names.contains(&"GFX_news_event_ETH_ethiopian_warriors".to_owned()));
+        assert!(names.contains(&"GFX_news_event_mustard_gas".to_owned()));
+        assert!(names.contains(&"GFX_report_event_mustard_gas".to_owned()));
+    }
+
+    #[test]
+    fn event_picture_fallback_paths_are_bounded() {
+        assert!(is_event_picture_gfx("GFX_event_mustard_gas"));
+        assert!(is_event_picture_gfx(
+            "GFX_news_event_ETH_ethiopian_warriors"
+        ));
+        assert!(is_event_picture_gfx(
+            "GFX_report_event_generic_italian_celebration"
+        ));
+        assert!(!is_event_picture_gfx("GFX_focus_GER_anschluss"));
+
+        assert_eq!(
+            event_picture_fallback_rel_paths("event_mustard_gas"),
+            [
+                "gfx/event_pictures/event_mustard_gas.dds".to_owned(),
+                "gfx/interface/event_mustard_gas.dds".to_owned()
+            ]
         );
     }
 

@@ -365,19 +365,28 @@ fn border_span_from_projected_samples(
     if projected.len() <= 1 {
         return projected.to_vec();
     }
-    let start = projected[0];
-    let end = *projected.last().unwrap();
-    if start == end {
-        return vec![start];
-    }
     let cobel = co_belligerent_set(world, owner);
-    if let Some(path) = bfs_frontline_path(world, owner, start, end, BFS_MAX_DEPTH) {
-        return path;
+    let mut result = vec![projected[0]];
+    for &next in &projected[1..] {
+        let prev = *result.last().unwrap();
+        if prev == next {
+            continue;
+        }
+        if let Some(path) = bfs_frontline_path(world, owner, prev, next, BFS_MAX_DEPTH) {
+            result.extend_from_slice(&path[1..]);
+        } else if let Some(path) =
+            bfs_cobelligerent_land_path(world, &cobel, prev, next, BFS_MAX_DEPTH)
+        {
+            result.extend_from_slice(&path[1..]);
+        } else if are_adjacent(world, prev, next) {
+            result.push(next);
+        } else if let Some(path) = bfs_land_path(world, prev, next, MAX_BRIDGE_DEPTH) {
+            result.extend_from_slice(&path[1..]);
+        } else {
+            result.push(next);
+        }
     }
-    if let Some(path) = bfs_cobelligerent_land_path(world, &cobel, start, end, BFS_MAX_DEPTH) {
-        return path;
-    }
-    stitch_gaps(world, projected)
+    dedup_consecutive(&result)
 }
 
 fn border_span_from_projected_samples_against(
@@ -389,21 +398,30 @@ fn border_span_from_projected_samples_against(
     if projected.len() <= 1 {
         return projected.to_vec();
     }
-    let start = projected[0];
-    let end = *projected.last().unwrap();
-    if start == end {
-        return vec![start];
-    }
     let cobel = co_belligerent_set(world, owner);
-    if let Some(path) =
-        bfs_frontline_path_against(world, owner, start, end, BFS_MAX_DEPTH, target_country)
-    {
-        return path;
+    let mut result = vec![projected[0]];
+    for &next in &projected[1..] {
+        let prev = *result.last().unwrap();
+        if prev == next {
+            continue;
+        }
+        if let Some(path) =
+            bfs_frontline_path_against(world, owner, prev, next, BFS_MAX_DEPTH, target_country)
+        {
+            result.extend_from_slice(&path[1..]);
+        } else if let Some(path) =
+            bfs_cobelligerent_land_path(world, &cobel, prev, next, BFS_MAX_DEPTH)
+        {
+            result.extend_from_slice(&path[1..]);
+        } else if are_adjacent(world, prev, next) {
+            result.push(next);
+        } else if let Some(path) = bfs_land_path(world, prev, next, MAX_BRIDGE_DEPTH) {
+            result.extend_from_slice(&path[1..]);
+        } else {
+            result.push(next);
+        }
     }
-    if let Some(path) = bfs_cobelligerent_land_path(world, &cobel, start, end, BFS_MAX_DEPTH) {
-        return path;
-    }
-    stitch_gaps(world, projected)
+    dedup_consecutive(&result)
 }
 
 fn project_sample_to_frontline_against(
@@ -2652,6 +2670,130 @@ mod tests {
             !path.contains(&ProvinceId(4)),
             "frontline should not keep the minor AUS-only border contact: {path:?}"
         );
+    }
+
+    #[test]
+    fn snapper_preserves_drawn_corner_sample_when_shortcut_exists() {
+        let mut world = test_corner_front_world();
+        let ger = world.country("GER").expect("GER country");
+        let sov = world.country("SOV").expect("SOV country");
+        make_war(&mut world, ger, sov);
+
+        let path = frontline_snapper(&world, ger, &[ProvinceId(1), ProvinceId(2), ProvinceId(3)])
+            .expect("frontline should snap through the drawn corner");
+
+        assert_eq!(
+            path,
+            vec![ProvinceId(1), ProvinceId(2), ProvinceId(3)],
+            "frontline should keep the user-drawn corner instead of shortcutting: {path:?}"
+        );
+    }
+
+    fn test_corner_front_world() -> World {
+        let mut adjacencies = vec![Vec::new(); 15];
+        for (a, b) in [
+            (1, 4),
+            (1, 2),
+            (2, 3),
+            (4, 3),
+            (1, 11),
+            (2, 12),
+            (3, 13),
+            (4, 14),
+        ] {
+            adjacencies[a].push(b as u16);
+            adjacencies[b].push(a as u16);
+        }
+
+        let map = hoi4_map::GameMap {
+            definitions: (0..=14)
+                .map(|raw| {
+                    if raw == 0 || (5..=10).contains(&raw) {
+                        None
+                    } else {
+                        Some(hoi4_map::ProvinceDefinition {
+                            id: raw as u16,
+                            r: 0,
+                            g: 0,
+                            b: 0,
+                            province_type: hoi4_map::ProvinceType::Land,
+                            coastal: false,
+                            terrain: String::new(),
+                            continent: 0,
+                        })
+                    }
+                })
+                .collect(),
+            rgb_to_id: std::collections::HashMap::new(),
+            province_map: hoi4_map::ProvinceMap {
+                width: 0,
+                height: 0,
+                pixels: vec![],
+            },
+            adjacencies,
+            special_adjacencies: vec![],
+            heightmap: hoi4_map::Heightmap {
+                width: 0,
+                height: 0,
+                pixels: vec![],
+            },
+            terrain_bmp: hoi4_map::TerrainBitmap {
+                width: 0,
+                height: 0,
+                pixels: vec![],
+                palette: [[0; 3]; 256],
+            },
+            terrain_catalog: hoi4_map::TerrainCatalog::default(),
+            tree_definition_bmp: None,
+            tree_indices: hoi4_map::DEFAULT_TREE_INDICES.iter().copied().collect(),
+        };
+
+        let ger = hoi4_data::CountryTag::new("GER");
+        let sov = hoi4_data::CountryTag::new("SOV");
+        let mut data = hoi4_data::GameData::default();
+        for tag in [&ger, &sov] {
+            data.countries.insert(
+                tag.clone(),
+                hoi4_data::Country {
+                    tag: tag.clone(),
+                    color: hoi4_data::Color { r: 0, g: 0, b: 0 },
+                    graphical_culture: String::new(),
+                    capital: 1,
+                    ruling_party: "neutrality".into(),
+                    technologies: vec![],
+                },
+            );
+        }
+        for raw in 1..=4 {
+            data.states.push(hoi4_data::State {
+                id: raw as u16,
+                name: format!("GER {raw}"),
+                manpower: 0,
+                owner: ger.clone(),
+                cores: vec![ger.clone()],
+                provinces: vec![raw as u16],
+                category: String::new(),
+                infrastructure: 1,
+                victory_points: vec![],
+                resources: vec![],
+            });
+        }
+        for raw in 11..=14 {
+            data.states.push(hoi4_data::State {
+                id: raw as u16,
+                name: format!("SOV {raw}"),
+                manpower: 0,
+                owner: sov.clone(),
+                cores: vec![sov.clone()],
+                provinces: vec![raw as u16],
+                category: String::new(),
+                infrastructure: 1,
+                victory_points: vec![],
+                resources: vec![],
+            });
+        }
+
+        World::new(Arc::new(map), Arc::new(data))
     }
 
     fn test_line_world() -> World {
