@@ -1421,17 +1421,23 @@ impl App {
             depth_format,
             &self.path_cfg,
         );
-        if sky_pass.loaded {
-            water_pass.set_env_cubemap(&device, &sky_pass.cubemap_view);
-            pdxmesh_pass.set_env_cubemap_with_shadow(
-                &device,
-                &sky_pass.cubemap_view,
-                &shadow_pass.depth_view,
-                &shadow_pass.compare_sampler,
-                &vanilla_targets,
-            );
-        }
-        println!("[sky] SkyPass ready (cubemap_loaded={})", sky_pass.loaded);
+        water_pass.set_env_cubemap(&device, &sky_pass.cubemap_view);
+        pdxmesh_pass.set_env_cubemap_with_shadow(
+            &device,
+            &sky_pass.cubemap_view,
+            &shadow_pass.depth_view,
+            &shadow_pass.compare_sampler,
+            &vanilla_targets,
+        );
+        println!(
+            "[sky] SkyPass ready (cubemap_loaded={}, env_source={})",
+            sky_pass.loaded,
+            if sky_pass.loaded {
+                "dds"
+            } else {
+                "procedural_fallback"
+            }
+        );
 
         // Phase 3.12.10: Particle pass (combat smoke / factory chimneys / scorched earth).
         let particle_pass = passes::ParticlePass::new(

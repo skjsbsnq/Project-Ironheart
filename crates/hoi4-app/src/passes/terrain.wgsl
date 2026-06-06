@@ -1235,7 +1235,8 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         color = color + vec3<f32>(1.0, 0.97, 0.85) * (spec * 0.6 * shadow);
     }
 
-    color = color * shade;
+    let hidden_water_under_dedicated_pass = is_water && !terrain_owns_water_color();
+    color = color * select(shade, 1.0, hidden_water_under_dedicated_pass);
 
     // ── City lights / emissive（仅夜半球）──
     if (!is_water) {

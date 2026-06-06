@@ -42,23 +42,33 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
     let y = f32(i32(vid >> 1u)) * 4.0 - 1.0;
     out.clip_pos = vec4<f32>(x, y, 1.0, 1.0);
     let far_point = sky.inv_view_proj * vec4<f32>(x, y, 1.0, 1.0);
-    out.view_dir = normalize(far_point.xyz / max(far_point.w, 0.0001));
+    let world_pos = far_point.xyz / max(far_point.w, 0.0001);
+    out.view_dir = normalize(world_pos - frame.cam_pos);
     return out;
 }
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let dir = normalize(in.view_dir);
-    let vertical = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
-    let base_low = vec3<f32>(0.135, 0.155, 0.175);
-    let base_high = vec3<f32>(0.060, 0.070, 0.082);
-    var color = mix(base_low, base_high, vertical);
+    var color = textureSample(sky_cube, sky_sampler, dir).rgb;
+
+    let horizon = 1.0 - smoothstep(0.02, 0.38, abs(dir.y));
+    let fog_color = vec3<f32>(0.58, 0.66, 0.70);
+    color = mix(color, fog_color, horizon * 0.20);
+    color *= 1.12;
+
+    let sun_dir = normalize(frame.day_night_hour_sun_dir.yzw);
+    let sun_above = smoothstep(-0.04, 0.16, sun_dir.y);
+    let sun_dot = max(dot(dir, sun_dir), 0.0);
+    let sun_disk = pow(sun_dot, 720.0);
+    let sun_glow = pow(sun_dot, 40.0) * 0.46 + pow(sun_dot, 9.0) * 0.12;
+    color += vec3<f32>(1.0, 0.88, 0.62) * (sun_disk * 3.0 + sun_glow) * sun_above;
 
     // Day/night: darken + shift to blue at night
     let globe_n = calc_globe_normal(frame.cam_pos_map_px.xy, frame.day_night_hour_sun_dir.x);
     let night = day_night_factor(globe_n, frame.day_night_hour_sun_dir.yzw, 1.0);
-    let night_color = vec3<f32>(0.035, 0.045, 0.060);
-    color = mix(color, night_color, night * 0.65);
+    let night_color = vec3<f32>(0.055, 0.070, 0.095);
+    color = mix(color, night_color, night * 0.52);
 
     return vec4<f32>(color, 1.0);
 }
@@ -436,12 +446,12 @@ fn create_fallback_cubemap(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
 ) -> (wgpu::Texture, wgpu::TextureView, bool) {
-    let texel: [u8; 4] = [46, 58, 72, 255];
+    const SIZE: u32 = 128;
     let tex = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("sky_cubemap_fallback"),
+        label: Some("sky_cubemap_procedural_fallback"),
         size: wgpu::Extent3d {
-            width: 1,
-            height: 1,
+            width: SIZE,
+            height: SIZE,
             depth_or_array_layers: 6,
         },
         mip_level_count: 1,
@@ -452,6 +462,7 @@ fn create_fallback_cubemap(
         view_formats: &[],
     });
     for layer in 0..6 {
+        let face = build_procedural_sky_face(layer, SIZE);
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &tex,
@@ -463,23 +474,111 @@ fn create_fallback_cubemap(
                 },
                 aspect: wgpu::TextureAspect::All,
             },
-            &texel,
+            &face,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4),
-                rows_per_image: Some(1),
+                bytes_per_row: Some(4 * SIZE),
+                rows_per_image: Some(SIZE),
             },
             wgpu::Extent3d {
-                width: 1,
-                height: 1,
+                width: SIZE,
+                height: SIZE,
                 depth_or_array_layers: 1,
             },
         );
     }
     let view = tex.create_view(&wgpu::TextureViewDescriptor {
-        label: Some("sky_cubemap_fallback_view"),
+        label: Some("sky_cubemap_procedural_fallback_view"),
         dimension: Some(wgpu::TextureViewDimension::Cube),
         ..Default::default()
     });
     (tex, view, false)
+}
+
+fn build_procedural_sky_face(layer: u32, size: u32) -> Vec<u8> {
+    let mut data = Vec::with_capacity((size * size * 4) as usize);
+    let inv_size = 1.0 / size as f32;
+    for y in 0..size {
+        let v = (y as f32 + 0.5) * inv_size * 2.0 - 1.0;
+        for x in 0..size {
+            let u = (x as f32 + 0.5) * inv_size * 2.0 - 1.0;
+            data.extend_from_slice(&procedural_sky_rgba(cube_face_direction(layer, u, v)));
+        }
+    }
+    data
+}
+
+fn cube_face_direction(layer: u32, u: f32, v: f32) -> [f32; 3] {
+    let dir = match layer {
+        0 => [1.0, -v, -u],
+        1 => [-1.0, -v, u],
+        2 => [u, 1.0, v],
+        3 => [u, -1.0, -v],
+        4 => [u, -v, 1.0],
+        _ => [-u, -v, -1.0],
+    };
+    normalize3(dir)
+}
+
+fn procedural_sky_rgba(dir: [f32; 3]) -> [u8; 4] {
+    let up = saturate(dir[1] * 0.5 + 0.5);
+    let horizon = 1.0 - smoothstep(0.02, 0.52, dir[1].abs());
+    let below_horizon = smoothstep(0.02, 0.70, -dir[1]);
+
+    let mut color = mix3([0.100, 0.160, 0.205], [0.310, 0.500, 0.720], up.powf(0.70));
+    color = mix3(color, [0.720, 0.770, 0.790], horizon * 0.54);
+    color = mix3(color, [0.060, 0.090, 0.110], below_horizon * 0.80);
+
+    let azimuth = dir[2].atan2(dir[0]);
+    let mid_sky = smoothstep(-0.08, 0.24, dir[1]) * (1.0 - smoothstep(0.62, 0.98, dir[1]));
+    let cloud_noise = ((azimuth * 6.5 + dir[0] * 12.0 - dir[2] * 4.0).sin() * 0.5 + 0.5) * 0.58
+        + ((azimuth * 13.0 - dir[0] * 5.0 + dir[2] * 17.0).sin() * 0.5 + 0.5) * 0.42;
+    let cloud = smoothstep(0.58, 0.86, cloud_noise) * mid_sky * 0.40;
+    color = mix3(color, [0.865, 0.885, 0.855], cloud);
+
+    let sun_dir = normalize3([0.05, 0.44, 0.90]);
+    let sun_dot = dot3(dir, sun_dir).max(0.0);
+    let sun_glow = sun_dot.powf(32.0) * 0.46 + sun_dot.powf(360.0) * 1.75;
+    color = add3(color, mul3([1.0, 0.850, 0.560], sun_glow));
+
+    [to_u8(color[0]), to_u8(color[1]), to_u8(color[2]), 255]
+}
+
+fn normalize3(v: [f32; 3]) -> [f32; 3] {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-6);
+    [v[0] / len, v[1] / len, v[2] / len]
+}
+
+fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+    let t = saturate(t);
+    [
+        a[0] + (b[0] - a[0]) * t,
+        a[1] + (b[1] - a[1]) * t,
+        a[2] + (b[2] - a[2]) * t,
+    ]
+}
+
+fn add3(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+fn mul3(v: [f32; 3], s: f32) -> [f32; 3] {
+    [v[0] * s, v[1] * s, v[2] * s]
+}
+
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = saturate((x - edge0) / (edge1 - edge0).max(1e-6));
+    t * t * (3.0 - 2.0 * t)
+}
+
+fn saturate(x: f32) -> f32 {
+    x.clamp(0.0, 1.0)
+}
+
+fn to_u8(x: f32) -> u8 {
+    (saturate(x) * 255.0).round() as u8
 }

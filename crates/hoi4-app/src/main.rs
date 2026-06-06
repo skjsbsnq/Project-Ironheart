@@ -104,7 +104,6 @@ use vanilla_targets::{
 };
 
 const MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY: u32 = 32;
-
 /// World units per heightmap pixel (XZ). Smaller = "denser" world.
 const WORLD_SCALE: f32 = 0.02;
 /// World Y for full-white heightmap pixel (255 -> this height).
@@ -8069,6 +8068,9 @@ impl App {
                 [hour, sd[0], sd[1], sd[2]]
             };
             gu.screen_size = [s.config.width as f32, s.config.height as f32];
+            gu.cubemap_intensity = 1.35;
+            gu.sun_specular_intensity = 1.45;
+            gu.sun_diffuse_intensity = [1.08, 1.05, 0.98, 1.0];
             // Phase 3.12.3: shadow caster matrix
             gu.shadow_view_proj = shadow_vp.to_cols_array_2d();
             s.global_uniform_buf.write(&s.queue, &gu);

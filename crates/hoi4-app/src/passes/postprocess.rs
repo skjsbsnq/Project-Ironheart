@@ -141,15 +141,15 @@ impl PostProcessCalibration {
             middle_grey: STANDARD_TONEMAP_MIDDLE_GREY,
             exposure_min: 0.125,
             exposure_max: 8.0,
-            exposure_bias: 1.02,
+            exposure_bias: 1.10,
             uncharted_white_point: 11.2,
             final_bloom_strength: 0.14,
-            lut_strength: 0.35,
-            saturation: 0.96,
+            lut_strength: 0.28,
+            saturation: 1.02,
             hsv_hue_shift: 0.0,
-            hsv_saturation: 0.94,
-            hsv_value: 1.02,
-            color_balance: [0.004, 0.002, -0.004],
+            hsv_saturation: 0.98,
+            hsv_value: 1.07,
+            color_balance: [0.010, 0.008, 0.000],
             bloom_debug_gain: 4.0,
         }
     }
@@ -2209,18 +2209,18 @@ mod tests {
         assert!((calibration.middle_grey - 0.55).abs() < f32::EPSILON);
         assert!(calibration.exposure_min <= 0.125);
         assert!(calibration.exposure_max >= 8.0);
-        assert!((calibration.exposure_bias - 1.02).abs() < f32::EPSILON);
+        assert!((calibration.exposure_bias - 1.10).abs() < f32::EPSILON);
         assert!((calibration.uncharted_white_point - 11.2).abs() < f32::EPSILON);
         assert!((calibration.final_bloom_strength - 0.14).abs() < f32::EPSILON);
         assert!((calibration.bloom_bright_threshold - 1.05).abs() < f32::EPSILON);
         assert!((calibration.bloom_prefilter_strength - 0.68).abs() < f32::EPSILON);
-        assert_eq!(calibration.lut_strength, 0.35);
-        assert_eq!(calibration.saturation, 0.96);
-        assert_eq!(calibration.hsv_saturation, 0.94);
-        assert_eq!(calibration.hsv_value, 1.02);
-        assert_eq!(calibration.color_balance, [0.004, 0.002, -0.004]);
+        assert_eq!(calibration.lut_strength, 0.28);
+        assert_eq!(calibration.saturation, 1.02);
+        assert_eq!(calibration.hsv_saturation, 0.98);
+        assert_eq!(calibration.hsv_value, 1.07);
+        assert_eq!(calibration.color_balance, [0.010, 0.008, 0.000]);
         assert!(calibration.summary().contains("aces=off"));
-        assert!(calibration.summary().contains("lut=0.35"));
+        assert!(calibration.summary().contains("lut=0.28"));
         assert!(calibration.summary().contains("restore=uncharted"));
     }
 

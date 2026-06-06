@@ -330,14 +330,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let is_water = in.raw_height <= SEA_LEVEL;
 
-    // 2) Coastal sand band (land just above sea level).
-    let band_top = SEA_LEVEL + 0.04;
-    if (!is_water && in.raw_height < band_top) {
-        let t = 1.0 - (in.raw_height - SEA_LEVEL) / 0.04;
-        let sand = vec3<f32>(0.86, 0.79, 0.55);
-        color = mix(color, sand, t * 0.45);
-    }
-
     // 3) Snow line (with seasonal shift).
     let lat = abs(in.uv.y - 0.5) * 2.0;
     let alt_thr = 0.62 + params.season_snow_offset;
@@ -370,13 +362,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         let ripple = wave_lo * 0.65 + wave_hi * 0.35;
         color = color * (0.88 + 0.24 * ripple);
 
-        // Coastal foam
-        let cdist_coast = coast_dist_px(in.uv);
-        let foam_band = 5.0;
-        let foam = clamp(1.0 - cdist_coast / foam_band, 0.0, 1.0);
-        let foam_n = vnoise2d(in.world_pos.xz * 12.0 + vec2<f32>(params.time * 0.4, 0.0));
-        let foam_alpha = foam * smoothstep(0.3, 0.9, foam_n + foam);
-        color = mix(color, vec3<f32>(0.95, 0.97, 1.0), foam_alpha * 0.75);
+        // Coast foam temporarily disabled while shoreline artifacts are fixed.
     }
 
     // 5) Occupation stripes — land only.
@@ -410,12 +396,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let cdist = country_dist_px(in.uv);
 
     // 3.6.2: Coastline emphasis — dark brown line at land/water boundary.
-    let coast_d = coast_dist_px(in.uv);
-    if (!is_water && coast_d < 2.0) {
-        let coast_alpha = 1.0 - smoothstep(0.0, 2.0, coast_d);
-        color = mix(color, vec3<f32>(0.18, 0.12, 0.08), coast_alpha * 0.7);
-    }
-
     // Province borders: lighter gray, fade aggressively with distance.
     var p_alpha = 0.0;
     if (!is_water) {
