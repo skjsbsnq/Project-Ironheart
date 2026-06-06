@@ -495,6 +495,37 @@ pub struct V6Database {
     pub historical_trade_routes: Vec<HistoricalTradeProfileDef>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct V6LoadReport {
+    pub fallbacks: Vec<V6LoadFallback>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct V6LoadFallback {
+    pub path: String,
+    pub target: String,
+    pub reason: String,
+}
+
+impl V6LoadReport {
+    pub fn is_clean(&self) -> bool {
+        self.fallbacks.is_empty()
+    }
+
+    pub fn record_fallback(
+        &mut self,
+        path: impl Into<String>,
+        target: impl Into<String>,
+        reason: impl std::fmt::Display,
+    ) {
+        self.fallbacks.push(V6LoadFallback {
+            path: path.into(),
+            target: target.into(),
+            reason: reason.to_string(),
+        });
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct HistoricalValidationRow {
     pub tag: String,
@@ -542,370 +573,455 @@ impl V6Database {
     }
 
     pub fn load() -> Self {
+        Self::load_with_report().0
+    }
+
+    pub fn load_with_report() -> (Self, V6LoadReport) {
         let mut db = Self::default();
-        db.goods = load_ron::<Vec<GoodDef>>(include_str!("../../content/economy_v6/goods.ron"))
-            .unwrap_or_default();
-        db.buildings = load_ron::<Vec<BuildingDef>>(include_str!(
-            "../../content/economy_v6/buildings/buildings.ron"
+        let mut report = V6LoadReport::default();
+        macro_rules! load_default {
+            ($ty:ty, $path:literal, $target:literal) => {
+                load_ron_or_default::<$ty>(&mut report, $path, $target, include_str!($path))
+            };
+        }
+
+        db.goods = load_default!(Vec<GoodDef>, "../../content/economy_v6/goods.ron", "goods");
+        db.buildings = load_default!(
+            Vec<BuildingDef>,
+            "../../content/economy_v6/buildings/buildings.ron",
+            "buildings"
+        );
+        db.production_methods = load_default!(
+            Vec<ProductionMethodDef>,
+            "../../content/economy_v6/production_methods/resource.ron",
+            "production_methods"
+        );
+        db.production_methods.extend(load_default!(
+            Vec<ProductionMethodDef>,
+            "../../content/economy_v6/production_methods/industrial.ron",
+            "production_methods"
+        ));
+        db.production_methods.extend(load_default!(
+            Vec<ProductionMethodDef>,
+            "../../content/economy_v6/production_methods/agriculture.ron",
+            "production_methods"
+        ));
+        db.production_methods.extend(load_default!(
+            Vec<ProductionMethodDef>,
+            "../../content/economy_v6/production_methods/consumer_goods.ron",
+            "production_methods"
+        ));
+        db.production_methods.extend(load_default!(
+            Vec<ProductionMethodDef>,
+            "../../content/economy_v6/production_methods/service.ron",
+            "production_methods"
+        ));
+        db.production_methods.extend(load_default!(
+            Vec<ProductionMethodDef>,
+            "../../content/economy_v6/production_methods/military.ron",
+            "production_methods"
+        ));
+        db.production_methods.extend(load_default!(
+            Vec<ProductionMethodDef>,
+            "../../content/economy_v6/production_methods/infrastructure.ron",
+            "production_methods"
+        ));
+        db.production_methods.extend(load_default!(
+            Vec<ProductionMethodDef>,
+            "../../content/economy_v6/production_methods/military_base.ron",
+            "production_methods"
+        ));
+        db.conscription_laws = load_default!(
+            Vec<ConscriptionDef>,
+            "../../content/economy_v6/laws/conscription.ron",
+            "conscription_laws"
+        );
+        db.economy_laws = load_default!(
+            Vec<EconomyDef>,
+            "../../content/economy_v6/laws/economy.ron",
+            "economy_laws"
+        );
+        db.trade_laws = load_default!(
+            Vec<TradeDef>,
+            "../../content/economy_v6/laws/trade.ron",
+            "trade_laws"
+        );
+        db.taxation_laws = load_default!(
+            Vec<TaxationDef>,
+            "../../content/economy_v6/laws/taxation.ron",
+            "taxation_laws"
+        );
+        db.civil_rights_laws = load_default!(
+            Vec<CivilRightsDef>,
+            "../../content/economy_v6/laws/civil_rights.ron",
+            "civil_rights_laws"
+        );
+        db.information_control_laws = load_default!(
+            Vec<InformationControlDef>,
+            "../../content/economy_v6/laws/information_control.ron",
+            "information_control_laws"
+        );
+        db.pop_needs = load_ron::<Vec<PopClassNeedsDef>>(include_str!(
+            "../../content/economy_v6/pop_needs.ron"
         ))
-        .unwrap_or_default();
-        db.production_methods = load_ron::<Vec<ProductionMethodDef>>(include_str!(
-            "../../content/economy_v6/production_methods/resource.ron"
-        ))
-        .unwrap_or_default();
-        db.production_methods.extend(
-            load_ron::<Vec<ProductionMethodDef>>(include_str!(
-                "../../content/economy_v6/production_methods/industrial.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.production_methods.extend(
-            load_ron::<Vec<ProductionMethodDef>>(include_str!(
-                "../../content/economy_v6/production_methods/agriculture.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.production_methods.extend(
-            load_ron::<Vec<ProductionMethodDef>>(include_str!(
-                "../../content/economy_v6/production_methods/consumer_goods.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.production_methods.extend(
-            load_ron::<Vec<ProductionMethodDef>>(include_str!(
-                "../../content/economy_v6/production_methods/service.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.production_methods.extend(
-            load_ron::<Vec<ProductionMethodDef>>(include_str!(
-                "../../content/economy_v6/production_methods/military.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.production_methods.extend(
-            load_ron::<Vec<ProductionMethodDef>>(include_str!(
-                "../../content/economy_v6/production_methods/infrastructure.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.production_methods.extend(
-            load_ron::<Vec<ProductionMethodDef>>(include_str!(
-                "../../content/economy_v6/production_methods/military_base.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.conscription_laws = load_ron::<Vec<ConscriptionDef>>(include_str!(
-            "../../content/economy_v6/laws/conscription.ron"
-        ))
-        .unwrap_or_default();
-        db.economy_laws =
-            load_ron::<Vec<EconomyDef>>(include_str!("../../content/economy_v6/laws/economy.ron"))
-                .unwrap_or_default();
-        db.trade_laws =
-            load_ron::<Vec<TradeDef>>(include_str!("../../content/economy_v6/laws/trade.ron"))
-                .unwrap_or_default();
-        db.taxation_laws =
-            load_ron::<Vec<TaxationDef>>(include_str!("../../content/economy_v6/laws/taxation.ron"))
-                .unwrap_or_default();
-        db.civil_rights_laws = load_ron::<Vec<CivilRightsDef>>(include_str!(
-            "../../content/economy_v6/laws/civil_rights.ron"
-        ))
-        .unwrap_or_default();
-        db.information_control_laws = load_ron::<Vec<InformationControlDef>>(include_str!(
-            "../../content/economy_v6/laws/information_control.ron"
-        ))
-        .unwrap_or_default();
-        db.pop_needs =
-            load_ron::<Vec<PopClassNeedsDef>>(include_str!("../../content/economy_v6/pop_needs.ron"))
-                .expect("POP needs must load");
+        .expect("POP needs must load");
         let mut initial_pops: std::collections::HashMap<String, InitialPopsDef> =
             std::collections::HashMap::new();
         // 8 major countries
         initial_pops.insert(
             "GER".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_ger.ron"))
-                .expect("GER POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_ger.ron"
+            ))
+            .expect("GER POPs must load"),
         );
         initial_pops.insert(
             "USA".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_usa.ron"))
-                .expect("USA POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_usa.ron"
+            ))
+            .expect("USA POPs must load"),
         );
         initial_pops.insert(
             "SOV".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_sov.ron"))
-                .expect("SOV POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_sov.ron"
+            ))
+            .expect("SOV POPs must load"),
         );
         initial_pops.insert(
             "ENG".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_eng.ron"))
-                .expect("ENG POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_eng.ron"
+            ))
+            .expect("ENG POPs must load"),
         );
         initial_pops.insert(
             "FRA".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_fra.ron"))
-                .expect("FRA POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_fra.ron"
+            ))
+            .expect("FRA POPs must load"),
         );
         initial_pops.insert(
             "JAP".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_jap.ron"))
-                .expect("JAP POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_jap.ron"
+            ))
+            .expect("JAP POPs must load"),
         );
         initial_pops.insert(
             "ITA".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_ita.ron"))
-                .expect("ITA POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_ita.ron"
+            ))
+            .expect("ITA POPs must load"),
         );
         initial_pops.insert(
             "CHI".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_chi.ron"))
-                .expect("CHI POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_chi.ron"
+            ))
+            .expect("CHI POPs must load"),
         );
         // Colonies / autonomies
         initial_pops.insert(
             "RAJ".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_raj.ron"))
-                .expect("RAJ POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_raj.ron"
+            ))
+            .expect("RAJ POPs must load"),
         );
         initial_pops.insert(
             "CAN".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_can.ron"))
-                .expect("CAN POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_can.ron"
+            ))
+            .expect("CAN POPs must load"),
         );
         initial_pops.insert(
             "AST".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_ast.ron"))
-                .expect("AST POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_ast.ron"
+            ))
+            .expect("AST POPs must load"),
         );
         initial_pops.insert(
             "MAN".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_man.ron"))
-                .expect("MAN POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_man.ron"
+            ))
+            .expect("MAN POPs must load"),
         );
         initial_pops.insert(
             "NZL".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_nzl.ron"))
-                .expect("NZL POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_nzl.ron"
+            ))
+            .expect("NZL POPs must load"),
         );
         initial_pops.insert(
             "SAF".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_saf.ron"))
-                .expect("SAF POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_saf.ron"
+            ))
+            .expect("SAF POPs must load"),
         );
         initial_pops.insert(
             "MAL".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_mal.ron"))
-                .expect("MAL POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_mal.ron"
+            ))
+            .expect("MAL POPs must load"),
         );
         initial_pops.insert(
             "MEN".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_men.ron"))
-                .expect("MEN POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_men.ron"
+            ))
+            .expect("MEN POPs must load"),
         );
         // Phase 3 warehouse-visible 1936 tags.
         initial_pops.insert(
             "AUS".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_aus.ron"))
-                .expect("AUS POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_aus.ron"
+            ))
+            .expect("AUS POPs must load"),
         );
         initial_pops.insert(
             "CZE".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_cze.ron"))
-                .expect("CZE POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_cze.ron"
+            ))
+            .expect("CZE POPs must load"),
         );
         initial_pops.insert(
             "GDC".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_gdc.ron"))
-                .expect("GDC POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_gdc.ron"
+            ))
+            .expect("GDC POPs must load"),
         );
         initial_pops.insert(
             "GXC".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_gxc.ron"))
-                .expect("GXC POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_gxc.ron"
+            ))
+            .expect("GXC POPs must load"),
         );
         initial_pops.insert(
             "HBC".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_hbc.ron"))
-                .expect("HBC POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_hbc.ron"
+            ))
+            .expect("HBC POPs must load"),
         );
         initial_pops.insert(
             "LIT".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_lit.ron"))
-                .expect("LIT POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_lit.ron"
+            ))
+            .expect("LIT POPs must load"),
         );
         initial_pops.insert(
             "POL".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_pol.ron"))
-                .expect("POL POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_pol.ron"
+            ))
+            .expect("POL POPs must load"),
         );
         initial_pops.insert(
             "PRC".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_prc.ron"))
-                .expect("PRC POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_prc.ron"
+            ))
+            .expect("PRC POPs must load"),
         );
         initial_pops.insert(
             "ROM".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_rom.ron"))
-                .expect("ROM POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_rom.ron"
+            ))
+            .expect("ROM POPs must load"),
         );
         initial_pops.insert(
             "SHX".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_shx.ron"))
-                .expect("SHX POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_shx.ron"
+            ))
+            .expect("SHX POPs must load"),
         );
         initial_pops.insert(
             "SIC".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_sic.ron"))
-                .expect("SIC POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_sic.ron"
+            ))
+            .expect("SIC POPs must load"),
         );
         initial_pops.insert(
             "SIK".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_sik.ron"))
-                .expect("SIK POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_sik.ron"
+            ))
+            .expect("SIK POPs must load"),
         );
         initial_pops.insert(
             "SND".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_snd.ron"))
-                .expect("SND POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_snd.ron"
+            ))
+            .expect("SND POPs must load"),
         );
         initial_pops.insert(
             "SPR".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_spr.ron"))
-                .expect("SPR POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_spr.ron"
+            ))
+            .expect("SPR POPs must load"),
         );
         initial_pops.insert(
             "SWE".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_swe.ron"))
-                .expect("SWE POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_swe.ron"
+            ))
+            .expect("SWE POPs must load"),
         );
         initial_pops.insert(
             "TIB".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_tib.ron"))
-                .expect("TIB POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_tib.ron"
+            ))
+            .expect("TIB POPs must load"),
         );
         initial_pops.insert(
             "XAJ".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_xaj.ron"))
-                .expect("XAJ POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_xaj.ron"
+            ))
+            .expect("XAJ POPs must load"),
         );
         initial_pops.insert(
             "XSM".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_xsm.ron"))
-                .expect("XSM POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_xsm.ron"
+            ))
+            .expect("XSM POPs must load"),
         );
         initial_pops.insert(
             "YUN".to_owned(),
-            load_ron::<InitialPopsDef>(include_str!("../../content/economy_v6/pops/initial_yun.ron"))
-                .expect("YUN POPs must load"),
+            load_ron::<InitialPopsDef>(include_str!(
+                "../../content/economy_v6/pops/initial_yun.ron"
+            ))
+            .expect("YUN POPs must load"),
         );
         db.initial_pops = initial_pops;
-        if let Ok(plan) = load_ron::<PyatiletkaDef>(include_str!(
+        match load_ron::<PyatiletkaDef>(include_str!(
             "../../content/economy_v6/pyatiletka/sov_first_plan.ron"
         )) {
-            db.pyatiletka_plans.push(plan);
+            Ok(plan) => db.pyatiletka_plans.push(plan),
+            Err(err) => report.record_fallback(
+                "../../content/economy_v6/pyatiletka/sov_first_plan.ron",
+                "pyatiletka_plans",
+                err,
+            ),
         }
-        if let Ok(plan) = load_ron::<PyatiletkaDef>(include_str!(
+        match load_ron::<PyatiletkaDef>(include_str!(
             "../../content/economy_v6/pyatiletka/sov_second_plan.ron"
         )) {
-            db.pyatiletka_plans.push(plan);
+            Ok(plan) => db.pyatiletka_plans.push(plan),
+            Err(err) => report.record_fallback(
+                "../../content/economy_v6/pyatiletka/sov_second_plan.ron",
+                "pyatiletka_plans",
+                err,
+            ),
         }
 
         // V6.E: load all events_v6 RON files.
-        db.events_v6.extend(
-            load_ron::<Vec<V6EventDef>>(include_str!(
-                "../../content/economy_v6/events_v6/mefo_crisis.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.events_v6.extend(
-            load_ron::<Vec<V6EventDef>>(include_str!(
-                "../../content/economy_v6/events_v6/nationalization.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.events_v6.extend(
-            load_ron::<Vec<V6EventDef>>(include_str!(
-                "../../content/economy_v6/events_v6/mark_devaluation.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.events_v6.extend(
-            load_ron::<Vec<V6EventDef>>(include_str!(
-                "../../content/economy_v6/events_v6/blockade_crisis.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.events_v6.extend(
-            load_ron::<Vec<V6EventDef>>(include_str!(
-                "../../content/economy_v6/events_v6/ger_historical_econ.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.mefo = load_ron::<MefoDef>(include_str!("../../content/economy_v6/finance/mefo.ron"))
-            .unwrap_or_default();
+        db.events_v6.extend(load_default!(
+            Vec<V6EventDef>,
+            "../../content/economy_v6/events_v6/mefo_crisis.ron",
+            "events_v6"
+        ));
+        db.events_v6.extend(load_default!(
+            Vec<V6EventDef>,
+            "../../content/economy_v6/events_v6/nationalization.ron",
+            "events_v6"
+        ));
+        db.events_v6.extend(load_default!(
+            Vec<V6EventDef>,
+            "../../content/economy_v6/events_v6/mark_devaluation.ron",
+            "events_v6"
+        ));
+        db.events_v6.extend(load_default!(
+            Vec<V6EventDef>,
+            "../../content/economy_v6/events_v6/blockade_crisis.ron",
+            "events_v6"
+        ));
+        db.events_v6.extend(load_default!(
+            Vec<V6EventDef>,
+            "../../content/economy_v6/events_v6/ger_historical_econ.ron",
+            "events_v6"
+        ));
+        db.mefo = load_default!(MefoDef, "../../content/economy_v6/finance/mefo.ron", "mefo");
 
         // V6.F: load all technology tree RON files.
-        db.technologies.extend(
-            load_ron::<Vec<TechDef>>(include_str!(
-                "../../content/economy_v6/technologies/industry.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.technologies.extend(
-            load_ron::<Vec<TechDef>>(include_str!(
-                "../../content/economy_v6/technologies/chemistry.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.technologies.extend(
-            load_ron::<Vec<TechDef>>(include_str!(
-                "../../content/economy_v6/technologies/electrical.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.technologies.extend(
-            load_ron::<Vec<TechDef>>(include_str!(
-                "../../content/economy_v6/technologies/metallurgy.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.technologies.extend(
-            load_ron::<Vec<TechDef>>(include_str!(
-                "../../content/economy_v6/technologies/military_doctrine.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.technologies.extend(
-            load_ron::<Vec<TechDef>>(include_str!(
-                "../../content/economy_v6/technologies/aviation.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.technologies.extend(
-            load_ron::<Vec<TechDef>>(include_str!("../../content/economy_v6/technologies/naval.ron"))
-                .unwrap_or_default(),
-        );
-        db.technologies.extend(
-            load_ron::<Vec<TechDef>>(include_str!(
-                "../../content/economy_v6/technologies/social_science.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        db.technologies.extend(
-            load_ron::<Vec<TechDef>>(include_str!(
-                "../../content/economy_v6/technologies/information_control.ron"
-            ))
-            .unwrap_or_default(),
-        );
-        if let Ok(history) = Historical1936Database::load() {
-            db.state_resource_deposits = history.state_deposits;
-            db.state_populations = history.state_populations;
-            db.historical_countries = history.countries;
-            db.historical_trade_routes = history.trade_routes;
+        db.technologies.extend(load_default!(
+            Vec<TechDef>,
+            "../../content/economy_v6/technologies/industry.ron",
+            "technologies"
+        ));
+        db.technologies.extend(load_default!(
+            Vec<TechDef>,
+            "../../content/economy_v6/technologies/chemistry.ron",
+            "technologies"
+        ));
+        db.technologies.extend(load_default!(
+            Vec<TechDef>,
+            "../../content/economy_v6/technologies/electrical.ron",
+            "technologies"
+        ));
+        db.technologies.extend(load_default!(
+            Vec<TechDef>,
+            "../../content/economy_v6/technologies/metallurgy.ron",
+            "technologies"
+        ));
+        db.technologies.extend(load_default!(
+            Vec<TechDef>,
+            "../../content/economy_v6/technologies/military_doctrine.ron",
+            "technologies"
+        ));
+        db.technologies.extend(load_default!(
+            Vec<TechDef>,
+            "../../content/economy_v6/technologies/aviation.ron",
+            "technologies"
+        ));
+        db.technologies.extend(load_default!(
+            Vec<TechDef>,
+            "../../content/economy_v6/technologies/naval.ron",
+            "technologies"
+        ));
+        db.technologies.extend(load_default!(
+            Vec<TechDef>,
+            "../../content/economy_v6/technologies/social_science.ron",
+            "technologies"
+        ));
+        db.technologies.extend(load_default!(
+            Vec<TechDef>,
+            "../../content/economy_v6/technologies/information_control.ron",
+            "technologies"
+        ));
+        match Historical1936Database::load() {
+            Ok(history) => {
+                db.state_resource_deposits = history.state_deposits;
+                db.state_populations = history.state_populations;
+                db.historical_countries = history.countries;
+                db.historical_trade_routes = history.trade_routes;
+            }
+            Err(err) => report.record_fallback("content/history_1936", "history_1936", err),
         }
 
-        db
+        (db, report)
     }
 
     /// Assert key V6 IDs do not conflict with vanilla IDs.
@@ -994,6 +1110,24 @@ pub fn historical_validation_table(world: &World, db: &V6Database) -> Vec<Histor
 
 fn load_ron<T: serde::de::DeserializeOwned>(s: &str) -> Result<T, ron::error::SpannedError> {
     ron::from_str(s)
+}
+
+fn load_ron_or_default<T>(
+    report: &mut V6LoadReport,
+    path: &'static str,
+    target: &'static str,
+    source: &str,
+) -> T
+where
+    T: serde::de::DeserializeOwned + Default,
+{
+    match load_ron::<T>(source) {
+        Ok(value) => value,
+        Err(err) => {
+            report.record_fallback(path, target, err);
+            T::default()
+        }
+    }
 }
 
 // V6 to World injection.
@@ -4085,6 +4219,21 @@ mod tests {
         assert!(
             !db.state_populations.is_empty(),
             "state population profiles should load"
+        );
+    }
+
+    #[test]
+    fn v6_load_report_records_bad_ron_fallback() {
+        let mut report = V6LoadReport::default();
+        let values = load_ron_or_default::<Vec<String>>(&mut report, "bad.ron", "bad_target", "(");
+
+        assert!(values.is_empty(), "bad RON should fall back to default");
+        assert_eq!(report.fallbacks.len(), 1);
+        assert_eq!(report.fallbacks[0].path, "bad.ron");
+        assert_eq!(report.fallbacks[0].target, "bad_target");
+        assert!(
+            !report.fallbacks[0].reason.is_empty(),
+            "fallback should preserve the parse error"
         );
     }
 
