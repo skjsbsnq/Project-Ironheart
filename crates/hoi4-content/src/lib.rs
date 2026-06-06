@@ -13,6 +13,7 @@ pub mod focus_tick;
 pub mod registry;
 pub mod situation;
 pub mod surrender;
+pub mod v6;
 pub mod v6_loader;
 pub mod v7_history_loader;
 pub mod validate;
