@@ -54,6 +54,7 @@ use text_pass::{TextAlign, TextPass, TextSize};
 mod glyphon_text;
 
 mod app_shell;
+mod app_helpers;
 mod binding;
 mod bootstrap;
 mod content_bootstrap;
@@ -79,6 +80,12 @@ mod runtime;
 mod ui_binding;
 mod update_loop;
 use flag_bank::FlagBank;
+use app_helpers::{
+    decision_id_matches_player_tag, estimate_construction_days_remaining, event_modal_sound,
+    intervention_expected_impact, map_mode_from_capture_name, map_mode_terrain_blend_for,
+    postprocess_lut_selection_for, surrender_notification_sound_key,
+    terrain_debug_view_for_baseline_layer,
+};
 use hoi4_app::ui_data::cache::{UiPanelCache, UiPanelCacheKind};
 use hoi4_app::ui_data::names::localized_content_name;
 pub use hoi4_app::vanilla_resource_views;
@@ -94,8 +101,8 @@ use menu_scene::MenuKind;
 use panel_pass::PanelPass;
 use passes::{
     ColorCubeSource, DebugOverlay, GlobalUniformBuffer, HdrTarget, PassRegistry, PostProcessChain,
-    PostProcessDebugView, PostProcessLutSelection, PostProcessMode, SimpleBlitPass, TerrainPass,
-    WaterRefractionPass, WaterRefractionTarget, HDR_FORMAT,
+    PostProcessDebugView, PostProcessMode, SimpleBlitPass, TerrainPass, WaterRefractionPass,
+    WaterRefractionTarget, HDR_FORMAT,
 };
 use render_state::RenderState;
 use vanilla_resource_views::VanillaResourceViews;
@@ -9193,60 +9200,6 @@ fn finish_png_readback(device: &wgpu::Device, pending: PendingPngReadback) -> Re
     Ok(())
 }
 
-fn estimate_construction_days_remaining(progress: f32, cost: f32) -> Option<u32> {
-    if cost <= 0.0 || progress < 0.0 {
-        return None;
-    }
-    let completion = (progress / cost).clamp(0.0, 1.0);
-    if completion >= 1.0 {
-        return Some(0);
-    }
-    Some(((1.0 - completion) * 100.0).ceil().max(1.0) as u32)
-}
-
-fn postprocess_lut_selection_for(
-    _camera: &Camera,
-    _world: &hoi4_state::World,
-    _map_space: &VanillaMapSpace,
-) -> PostProcessLutSelection {
-    // Stable Phase B default: keep the restore LUT on the source-backed
-    // close-land day path until posteffect volume classification is mirrored.
-    // Camera distance, screen-sampled water ratio, and camera-longitude night
-    // factors made the entire frame switch LUTs while panning/zooming.
-    PostProcessLutSelection {
-        camera_distance_t: 0.0,
-        night_factor: 0.0,
-        water_factor: 0.0,
-        winter_factor: 0.0,
-    }
-}
-
-fn intervention_expected_impact(
-    progress_boost: f32,
-    army_xp: f32,
-    air_xp: f32,
-    cooldown_days: u32,
-) -> String {
-    let mut parts = Vec::new();
-    if progress_boost.abs() > f32::EPSILON {
-        parts.push(format!("????????? +{:.0}", progress_boost));
-    }
-    if army_xp > 0.0 {
-        parts.push(format!("?????? +{:.0}", army_xp));
-    }
-    if air_xp > 0.0 {
-        parts.push(format!("?????? +{:.0}", air_xp));
-    }
-    if cooldown_days > 0 {
-        parts.push(format!("Cooldown {} days", cooldown_days));
-    }
-    if parts.is_empty() {
-        "Unknown".to_owned()
-    } else {
-        parts.join(", ")
-    }
-}
-
 fn add_manpower_to_pops(world: &mut World, country: CountryId, amount: u64) {
     let state_ids = world.country_state_ids(country);
     let indices = world
@@ -9338,13 +9291,6 @@ fn load_loc_catalog_for_language(
         );
     }
     loc_catalog
-}
-
-fn decision_id_matches_player_tag(decision_id: &str, player_tag_lower: &str) -> bool {
-    let Some((prefix, _)) = decision_id.split_once('.') else {
-        return true;
-    };
-    prefix.eq_ignore_ascii_case(player_tag_lower)
 }
 
 /// Build the country selection list.
@@ -11236,80 +11182,6 @@ fn upload_lut_span(
             depth_or_array_layers: 1,
         },
     );
-}
-
-fn event_modal_sound(event: &hoi4_content::Event) -> UiSound {
-    if matches!(event.scope, hoi4_content::EventScope::News) {
-        let id = event.id.as_str();
-        if id.contains("outbreak")
-            || id.contains("declare_war")
-            || id.contains("declaration")
-            || id.contains("war_begins")
-        {
-            UiSound::WarDeclaration
-        } else {
-            UiSound::WorldNews
-        }
-    } else {
-        UiSound::EventPopup
-    }
-}
-
-fn map_mode_from_capture_name(name: &str) -> MapMode {
-    match name {
-        "terrain" => MapMode::Terrain,
-        "manpower" => MapMode::Manpower,
-        "factories" => MapMode::Factories,
-        "cores" => MapMode::Cores,
-        "infrastructure" => MapMode::Infrastructure,
-        "ideology" => MapMode::Ideology,
-        "supply" => MapMode::Supply,
-        "resistance" => MapMode::Resistance,
-        _ => MapMode::Political,
-    }
-}
-
-fn map_mode_terrain_blend_for(map_mode: MapMode) -> f32 {
-    match map_mode {
-        MapMode::Political => 0.32,
-        MapMode::Terrain => 0.88,
-        _ => 0.52,
-    }
-}
-
-fn terrain_debug_view_for_baseline_layer(
-    layer: map_baseline::MapBaselineLayer,
-) -> passes::TerrainDebugView {
-    match layer {
-        map_baseline::MapBaselineLayer::ProvinceSecondaryDebug => {
-            passes::TerrainDebugView::ProvinceSecondary
-        }
-        map_baseline::MapBaselineLayer::GradientBorderCh3Debug => {
-            passes::TerrainDebugView::GradientBorderCh3
-        }
-        map_baseline::MapBaselineLayer::TerrainRiverMaskDebug => {
-            passes::TerrainDebugView::RiverMask
-        }
-        map_baseline::MapBaselineLayer::FowVisibilityDebug => {
-            passes::TerrainDebugView::FowVisibility
-        }
-        map_baseline::MapBaselineLayer::TerrainFinalBeforePostprocessDebug => {
-            passes::TerrainDebugView::FinalBeforePostprocess
-        }
-        _ => passes::TerrainDebugView::Off,
-    }
-}
-
-fn surrender_notification_sound_key(
-    notification: &hoi4_ui::surrender_notification::SurrenderNotification,
-) -> String {
-    format!(
-        "{}:{}:{:?}:{}",
-        notification.winner_tag,
-        notification.target_tag,
-        notification.kind,
-        notification.results.len()
-    )
 }
 
 fn main() {
