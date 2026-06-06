@@ -34,7 +34,7 @@ pub(crate) struct CombatBubbleSnapshot {
 
 impl App {
     pub(crate) fn collect_combat_bubbles(&self) -> Vec<CombatBubbleSnapshot> {
-        if self.game_phase != GamePhase::Playing {
+        if self.view.game_phase != GamePhase::Playing {
             return Vec::new();
         }
         let Some(state) = self.state.as_ref() else {
@@ -44,7 +44,7 @@ impl App {
         let screen_w = state.config.width as f32 / dpi.max(0.0001);
         let screen_h = state.config.height as f32 / dpi.max(0.0001);
         let view_proj = self.camera.view_proj();
-        let player = hoi4_state::CountryId(self.player_country as u16);
+        let player = hoi4_state::CountryId(self.view.player_country as u16);
         let mut seen = HashSet::new();
         let mut bubbles = Vec::new();
 

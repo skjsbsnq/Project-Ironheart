@@ -16,9 +16,9 @@ impl App {
         // clicked province still gets the shader pulse; this LUT tint makes the
         // administrative state boundary readable without adding another pass.
         for pid in self
-            .selected_province_ids
+            .interaction.selected_province_ids
             .iter()
-            .chain(self.construction_highlight_province_ids.iter())
+            .chain(self.ui_state.construction_highlight_province_ids.iter())
         {
             let o = *pid as usize * 4;
             if o + 3 < padded.len() {
@@ -34,8 +34,8 @@ impl App {
     }
 
     pub(crate) fn player_country_id(&self) -> Option<hoi4_state::CountryId> {
-        if self.player_country < self.world.countries.count {
-            Some(hoi4_state::CountryId(self.player_country as u16))
+        if self.view.player_country < self.world.countries.count {
+            Some(hoi4_state::CountryId(self.view.player_country as u16))
         } else {
             None
         }
@@ -48,8 +48,8 @@ impl App {
     ) -> [u8; 4] {
         let mut entry = color_lut_entry(&self.world, self.map_mode, player_cid, province_idx);
         let pid = province_idx as u32;
-        if self.selected_province_ids.contains(&pid)
-            || self.construction_highlight_province_ids.contains(&pid)
+        if self.interaction.selected_province_ids.contains(&pid)
+            || self.ui_state.construction_highlight_province_ids.contains(&pid)
         {
             entry[0] = entry[0].saturating_add(42);
             entry[1] = entry[1].saturating_add(32);
@@ -189,17 +189,17 @@ impl App {
             );
         }
         // Now refresh the LUT
-        let player_cid = if self.player_country < self.world.countries.count {
-            Some(hoi4_state::CountryId(self.player_country as u16))
+        let player_cid = if self.view.player_country < self.world.countries.count {
+            Some(hoi4_state::CountryId(self.view.player_country as u16))
         } else {
             None
         };
         let lut_data = build_color_lut(&self.world, self.map_mode, player_cid);
         let mut padded = lut_data;
         for pid in self
-            .selected_province_ids
+            .interaction.selected_province_ids
             .iter()
-            .chain(self.construction_highlight_province_ids.iter())
+            .chain(self.ui_state.construction_highlight_province_ids.iter())
         {
             let o = *pid as usize * 4;
             if o + 3 < padded.len() {

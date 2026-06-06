@@ -313,8 +313,8 @@ impl App {
         });
 
         // Color LUT - 2D texture, 256 wide
-        let player_cid = if self.player_country < self.world.countries.count {
-            Some(hoi4_state::CountryId(self.player_country as u16))
+        let player_cid = if self.view.player_country < self.world.countries.count {
+            Some(hoi4_state::CountryId(self.view.player_country as u16))
         } else {
             None
         };
@@ -1324,7 +1324,7 @@ impl App {
             &device,
             config.width,
             config.height,
-            self.map_quality_preset,
+            self.render_toggles.map_quality_preset,
         );
 
         // P5 vanilla pdxwater pass. Reuses the same per-LOD instance buffers as
@@ -1347,7 +1347,7 @@ impl App {
                 water_refraction_view: &water_refraction_target.view,
                 water_refraction_sampler: &water_refraction_target.sampler,
                 refraction_available: true,
-                quality_preset: self.map_quality_preset,
+                quality_preset: self.render_toggles.map_quality_preset,
             },
         );
         println!(
@@ -1634,8 +1634,8 @@ impl App {
         let gpu_profiler = GpuTimestampProfiler::new(&device, &queue);
         println!(
             "[phase10] quality={} budget={:?} gpu_timestamp={}",
-            self.map_quality_preset.as_str(),
-            self.map_quality_preset.budget(),
+            self.render_toggles.map_quality_preset.as_str(),
+            self.render_toggles.map_quality_preset.budget(),
             gpu_profiler
                 .as_ref()
                 .map(|profiler| profiler.status())
@@ -1859,7 +1859,7 @@ impl App {
         });
 
         // Apply fullscreen setting after render state initialization.
-        if self.settings.fullscreen {
+        if self.ui_state.settings.fullscreen {
             if let Some(s) = self.state.as_ref() {
                 s.window.set_fullscreen(Some(Fullscreen::Borderless(None)));
             }

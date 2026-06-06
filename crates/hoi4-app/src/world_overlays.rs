@@ -28,9 +28,9 @@ impl App {
     /// development and during the main-menu phase).
     fn counter_visibility_signature(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        self.game_phase.hash(&mut h);
-        self.settings.show_all_units.hash(&mut h);
-        self.player_country.hash(&mut h);
+        self.view.game_phase.hash(&mut h);
+        self.ui_state.settings.show_all_units.hash(&mut h);
+        self.view.player_country.hash(&mut h);
         (self.world.elapsed_hours / 24).hash(&mut h);
         self.world.provinces.count.hash(&mut h);
         self.world.divisions.count.hash(&mut h);
@@ -40,9 +40,9 @@ impl App {
     }
 
     fn cached_counter_visibility(&mut self) -> (Option<HashSet<CountryId>>, Option<HashSet<u16>>) {
-        if self.game_phase != GamePhase::Playing
-            || self.settings.show_all_units
-            || self.player_country >= self.world.countries.count
+        if self.view.game_phase != GamePhase::Playing
+            || self.ui_state.settings.show_all_units
+            || self.view.player_country >= self.world.countries.count
         {
             self.counter_visibility_cache.valid = false;
             return (None, None);
@@ -56,7 +56,7 @@ impl App {
             );
         }
 
-        let player = CountryId(self.player_country as u16);
+        let player = CountryId(self.view.player_country as u16);
         let visible = Some(hoi4_render::units::visibility::visible_countries(
             &self.world,
             player,
@@ -197,7 +197,7 @@ impl App {
             self.cached_hoi3_counter_sig = 0;
             self.cached_hoi3_counter_layout_sig = 0;
             self.cached_hoi3_counter_layout_offsets.clear();
-            self.perf_counter_instances = 0;
+            self.perf.counter_instances = 0;
             self._cached_hoi3_counter_upload.clear();
             self._cached_hoi3_hit_regions.clear();
             return;
@@ -205,16 +205,16 @@ impl App {
 
         let sig = self.hoi3_counter_signature(world_objects);
         if sig == self.cached_hoi3_counter_sig {
-            self.perf_counter_cache_hits = self.perf_counter_cache_hits.saturating_add(1);
+            self.perf.counter_cache_hits = self.perf.counter_cache_hits.saturating_add(1);
             return;
         }
 
         self.cached_hoi3_counter_sig = sig;
-        self.perf_counter_rebuilds = self.perf_counter_rebuilds.saturating_add(1);
+        self.perf.counter_rebuilds = self.perf.counter_rebuilds.saturating_add(1);
 
         let (visible, spotted) = self.cached_counter_visibility();
-        let player = if self.player_country < self.world.countries.count {
-            hoi4_state::CountryId(self.player_country as u16)
+        let player = if self.view.player_country < self.world.countries.count {
+            hoi4_state::CountryId(self.view.player_country as u16)
         } else {
             hoi4_state::CountryId::NONE
         };
@@ -223,7 +223,7 @@ impl App {
             Some(s) => s.unit_counter_centroids.clone(),
             None => return,
         };
-        let mut counter_selected_province_ids = self.selected_province_ids.clone();
+        let mut counter_selected_province_ids = self.interaction.selected_province_ids.clone();
         if self.selected_province_id != u32::MAX {
             counter_selected_province_ids.insert(self.selected_province_id);
         }
@@ -325,22 +325,22 @@ impl App {
         self._cached_hoi3_hit_regions = build_hit_regions(&layout_counters);
 
         // CR-4.4: Fan-out expanded stacks
-        if !self.expanded_stacks.is_empty() {
+        if !self.interaction.expanded_stacks.is_empty() {
             let mut expanded_counters: Vec<Hoi3CounterInstance> = Vec::new();
             for c in counters.iter() {
                 let pid = c.province_id() as u32;
                 if (c.flags & flag_bits::IS_UNDERLAY) != 0 {
                     // Skip underlays of expanded parents
-                    if self.expanded_stacks.contains(&pid) {
+                    if self.interaction.expanded_stacks.contains(&pid) {
                         continue;
                     }
                     expanded_counters.push(*c);
                     continue;
                 }
-                if self.expanded_stacks.contains(&pid) && c.stack_count > 1 {
+                if self.interaction.expanded_stacks.contains(&pid) && c.stack_count > 1 {
                     // Fan out: generate one child per division in this province
                     let child_size = [c.size[0] * 0.85, c.size[1] * 0.85];
-                    let player_cid = hoi4_state::CountryId(self.player_country as u16);
+                    let player_cid = hoi4_state::CountryId(self.view.player_country as u16);
                     let prov = hoi4_state::ProvinceId(pid as u16);
                     let mut offset_x = 0.0f32;
                     for di in 0..self.world.divisions.count {
@@ -396,7 +396,7 @@ impl App {
             view_proj_uniform,
             time_secs,
         );
-        self.perf_counter_instances = counters.len();
+        self.perf.counter_instances = counters.len();
         self._cached_hoi3_counter_upload = counters;
         self.refresh_cached_hoi3_counter_screen_positions(&view_proj, sw, sh, time_secs);
     }
@@ -491,19 +491,19 @@ impl App {
         screen_h: f32,
     ) -> u64 {
         let mut h = DefaultHasher::new();
-        self.game_phase.hash(&mut h);
-        self.player_country.hash(&mut h);
-        self.settings.show_all_units.hash(&mut h);
+        self.view.game_phase.hash(&mut h);
+        self.view.player_country.hash(&mut h);
+        self.ui_state.settings.show_all_units.hash(&mut h);
         ((self.camera.distance * 4.0) as i32).hash(&mut h);
         ((screen_w / 4.0) as i32).hash(&mut h);
         ((screen_h / 4.0) as i32).hash(&mut h);
-        self.selected_province_ids.len().hash(&mut h);
-        for pid in &self.selected_province_ids {
+        self.interaction.selected_province_ids.len().hash(&mut h);
+        for pid in &self.interaction.selected_province_ids {
             pid.hash(&mut h);
         }
         self.hovered_province_id.hash(&mut h);
-        self.expanded_stacks.len().hash(&mut h);
-        for pid in &self.expanded_stacks {
+        self.interaction.expanded_stacks.len().hash(&mut h);
+        for pid in &self.interaction.expanded_stacks {
             pid.hash(&mut h);
         }
         keys.hash(&mut h);
@@ -516,8 +516,8 @@ impl App {
 
     fn hoi3_counter_signature(&self, world_objects: WorldObjectPlan) -> u64 {
         let mut h = DefaultHasher::new();
-        self.game_phase.hash(&mut h);
-        self.player_country.hash(&mut h);
+        self.view.game_phase.hash(&mut h);
+        self.view.player_country.hash(&mut h);
         ((self.camera.distance * 2.0) as i32).hash(&mut h);
         if let Some(s) = self.state.as_ref() {
             ((s.config.width as f32 / 4.0) as i32).hash(&mut h);
@@ -528,10 +528,10 @@ impl App {
         ((world_objects.counters.scale * 100.0) as i32).hash(&mut h);
         ((world_objects.counters.opacity * 100.0) as i32).hash(&mut h);
         ((world_objects.counter_layout_density * 100.0) as i32).hash(&mut h);
-        for pid in &self.selected_province_ids {
+        for pid in &self.interaction.selected_province_ids {
             pid.hash(&mut h);
         }
-        for pid in &self.expanded_stacks {
+        for pid in &self.interaction.expanded_stacks {
             pid.hash(&mut h);
         }
         self.world.divisions.count.hash(&mut h);
@@ -554,13 +554,13 @@ impl App {
 
     fn frontline_arrow_signature(&self) -> u64 {
         let mut h = DefaultHasher::new();
-        self.game_phase.hash(&mut h);
-        self.player_country.hash(&mut h);
-        self.settings.show_all_units.hash(&mut h);
-        self.settings.hide_ai_frontlines.hash(&mut h);
-        self.frontline_overlay_visible.hash(&mut h);
+        self.view.game_phase.hash(&mut h);
+        self.view.player_country.hash(&mut h);
+        self.ui_state.settings.show_all_units.hash(&mut h);
+        self.ui_state.settings.hide_ai_frontlines.hash(&mut h);
+        self.render_toggles.frontline_overlay_visible.hash(&mut h);
 
-        match self.frontline_painter.mode {
+        match self.interaction.frontline_painter.mode {
             PainterMode::Idle => 0u8.hash(&mut h),
             PainterMode::ArmyPainter(id) => {
                 1u8.hash(&mut h);
@@ -572,7 +572,7 @@ impl App {
                 anchor.hash(&mut h);
             }
         }
-        self.frontline_painter.samples.hash(&mut h);
+        self.interaction.frontline_painter.samples.hash(&mut h);
 
         self.world.player_armies.len().hash(&mut h);
         for army in &self.world.player_armies {
@@ -596,9 +596,9 @@ impl App {
             }
         }
 
-        self.selected_divisions.hash(&mut h);
+        self.interaction.selected_divisions.hash(&mut h);
         self.world.divisions.count.hash(&mut h);
-        for &div_idx in &self.selected_divisions {
+        for &div_idx in &self.interaction.selected_divisions {
             div_idx.hash(&mut h);
             if div_idx < self.world.divisions.count {
                 self.world.divisions.owners[div_idx].hash(&mut h);
@@ -614,7 +614,7 @@ impl App {
         let Some(state) = self.state.as_ref() else {
             return Vec::new();
         };
-        let painter_frontline_owner = match self.frontline_painter.mode {
+        let painter_frontline_owner = match self.interaction.frontline_painter.mode {
             PainterMode::ArmyPainter(army_id) => self
                 .world
                 .player_armies
@@ -625,12 +625,12 @@ impl App {
         };
         render_collect::collect_order_arrows(
             &self.world,
-            self.player_country,
-            self.settings.show_all_units,
-            self.settings.hide_ai_frontlines,
-            self.frontline_overlay_visible,
-            &self.selected_divisions,
-            &self.frontline_painter.samples,
+            self.view.player_country,
+            self.ui_state.settings.show_all_units,
+            self.ui_state.settings.hide_ai_frontlines,
+            self.render_toggles.frontline_overlay_visible,
+            &self.interaction.selected_divisions,
+            &self.interaction.frontline_painter.samples,
             painter_frontline_owner,
             &state.unit_counter_centroids,
             &state.province_pixel_bounds,
@@ -639,17 +639,17 @@ impl App {
 
     pub(crate) fn update_frontline_arrows(&mut self) {
         let force_rebuild =
-            self.prev_armies_hash == 0 || self.frontline_painter.mode != PainterMode::Idle;
-        if !self.high_speed_visual_rebuild_due(self.last_frontline_arrow_rebuild_at, force_rebuild)
+            self.render_toggles.prev_armies_hash == 0 || self.interaction.frontline_painter.mode != PainterMode::Idle;
+        if !self.high_speed_visual_rebuild_due(self.render_toggles.last_frontline_arrow_rebuild_at, force_rebuild)
         {
             return;
         }
         let sig = self.frontline_arrow_signature();
-        if sig == self.prev_armies_hash {
+        if sig == self.render_toggles.prev_armies_hash {
             return;
         }
-        self.prev_armies_hash = sig;
-        self.last_frontline_arrow_rebuild_at = Instant::now();
+        self.render_toggles.prev_armies_hash = sig;
+        self.render_toggles.last_frontline_arrow_rebuild_at = Instant::now();
 
         let arrows = self.collect_order_arrows();
         let s = match self.state.as_mut() {
@@ -661,10 +661,10 @@ impl App {
 
     pub(crate) fn update_trade_routes_overlay(&mut self) {
         let sig = map_trade_routes::signature(&self.world);
-        if sig == self.trade_routes_hash {
+        if sig == self.render_toggles.trade_routes_hash {
             return;
         }
-        self.trade_routes_hash = sig;
+        self.render_toggles.trade_routes_hash = sig;
 
         let centroids = match self.state.as_ref() {
             Some(s) => s.unit_counter_centroids.clone(),
@@ -707,18 +707,18 @@ impl App {
         {
             return;
         }
-        let force_rebuild = self.frontline_overlay_hash == 0;
+        let force_rebuild = self.render_toggles.frontline_overlay_hash == 0;
         if !self
-            .high_speed_visual_rebuild_due(self.last_frontline_overlay_rebuild_at, force_rebuild)
+            .high_speed_visual_rebuild_due(self.render_toggles.last_frontline_overlay_rebuild_at, force_rebuild)
         {
             return;
         }
         let sig = self.frontline_overlay_signature();
-        if sig == self.frontline_overlay_hash {
+        if sig == self.render_toggles.frontline_overlay_hash {
             return;
         }
-        self.frontline_overlay_hash = sig;
-        self.last_frontline_overlay_rebuild_at = Instant::now();
+        self.render_toggles.frontline_overlay_hash = sig;
+        self.render_toggles.last_frontline_overlay_rebuild_at = Instant::now();
 
         let centroids = match self.state.as_ref() {
             Some(s) => s.unit_counter_centroids.clone(),
@@ -755,8 +755,8 @@ impl App {
     }
 
     pub(crate) fn effective_render_quality_preset(&self, now: Instant) -> MapQualityPreset {
-        let Some(last_interaction_at) = self.last_viewport_interaction_at else {
-            return self.map_quality_preset;
+        let Some(last_interaction_at) = self.render_toggles.last_viewport_interaction_at else {
+            return self.render_toggles.map_quality_preset;
         };
         let high_speed_interaction =
             matches!(self.world.speed, GameSpeed::Speed4 | GameSpeed::Speed5)
@@ -766,13 +766,13 @@ impl App {
                     <= INTERACTIVE_RENDER_QUALITY_HOLD_SECS;
         if high_speed_interaction
             && matches!(
-                self.map_quality_preset,
+                self.render_toggles.map_quality_preset,
                 MapQualityPreset::High | MapQualityPreset::Ultra
             )
         {
             MapQualityPreset::LowEnd
         } else {
-            self.map_quality_preset
+            self.render_toggles.map_quality_preset
         }
     }
 }

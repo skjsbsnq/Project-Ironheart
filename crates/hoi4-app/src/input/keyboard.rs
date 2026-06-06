@@ -15,35 +15,35 @@ impl App {
                     self.keys_held.insert(code);
                     let mut changed = false;
                     match code {
-                        KeyCode::Escape => match self.game_phase {
+                        KeyCode::Escape => match self.view.game_phase {
                             GamePhase::MainMenu => event_loop.exit(),
                             GamePhase::CountrySelect => {
-                                self.game_phase = GamePhase::MainMenu;
+                                self.view.game_phase = GamePhase::MainMenu;
                                 self.reset_menu_state();
                             }
                             GamePhase::Playing => {
-                                if self.frontline_painter.mode != PainterMode::Idle {
-                                    self.frontline_painter.mode = PainterMode::Idle;
-                                    self.frontline_painter.samples.clear();
+                                if self.interaction.frontline_painter.mode != PainterMode::Idle {
+                                    self.interaction.frontline_painter.mode = PainterMode::Idle;
+                                    self.interaction.frontline_painter.samples.clear();
                                     changed = true;
-                                } else if self.construction_mode.is_some() {
+                                } else if self.ui_state.construction_mode.is_some() {
                                     self.exit_construction_mode();
                                     self.refresh_lut();
                                     changed = true;
-                                } else if self.counter_right_click_province.is_some() {
-                                    self.counter_right_click_province = None;
-                                    self.pending_move_command = false;
+                                } else if self.interaction.counter_right_click_province.is_some() {
+                                    self.interaction.counter_right_click_province = None;
+                                    self.interaction.pending_move_command = false;
                                     changed = true;
-                                } else if !self.expanded_stacks.is_empty() {
-                                    self.expanded_stacks.clear();
+                                } else if !self.interaction.expanded_stacks.is_empty() {
+                                    self.interaction.expanded_stacks.clear();
                                     changed = true;
-                                } else if self.active_popup.is_some() {
-                                    self.active_popup = None;
+                                } else if self.ui_state.active_popup.is_some() {
+                                    self.ui_state.active_popup = None;
                                     changed = true;
-                                } else if self.active_detail_panel.is_some() {
-                                    self.active_detail_panel = None;
+                                } else if self.ui_state.active_detail_panel.is_some() {
+                                    self.ui_state.active_detail_panel = None;
                                     changed = true;
-                                } else if self.open_panel.is_some() {
+                                } else if self.ui_state.open_panel.is_some() {
                                     self.close_primary_panel();
                                     changed = true;
                                 } else {
@@ -52,14 +52,14 @@ impl App {
                             }
                         },
                         KeyCode::Enter | KeyCode::NumpadEnter => {
-                            match self.game_phase {
+                            match self.view.game_phase {
                                 GamePhase::MainMenu => {
-                                    self.game_phase = GamePhase::CountrySelect;
+                                    self.view.game_phase = GamePhase::CountrySelect;
                                     self.reset_menu_state();
                                 }
                                 GamePhase::CountrySelect => {
                                     let entry =
-                                        self.available_countries.get(self.country_select_idx);
+                                        self.view.available_countries.get(self.view.country_select_idx);
                                     let enabled = entry.map(|e| e.enabled).unwrap_or(false);
                                     if !enabled {
                                         println!(
@@ -69,12 +69,12 @@ impl App {
                                     } else {
                                         let tag = entry.unwrap().tag.clone();
                                         self.set_player_country_by_tag(&tag);
-                                        self.game_phase = GamePhase::Playing;
+                                        self.view.game_phase = GamePhase::Playing;
                                         self.world.speed = GameSpeed::Paused;
                                         self.reset_menu_state();
                                         println!(
                                             "[game] Playing as {} (world index {})",
-                                            tag, self.player_country
+                                            tag, self.view.player_country
                                         );
                                     }
                                 }
@@ -82,21 +82,21 @@ impl App {
                             }
                             changed = true;
                         }
-                        KeyCode::ArrowUp if self.game_phase == GamePhase::CountrySelect => {
-                            if self.country_select_idx > 0 {
-                                self.country_select_idx -= 1;
+                        KeyCode::ArrowUp if self.view.game_phase == GamePhase::CountrySelect => {
+                            if self.view.country_select_idx > 0 {
+                                self.view.country_select_idx -= 1;
                             }
                             changed = true;
                         }
-                        KeyCode::ArrowDown if self.game_phase == GamePhase::CountrySelect => {
-                            if self.country_select_idx + 1 < self.available_countries.len() {
-                                self.country_select_idx += 1;
+                        KeyCode::ArrowDown if self.view.game_phase == GamePhase::CountrySelect => {
+                            if self.view.country_select_idx + 1 < self.view.available_countries.len() {
+                                self.view.country_select_idx += 1;
                             }
                             changed = true;
                         }
                         KeyCode::F1 => {
-                            self.debug_overlay = !self.debug_overlay;
-                            debug_commands::log_bool_toggle("gui overlay", self.debug_overlay);
+                            self.render_toggles.debug_overlay = !self.render_toggles.debug_overlay;
+                            debug_commands::log_bool_toggle("gui overlay", self.render_toggles.debug_overlay);
                             changed = true;
                         }
                         KeyCode::F2 => {
@@ -133,10 +133,10 @@ impl App {
                                 let shift_held = self.keys_held.contains(&KeyCode::ShiftLeft)
                                     || self.keys_held.contains(&KeyCode::ShiftRight);
                                 if shift_held {
-                                    self.postprocess_debug_view = s.post_process.cycle_debug_view();
+                                    self.render_toggles.postprocess_debug_view = s.post_process.cycle_debug_view();
                                     debug_commands::log_value(
                                         "post-process debug view",
-                                        self.postprocess_debug_view.name(),
+                                        self.render_toggles.postprocess_debug_view.name(),
                                     );
                                 } else {
                                     s.post_process.mode = match s.post_process.mode {
@@ -152,18 +152,18 @@ impl App {
                             changed = true;
                         }
                         KeyCode::F6 => {
-                            self.terrain_debug_view = self.terrain_debug_view.next();
+                            self.render_toggles.terrain_debug_view = self.render_toggles.terrain_debug_view.next();
                             debug_commands::log_value(
                                 "terrain debug view",
-                                self.terrain_debug_view.name(),
+                                self.render_toggles.terrain_debug_view.name(),
                             );
                             changed = true;
                         }
                         KeyCode::F7 => {
-                            self.show_province_names = !self.show_province_names;
+                            self.render_toggles.show_province_names = !self.render_toggles.show_province_names;
                             debug_commands::log_bool_toggle(
                                 "province names",
-                                self.show_province_names,
+                                self.render_toggles.show_province_names,
                             );
                             changed = true;
                         }
@@ -171,12 +171,12 @@ impl App {
                             let shift_held = self.keys_held.contains(&KeyCode::ShiftLeft)
                                 || self.keys_held.contains(&KeyCode::ShiftRight);
                             if shift_held {
-                                self.map_quality_preset = self.map_quality_preset.next();
+                                self.render_toggles.map_quality_preset = self.render_toggles.map_quality_preset.next();
                                 if let Some(s) = &mut self.state {
-                                    let water_target_quality = if self.force_water_pass {
+                                    let water_target_quality = if self.render_toggles.force_water_pass {
                                         MapQualityPreset::High
                                     } else {
-                                        self.map_quality_preset
+                                        self.render_toggles.map_quality_preset
                                     };
                                     s.water_refraction_target = WaterRefractionTarget::for_quality(
                                         &s.device,
@@ -200,7 +200,7 @@ impl App {
                                 }
                                 debug_commands::log_value(
                                     "map quality preset",
-                                    self.map_quality_preset.as_str(),
+                                    self.render_toggles.map_quality_preset.as_str(),
                                 );
                             } else if let Some(s) = &mut self.state {
                                 let on = s.hoi3_counter_pass.toggle();
@@ -209,15 +209,15 @@ impl App {
                             }
                             changed = true;
                         }
-                        KeyCode::F9 if self.game_phase == GamePhase::Playing => {
+                        KeyCode::F9 if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Pops);
                             changed = true;
                         }
                         KeyCode::F10 => {
-                            self.water_debug_view = self.water_debug_view.next();
+                            self.render_toggles.water_debug_view = self.render_toggles.water_debug_view.next();
                             debug_commands::log_value(
                                 "water debug view",
-                                self.water_debug_view.name(),
+                                self.render_toggles.water_debug_view.name(),
                             );
                             changed = true;
                         }
@@ -300,12 +300,12 @@ impl App {
                             changed = true;
                         }
                         KeyCode::KeyR => {
-                            self.force_water_pass = !self.force_water_pass;
+                            self.render_toggles.force_water_pass = !self.render_toggles.force_water_pass;
                             if let Some(s) = &mut self.state {
-                                let water_target_quality = if self.force_water_pass {
+                                let water_target_quality = if self.render_toggles.force_water_pass {
                                     MapQualityPreset::High
                                 } else {
-                                    self.map_quality_preset
+                                    self.render_toggles.map_quality_preset
                                 };
                                 s.water_refraction_target = WaterRefractionTarget::for_quality(
                                     &s.device,
@@ -329,75 +329,75 @@ impl App {
                             }
                             debug_commands::log_bool_toggle(
                                 "force WaterPass/refraction",
-                                self.force_water_pass,
+                                self.render_toggles.force_water_pass,
                             );
                             changed = true;
                         }
                         KeyCode::KeyV => {
-                            self.border_debug_view = self.border_debug_view.next();
+                            self.render_toggles.border_debug_view = self.render_toggles.border_debug_view.next();
                             debug_commands::log_value(
                                 "border debug view",
-                                self.border_debug_view.name(),
+                                self.render_toggles.border_debug_view.name(),
                             );
                             changed = true;
                         }
-                        KeyCode::KeyQ if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyQ if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Politics);
                             changed = true;
                         }
-                        KeyCode::KeyD if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyD if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Decisions);
                             changed = true;
                         }
-                        KeyCode::KeyT if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyT if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::ConstructionV6);
                             changed = true;
                         }
-                        KeyCode::KeyY if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyY if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Research);
                             changed = true;
                         }
-                        KeyCode::KeyU if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyU if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Diplomacy);
                             changed = true;
                         }
-                        KeyCode::KeyI if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyI if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Military);
                             changed = true;
                         }
-                        KeyCode::KeyO if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyO if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Naval);
                             changed = true;
                         }
-                        KeyCode::KeyA if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyA if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Air);
                             changed = true;
                         }
-                        KeyCode::KeyL if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyL if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Logistics);
                             changed = true;
                         }
-                        KeyCode::KeyJ if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyJ if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Situation);
                             changed = true;
                         }
-                        KeyCode::KeyP if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyP if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Laws);
                             changed = true;
                         }
-                        KeyCode::KeyK if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyK if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Market);
                             changed = true;
                         }
-                        KeyCode::KeyB if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyB if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::ConstructionV6);
                             changed = true;
                         }
-                        KeyCode::KeyF if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyF if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Finance);
                             changed = true;
                         }
-                        KeyCode::KeyG if self.game_phase == GamePhase::Playing => {
+                        KeyCode::KeyG if self.view.game_phase == GamePhase::Playing => {
                             self.toggle_in_game_panel(InGamePanel::Trade);
                             changed = true;
                         }

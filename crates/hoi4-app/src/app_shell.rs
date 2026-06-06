@@ -46,7 +46,7 @@ impl ApplicationHandler for App {
             return;
         }
         let simulation_running =
-            self.game_phase == GamePhase::Playing && self.world.speed != GameSpeed::Paused;
+            self.view.game_phase == GamePhase::Playing && self.world.speed != GameSpeed::Paused;
 
         let time_since_redraw = now.saturating_duration_since(self.last_redraw_at);
         let redraw_due =
@@ -82,7 +82,7 @@ impl ApplicationHandler for App {
 
         self.update(sim_budget_secs);
 
-        let redraw_after_update = self.map_phase0.is_some()
+        let redraw_after_update = self.audit.map_phase0.is_some()
             || Instant::now()
                 .saturating_duration_since(self.last_redraw_at)
                 .as_secs_f32()
@@ -93,7 +93,7 @@ impl ApplicationHandler for App {
             }
         }
 
-        if simulation_running || self.map_phase0.is_some() || redraw_after_update {
+        if simulation_running || self.audit.map_phase0.is_some() || redraw_after_update {
             event_loop.set_control_flow(ControlFlow::Poll);
         } else {
             let now = Instant::now();

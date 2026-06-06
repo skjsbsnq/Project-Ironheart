@@ -35,10 +35,7 @@ use hoi4_render::trees::generate_trees_with_stats;
 use passes::PoiIconPass;
 use passes::counter_v3::Hoi3CounterPass;
 
-use hoi4_logic::economy::EconomyState;
-use hoi4_logic::politics::PoliticsCache;
-use hoi4_logic::research::ResearchState;
-use hoi4_runtime::{AiState, ScriptState, SystemSchedule, init_simulation};
+use hoi4_runtime::init_simulation;
 
 mod text_pass;
 use text_pass::{TextAlign, TextPass, TextSize};
@@ -48,6 +45,7 @@ mod glyphon_text;
 mod app_command;
 mod app_helpers;
 mod app_shell;
+mod app_state;
 mod binding;
 mod bootstrap;
 mod camera_control;
@@ -93,13 +91,16 @@ use app_helpers::{
     postprocess_lut_selection_for, surrender_notification_sound_key,
     terrain_debug_view_for_baseline_layer,
 };
-use edge_pan_test::{EdgePanTestConfig, EdgePanTestRun};
+use app_state::{
+    AuditState, InteractionState, PerfState, RenderToggles, RuntimeState, UiStateBundle, ViewState,
+};
+use edge_pan_test::EdgePanTestConfig;
 use flag_bank::FlagBank;
 use gpu_readback::{enqueue_png_readback, finish_png_readback};
 use gpu_utils::{
     MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY, make_depth_view, parity_required_limits,
 };
-use hoi4_app::ui_data::cache::{UiPanelCache, UiPanelCacheKind};
+use hoi4_app::ui_data::cache::UiPanelCacheKind;
 use hoi4_app::ui_data::names::localized_content_name;
 pub use hoi4_app::vanilla_resource_views;
 pub use hoi4_app::vanilla_targets;
@@ -109,7 +110,6 @@ use map_perf::{
     GpuProfilerStatus, GpuTimestampProfiler, MapQualityPreset, Phase10OverlayInput,
     estimate_frame_texture_memory_bytes, phase10_overlay_lines,
 };
-use map_phase0_run::MapPhase0Run;
 use map_refresh::upload_lut;
 use map_renderer::{MapPrepareFrameInput, MapRenderer, WorldObjectPlan, WorldObjectSystem};
 use menu_pass::{CountryEntry, MenuButton};
@@ -448,16 +448,7 @@ struct App {
     last_frame: Instant,
     last_redraw_at: Instant,
     last_status_print: Instant,
-    last_perf_diag: Instant,
-    last_render_profile_log: Instant,
-    perf_last_hours: u64,
-    perf_counter_rebuilds: u32,
-    perf_counter_cache_hits: u32,
-    perf_counter_instances: usize,
-    perf_render_us: u64,
-    perf_render_frames: u32,
-    perf_counter_update_us: u64,
-    perf_arrow_update_us: u64,
+    perf: PerfState,
     counter_visibility_cache: CounterVisibilityCache,
     cached_topbar_sig: u64,
     cached_topbar_data: Option<hoi4_ui::topbar::TopBarData>,
@@ -484,56 +475,18 @@ struct App {
     /// 4.1.bis.6 diag (2026-05-16): F1 toggles GUI debug overlay.
     /// When true, every visible widget gets a 1-px coloured outline + a
     /// small label showing its name, so misalignment is observable directly.
-    debug_overlay: bool,
-    terrain_debug_view: passes::TerrainDebugView,
-    water_debug_view: passes::WaterDebugView,
-    border_debug_view: passes::BorderDebugView,
-    postprocess_debug_view: PostProcessDebugView,
-    map_quality_preset: MapQualityPreset,
-    last_viewport_interaction_at: Option<Instant>,
-    force_water_pass: bool,
-    last_frame_cpu_ms: f32,
-    last_map_prepare_cpu_ms: f32,
+    render_toggles: RenderToggles,
     demo_visible: bool,
     b5_demo_visible: bool,
     demo_window: hoi4_ui::demo::DemoWindow,
     v9_demo: hoi4_ui::v9::demo::V9Demo,
     v9_notifications: hoi4_ui::v9::composites::NotificationStack,
-    /// Phase 4.2: Game state (menu / country select / playing).
-    game_phase: GamePhase,
-    /// Phase 4.2: Selected player country index (0 = first country, usually GER).
-    player_country: usize,
-    /// Phase 4.2 (redesign): cursor in the `available_countries` list (separate from world index).
-    country_select_idx: usize,
+    view: ViewState,
     /// Phase 0: path config (HOI4 root + mod chain).
     path_cfg: PathConfig,
     /// C.7: localisation catalog.
     loc_catalog: hoi4_ui::loc::LocCatalog,
-    /// Phase 1.2: companion states (build queue / research / idea modifier cache).
-    econ: EconomyState,
-    research: ResearchState,
-    politics_cache: PoliticsCache,
-    /// Phase 1.4: script runtime (events / decisions / variables / flags / registry).
-    script: ScriptState,
-    /// Phase 1.5: strategic AI state (per-country cooldown / personality).
-    ai: AiState,
-    /// J.7: Feedback Bus (domain event bus for cross-system loops).
-    feedback_bus: hoi4_logic::FeedbackBus,
-    /// Phase 0.3: system scheduler. Each tick_hour routes to registered hourly/daily/weekly/monthly systems.
-    schedule: SystemSchedule,
-    /// Phase 2.9: music player.
-    music_player: MusicPlayer,
-    /// Phase 4.2: ????????????????????????laying ????????????    
-    menu_kind: Option<MenuKind>,
-    /// Phase 4.2 (redesign): ?????hover ????????????id???btn_new_game" ??????    
-    menu_hovered_btn: Option<&'static str>,
-    /// Phase 4.2 (redesign): ?????hover ?????????????? index??    
-    menu_hovered_row: Option<usize>,
-    /// Phase 4.2 (redesign): ??????????????????????????????Phase 4.2 ????????? GER ?????????    
-    available_countries: Vec<CountryEntry>,
-    /// ???????????????????????+ ????????? click ????????    
-    last_main_buttons: Vec<MenuButton>,
-    last_country_layout: Option<menu_pass::CountrySelectLayout>,
+    runtime: RuntimeState,
     _cached_hoi3_counter_upload: Vec<Hoi3CounterInstance>,
     cached_hoi3_counter_sig: u64,
     cached_hoi3_counter_layout_sig: u64,
@@ -544,94 +497,15 @@ struct App {
     last_division_locations: Vec<hoi4_state::ProvinceId>,
     /// Phase 3.12.8: parsed seasons.txt for tree season computation.
     seasons: hoi4_map::SeasonsTxt,
-    /// Toggle: show province name labels (F7).
-    show_province_names: bool,
-    /// Phase 4.3: currently open in-game panel (None = no panel).
-    open_panel: Option<InGamePanel>,
-    /// Gate 1 panel router: currently open object/detail panel.
-    active_detail_panel: Option<hoi4_ui::ActiveDetailPanel>,
-    /// Gate 1 panel router: currently open short-lived popup.
-    active_popup: Option<hoi4_ui::ActivePopup>,
-    /// C.5: diplomacy panel sort toggle.
-    diplomacy_sort_by_opinion: bool,
-    diplomacy_selected_country_tag: Option<String>,
-    /// Construction placement mode: Some(building_key) = waiting for province click.
-    construction_mode: Option<String>,
-    /// Provinces tinted while construction placement mode is active.
-    construction_highlight_province_ids: HashSet<u32>,
-    /// Player-facing auto-build toggle; when enabled it tops up the queue monthly.
-    auto_build_enabled: bool,
-    last_auto_build_month: Option<(u16, u8)>,
-    last_auto_build_explanations:
-        Vec<hoi4_logic::economy::construction_planner::ConstructionCandidateScore>,
-    // V5 ???????026-05-18????????? gui_rt_removed / menu_runtime / menu_hovered_id /
-    // menu_pressed_id ????????????????????????????????? vanilla GUI ???????????    // (`hoi4_assets::GuiRt-removed` / topbar.gui / countrypoliticsview.gui)??    // ?????hit-test ???????`last_main_buttons` / `last_country_layout`??    // topbar / ?????????????????????????B (egui)??
-    content: hoi4_runtime::ContentRuntimeState,
-    focus_panel: hoi4_ui::focus_tree_panel::FocusTreePanel,
-    /// F.1: ???????????????????????
-    pre_event_speed: Option<GameSpeed>,
-    /// Last event modal id that played the popup sound, to avoid replaying every frame.
-    last_event_sound_id: Option<String>,
-    /// P1.1????????????????????
-    pending_surrender_notifications: Vec<hoi4_ui::surrender_notification::SurrenderNotification>,
-    /// Last surrender/peace notification that played its popup sound.
-    last_surrender_sound_key: Option<String>,
+    ui_state: UiStateBundle,
     /// Cached snapshot of last logged country label province counts (for delta logging).
     last_label_provinces: Vec<u32>,
     map_refresh_owners: Vec<hoi4_state::CountryId>,
     map_refresh_controllers: Vec<hoi4_state::CountryId>,
-    /// E.2: track war count for auto-pause on new war.
-    last_war_count: usize,
-    country_info_panel: hoi4_ui::country_info_panel::CountryInfoPanel,
-    /// J.2: province left-click info card.
-    province_info_card: hoi4_ui::province_info::ProvinceInfoCard,
-    /// J.2: cached info data for the card.
-    province_info_data: hoi4_ui::province_info::ProvinceInfoData,
-    /// Selected division indices for movement commands.
-    selected_divisions: Vec<usize>,
-    selection_box: SelectionBoxState,
-    /// CR-4.3: Multi-select province set.
-    selected_province_ids: HashSet<u32>,
-    /// CR-4.4: Expanded stacks (fan-out).
-    expanded_stacks: HashSet<u32>,
-    /// CR-4.5: Right-click counter menu province.
-    counter_right_click_province: Option<u32>,
-    /// CR-4.5: Pending move command (next left-click sets destination).
-    pending_move_command: bool,
-    selected_combat_bubble: Option<u64>,
-    pending_naval_move_fleet: Option<u32>,
-    naval_transfer_source_fleet: Option<u32>,
-    pending_air_transfer_wing: Option<u32>,
-    air_transfer_source_wing: Option<u32>,
-    ui_sounds: UiSoundBank,
-    settings: hoi4_ui::settings::Settings,
-    settings_panel: hoi4_ui::settings::SettingsPanel,
-    save_browser: hoi4_ui::save_browser::SaveBrowser,
-    end_screen: hoi4_ui::end_screen::EndScreen,
-    prev_focuses_completed: u32,
-    /// 11.1???rontline painter state (draw frontline / arrow by mouse drag).
-    frontline_painter: FrontlinePainterState,
-    /// 11.1???hether frontline overlay is visible (toggle).
-    frontline_overlay_visible: bool,
-    /// 11.4???irty hash for frontline arrow instances.
-    prev_armies_hash: u64,
-    frontline_overlay_hash: u64,
-    trade_routes_hash: u64,
-    last_frontline_arrow_rebuild_at: Instant,
-    last_frontline_overlay_rebuild_at: Instant,
-    /// 11.2???urrently selected army (click frontline on map or select in bottom bar).
-    selected_army_id: Option<hoi4_state::ArmyId>,
-    template_editor_open: bool,
-    selected_template_idx: Option<u16>,
-    template_picker_target: Option<hoi4_ui::military::TemplatePickerTarget>,
+    interaction: InteractionState,
     v6_db: hoi4_content::V6Database,
     historical_1936: hoi4_content::Historical1936Database,
-    /// P1.3?????????????????????UI ??????
-    law_error_message: Option<String>,
-    last_law_error_toast: Option<String>,
-    ui_panel_cache: UiPanelCache,
-    map_phase0: Option<MapPhase0Run>,
-    edge_pan_test: Option<EdgePanTestRun>,
+    audit: AuditState,
 }
 
 impl App {
@@ -717,9 +591,6 @@ impl App {
         let saves_dir = hoi4_ui::save_browser::default_saves_dir();
         let save_browser = hoi4_ui::save_browser::SaveBrowser::new(saves_dir);
 
-        // End screen starts inert.
-        let end_screen = hoi4_ui::end_screen::EndScreen::new();
-
         // Phase 4.2 (redesign): build country selection list.
         // Phase 4.2 ????????? GER ???????????? majors ????????????????????
         let available_countries = build_country_select_list(&world);
@@ -746,16 +617,7 @@ impl App {
             last_frame: Instant::now(),
             last_redraw_at: Instant::now(),
             last_status_print: Instant::now(),
-            last_perf_diag: Instant::now(),
-            last_render_profile_log: Instant::now(),
-            perf_last_hours: 0,
-            perf_counter_rebuilds: 0,
-            perf_counter_cache_hits: 0,
-            perf_counter_instances: 0,
-            perf_render_us: 0,
-            perf_render_frames: 0,
-            perf_counter_update_us: 0,
-            perf_arrow_update_us: 0,
+            perf: PerfState::default(),
             counter_visibility_cache: CounterVisibilityCache::default(),
             cached_topbar_sig: 0,
             cached_topbar_data: None,
@@ -773,40 +635,34 @@ impl App {
             hover_region: None,
             hover_start: Instant::now(),
             tooltip_visible: false,
-            debug_overlay: false,
-            terrain_debug_view: passes::TerrainDebugView::Off,
-            water_debug_view: passes::WaterDebugView::Off,
-            border_debug_view: passes::BorderDebugView::Off,
-            postprocess_debug_view: PostProcessDebugView::Final,
-            map_quality_preset: MapQualityPreset::High,
-            last_viewport_interaction_at: None,
-            force_water_pass: false,
-            last_frame_cpu_ms: 0.0,
-            last_map_prepare_cpu_ms: 0.0,
+            render_toggles: RenderToggles::default(),
             demo_visible: false,
             b5_demo_visible: false,
             demo_window: hoi4_ui::demo::DemoWindow::new(),
             v9_demo: hoi4_ui::v9::demo::V9Demo::new(),
             v9_notifications: hoi4_ui::v9::composites::NotificationStack::new(),
-            game_phase: GamePhase::MainMenu,
-            player_country: default_player,
-            country_select_idx: 0,
+            view: ViewState::new(default_player, available_countries),
             path_cfg,
             loc_catalog,
-            econ,
-            research,
-            politics_cache,
-            script,
-            ai,
-            feedback_bus: hoi4_logic::FeedbackBus::new(),
-            schedule: SystemSchedule::with_phase1_systems(),
-            music_player,
-            menu_kind: Some(MenuKind::MainMenu),
-            menu_hovered_btn: None,
-            menu_hovered_row: None,
-            available_countries,
-            last_main_buttons: Vec::new(),
-            last_country_layout: None,
+            runtime: RuntimeState {
+                econ,
+                research,
+                politics_cache,
+                script,
+                ai,
+                feedback_bus: hoi4_logic::FeedbackBus::new(),
+                schedule: hoi4_runtime::SystemSchedule::with_phase1_systems(),
+                music_player,
+                auto_build_enabled: false,
+                last_auto_build_month: None,
+                last_auto_build_explanations: Vec::new(),
+                content: hoi4_runtime::ContentRuntimeState::new(
+                    &scenario_content,
+                    hoi4_state::CountryId(default_player as u16),
+                    initial_day,
+                ),
+                last_war_count: 0,
+            },
             _cached_hoi3_counter_upload: Vec::new(),
             cached_hoi3_counter_sig: 0,
             cached_hoi3_counter_layout_sig: 0,
@@ -815,72 +671,15 @@ impl App {
             division_motion: HashMap::new(),
             last_division_locations: Vec::new(),
             seasons: seasons_data,
-            show_province_names: true,
-            open_panel: None,
-            active_detail_panel: None,
-            active_popup: None,
-            diplomacy_sort_by_opinion: false,
-            diplomacy_selected_country_tag: None,
-            construction_mode: None,
-            construction_highlight_province_ids: HashSet::new(),
-            auto_build_enabled: false,
-            last_auto_build_month: None,
-            last_auto_build_explanations: Vec::new(),
-            // V5 ????????ui_rt_removed / menu_runtime / menu_hovered_id /
-            // menu_pressed_id / politics_tab / politics_scroll ??????????????
-            content: hoi4_runtime::ContentRuntimeState::new(
-                &scenario_content,
-                hoi4_state::CountryId(default_player as u16),
-                initial_day,
-            ),
-            focus_panel: hoi4_ui::focus_tree_panel::FocusTreePanel::new(),
-            pre_event_speed: None,
-            last_event_sound_id: None,
-            pending_surrender_notifications: Vec::new(),
-            last_surrender_sound_key: None,
+            ui_state: UiStateBundle::new(ui_sounds, settings, settings_panel, save_browser),
             last_label_provinces: Vec::new(),
             map_refresh_owners,
             map_refresh_controllers,
-            last_war_count: 0,
-            country_info_panel: hoi4_ui::country_info_panel::CountryInfoPanel::new(),
-            province_info_card: hoi4_ui::province_info::ProvinceInfoCard::new(),
-            province_info_data: hoi4_ui::province_info::ProvinceInfoData::default(),
-            selected_divisions: Vec::new(),
-            selection_box: SelectionBoxState::default(),
-            selected_province_ids: HashSet::new(),
-            expanded_stacks: HashSet::new(),
-            counter_right_click_province: None,
-            pending_move_command: false,
-            selected_combat_bubble: None,
-            pending_naval_move_fleet: None,
-            naval_transfer_source_fleet: None,
-            pending_air_transfer_wing: None,
-            air_transfer_source_wing: None,
-            ui_sounds,
-            settings,
-            settings_panel,
-            save_browser,
-            end_screen,
-            prev_focuses_completed: 0,
-            frontline_painter: FrontlinePainterState::default(),
-            frontline_overlay_visible: true,
-            prev_armies_hash: 0,
-            frontline_overlay_hash: 0,
-            trade_routes_hash: 0,
-            last_frontline_arrow_rebuild_at: Instant::now(),
-            last_frontline_overlay_rebuild_at: Instant::now(),
-            selected_army_id: None,
-            template_editor_open: false,
-            selected_template_idx: None,
-            template_picker_target: None,
+            interaction: InteractionState::default(),
             v6_db: hoi4_content::V6Database::load(),
             historical_1936: hoi4_content::Historical1936Database::load()
                 .expect("history_1936 RON should load"),
-            law_error_message: None,
-            last_law_error_toast: None,
-            ui_panel_cache: UiPanelCache::default(),
-            map_phase0: None,
-            edge_pan_test: edge_pan_test.map(EdgePanTestRun::new),
+            audit: AuditState::with_edge_pan_test(edge_pan_test),
         }
     }
 
@@ -1237,8 +1036,8 @@ impl App {
     }
 
     fn exit_construction_mode(&mut self) {
-        self.construction_mode = None;
-        self.construction_highlight_province_ids.clear();
+        self.ui_state.construction_mode = None;
+        self.ui_state.construction_highlight_province_ids.clear();
     }
 
     fn v6_state_building_capacity(world: &World, state: hoi4_state::StateId) -> u16 {
@@ -1445,18 +1244,18 @@ impl App {
             self.world.date,
             speed,
             self.map_mode.name(),
-            self.schedule.report_systems(),
+            self.runtime.schedule.report_systems(),
         );
         s.window.set_title(&title);
     }
 
     fn issue_manual_move_to_selected_divisions(&mut self, dest: hoi4_state::ProvinceId) -> bool {
-        let player_cid = hoi4_state::CountryId(self.player_country as u16);
+        let player_cid = hoi4_state::CountryId(self.view.player_country as u16);
         if !hoi4_logic::military::movement::can_enter_province(&self.world, player_cid, dest) {
             return false;
         }
 
-        let selected = self.selected_divisions.clone();
+        let selected = self.interaction.selected_divisions.clone();
         let mut issued = false;
         for div_idx in selected {
             if div_idx >= self.world.divisions.count
@@ -1551,14 +1350,14 @@ impl App {
     }
 
     fn print_perf_diag(&mut self, now: Instant) {
-        if (now - self.last_perf_diag).as_secs_f32() < 1.0 {
+        if (now - self.perf.last_perf_diag).as_secs_f32() < 1.0 {
             return;
         }
-        let elapsed = (now - self.last_perf_diag).as_secs_f64().max(0.001);
+        let elapsed = (now - self.perf.last_perf_diag).as_secs_f64().max(0.001);
         let hours_delta = self
             .world
             .elapsed_hours
-            .saturating_sub(self.perf_last_hours);
+            .saturating_sub(self.perf.last_hours);
         let days_per_sec = hours_delta as f64 / 24.0 / elapsed;
         let moving_divs = self
             .world
@@ -1572,13 +1371,13 @@ impl App {
         let armies = self.world.player_armies.len();
         let path_cache = self.world.path_cache.len();
         let prov_div_index = self.world.prov_div_index.len();
-        let counter_rebuilds = self.perf_counter_rebuilds;
-        let counter_hits = self.perf_counter_cache_hits;
-        let counter_instances = self.perf_counter_instances;
-        let render_frames = self.perf_render_frames.max(1);
-        let render_avg_ms = self.perf_render_us as f64 / render_frames as f64 / 1000.0;
-        let counter_avg_ms = self.perf_counter_update_us as f64 / render_frames as f64 / 1000.0;
-        let arrow_avg_ms = self.perf_arrow_update_us as f64 / render_frames as f64 / 1000.0;
+        let counter_rebuilds = self.perf.counter_rebuilds;
+        let counter_hits = self.perf.counter_cache_hits;
+        let counter_instances = self.perf.counter_instances;
+        let render_frames = self.perf.render_frames.max(1);
+        let render_avg_ms = self.perf.render_us as f64 / render_frames as f64 / 1000.0;
+        let counter_avg_ms = self.perf.counter_update_us as f64 / render_frames as f64 / 1000.0;
+        let arrow_avg_ms = self.perf.arrow_update_us as f64 / render_frames as f64 / 1000.0;
         let ui_stats = self
             .state
             .as_ref()
@@ -1619,19 +1418,19 @@ impl App {
             ui_stats.paint_us as f64 / 1000.0,
             ui_stats.primitive_count,
             ui_stats.triangle_count,
-            self.ui_panel_cache
+            self.ui_state.panel_cache
                 .perf_report()
                 .unwrap_or_else(|| "none".to_owned()),
-            self.schedule.timing_report(),
+            self.runtime.schedule.timing_report(),
         );
-        self.last_perf_diag = now;
-        self.perf_last_hours = self.world.elapsed_hours;
-        self.perf_counter_rebuilds = 0;
-        self.perf_counter_cache_hits = 0;
-        self.perf_render_us = 0;
-        self.perf_render_frames = 0;
-        self.perf_counter_update_us = 0;
-        self.perf_arrow_update_us = 0;
+        self.perf.last_perf_diag = now;
+        self.perf.last_hours = self.world.elapsed_hours;
+        self.perf.counter_rebuilds = 0;
+        self.perf.counter_cache_hits = 0;
+        self.perf.render_us = 0;
+        self.perf.render_frames = 0;
+        self.perf.counter_update_us = 0;
+        self.perf.arrow_update_us = 0;
     }
 
     /// Builds data for the country info panel.
@@ -1640,7 +1439,7 @@ impl App {
         target: hoi4_state::CountryId,
         has_wargoal: bool,
     ) -> Option<hoi4_ui::country_info_panel::CountryInfoData> {
-        let player = hoi4_state::CountryId(self.player_country as u16);
+        let player = hoi4_state::CountryId(self.view.player_country as u16);
         hoi4_app::ui_data::country::build_country_info_data(
             &self.world,
             &self.historical_1936,
@@ -1648,7 +1447,7 @@ impl App {
             player,
             target,
             has_wargoal,
-            self.settings.instant_war,
+            self.ui_state.settings.instant_war,
         )
     }
 
@@ -1660,7 +1459,7 @@ impl App {
     /// Opening any main panel hides the province info card so a stray map click
     /// cannot leave it layered on top of the new panel.
     fn toggle_in_game_panel(&mut self, panel: InGamePanel) {
-        if self.open_panel == Some(panel) {
+        if self.ui_state.open_panel == Some(panel) {
             self.close_primary_panel();
         } else {
             self.open_primary_panel(panel);
@@ -1668,14 +1467,14 @@ impl App {
     }
 
     fn open_primary_panel(&mut self, panel: InGamePanel) {
-        self.open_panel = Some(panel);
-        self.province_info_card.open = false;
-        self.country_info_panel.close();
+        self.ui_state.open_panel = Some(panel);
+        self.ui_state.province_info_card.open = false;
+        self.ui_state.country_info_panel.close();
     }
 
     fn close_primary_panel(&mut self) {
-        self.open_panel = None;
-        self.active_detail_panel = None;
+        self.ui_state.open_panel = None;
+        self.ui_state.active_detail_panel = None;
     }
 
     fn set_player_country_by_tag(&mut self, tag: &str) -> bool {
@@ -1689,21 +1488,21 @@ impl App {
             return false;
         }
 
-        self.player_country = idx;
+        self.view.player_country = idx;
         self.world.player = cid;
-        self.content.player = cid;
-        self.ui_panel_cache.clear();
+        self.runtime.content.player = cid;
+        self.ui_state.panel_cache.clear();
         self.counter_visibility_cache = CounterVisibilityCache::default();
         self.cached_hoi3_counter_sig = 0;
         self.cached_hoi3_counter_layout_sig = 0;
         self.cached_hoi3_counter_layout_offsets.clear();
-        self.selected_divisions.clear();
-        self.selected_army_id = None;
-        self.selected_province_ids.clear();
-        self.active_detail_panel = None;
-        self.active_popup = None;
-        self.province_info_card.open = false;
-        self.country_info_panel.close();
+        self.interaction.selected_divisions.clear();
+        self.interaction.selected_army_id = None;
+        self.interaction.selected_province_ids.clear();
+        self.ui_state.active_detail_panel = None;
+        self.ui_state.active_popup = None;
+        self.ui_state.province_info_card.open = false;
+        self.ui_state.country_info_panel.close();
         self.refresh_lut();
         self.rebuild_country_labels_and_refresh();
         self.update_title();
@@ -1733,7 +1532,7 @@ impl App {
             .get(player)
             .copied()
             .unwrap_or(0.0);
-        self.content
+        self.runtime.content
             .decision_db
             .decisions
             .iter()
@@ -1747,28 +1546,29 @@ impl App {
                     &d.visible,
                     &self.world,
                     player_id,
-                    &self.content.global_flags,
+                    &self.runtime.content.global_flags,
                 );
                 let avail = hoi4_content::eval_trigger(
                     &d.available,
                     &self.world,
                     player_id,
-                    &self.content.global_flags,
+                    &self.runtime.content.global_flags,
                 );
                 let pp_ok = pp >= d.cost_political_power;
                 e.cooldown_remaining = self
+                    .runtime
                     .content
                     .decision_state
                     .cooldowns
                     .get(&d.id)
                     .copied()
                     .filter(|&v| v > 0);
-                if let Some(m) = self.content.decision_state.is_active(&d.id) {
+                if let Some(m) = self.runtime.content.decision_state.is_active(&d.id) {
                     e.mission_remaining = Some(m.days_remaining);
                     e.mission_total = Some(m.total_days);
                 }
                 e.already_fired =
-                    d.fire_only_once && self.content.decision_state.already_fired(&d.id);
+                    d.fire_only_once && self.runtime.content.decision_state.already_fired(&d.id);
                 e.clickable = avail
                     && pp_ok
                     && e.cooldown_remaining.is_none()
@@ -1845,30 +1645,31 @@ impl App {
 
     /// Reset menu hover and cached layout state when changing game phase.
     fn reset_menu_state(&mut self) {
-        self.menu_kind = match self.game_phase {
+        self.view.menu_kind = match self.view.game_phase {
             GamePhase::MainMenu => Some(MenuKind::MainMenu),
             GamePhase::CountrySelect => Some(MenuKind::CountrySelect),
             GamePhase::Playing => None,
         };
-        self.menu_hovered_btn = None;
-        self.menu_hovered_row = None;
-        self.last_main_buttons.clear();
-        self.last_country_layout = None;
+        self.view.menu_hovered_btn = None;
+        self.view.menu_hovered_row = None;
+        self.view.last_main_buttons.clear();
+        self.view.last_country_layout = None;
     }
 
     /// Handle mouse clicks on menu screens.
     fn handle_menu_mouse_click(&mut self, mx: f32, my: f32) {
-        match self.game_phase {
+        match self.view.game_phase {
             GamePhase::MainMenu => {
-                let last = self.last_main_buttons.clone();
+                let last = self.view.last_main_buttons.clone();
                 for btn in &last {
                     if !btn.enabled || !btn.contains(mx, my) {
                         continue;
                     }
                     match btn.id {
                         "btn_new_game" => {
-                            self.game_phase = GamePhase::CountrySelect;
-                            self.country_select_idx = self
+                            self.view.game_phase = GamePhase::CountrySelect;
+                            self.view.country_select_idx = self
+                                .view
                                 .available_countries
                                 .iter()
                                 .position(|c| c.tag == "GER")
@@ -1876,7 +1677,7 @@ impl App {
                             self.reset_menu_state();
                         }
                         "btn_settings" => {
-                            self.settings_panel.open_with(self.settings.clone());
+                            self.ui_state.settings_panel.open_with(self.ui_state.settings.clone());
                         }
                         "btn_quit" => std::process::exit(0),
                         _ => {}
@@ -1885,18 +1686,18 @@ impl App {
                 }
             }
             GamePhase::CountrySelect => {
-                if let Some(layout) = self.last_country_layout.take() {
+                if let Some(layout) = self.view.last_country_layout.take() {
                     // List row click.
                     for (rect, idx) in &layout.list_rows {
                         let (x, y, w, h) = *rect;
                         if mx >= x && mx < x + w && my >= y && my < y + h {
-                            self.country_select_idx = *idx;
-                            self.last_country_layout = Some(layout);
+                            self.view.country_select_idx = *idx;
+                            self.view.last_country_layout = Some(layout);
                             return;
                         }
                     }
                     if layout.back_button.contains(mx, my) {
-                        self.game_phase = GamePhase::MainMenu;
+                        self.view.game_phase = GamePhase::MainMenu;
                         self.reset_menu_state();
                         return;
                     }
@@ -1904,11 +1705,11 @@ impl App {
                         if !layout.start_button.enabled {
                             println!("[menu] selected country not playable");
                         } else if let Some(entry) =
-                            self.available_countries.get(self.country_select_idx)
+                            self.view.available_countries.get(self.view.country_select_idx)
                         {
                             let tag = entry.tag.clone();
                             self.set_player_country_by_tag(&tag);
-                            self.game_phase = GamePhase::Playing;
+                            self.view.game_phase = GamePhase::Playing;
                             self.world.speed = GameSpeed::Paused;
                             self.reset_menu_state();
                             // 3.12.15: now that a country is picked, apply
@@ -1917,7 +1718,7 @@ impl App {
                         }
                         return;
                     }
-                    self.last_country_layout = Some(layout);
+                    self.view.last_country_layout = Some(layout);
                 }
             }
             GamePhase::Playing => {}

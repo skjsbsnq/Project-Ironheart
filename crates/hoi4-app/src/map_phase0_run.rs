@@ -89,30 +89,30 @@ impl App {
             );
         }
 
-        self.game_phase = GamePhase::Playing;
+        self.view.game_phase = GamePhase::Playing;
         self.world.speed = GameSpeed::Paused;
         self.close_primary_panel();
-        self.active_popup = None;
+        self.ui_state.active_popup = None;
         self.demo_visible = false;
         self.b5_demo_visible = false;
-        self.debug_overlay = false;
-        self.terrain_debug_view = passes::TerrainDebugView::Off;
-        self.water_debug_view = passes::WaterDebugView::Off;
-        self.border_debug_view = passes::BorderDebugView::Off;
-        self.postprocess_debug_view = PostProcessDebugView::Final;
+        self.render_toggles.debug_overlay = false;
+        self.render_toggles.terrain_debug_view = passes::TerrainDebugView::Off;
+        self.render_toggles.water_debug_view = passes::WaterDebugView::Off;
+        self.render_toggles.border_debug_view = passes::BorderDebugView::Off;
+        self.render_toggles.postprocess_debug_view = PostProcessDebugView::Final;
         self.map_mode = MapMode::Political;
-        self.map_phase0 = Some(run);
+        self.audit.map_phase0 = Some(run);
     }
 
     pub(crate) fn map_phase0_finished(&self) -> bool {
-        self.map_phase0
+        self.audit.map_phase0
             .as_ref()
             .map(|run| run.finished)
             .unwrap_or(false)
     }
 
     pub(crate) fn current_map_layer_mask(&self) -> map_baseline::MapLayerMask {
-        self.map_phase0
+        self.audit.map_phase0
             .as_ref()
             .and_then(|run| run.current_capture())
             .map(|capture| capture.layer_mask)
@@ -120,19 +120,19 @@ impl App {
     }
 
     pub(crate) fn map_phase0_capture_ready(&self) -> bool {
-        self.map_phase0.as_ref().is_some_and(|run| {
+        self.audit.map_phase0.as_ref().is_some_and(|run| {
             !run.finished && run.settle_frames == 0 && run.current_capture().is_some()
         })
     }
 
     pub(crate) fn map_phase0_capture_path(&self) -> Option<PathBuf> {
-        let run = self.map_phase0.as_ref()?;
+        let run = self.audit.map_phase0.as_ref()?;
         let capture = run.current_capture()?;
         Some(run.output_dir.join(&capture.filename))
     }
 
     pub(crate) fn map_phase0_debug_lines(&self) -> Vec<String> {
-        let Some(run) = self.map_phase0.as_ref() else {
+        let Some(run) = self.audit.map_phase0.as_ref() else {
             return Vec::new();
         };
         let mut lines = vec![
@@ -165,7 +165,7 @@ impl App {
     }
 
     pub(crate) fn prepare_map_phase0_capture(&mut self) {
-        let Some(run) = self.map_phase0.as_ref() else {
+        let Some(run) = self.audit.map_phase0.as_ref() else {
             return;
         };
         if run.finished {
@@ -196,16 +196,16 @@ impl App {
         self.camera.yaw = scene.camera.yaw_degrees.to_radians();
         self.camera.clamp_target_to_map();
         self.world.date = scene.date;
-        self.show_province_names = mask.labels;
+        self.render_toggles.show_province_names = mask.labels;
         let scene_map_mode = map_mode_from_capture_name(&scene.map_mode);
         if self.map_mode != scene_map_mode {
             self.map_mode = scene_map_mode;
             self.refresh_lut();
         }
-        self.terrain_debug_view = terrain_debug_view_for_baseline_layer(capture.layer);
-        self.water_debug_view = passes::WaterDebugView::Off;
-        self.border_debug_view = passes::BorderDebugView::Off;
-        self.postprocess_debug_view = match capture.layer {
+        self.render_toggles.terrain_debug_view = terrain_debug_view_for_baseline_layer(capture.layer);
+        self.render_toggles.water_debug_view = passes::WaterDebugView::Off;
+        self.render_toggles.border_debug_view = passes::BorderDebugView::Off;
+        self.render_toggles.postprocess_debug_view = match capture.layer {
             map_baseline::MapBaselineLayer::HdrRaw => PostProcessDebugView::HdrRaw,
             map_baseline::MapBaselineLayer::AvgLuminance => PostProcessDebugView::AvgLuminance,
             map_baseline::MapBaselineLayer::TonemapBefore => PostProcessDebugView::TonemapBefore,
@@ -216,13 +216,13 @@ impl App {
             _ => PostProcessDebugView::Final,
         };
         if let Some(s) = self.state.as_mut() {
-            s.post_process.debug_view = self.postprocess_debug_view;
+            s.post_process.debug_view = self.render_toggles.postprocess_debug_view;
         }
         self.upload_camera();
     }
 
     pub(crate) fn map_phase0_after_uncaptured_frame(&mut self) {
-        if let Some(run) = self.map_phase0.as_mut() {
+        if let Some(run) = self.audit.map_phase0.as_mut() {
             if !run.finished && run.settle_frames > 0 {
                 run.settle_frames -= 1;
             }
@@ -237,7 +237,7 @@ impl App {
         if let Err(err) = result {
             eprintln!("[map-phase0] screenshot write failed: {err}");
         }
-        let Some(run) = self.map_phase0.as_mut() else {
+        let Some(run) = self.audit.map_phase0.as_mut() else {
             return;
         };
         if run.finished {
@@ -263,7 +263,7 @@ impl App {
     }
 
     pub(crate) fn finish_map_phase0(&mut self) {
-        let Some(run) = self.map_phase0.as_mut() else {
+        let Some(run) = self.audit.map_phase0.as_mut() else {
             return;
         };
         if run.finished {

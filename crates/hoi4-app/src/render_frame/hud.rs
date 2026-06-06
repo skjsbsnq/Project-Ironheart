@@ -41,12 +41,12 @@ impl App {
             started_at,
         } = input;
         // F4 ??????????????pass ?????/ ????????????DebugOverlay???I ???????text_pass ??????
-        let quality_label = if render_quality_preset == self.map_quality_preset {
-            self.map_quality_preset.as_str().to_string()
+        let quality_label = if render_quality_preset == self.render_toggles.map_quality_preset {
+            self.render_toggles.map_quality_preset.as_str().to_string()
         } else {
             format!(
                 "{}->{}",
-                self.map_quality_preset.as_str(),
+                self.render_toggles.map_quality_preset.as_str(),
                 render_quality_preset.as_str()
             )
         };
@@ -65,9 +65,9 @@ impl App {
                 s.post_process.debug_view.name(),
                 postprocess_summary,
                 postprocess_lut_summary,
-                self.terrain_debug_view.name(),
-                self.water_debug_view.name(),
-                self.border_debug_view.name(),
+                self.render_toggles.terrain_debug_view.name(),
+                self.render_toggles.water_debug_view.name(),
+                self.render_toggles.border_debug_view.name(),
                 semantic_overlays.budget.passive,
                 semantic_overlays.budget.active,
                 semantic_overlays.budget.map_mode,
@@ -82,7 +82,7 @@ impl App {
             } else {
                 "terrain_fallback"
             },
-            self.force_water_pass,
+            self.render_toggles.force_water_pass,
             s.water_refraction_target.resolution_label(),
             s.water_refraction_target.format,
             water_refraction_available,
@@ -103,8 +103,8 @@ impl App {
                 preset: render_quality_preset,
                 width: s.config.width,
                 height: s.config.height,
-                last_frame_cpu_ms: self.last_frame_cpu_ms,
-                cpu_prepare_ms: self.last_map_prepare_cpu_ms,
+                last_frame_cpu_ms: self.perf.last_frame_cpu_ms,
+                cpu_prepare_ms: self.perf.last_map_prepare_cpu_ms,
                 texture_memory_bytes,
                 gpu_status,
             },
@@ -139,7 +139,7 @@ impl App {
             }
         }
         // Phase 4.2 (redesign): Switch between menu rendering and topbar rendering.
-        if self.game_phase != GamePhase::Playing {
+        if self.view.game_phase != GamePhase::Playing {
             let dpi = s.window.scale_factor() as f32;
             let sw = s.config.width as f32 / dpi.max(0.0001);
             let sh = s.config.height as f32 / dpi.max(0.0001);
@@ -147,17 +147,17 @@ impl App {
             s.panel_pass
                 .push(panel_pass::Panel::full_screen_dim(sw, sh, 0.92));
 
-            match self.game_phase {
+            match self.view.game_phase {
                 GamePhase::MainMenu => {
                     let layout = menu_pass::draw_main_menu(
                         &mut s.panel_pass,
                         &mut s.text_pass,
                         sw,
                         sh,
-                        self.menu_hovered_btn,
+                        self.view.menu_hovered_btn,
                     );
-                    self.last_main_buttons = layout.buttons;
-                    self.last_country_layout = None;
+                    self.view.last_main_buttons = layout.buttons;
+                    self.view.last_country_layout = None;
                 }
                 GamePhase::CountrySelect => {
                     let layout = menu_pass::draw_country_select(
@@ -165,13 +165,13 @@ impl App {
                         &mut s.text_pass,
                         sw,
                         sh,
-                        &self.available_countries,
-                        self.country_select_idx,
-                        self.menu_hovered_btn,
-                        self.menu_hovered_row,
+                        &self.view.available_countries,
+                        self.view.country_select_idx,
+                        self.view.menu_hovered_btn,
+                        self.view.menu_hovered_row,
                     );
                     // ?????????
-                    if let Some(entry) = self.available_countries.get(self.country_select_idx) {
+                    if let Some(entry) = self.view.available_countries.get(self.view.country_select_idx) {
                         let world_idx = self
                             .world
                             .countries
@@ -214,14 +214,14 @@ impl App {
                             ws,
                         );
                     }
-                    self.last_country_layout = Some(layout);
-                    self.last_main_buttons.clear();
+                    self.view.last_country_layout = Some(layout);
+                    self.view.last_main_buttons.clear();
                 }
                 GamePhase::Playing => unreachable!(),
             }
         } else {
-            self.last_main_buttons.clear();
-            self.last_country_layout = None;
+            self.view.last_main_buttons.clear();
+            self.view.last_country_layout = None;
         }
 
         // Playing phase - topbar HUD
@@ -230,7 +230,7 @@ impl App {
         // 3D pass above has already drawn country names; the 2D HUD path
         // below is only a fallback for systems where no system font could
         // be found.
-        if self.game_phase == GamePhase::Playing && s.mapname_pass.is_none() {
+        if self.view.game_phase == GamePhase::Playing && s.mapname_pass.is_none() {
             // LOD: at low zoom (zoomed out), only show countries with many provinces;
             // at high zoom, show all.
             {
@@ -297,9 +297,9 @@ impl App {
         // ???????vanilla `countrypoliticsview.gui` ?????textbox widget ???????        // ??????????????`crate::binding::WorldBinding::query_string(widget_name)`
         // V5 ????????1 debug overlay ???????GuiRt-removed widget ??????????????
         // CR-4.6: Off-screen indicators for selected provinces with counters off-screen.
-        if self.game_phase == GamePhase::Playing
+        if self.view.game_phase == GamePhase::Playing
             && s.hoi3_counter_pass.enabled()
-            && !self.selected_province_ids.is_empty()
+            && !self.interaction.selected_province_ids.is_empty()
         {
             let dpi = s.window.scale_factor() as f32;
             let inv_dpi = 1.0 / dpi.max(1.0);
@@ -312,7 +312,7 @@ impl App {
                     continue;
                 }
                 let pid = c.province_id() as u32;
-                if !self.selected_province_ids.contains(&pid) {
+                if !self.interaction.selected_province_ids.contains(&pid) {
                     continue;
                 }
                 let Some(screen_pos) = project_counter_screen_pos(
@@ -355,18 +355,18 @@ impl App {
             }
         }
 
-        if self.game_phase == GamePhase::Playing {
+        if self.view.game_phase == GamePhase::Playing {
             let view_proj = self.camera.view_proj();
             let dpi = s.window.scale_factor() as f32;
             let sw = s.config.width as f32 / dpi.max(0.0001);
             let sh = s.config.height as f32 / dpi.max(0.0001);
-            let player_cid = hoi4_state::CountryId(self.player_country as u16);
+            let player_cid = hoi4_state::CountryId(self.view.player_country as u16);
             let centroids = &s.unit_counter_centroids;
             for army in &self.world.player_armies {
-                if army.owner != player_cid && !self.settings.show_all_units {
+                if army.owner != player_cid && !self.ui_state.settings.show_all_units {
                     continue;
                 }
-                if army.owner != player_cid && self.settings.hide_ai_frontlines {
+                if army.owner != player_cid && self.ui_state.settings.hide_ai_frontlines {
                     continue;
                 }
                 if let Some(ref order) = army.order {
@@ -435,8 +435,8 @@ impl App {
             }
         }
 
-        if self.game_phase == GamePhase::Playing && self.selection_box.active {
-            let [x, y, w, h] = self.selection_box.rect();
+        if self.view.game_phase == GamePhase::Playing && self.interaction.selection_box.active {
+            let [x, y, w, h] = self.interaction.selection_box.rect();
             if w > 1.0 && h > 1.0 {
                 s.panel_pass.push(panel_pass::Panel {
                     x,

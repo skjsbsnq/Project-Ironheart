@@ -179,8 +179,8 @@ impl App {
         let map_fallback_report = prepared_map_frame.fallback_report;
         let profile_map_prepare_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
         profile_mark = Instant::now();
-        let runtime_player_country = if self.player_country < self.world.countries.count {
-            Some(hoi4_state::CountryId(self.player_country as u16))
+        let runtime_player_country = if self.view.player_country < self.world.countries.count {
+            Some(hoi4_state::CountryId(self.view.player_country as u16))
         } else {
             None
         };
@@ -348,9 +348,9 @@ impl App {
                 frame_plan: map_frame_plan,
                 terrain_counts,
                 draw_3d_map,
-                show_province_names: self.show_province_names,
+                show_province_names: self.render_toggles.show_province_names,
                 zoom_factor,
-                postprocess_debug_view: self.postprocess_debug_view,
+                postprocess_debug_view: self.render_toggles.postprocess_debug_view,
                 postprocess_chain_enabled: render_quality_preset.controls().postprocess_chain,
                 postprocess_lut_selection,
                 output_view,
@@ -394,7 +394,7 @@ impl App {
         let prepare_started = Instant::now();
         self.prepare_map_phase0_capture();
         let map_layer_mask = self.current_map_layer_mask();
-        let map_phase0_active = self.map_phase0.is_some();
+        let map_phase0_active = self.audit.map_phase0.is_some();
         let map_phase0_debug_lines = if map_layer_mask.asset_fallback_debug {
             self.map_phase0_debug_lines()
         } else {
@@ -407,8 +407,8 @@ impl App {
         };
         let pre_frame_world_objects = WorldObjectSystem::plan(
             map_frame::MapFrameInput {
-                draw_3d_map: self.game_phase == GamePhase::Playing,
-                enable_3d_terrain: self.settings.enable_3d_terrain,
+                draw_3d_map: self.view.game_phase == GamePhase::Playing,
+                enable_3d_terrain: self.ui_state.settings.enable_3d_terrain,
                 map_mode: self.map_mode,
                 date: self.world.date,
                 selected_province_id: self.selected_province_id,
@@ -435,16 +435,18 @@ impl App {
         let counter_started = Instant::now();
         self.update_hoi3_counter_pass(pre_frame_world_objects);
         let counter_update_ms = counter_started.elapsed().as_secs_f32() * 1000.0;
-        self.perf_counter_update_us = self
-            .perf_counter_update_us
+        self.perf.counter_update_us = self
+            .perf
+            .counter_update_us
             .saturating_add((counter_update_ms * 1000.0) as u64);
         let arrow_started = Instant::now();
         self.update_frontline_overlay();
         self.update_frontline_arrows();
         self.update_trade_routes_overlay();
         let arrow_update_ms = arrow_started.elapsed().as_secs_f32() * 1000.0;
-        self.perf_arrow_update_us = self
-            .perf_arrow_update_us
+        self.perf.arrow_update_us = self
+            .perf
+            .arrow_update_us
             .saturating_add((arrow_update_ms * 1000.0) as u64);
         let profile_visual_updates_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
         profile_mark = Instant::now();
@@ -666,15 +668,15 @@ impl App {
         time: f32,
         prepare_started: Instant,
     ) -> FrameMapPrepareOutput {
-        let draw_3d_map = self.game_phase == GamePhase::Playing;
-        let render_quality_preset = if self.force_water_pass {
+        let draw_3d_map = self.view.game_phase == GamePhase::Playing;
+        let render_quality_preset = if self.render_toggles.force_water_pass {
             MapQualityPreset::High
         } else {
             input.render_quality_preset
         };
         let map_frame_plan = s.map_renderer.build_frame_plan(
             crate::map_renderer::MapFrameContext {
-                draw_3d_map: draw_3d_map && self.settings.enable_3d_terrain,
+                draw_3d_map: draw_3d_map && self.ui_state.settings.enable_3d_terrain,
                 map_mode: self.map_mode,
                 date,
                 selected_province_id: self.selected_province_id,
@@ -689,12 +691,12 @@ impl App {
             },
             &s.pass_registry,
         );
-        self.last_map_prepare_cpu_ms = prepare_started.elapsed().as_secs_f32() * 1000.0;
+        self.perf.last_map_prepare_cpu_ms = prepare_started.elapsed().as_secs_f32() * 1000.0;
         let prepared_map_frame = s.map_renderer.prepare_frame(
             &map_frame_plan,
             MapPrepareFrameInput {
                 layer_mask: input.map_layer_mask,
-                dedicated_water_loaded: s.water_pass.any_loaded || self.force_water_pass,
+                dedicated_water_loaded: s.water_pass.any_loaded || self.render_toggles.force_water_pass,
                 dedicated_river_loaded: s.river_pass.any_loaded,
                 dedicated_border_loaded: s.border_pass.any_loaded,
             },
@@ -765,7 +767,7 @@ impl App {
             } else {
                 0.0
             };
-            let enabled_mask = if self.border_debug_view == passes::BorderDebugView::Off {
+            let enabled_mask = if self.render_toggles.border_debug_view == passes::BorderDebugView::Off {
                 passes::BorderParams::DEFAULT_VISIBLE_MASK
             } else {
                 passes::BorderParams::ALL_VISIBLE_MASK
@@ -775,7 +777,7 @@ impl App {
                 selection_intensity: sel_intensity,
                 enabled_mask,
                 selected_province_id: self.selected_province_id,
-                debug_view: self.border_debug_view.as_shader_value(),
+                debug_view: self.render_toggles.border_debug_view.as_shader_value(),
                 screen_width: s.config.width as f32,
                 screen_height: s.config.height as f32,
                 camera_distance_world: self.camera.distance,
@@ -829,7 +831,7 @@ impl App {
             }
         }
 
-        let water_runtime_quality = if self.force_water_pass {
+        let water_runtime_quality = if self.render_toggles.force_water_pass {
             MapQualityPreset::High
         } else {
             render_quality_preset
@@ -837,8 +839,8 @@ impl App {
         let water_refraction_available = draw_3d_map
             && map_frame_plan.draw.water_refraction
             && map_frame_plan.draw.water
-            && (s.water_pass.any_loaded || self.force_water_pass)
-            && (render_quality_preset.water_refraction_enabled() || self.force_water_pass);
+            && (s.water_pass.any_loaded || self.render_toggles.force_water_pass)
+            && (render_quality_preset.water_refraction_enabled() || self.render_toggles.force_water_pass);
         let selected_water_effect = s
             .water_pass
             .update_runtime_effect(water_refraction_available, water_runtime_quality);
@@ -849,7 +851,7 @@ impl App {
                 world_d: vanilla_map_space.world_size[1],
                 height_scale: HEIGHT_SCALE,
                 selected_province_id: self.selected_province_id,
-                debug_view: self.water_debug_view.as_shader_value(),
+                debug_view: self.render_toggles.water_debug_view.as_shader_value(),
                 final_water_owner: if water_ownership.final_color { 1 } else { 0 },
                 effect_variant: selected_water_effect.as_shader_value(),
                 refraction_available: u32::from(water_refraction_available),
@@ -1023,7 +1025,7 @@ impl App {
                 season_result.season_blend,
             ],
             terrain_controls: [
-                self.terrain_debug_view.as_shader_value(),
+                self.render_toggles.terrain_debug_view.as_shader_value(),
                 if terrain_ownership.terrain_water_final_color {
                     1.0
                 } else {

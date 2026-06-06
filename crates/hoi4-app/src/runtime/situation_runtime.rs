@@ -44,7 +44,7 @@ fn normalize_spanish_civil_war_colors(
 }
 
 pub fn apply_situation_effects(app: &mut crate::App) -> bool {
-    let drained = drain_situation_effects(&mut app.content.situation_state);
+    let drained = drain_situation_effects(&mut app.runtime.content.situation_state);
     let had_ownership_change = !drained.is_empty();
     for effect in drained {
         use hoi4_content::SituationEffect;
@@ -64,9 +64,9 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                     .spawn_country(&rebel_tag, rebel_color, &rebel_party);
                 apply_runtime_country_identity(&mut app.world, rebel, rebel_color, &rebel_party);
                 normalize_spanish_civil_war_colors(&mut app.world, &source_tag, &rebel_tag, source);
-                app.econ.ensure_capacity(app.world.countries.count);
-                app.research.ensure_capacity(&app.world);
-                app.ai.ensure_capacity(&app.world);
+                app.runtime.econ.ensure_capacity(app.world.countries.count);
+                app.runtime.research.ensure_capacity(&app.world);
+                app.runtime.ai.ensure_capacity(&app.world);
 
                 // Inherit key source-country state for the rebel.
                 let src_i = source.0 as usize;
@@ -174,9 +174,9 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                     .spawn_country(&rebel_tag, rebel_color, &rebel_party);
                 apply_runtime_country_identity(&mut app.world, rebel, rebel_color, &rebel_party);
                 normalize_spanish_civil_war_colors(&mut app.world, &source_tag, &rebel_tag, source);
-                app.econ.ensure_capacity(app.world.countries.count);
-                app.research.ensure_capacity(&app.world);
-                app.ai.ensure_capacity(&app.world);
+                app.runtime.econ.ensure_capacity(app.world.countries.count);
+                app.runtime.research.ensure_capacity(&app.world);
+                app.runtime.ai.ensure_capacity(&app.world);
 
                 let src_i = source.0 as usize;
                 let rbl_i = rebel.0 as usize;
@@ -331,13 +331,13 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                 // Split equipment stockpile by fraction.
                 let src_idx = src.0 as usize;
                 let rbl_stockpile_idx = rbl.0 as usize;
-                if src_idx < app.econ.stockpile.len()
-                    && rbl_stockpile_idx < app.econ.stockpile.len()
+                if src_idx < app.runtime.econ.stockpile.len()
+                    && rbl_stockpile_idx < app.runtime.econ.stockpile.len()
                 {
                     hoi4_logic::economy::stockpile::normalize_stockpile_keys(
-                        &mut app.econ.stockpile[src_idx],
+                        &mut app.runtime.econ.stockpile[src_idx],
                     );
-                    let snapshot: Vec<(String, f32)> = app.econ.stockpile[src_idx]
+                    let snapshot: Vec<(String, f32)> = app.runtime.econ.stockpile[src_idx]
                         .iter()
                         .map(|(k, v)| (k.clone(), *v))
                         .collect();
@@ -346,8 +346,8 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                         let remaining = total - to_rebel;
                         let normalized =
                             hoi4_logic::economy::stockpile::normalize_equipment_id(&eq_key);
-                        app.econ.stockpile[src_idx].insert(normalized.clone(), remaining);
-                        let entry = app.econ.stockpile[rbl_stockpile_idx]
+                        app.runtime.econ.stockpile[src_idx].insert(normalized.clone(), remaining);
+                        let entry = app.runtime.econ.stockpile[rbl_stockpile_idx]
                             .entry(normalized)
                             .or_insert(0.0);
                         *entry += to_rebel;
@@ -654,7 +654,7 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                 if !should_trigger_situation_event_for_player(
                     &event_id,
                     &app.world,
-                    app.content.player,
+                    app.runtime.content.player,
                 ) {
                     println!("[situation] skipped player-scoped event: {}", event_id);
                     continue;
@@ -663,9 +663,9 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                 let effect_country = situation_effect_country_from_event_id(
                     &event_id,
                     &app.world,
-                    app.content.player,
+                    app.runtime.content.player,
                 );
-                app.content.global_flags.pending_triggers.push_back(
+                app.runtime.content.global_flags.pending_triggers.push_back(
                     hoi4_content::eval::PendingTrigger {
                         event_id: event_id.clone(),
                         effect_country,
@@ -881,12 +881,12 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                 };
                 let f_idx = from_cid.0 as usize;
                 let t_idx = to_cid.0 as usize;
-                if f_idx >= app.econ.stockpile.len() || t_idx >= app.econ.stockpile.len() {
+                if f_idx >= app.runtime.econ.stockpile.len() || t_idx >= app.runtime.econ.stockpile.len() {
                     continue;
                 }
                 let equipment_key =
                     hoi4_logic::economy::stockpile::normalize_equipment_id(&equipment);
-                let have = app.econ.stockpile[f_idx]
+                let have = app.runtime.econ.stockpile[f_idx]
                     .get(&equipment_key)
                     .copied()
                     .unwrap_or(0.0);
@@ -897,8 +897,8 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                     );
                     continue;
                 }
-                app.econ.stockpile[f_idx].insert(equipment_key.clone(), have - send);
-                *app.econ.stockpile[t_idx]
+                app.runtime.econ.stockpile[f_idx].insert(equipment_key.clone(), have - send);
+                *app.runtime.econ.stockpile[t_idx]
                     .entry(equipment_key)
                     .or_insert(0.0) += send;
                 println!("[situation] SendEquipment: {from}->{to} {equipment} x{send:.0}");

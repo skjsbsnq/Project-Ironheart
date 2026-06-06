@@ -4,7 +4,7 @@ impl App {
     pub(crate) fn handle_content_tick_events(&mut self) {
         // P0.1：content daily 已在 SystemSchedule 的 Content daily 系统中执行。
         // 此处读取 content.last_tick_events 处理 GUI 特有逻辑（暂停、刷新地图等）。
-        let mut content_events = self.content.last_tick_events.clone();
+        let mut content_events = self.runtime.content.last_tick_events.clone();
         if content_events.day_changed {
             self.run_monthly_auto_build_if_due();
 
@@ -16,9 +16,9 @@ impl App {
             if !content_events.fired_events.is_empty() {
                 if content_events.pause_for_country_event {
                     if self.world.speed != hoi4_state::GameSpeed::Paused
-                        && self.pre_event_speed.is_none()
+                        && self.ui_state.pre_event_speed.is_none()
                     {
-                        self.pre_event_speed = Some(self.world.speed);
+                        self.ui_state.pre_event_speed = Some(self.world.speed);
                     }
                     self.world.speed = hoi4_state::GameSpeed::Paused;
                 }
@@ -62,7 +62,7 @@ impl App {
                 self.rebuild_country_labels_and_refresh();
             }
 
-            let cascaded_from_situations = self.content.process_pending_triggers(&mut self.world);
+            let cascaded_from_situations = self.runtime.content.process_pending_triggers(&mut self.world);
             self.apply_effect_report_app_requests(&cascaded_from_situations.effect_report);
             for w in &cascaded_from_situations.effect_report.warnings {
                 println!("[effect] 警告: {w}");
@@ -75,9 +75,9 @@ impl App {
             }
             if cascaded_from_situations.pause_for_country_event {
                 if self.world.speed != hoi4_state::GameSpeed::Paused
-                    && self.pre_event_speed.is_none()
+                    && self.ui_state.pre_event_speed.is_none()
                 {
-                    self.pre_event_speed = Some(self.world.speed);
+                    self.ui_state.pre_event_speed = Some(self.world.speed);
                 }
                 self.world.speed = hoi4_state::GameSpeed::Paused;
             }
@@ -165,7 +165,7 @@ impl App {
                         detail: format!("{} 与 {} 白和", winner_tag, loser_tag),
                     });
                 }
-                self.pending_surrender_notifications.push(
+                self.ui_state.pending_surrender_notifications.push(
                     hoi4_ui::surrender_notification::SurrenderNotification {
                         target_tag: loser_tag.clone(),
                         target_name: loser_name,
@@ -177,7 +177,7 @@ impl App {
                 );
             }
             if content_events.peace_resolution.empty_wars_removed > 0 {
-                self.pending_surrender_notifications.push(
+                self.ui_state.pending_surrender_notifications.push(
                     hoi4_ui::surrender_notification::SurrenderNotification {
                         target_tag: String::new(),
                         target_name: String::new(),
@@ -210,6 +210,7 @@ impl App {
             }
             if !content_events.cascaded_triggers.is_empty()
                 && self
+                    .runtime
                     .content
                     .event_scheduler
                     .pending
@@ -217,9 +218,9 @@ impl App {
                     .any(|p| p.scope == hoi4_content::EventScope::Country)
             {
                 if self.world.speed != hoi4_state::GameSpeed::Paused
-                    && self.pre_event_speed.is_none()
+                    && self.ui_state.pre_event_speed.is_none()
                 {
-                    self.pre_event_speed = Some(self.world.speed);
+                    self.ui_state.pre_event_speed = Some(self.world.speed);
                 }
                 self.world.speed = hoi4_state::GameSpeed::Paused;
             }
@@ -227,6 +228,6 @@ impl App {
             self.refresh_map_if_province_ownership_changed();
         }
 
-        self.content.last_tick_events = hoi4_runtime::ContentTickEvents::default();
+        self.runtime.content.last_tick_events = hoi4_runtime::ContentTickEvents::default();
     }
 }

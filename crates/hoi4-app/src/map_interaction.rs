@@ -81,8 +81,8 @@ impl SelectionBoxState {
 
 impl App {
     pub(crate) fn append_frontline_painter_sample(&mut self, prov: hoi4_state::ProvinceId) -> bool {
-        let Some(&last) = self.frontline_painter.samples.last() else {
-            self.frontline_painter.samples.push(prov);
+        let Some(&last) = self.interaction.frontline_painter.samples.last() else {
+            self.interaction.frontline_painter.samples.push(prov);
             return true;
         };
         if last == prov {
@@ -94,15 +94,15 @@ impl App {
             .unwrap_or_else(|| vec![last, prov]);
         let mut changed = false;
         for pid in bridge.into_iter().skip(1) {
-            if self.frontline_painter.samples.last() == Some(&pid) {
+            if self.interaction.frontline_painter.samples.last() == Some(&pid) {
                 continue;
             }
-            if self.frontline_painter.samples.len() >= hoi4_logic::military::frontline::MAX_SAMPLES
+            if self.interaction.frontline_painter.samples.len() >= hoi4_logic::military::frontline::MAX_SAMPLES
             {
                 self.thin_frontline_painter_samples();
             }
-            if self.frontline_painter.samples.len() < hoi4_logic::military::frontline::MAX_SAMPLES {
-                self.frontline_painter.samples.push(pid);
+            if self.interaction.frontline_painter.samples.len() < hoi4_logic::military::frontline::MAX_SAMPLES {
+                self.interaction.frontline_painter.samples.push(pid);
                 changed = true;
             }
         }
@@ -110,19 +110,19 @@ impl App {
     }
 
     pub(crate) fn thin_frontline_painter_samples(&mut self) {
-        let len = self.frontline_painter.samples.len();
+        let len = self.interaction.frontline_painter.samples.len();
         if len <= 2 {
             return;
         }
         let mut thinned = Vec::with_capacity(len / 2 + 2);
-        for (idx, &pid) in self.frontline_painter.samples.iter().enumerate() {
+        for (idx, &pid) in self.interaction.frontline_painter.samples.iter().enumerate() {
             if idx == 0 || idx + 1 == len || idx % 2 == 0 {
                 if thinned.last() != Some(&pid) {
                     thinned.push(pid);
                 }
             }
         }
-        self.frontline_painter.samples = thinned;
+        self.interaction.frontline_painter.samples = thinned;
     }
 
     pub(crate) fn short_land_sample_bridge(
@@ -291,16 +291,16 @@ impl App {
         shift_held: bool,
     ) {
         if ctrl_held {
-            if self.selected_province_ids.contains(&pid) {
-                self.selected_province_ids.remove(&pid);
+            if self.interaction.selected_province_ids.contains(&pid) {
+                self.interaction.selected_province_ids.remove(&pid);
             } else {
-                self.selected_province_ids.insert(pid);
+                self.interaction.selected_province_ids.insert(pid);
             }
         } else {
-            let was_selected = self.selected_province_ids.contains(&pid);
-            self.selected_province_ids.clear();
-            self.expanded_stacks.clear();
-            self.selected_province_ids.insert(pid);
+            let was_selected = self.interaction.selected_province_ids.contains(&pid);
+            self.interaction.selected_province_ids.clear();
+            self.interaction.expanded_stacks.clear();
+            self.interaction.selected_province_ids.insert(pid);
             if was_selected {
                 let has_stack = self._cached_hoi3_counter_upload.iter().any(|c| {
                     c.province_id() as u32 == pid
@@ -308,43 +308,43 @@ impl App {
                         && c.stack_count > 1
                 });
                 if has_stack {
-                    self.expanded_stacks.insert(pid);
+                    self.interaction.expanded_stacks.insert(pid);
                 }
             }
         }
 
-        let player = hoi4_state::CountryId(self.player_country as u16);
+        let player = hoi4_state::CountryId(self.view.player_country as u16);
         let prov = hoi4_state::ProvinceId(pid as u16);
         if ctrl_held {
             for i in 0..self.world.divisions.count {
                 if self.world.divisions.owners[i] == player
                     && self.world.divisions.locations[i] == prov
                 {
-                    if let Some(pos) = self.selected_divisions.iter().position(|&x| x == i) {
-                        self.selected_divisions.remove(pos);
+                    if let Some(pos) = self.interaction.selected_divisions.iter().position(|&x| x == i) {
+                        self.interaction.selected_divisions.remove(pos);
                     } else {
-                        self.selected_divisions.push(i);
+                        self.interaction.selected_divisions.push(i);
                     }
                 }
             }
         } else if shift_held {
-            self.selected_divisions.clear();
+            self.interaction.selected_divisions.clear();
             for i in 0..self.world.divisions.count {
                 if self.world.divisions.owners[i] == player {
-                    self.selected_divisions.push(i);
+                    self.interaction.selected_divisions.push(i);
                 }
             }
         } else {
-            self.selected_divisions.clear();
+            self.interaction.selected_divisions.clear();
             for i in 0..self.world.divisions.count {
                 if self.world.divisions.owners[i] == player
                     && self.world.divisions.locations[i] == prov
                 {
-                    self.selected_divisions.push(i);
+                    self.interaction.selected_divisions.push(i);
                 }
             }
         }
-        self.selected_army_id = None;
+        self.interaction.selected_army_id = None;
         if let Some(s) = self.state.as_mut() {
             s.window.request_redraw();
         }
@@ -369,7 +369,7 @@ impl App {
         ];
         let rx1 = rect[0] + rect[2];
         let ry1 = rect[1] + rect[3];
-        let player = hoi4_state::CountryId(self.player_country as u16);
+        let player = hoi4_state::CountryId(self.view.player_country as u16);
         let mut province_hits = HashSet::new();
 
         for region in &self._cached_hoi3_hit_regions {
@@ -382,9 +382,9 @@ impl App {
         }
 
         if !additive {
-            self.selected_divisions.clear();
-            self.selected_province_ids.clear();
-            self.expanded_stacks.clear();
+            self.interaction.selected_divisions.clear();
+            self.interaction.selected_province_ids.clear();
+            self.interaction.expanded_stacks.clear();
         }
 
         for pid in province_hits {
@@ -393,36 +393,36 @@ impl App {
             for i in 0..self.world.divisions.count {
                 if self.world.divisions.owners[i] == player
                     && self.world.divisions.locations[i] == prov
-                    && !self.selected_divisions.contains(&i)
+                    && !self.interaction.selected_divisions.contains(&i)
                 {
-                    self.selected_divisions.push(i);
+                    self.interaction.selected_divisions.push(i);
                     any_here = true;
                 }
             }
             if any_here {
-                self.selected_province_ids.insert(pid);
+                self.interaction.selected_province_ids.insert(pid);
             }
         }
 
-        self.selected_army_id = None;
+        self.interaction.selected_army_id = None;
         self.refresh_lut();
         if let Some(s) = self.state.as_ref() {
             s.window.request_redraw();
         }
-        !self.selected_divisions.is_empty()
+        !self.interaction.selected_divisions.is_empty()
     }
 
     /// Attempt to pick a province under the current cursor position.
     /// On hit, sets `selected_province_id` and triggers a redraw.
     pub(crate) fn try_pick_province(&mut self) {
         // Construction placement mode: clicking a province places the building
-        if let Some(ref building_key) = self.construction_mode.clone() {
+        if let Some(ref building_key) = self.ui_state.construction_mode.clone() {
             let pid = self.pick_province_at_cursor();
             if pid != u32::MAX {
                 let sid = self.world.provinces.state_of[pid as usize];
                 if !sid.is_none() {
                     let si = sid.0 as usize;
-                    let player_cid = hoi4_state::CountryId(self.player_country as u16);
+                    let player_cid = hoi4_state::CountryId(self.view.player_country as u16);
                     if si < self.world.states.count && self.world.states.owners[si] == player_cid {
                         let used: u8 = self
                             .world
@@ -439,14 +439,14 @@ impl App {
                                 Self::v6_next_construction_level(&self.world, building_key, sid);
                             let order = hoi4_logic::economy::BuildOrder::new(building_key, sid)
                                 .with_level(target_level);
-                            match self.econ.enqueue_construction_checked(
+                            match self.runtime.econ.enqueue_construction_checked(
                                 player_cid,
                                 order,
                                 &self.world,
                                 &self.v6_db,
                             ) {
                                 Ok(()) => {
-                                    self.ui_sounds
+                                    self.ui_state.ui_sounds
                                         .play_with_fallback(UiSound::OptionClick, UiSound::Click);
                                 }
                                 Err(reason) => {
@@ -454,7 +454,7 @@ impl App {
                                         "[construction] could not queue {} in {}: {:?}",
                                         building_key, self.world.states.names[si], reason
                                     );
-                                    self.ui_sounds
+                                    self.ui_state.ui_sounds
                                         .play_with_fallback(UiSound::Click, UiSound::Click);
                                 }
                             }
@@ -463,7 +463,7 @@ impl App {
                                 "[construction] state {} is full ({}/{})",
                                 self.world.states.names[si], used, max
                             );
-                            self.ui_sounds
+                            self.ui_state.ui_sounds
                                 .play_with_fallback(UiSound::Click, UiSound::Click);
                         }
                     }
@@ -476,21 +476,21 @@ impl App {
         }
 
         // CR-4.5: If pending_move_command, this click sets destination
-        if self.pending_move_command {
+        if self.interaction.pending_move_command {
             let dest_pid = self.pick_province_at_cursor();
             if dest_pid != u32::MAX {
                 let dest = hoi4_state::ProvinceId(dest_pid as u16);
                 self.issue_manual_move_to_selected_divisions(dest);
             }
-            self.pending_move_command = false;
-            self.counter_right_click_province = None;
+            self.interaction.pending_move_command = false;
+            self.interaction.counter_right_click_province = None;
             if let Some(s) = &self.state {
                 s.window.request_redraw();
             }
             return;
         }
 
-        if let Some(fleet_id) = self.pending_naval_move_fleet {
+        if let Some(fleet_id) = self.interaction.pending_naval_move_fleet {
             let pid = self.pick_province_at_cursor();
             if pid != u32::MAX {
                 let selected_sea_region = self
@@ -509,7 +509,7 @@ impl App {
                         region,
                         now,
                     );
-                    self.pending_naval_move_fleet = None;
+                    self.interaction.pending_naval_move_fleet = None;
                 }
             }
             if let Some(s) = &self.state {
@@ -518,7 +518,7 @@ impl App {
             return;
         }
 
-        if let Some(wing_id) = self.pending_air_transfer_wing {
+        if let Some(wing_id) = self.interaction.pending_air_transfer_wing {
             let pid = self.pick_province_at_cursor();
             if pid != u32::MAX {
                 let selected_state = self
@@ -537,7 +537,7 @@ impl App {
                         selected_state.0 as u32,
                         now,
                     );
-                    self.pending_air_transfer_wing = None;
+                    self.interaction.pending_air_transfer_wing = None;
                 }
             }
             if let Some(s) = &self.state {
@@ -554,17 +554,17 @@ impl App {
 
         if ctrl_held {
             if new_pid != u32::MAX {
-                if self.selected_province_ids.contains(&new_pid) {
-                    self.selected_province_ids.remove(&new_pid);
+                if self.interaction.selected_province_ids.contains(&new_pid) {
+                    self.interaction.selected_province_ids.remove(&new_pid);
                 } else {
-                    self.selected_province_ids.insert(new_pid);
+                    self.interaction.selected_province_ids.insert(new_pid);
                 }
             }
         } else {
-            self.selected_province_ids.clear();
-            self.expanded_stacks.clear();
+            self.interaction.selected_province_ids.clear();
+            self.interaction.expanded_stacks.clear();
             if new_pid != u32::MAX {
-                self.selected_province_ids.insert(new_pid);
+                self.interaction.selected_province_ids.insert(new_pid);
             }
         }
 
@@ -576,7 +576,7 @@ impl App {
                 let si = sid.0 as usize;
                 if si < self.world.states.count {
                     for province in &self.world.states.provinces[si] {
-                        self.selected_province_ids.insert(province.0 as u32);
+                        self.interaction.selected_province_ids.insert(province.0 as u32);
                     }
                 }
             }
@@ -595,16 +595,16 @@ impl App {
         self.refresh_lut();
 
         // Select player's divisions in this province
-        let player = hoi4_state::CountryId(self.player_country as u16);
+        let player = hoi4_state::CountryId(self.view.player_country as u16);
         let prov = hoi4_state::ProvinceId(new_pid as u16);
         let shift_held = self.keys_held.contains(&KeyCode::ShiftLeft)
             || self.keys_held.contains(&KeyCode::ShiftRight);
 
         if shift_held {
-            self.selected_divisions.clear();
+            self.interaction.selected_divisions.clear();
             for i in 0..self.world.divisions.count {
                 if self.world.divisions.owners[i] == player {
-                    self.selected_divisions.push(i);
+                    self.interaction.selected_divisions.push(i);
                 }
             }
         } else if ctrl_held {
@@ -612,20 +612,20 @@ impl App {
                 if self.world.divisions.owners[i] == player
                     && self.world.divisions.locations[i] == prov
                 {
-                    if let Some(pos) = self.selected_divisions.iter().position(|&x| x == i) {
-                        self.selected_divisions.remove(pos);
+                    if let Some(pos) = self.interaction.selected_divisions.iter().position(|&x| x == i) {
+                        self.interaction.selected_divisions.remove(pos);
                     } else {
-                        self.selected_divisions.push(i);
+                        self.interaction.selected_divisions.push(i);
                     }
                 }
             }
         } else {
-            self.selected_divisions.clear();
+            self.interaction.selected_divisions.clear();
             for i in 0..self.world.divisions.count {
                 if self.world.divisions.owners[i] == player
                     && self.world.divisions.locations[i] == prov
                 {
-                    self.selected_divisions.push(i);
+                    self.interaction.selected_divisions.push(i);
                 }
             }
         }
@@ -638,7 +638,7 @@ impl App {
                     .map_or(false, |o| o.active && o.path.contains(&prov))
         });
         if new_pid != u32::MAX {
-            self.selected_army_id = clicked_army.map(|a| a.id);
+            self.interaction.selected_army_id = clicked_army.map(|a| a.id);
         }
 
         // J.2: Populate province info card
@@ -760,7 +760,7 @@ impl App {
                 .filter(|&i| self.world.divisions.locations[i] == prov)
                 .map(|i| self.world.divisions.names[i].clone())
                 .collect();
-            self.province_info_card.open = true;
+            self.ui_state.province_info_card.open = true;
             let state_id = hoi4_state::StateId(si as u16);
             let mut v6_outputs: HashMap<String, (u32, f32)> = HashMap::new();
             if si < self.world.states.count {
@@ -847,8 +847,8 @@ impl App {
             } else {
                 Vec::new()
             };
-            let construction_projects = if owner_ci < self.econ.count {
-                self.econ.construction[owner_ci]
+            let construction_projects = if owner_ci < self.runtime.econ.count {
+                self.runtime.econ.construction[owner_ci]
                     .items
                     .iter()
                     .filter(|item| item.target_state == state_id)
@@ -878,7 +878,7 @@ impl App {
             } else {
                 Vec::new()
             };
-            self.province_info_data = hoi4_ui::province_info::ProvinceInfoData {
+            self.ui_state.province_info_data = hoi4_ui::province_info::ProvinceInfoData {
                 province: hoi4_ui::province_info::ProvinceTacticalInfo {
                     province_id: new_pid,
                     province_name,
@@ -925,8 +925,8 @@ impl App {
                     },
                 },
             };
-            self.province_info_card.open = false;
-            self.active_detail_panel = Some(hoi4_ui::ActiveDetailPanel::Province(
+            self.ui_state.province_info_card.open = false;
+            self.ui_state.active_detail_panel = Some(hoi4_ui::ActiveDetailPanel::Province(
                 hoi4_ui::ProvinceDetailTarget {
                     province_id: new_pid,
                 },
@@ -944,20 +944,22 @@ impl App {
     /// are exempt so they keep working while the relevant panel is open.
     pub(crate) fn ui_blocks_map_clicks(&self) -> bool {
         let panel_blocks_map = self
+            .ui_state
             .open_panel
             .is_some_and(|panel| !matches!(panel, InGamePanel::Air | InGamePanel::Naval));
-        self.game_phase == GamePhase::Playing
-            && self.construction_mode.is_none()
-            && self.pending_move_command == false
-            && self.frontline_painter.mode == PainterMode::Idle
-            && self.counter_right_click_province.is_none()
+        self.view.game_phase == GamePhase::Playing
+            && self.ui_state.construction_mode.is_none()
+            && self.interaction.pending_move_command == false
+            && self.interaction.frontline_painter.mode == PainterMode::Idle
+            && self.interaction.counter_right_click_province.is_none()
             && (panel_blocks_map
                 || self
+                    .ui_state
                     .province_info_card
                     .contains_point(self.last_mouse[0], self.last_mouse[1])
-                || self.country_info_panel.open
-                || self.settings_panel.open
-                || self.save_browser.open
-                || (self.end_screen.triggered && !self.end_screen.continued))
+                || self.ui_state.country_info_panel.open
+                || self.ui_state.settings_panel.open
+                || self.ui_state.save_browser.open
+                || (self.ui_state.end_screen.triggered && !self.ui_state.end_screen.continued))
     }
 }

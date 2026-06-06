@@ -37,7 +37,7 @@ impl EdgePanTestRun {
 
 impl App {
     pub(crate) fn start_edge_pan_test(&mut self) {
-        let Some(run) = self.edge_pan_test.as_ref() else {
+        let Some(run) = self.audit.edge_pan_test.as_ref() else {
             return;
         };
         if run.started_at.is_some() {
@@ -47,17 +47,17 @@ impl App {
         let duration_secs = run.config.duration_secs.max(1.0);
 
         let _ = self.set_player_country_by_tag(&country_tag);
-        self.game_phase = GamePhase::Playing;
+        self.view.game_phase = GamePhase::Playing;
         self.world.speed = GameSpeed::Speed5;
         self.time_accumulator = 0.0;
         self.close_primary_panel();
-        self.active_popup = None;
-        self.province_info_card.open = false;
-        self.country_info_panel.close();
+        self.ui_state.active_popup = None;
+        self.ui_state.province_info_card.open = false;
+        self.ui_state.country_info_panel.close();
         self.reset_menu_state();
 
         let now = Instant::now();
-        if let Some(run) = self.edge_pan_test.as_mut() {
+        if let Some(run) = self.audit.edge_pan_test.as_mut() {
             run.config.duration_secs = duration_secs;
             run.started_at = Some(now);
             run.last_cursor_log_at = now;
@@ -73,15 +73,15 @@ impl App {
     }
 
     pub(crate) fn update_edge_pan_test_cursor(&mut self, now: Instant) {
-        let Some(started_at) = self.edge_pan_test.as_ref().and_then(|run| run.started_at) else {
+        let Some(started_at) = self.audit.edge_pan_test.as_ref().and_then(|run| run.started_at) else {
             return;
         };
-        if self.game_phase != GamePhase::Playing {
+        if self.view.game_phase != GamePhase::Playing {
             return;
         }
         if self.world.speed != GameSpeed::Speed5 {
             self.world.speed = GameSpeed::Speed5;
-            self.pre_event_speed = None;
+            self.ui_state.pre_event_speed = None;
         }
         let Some((w, h)) = self.state.as_ref().map(|s| {
             let dpi = s.window.scale_factor() as f32;
@@ -118,7 +118,7 @@ impl App {
         }
 
         let mut should_log = false;
-        if let Some(run) = self.edge_pan_test.as_mut() {
+        if let Some(run) = self.audit.edge_pan_test.as_mut() {
             if now
                 .saturating_duration_since(run.last_cursor_log_at)
                 .as_secs_f32()
@@ -137,7 +137,7 @@ impl App {
     }
 
     pub(crate) fn edge_pan_test_should_finish(&self, now: Instant) -> bool {
-        self.edge_pan_test
+        self.audit.edge_pan_test
             .as_ref()
             .and_then(|run| run.started_at.map(|started| (run, started)))
             .is_some_and(|(run, started)| {
@@ -147,7 +147,7 @@ impl App {
     }
 
     pub(crate) fn finish_edge_pan_test(&mut self) {
-        let Some(run) = self.edge_pan_test.take() else {
+        let Some(run) = self.audit.edge_pan_test.take() else {
             return;
         };
         let elapsed = run
@@ -176,7 +176,7 @@ impl App {
         egui_ms: f32,
         vanilla_ms: f32,
     ) {
-        let Some(run) = self.edge_pan_test.as_mut() else {
+        let Some(run) = self.audit.edge_pan_test.as_mut() else {
             return;
         };
         if run.started_at.is_none() {

@@ -74,10 +74,10 @@ impl App {
             0,
             bytemuck::bytes_of(&[logical_sw, logical_sh]),
         );
-        let flag_to_draw: Option<(String, String, [f32; 4])> = match self.game_phase {
-            GamePhase::CountrySelect => self.last_country_layout.as_ref().and_then(|layout| {
-                self.available_countries
-                    .get(self.country_select_idx)
+        let flag_to_draw: Option<(String, String, [f32; 4])> = match self.view.game_phase {
+            GamePhase::CountrySelect => self.view.last_country_layout.as_ref().and_then(|layout| {
+                self.view.available_countries
+                    .get(self.view.country_select_idx)
                     .map(|entry| {
                         let (fx, fy, fw, fh) = layout.flag_rect;
                         (entry.tag.clone(), entry.ideology.clone(), [fx, fy, fw, fh])
@@ -195,9 +195,9 @@ impl App {
         frame.present();
         let profile_present_ms = present_started.elapsed().as_secs_f32() * 1000.0;
         self.last_redraw_at = Instant::now();
-        self.last_frame_cpu_ms = frame_time_ms;
+        self.perf.last_frame_cpu_ms = frame_time_ms;
         if (frame_time_ms >= 25.0 || profile_present_ms >= 10.0)
-            && self.last_render_profile_log.elapsed().as_millis() >= 250
+            && self.perf.last_render_profile_log.elapsed().as_millis() >= 250
         {
             let speed = match self.world.speed {
                 GameSpeed::Paused => "P",
@@ -234,7 +234,7 @@ impl App {
                 profile_pre_submit_ms,
                 profile_submit_ms,
             );
-            self.last_render_profile_log = Instant::now();
+            self.perf.last_render_profile_log = Instant::now();
         }
         let capture_result =
             pending_readback.map(|pending| finish_png_readback(&s.device, pending));
@@ -252,7 +252,7 @@ impl App {
         } else if map_phase0_active {
             self.map_phase0_after_uncaptured_frame();
         }
-        self.perf_render_us = self.perf_render_us.saturating_add(frame_submit_us);
-        self.perf_render_frames = self.perf_render_frames.saturating_add(1);
+        self.perf.render_us = self.perf.render_us.saturating_add(frame_submit_us);
+        self.perf.render_frames = self.perf.render_frames.saturating_add(1);
     }
 }

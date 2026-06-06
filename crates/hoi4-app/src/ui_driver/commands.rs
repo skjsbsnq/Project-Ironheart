@@ -95,17 +95,17 @@ impl App {
         let topbar_action = topbar_speed_cmd.map(hoi4_ui::TopbarAction::SetSpeed);
 
         if close_active_panel {
-            self.open_panel = None;
-            self.active_detail_panel = None;
+            self.ui_state.open_panel = None;
+            self.ui_state.active_detail_panel = None;
         }
         if law_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-            self.law_error_message = None;
+            self.ui_state.open_panel = None;
+            self.ui_state.active_detail_panel = None;
+            self.ui_state.law_error_message = None;
         }
 
         if !finance_cmds.is_empty() {
-            let player = self.player_country;
+            let player = self.view.player_country;
             for cmd in &finance_cmds {
                 let content_cmd = match cmd {
                     hoi4_ui::finance_panel::FinanceCommand::IssueDomesticBond { amount_rm } => {
@@ -147,11 +147,11 @@ impl App {
 
         let mut construction_highlight_changed = false;
         if construction_v6_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-            if self.construction_mode.is_some() {
-                self.construction_mode = None;
-                self.construction_highlight_province_ids.clear();
+            self.ui_state.open_panel = None;
+            self.ui_state.active_detail_panel = None;
+            if self.ui_state.construction_mode.is_some() {
+                self.ui_state.construction_mode = None;
+                self.ui_state.construction_highlight_province_ids.clear();
                 construction_highlight_changed = true;
             }
         }
@@ -164,23 +164,23 @@ impl App {
                 hoi4_app::ui_data::construction_commands::apply_construction_control_command(
                     &cmd,
                     &mut self.world,
-                    &mut self.econ,
+                    &mut self.runtime.econ,
                     &self.v6_db,
-                    self.player_country,
-                    &mut self.auto_build_enabled,
-                    &mut self.construction_mode,
-                    &mut self.construction_highlight_province_ids,
+                    self.view.player_country,
+                    &mut self.runtime.auto_build_enabled,
+                    &mut self.ui_state.construction_mode,
+                    &mut self.ui_state.construction_highlight_province_ids,
                 );
             if effect.handled {
                 if effect.reset_auto_build_month {
-                    self.last_auto_build_month = None;
+                    self.runtime.last_auto_build_month = None;
                 }
                 construction_highlight_changed |= effect.highlight_changed;
             }
         }
 
         if !law_cmds.is_empty() {
-            let player_id = hoi4_state::CountryId(self.player_country as u16);
+            let player_id = hoi4_state::CountryId(self.view.player_country as u16);
             for cmd in law_cmds {
                 use hoi4_ui::law_panel::LawCommand;
                 match cmd {
@@ -196,14 +196,14 @@ impl App {
                             &self.v6_db,
                         ) {
                             Ok(()) => {
-                                self.law_error_message = None;
+                                self.ui_state.law_error_message = None;
                             }
                             Err(e) => {
                                 println!(
                                     "[law] ?????????: {:?} ??{}: {}",
                                     category, target_law_id, e
                                 );
-                                self.law_error_message = Some(format!("?????????: {}", e));
+                                self.ui_state.law_error_message = Some(format!("?????????: {}", e));
                             }
                         }
                     }
@@ -212,24 +212,24 @@ impl App {
         }
 
         if !politics_decision_cmds.is_empty() {
-            let player_id = hoi4_state::CountryId(self.player_country as u16);
+            let player_id = hoi4_state::CountryId(self.view.player_country as u16);
             for cmd in politics_decision_cmds {
                 use hoi4_ui::politics::DecisionCommand;
                 match cmd {
                     DecisionCommand::Activate(id) => {
-                        match self.content.decision_state.activate(
+                        match self.runtime.content.decision_state.activate(
                             &id,
-                            &self.content.decision_db,
+                            &self.runtime.content.decision_db,
                             &mut self.world,
                             player_id,
-                            &mut self.content.global_flags,
+                            &mut self.runtime.content.global_flags,
                         ) {
                             Ok(()) => println!("[decision] activated: {id}"),
                             Err(e) => println!("[decision] activate failed: {id}: {e}"),
                         }
                     }
                     DecisionCommand::OpenFocusTree => {
-                        self.focus_panel.open = true;
+                        self.ui_state.focus_panel.open = true;
                     }
                     DecisionCommand::Panel(panel_cmd) => {
                         panel_commands.push(panel_cmd);
@@ -239,16 +239,16 @@ impl App {
         }
 
         if construction_highlight_changed {
-            let player_cid = if self.player_country < self.world.countries.count {
-                Some(hoi4_state::CountryId(self.player_country as u16))
+            let player_cid = if self.view.player_country < self.world.countries.count {
+                Some(hoi4_state::CountryId(self.view.player_country as u16))
             } else {
                 None
             };
             let mut color_lut = build_color_lut(&self.world, self.map_mode, player_cid);
             for pid in self
-                .selected_province_ids
+                .interaction.selected_province_ids
                 .iter()
-                .chain(self.construction_highlight_province_ids.iter())
+                .chain(self.ui_state.construction_highlight_province_ids.iter())
             {
                 let o = *pid as usize * 4;
                 if o + 3 < color_lut.len() {
@@ -272,9 +272,9 @@ impl App {
             use hoi4_ui::research::ResearchCommand;
             match cmd {
                 ResearchCommand::StartResearch(tech_key) => {
-                    let _ = self.research.start(
+                    let _ = self.runtime.research.start(
                         &self.world,
-                        hoi4_state::CountryId(self.player_country as u16),
+                        hoi4_state::CountryId(self.view.player_country as u16),
                         &tech_key,
                         &self.v6_db,
                     );
@@ -288,7 +288,7 @@ impl App {
         for cmd in diplomacy_cmds {
             use hoi4_logic::diplomacy::{execute_action, DiplomaticAction};
             use hoi4_ui::diplomacy::DiplomacyCommand;
-            let player_cid = hoi4_state::CountryId(self.player_country as u16);
+            let player_cid = hoi4_state::CountryId(self.view.player_country as u16);
             match cmd {
                 DiplomacyCommand::JustifyWargoal(tag) => {
                     if let Some(&target) = self.world.tag_to_country.get(&tag) {
@@ -314,7 +314,7 @@ impl App {
                         ) {
                             println!("[diplomacy] Declare war on {tag} failed: {err:?}");
                         } else {
-                            self.frontline_overlay_hash = 0;
+                            self.render_toggles.frontline_overlay_hash = 0;
                         }
                     }
                 }
@@ -377,9 +377,9 @@ impl App {
                     .is_ok()
                     {
                         println!("[peace] war #{war_id} resolved through unified diplomacy action");
-                        self.frontline_overlay_hash = 0;
-                        let player_cid = if self.player_country < self.world.countries.count {
-                            Some(hoi4_state::CountryId(self.player_country as u16))
+                        self.render_toggles.frontline_overlay_hash = 0;
+                        let player_cid = if self.view.player_country < self.world.countries.count {
+                            Some(hoi4_state::CountryId(self.view.player_country as u16))
                         } else {
                             None
                         };
@@ -408,10 +408,10 @@ impl App {
                     situation_id,
                     intervention_id,
                 } => {
-                    let player = hoi4_state::CountryId(self.player_country as u16);
-                    let ci = self.player_country;
-                    let stockpile = &mut self.econ.stockpile[ci];
-                    self.content.situation_state.intervene(
+                    let player = hoi4_state::CountryId(self.view.player_country as u16);
+                    let ci = self.view.player_country;
+                    let stockpile = &mut self.runtime.econ.stockpile[ci];
+                    self.runtime.content.situation_state.intervene(
                         &situation_id,
                         &intervention_id,
                         player,
@@ -427,7 +427,7 @@ impl App {
                     let fi = fleet_id as usize;
                     if fi < self.world.fleets.count
                         && self.world.fleets.owners[fi]
-                            == hoi4_state::CountryId(self.player_country as u16)
+                            == hoi4_state::CountryId(self.view.player_country as u16)
                     {
                         self.world.fleets.mission[fi] = naval_mission_from_ui(mission);
                     }
@@ -436,7 +436,7 @@ impl App {
                     let fi = fleet_id as usize;
                     if fi < self.world.fleets.count
                         && self.world.fleets.owners[fi]
-                            == hoi4_state::CountryId(self.player_country as u16)
+                            == hoi4_state::CountryId(self.view.player_country as u16)
                     {
                         let selected_sea_region = if self.selected_province_id != u32::MAX {
                             self.world
@@ -457,35 +457,35 @@ impl App {
                                 region,
                                 now,
                             );
-                            self.pending_naval_move_fleet = None;
-                        } else if self.pending_naval_move_fleet == Some(fleet_id) {
-                            self.pending_naval_move_fleet = None;
+                            self.interaction.pending_naval_move_fleet = None;
+                        } else if self.interaction.pending_naval_move_fleet == Some(fleet_id) {
+                            self.interaction.pending_naval_move_fleet = None;
                         } else {
-                            self.pending_naval_move_fleet = Some(fleet_id);
+                            self.interaction.pending_naval_move_fleet = Some(fleet_id);
                         }
                     }
                 }
                 hoi4_ui::naval::NavalCommand::SplitFleet { fleet_id, count } => {
                     Self::split_fleet_data(
                         &mut self.world,
-                        hoi4_state::CountryId(self.player_country as u16),
+                        hoi4_state::CountryId(self.view.player_country as u16),
                         fleet_id,
                         count,
                     );
                 }
                 hoi4_ui::naval::NavalCommand::DisbandEmptyFleet { fleet_id } => {
                     let fi = fleet_id as usize;
-                    let player = hoi4_state::CountryId(self.player_country as u16);
+                    let player = hoi4_state::CountryId(self.view.player_country as u16);
                     if fi < self.world.fleets.count
                         && self.world.fleets.owners[fi] == player
                         && self.world.fleets.ships[fi].is_empty()
                     {
                         self.world.fleets.owners[fi] = hoi4_state::CountryId::NONE;
-                        if self.naval_transfer_source_fleet == Some(fleet_id) {
-                            self.naval_transfer_source_fleet = None;
+                        if self.interaction.naval_transfer_source_fleet == Some(fleet_id) {
+                            self.interaction.naval_transfer_source_fleet = None;
                         }
-                        if self.pending_naval_move_fleet == Some(fleet_id) {
-                            self.pending_naval_move_fleet = None;
+                        if self.interaction.pending_naval_move_fleet == Some(fleet_id) {
+                            self.interaction.pending_naval_move_fleet = None;
                         }
                     }
                 }
@@ -493,13 +493,13 @@ impl App {
                     let fi = fleet_id as usize;
                     if fi < self.world.fleets.count
                         && self.world.fleets.owners[fi]
-                            == hoi4_state::CountryId(self.player_country as u16)
+                            == hoi4_state::CountryId(self.view.player_country as u16)
                     {
-                        self.naval_transfer_source_fleet = Some(fleet_id);
+                        self.interaction.naval_transfer_source_fleet = Some(fleet_id);
                     }
                 }
                 hoi4_ui::naval::NavalCommand::ClearTransferSource => {
-                    self.naval_transfer_source_fleet = None;
+                    self.interaction.naval_transfer_source_fleet = None;
                 }
                 hoi4_ui::naval::NavalCommand::TransferShips {
                     from_fleet_id,
@@ -508,7 +508,7 @@ impl App {
                 } => {
                     Self::transfer_ships_between_fleets_data(
                         &mut self.world,
-                        hoi4_state::CountryId(self.player_country as u16),
+                        hoi4_state::CountryId(self.view.player_country as u16),
                         from_fleet_id,
                         to_fleet_id,
                         count,
@@ -525,7 +525,7 @@ impl App {
                     let wi = wing_id as usize;
                     if wi < self.world.air_wings.count
                         && self.world.air_wings.owners[wi]
-                            == hoi4_state::CountryId(self.player_country as u16)
+                            == hoi4_state::CountryId(self.view.player_country as u16)
                     {
                         self.world.air_wings.mission[wi] = air_mission_from_ui(mission);
                         if self.world.air_wings.target_region[wi] == u32::MAX {
@@ -538,7 +538,7 @@ impl App {
                     let wi = wing_id as usize;
                     if wi < self.world.air_wings.count
                         && self.world.air_wings.owners[wi]
-                            == hoi4_state::CountryId(self.player_country as u16)
+                            == hoi4_state::CountryId(self.view.player_country as u16)
                     {
                         let selected_state = if self.selected_province_id != u32::MAX {
                             self.world
@@ -559,11 +559,11 @@ impl App {
                                 selected_state.0 as u32,
                                 now,
                             );
-                            self.pending_air_transfer_wing = None;
-                        } else if self.pending_air_transfer_wing == Some(wing_id) {
-                            self.pending_air_transfer_wing = None;
+                            self.interaction.pending_air_transfer_wing = None;
+                        } else if self.interaction.pending_air_transfer_wing == Some(wing_id) {
+                            self.interaction.pending_air_transfer_wing = None;
                         } else {
-                            self.pending_air_transfer_wing = Some(wing_id);
+                            self.interaction.pending_air_transfer_wing = Some(wing_id);
                         }
                     }
                 }
@@ -571,7 +571,7 @@ impl App {
                     let wi = wing_id as usize;
                     if wi < self.world.air_wings.count
                         && self.world.air_wings.owners[wi]
-                            == hoi4_state::CountryId(self.player_country as u16)
+                            == hoi4_state::CountryId(self.view.player_country as u16)
                     {
                         self.world.air_wings.reinforce_enabled[wi] =
                             !self.world.air_wings.reinforce_enabled[wi];
@@ -580,24 +580,24 @@ impl App {
                 hoi4_ui::air::AirCommand::SplitWing { wing_id, planes } => {
                     Self::split_air_wing_data(
                         &mut self.world,
-                        hoi4_state::CountryId(self.player_country as u16),
+                        hoi4_state::CountryId(self.view.player_country as u16),
                         wing_id,
                         planes,
                     );
                 }
                 hoi4_ui::air::AirCommand::DisbandEmptyWing { wing_id } => {
                     let wi = wing_id as usize;
-                    let player = hoi4_state::CountryId(self.player_country as u16);
+                    let player = hoi4_state::CountryId(self.view.player_country as u16);
                     if wi < self.world.air_wings.count
                         && self.world.air_wings.owners[wi] == player
                         && self.world.air_wings.count_planes[wi] == 0
                     {
                         self.world.air_wings.owners[wi] = hoi4_state::CountryId::NONE;
-                        if self.air_transfer_source_wing == Some(wing_id) {
-                            self.air_transfer_source_wing = None;
+                        if self.interaction.air_transfer_source_wing == Some(wing_id) {
+                            self.interaction.air_transfer_source_wing = None;
                         }
-                        if self.pending_air_transfer_wing == Some(wing_id) {
-                            self.pending_air_transfer_wing = None;
+                        if self.interaction.pending_air_transfer_wing == Some(wing_id) {
+                            self.interaction.pending_air_transfer_wing = None;
                         }
                     }
                 }
@@ -605,13 +605,13 @@ impl App {
                     let wi = wing_id as usize;
                     if wi < self.world.air_wings.count
                         && self.world.air_wings.owners[wi]
-                            == hoi4_state::CountryId(self.player_country as u16)
+                            == hoi4_state::CountryId(self.view.player_country as u16)
                     {
-                        self.air_transfer_source_wing = Some(wing_id);
+                        self.interaction.air_transfer_source_wing = Some(wing_id);
                     }
                 }
                 hoi4_ui::air::AirCommand::ClearTransferSource => {
-                    self.air_transfer_source_wing = None;
+                    self.interaction.air_transfer_source_wing = None;
                 }
                 hoi4_ui::air::AirCommand::TransferPlanes {
                     from_wing_id,
@@ -620,7 +620,7 @@ impl App {
                 } => {
                     Self::transfer_planes_between_wings_data(
                         &mut self.world,
-                        hoi4_state::CountryId(self.player_country as u16),
+                        hoi4_state::CountryId(self.view.player_country as u16),
                         from_wing_id,
                         to_wing_id,
                         planes,
@@ -635,18 +635,18 @@ impl App {
             use hoi4_ui::military::MilitaryCommand;
             match cmd {
                 MilitaryCommand::Train(template_idx) => {
-                    let owner = hoi4_state::CountryId(self.player_country as u16);
+                    let owner = hoi4_state::CountryId(self.view.player_country as u16);
                     let capital_state = self
                         .world
                         .countries
                         .capitals
-                        .get(self.player_country)
+                        .get(self.view.player_country)
                         .copied()
                         .unwrap_or(hoi4_state::StateId::NONE);
                     let data = self.world.data.clone();
                     if let Err(err) = hoi4_logic::military::training::enqueue_training(
                         &self.world,
-                        &mut self.econ,
+                        &mut self.runtime.econ,
                         &data,
                         owner,
                         template_idx as u32,
@@ -660,7 +660,7 @@ impl App {
                 MilitaryCommand::NewTemplate => {
                     let tag = self
                         .world
-                        .country_tag(hoi4_state::CountryId(self.player_country as u16));
+                        .country_tag(hoi4_state::CountryId(self.view.player_country as u16));
                     if let Some(tag) = tag.map(str::to_owned) {
                         let data = std::sync::Arc::make_mut(&mut self.world.data);
                         let templates = data.division_templates.entry(tag.clone()).or_default();
@@ -672,39 +672,39 @@ impl App {
                         )
                         .to_division_template();
                         templates.push(template);
-                        self.selected_template_idx = Some((templates.len() - 1) as u16);
-                        self.template_editor_open = true;
+                        self.interaction.selected_template_idx = Some((templates.len() - 1) as u16);
+                        self.interaction.template_editor_open = true;
                     }
                 }
                 MilitaryCommand::OpenTemplateEditor(template_idx) => {
-                    self.selected_template_idx = Some(template_idx);
-                    self.template_editor_open = true;
+                    self.interaction.selected_template_idx = Some(template_idx);
+                    self.interaction.template_editor_open = true;
                 }
                 MilitaryCommand::CloseTemplateEditor => {
-                    self.template_editor_open = false;
+                    self.interaction.template_editor_open = false;
                 }
                 MilitaryCommand::OpenLineSubunitPicker { template, row, col } => {
-                    self.selected_template_idx = Some(template);
-                    self.template_editor_open = true;
-                    self.template_picker_target =
+                    self.interaction.selected_template_idx = Some(template);
+                    self.interaction.template_editor_open = true;
+                    self.interaction.template_picker_target =
                         Some(hoi4_ui::military::TemplatePickerTarget::Line { template, row, col });
                 }
                 MilitaryCommand::OpenSupportSubunitPicker { template, slot } => {
-                    self.selected_template_idx = Some(template);
-                    self.template_editor_open = true;
-                    self.template_picker_target =
+                    self.interaction.selected_template_idx = Some(template);
+                    self.interaction.template_editor_open = true;
+                    self.interaction.template_picker_target =
                         Some(hoi4_ui::military::TemplatePickerTarget::Support { template, slot });
                 }
                 MilitaryCommand::CloseSubunitPicker => {
-                    self.template_picker_target = None;
+                    self.interaction.template_picker_target = None;
                 }
                 MilitaryCommand::SelectTemplate(template_idx) => {
-                    self.selected_template_idx = Some(template_idx);
+                    self.interaction.selected_template_idx = Some(template_idx);
                 }
                 MilitaryCommand::RenameTemplate(template_idx, name) => {
                     let tag = self
                         .world
-                        .country_tag(hoi4_state::CountryId(self.player_country as u16));
+                        .country_tag(hoi4_state::CountryId(self.view.player_country as u16));
                     if let Some(tag) = tag.map(str::to_owned) {
                         let data = std::sync::Arc::make_mut(&mut self.world.data);
                         if let Some(templates) = data.division_templates.get_mut(&tag) {
@@ -719,7 +719,7 @@ impl App {
                 MilitaryCommand::CloneTemplate(template_idx) => {
                     let tag = self
                         .world
-                        .country_tag(hoi4_state::CountryId(self.player_country as u16));
+                        .country_tag(hoi4_state::CountryId(self.view.player_country as u16));
                     if let Some(tag) = tag.map(str::to_owned) {
                         let data = std::sync::Arc::make_mut(&mut self.world.data);
                         if let Some(templates) = data.division_templates.get_mut(&tag) {
@@ -727,7 +727,7 @@ impl App {
                                 templates,
                                 template_idx,
                             ) {
-                                self.selected_template_idx = Some(new_idx);
+                                self.interaction.selected_template_idx = Some(new_idx);
                             }
                         }
                     }
@@ -735,14 +735,14 @@ impl App {
                 MilitaryCommand::DeleteTemplate(template_idx) => {
                     let tag = self
                         .world
-                        .country_tag(hoi4_state::CountryId(self.player_country as u16));
+                        .country_tag(hoi4_state::CountryId(self.view.player_country as u16));
                     if let Some(tag) = tag.map(str::to_owned) {
                         let data = std::sync::Arc::make_mut(&mut self.world.data);
                         if let Some(templates) = data.division_templates.get_mut(&tag) {
                             if (template_idx as usize) < templates.len() {
                                 templates.remove(template_idx as usize);
-                                self.template_picker_target = None;
-                                self.selected_template_idx = if templates.is_empty() {
+                                self.interaction.template_picker_target = None;
+                                self.interaction.selected_template_idx = if templates.is_empty() {
                                     None
                                 } else {
                                     Some((template_idx as usize).min(templates.len() - 1) as u16)
@@ -754,7 +754,7 @@ impl App {
                 MilitaryCommand::AddLineBattalion(template_idx, subunit) => {
                     let tag = self
                         .world
-                        .country_tag(hoi4_state::CountryId(self.player_country as u16));
+                        .country_tag(hoi4_state::CountryId(self.view.player_country as u16));
                     if let Some(tag) = tag.map(str::to_owned) {
                         let data = std::sync::Arc::make_mut(&mut self.world.data);
                         if let Some(templates) = data.division_templates.get_mut(&tag) {
@@ -779,7 +779,7 @@ impl App {
                 } => {
                     let tag = self
                         .world
-                        .country_tag(hoi4_state::CountryId(self.player_country as u16));
+                        .country_tag(hoi4_state::CountryId(self.view.player_country as u16));
                     if let Some(tag) = tag.map(str::to_owned) {
                         let data = std::sync::Arc::make_mut(&mut self.world.data);
                         if let Some(templates) = data.division_templates.get_mut(&tag) {
@@ -796,7 +796,7 @@ impl App {
                 } => {
                     let tag = self
                         .world
-                        .country_tag(hoi4_state::CountryId(self.player_country as u16));
+                        .country_tag(hoi4_state::CountryId(self.view.player_country as u16));
                     if let Some(tag) = tag.map(str::to_owned) {
                         let data = std::sync::Arc::make_mut(&mut self.world.data);
                         if let Some(templates) = data.division_templates.get_mut(&tag) {
@@ -809,7 +809,7 @@ impl App {
                 MilitaryCommand::AddSupportCompany(template_idx, subunit) => {
                     let tag = self
                         .world
-                        .country_tag(hoi4_state::CountryId(self.player_country as u16));
+                        .country_tag(hoi4_state::CountryId(self.view.player_country as u16));
                     if let Some(tag) = tag.map(str::to_owned) {
                         let data = std::sync::Arc::make_mut(&mut self.world.data);
                         if let Some(templates) = data.division_templates.get_mut(&tag) {
@@ -825,8 +825,8 @@ impl App {
                     }
                 }
                 MilitaryCommand::CreateArmy => {
-                    let owner = hoi4_state::CountryId(self.player_country as u16);
-                    let members = self.selected_divisions.clone();
+                    let owner = hoi4_state::CountryId(self.view.player_country as u16);
+                    let members = self.interaction.selected_divisions.clone();
                     if members.is_empty() {
                         println!("[frontline] no divisions selected to create army");
                     } else {
@@ -838,8 +838,8 @@ impl App {
                             name,
                         ) {
                             Ok(id) => {
-                                self.selected_army_id = Some(id);
-                                self.prev_armies_hash = 0;
+                                self.interaction.selected_army_id = Some(id);
+                                self.render_toggles.prev_armies_hash = 0;
                                 println!("[frontline] created army {}", id.raw());
                             }
                             Err(e) => println!("[frontline] create_army failed: {e}"),
@@ -850,7 +850,7 @@ impl App {
                     let aid = hoi4_state::ArmyId(id);
                     match hoi4_logic::military::frontline::dissolve_army(&mut self.world, aid) {
                         Ok(()) => {
-                            self.prev_armies_hash = 0;
+                            self.render_toggles.prev_armies_hash = 0;
                             println!("[frontline] dissolved army {id}");
                         }
                         Err(e) => println!("[frontline] dissolve_army failed: {e}"),
@@ -858,7 +858,7 @@ impl App {
                 }
                 MilitaryCommand::AddMembers(id) => {
                     let aid = hoi4_state::ArmyId(id);
-                    let members = self.selected_divisions.clone();
+                    let members = self.interaction.selected_divisions.clone();
                     if !members.is_empty() {
                         match hoi4_logic::military::frontline::add_members(
                             &mut self.world,
@@ -866,7 +866,7 @@ impl App {
                             &members,
                         ) {
                             Ok(()) => {
-                                self.prev_armies_hash = 0;
+                                self.render_toggles.prev_armies_hash = 0;
                                 println!("[frontline] added {} members to army {id}", members.len())
                             }
                             Err(e) => println!("[frontline] add_members failed: {e}"),
@@ -875,7 +875,7 @@ impl App {
                 }
                 MilitaryCommand::RemoveMembers(id) => {
                     let aid = hoi4_state::ArmyId(id);
-                    let members = self.selected_divisions.clone();
+                    let members = self.interaction.selected_divisions.clone();
                     if !members.is_empty() {
                         match hoi4_logic::military::frontline::remove_members(
                             &mut self.world,
@@ -883,7 +883,7 @@ impl App {
                             &members,
                         ) {
                             Ok(()) => {
-                                self.prev_armies_hash = 0;
+                                self.render_toggles.prev_armies_hash = 0;
                                 println!(
                                     "[frontline] removed {} members from army {id}",
                                     members.len()
@@ -894,9 +894,9 @@ impl App {
                     }
                 }
                 MilitaryCommand::DrawFrontline(id) => {
-                    self.frontline_painter.mode = PainterMode::ArmyPainter(hoi4_state::ArmyId(id));
-                    self.frontline_painter.samples.clear();
-                    self.frontline_painter.last_sample_at = std::time::Instant::now();
+                    self.interaction.frontline_painter.mode = PainterMode::ArmyPainter(hoi4_state::ArmyId(id));
+                    self.interaction.frontline_painter.samples.clear();
+                    self.interaction.frontline_painter.last_sample_at = std::time::Instant::now();
                     println!("[frontline] entering frontline paint mode for army {id}");
                 }
                 MilitaryCommand::ClearFrontline(id) => {
@@ -906,7 +906,7 @@ impl App {
                         aid,
                     ) {
                         Ok(()) => {
-                            self.prev_armies_hash = 0;
+                            self.render_toggles.prev_armies_hash = 0;
                             println!("[frontline] cleared frontline for army {id}");
                         }
                         Err(e) => println!("[frontline] clear_frontline_path failed: {e}"),
@@ -927,38 +927,38 @@ impl App {
                             })
                         })
                         .unwrap_or(hoi4_state::ProvinceId(0));
-                    self.frontline_painter.mode = PainterMode::ArrowPainter(aid, anchor);
-                    self.frontline_painter.samples.clear();
-                    self.frontline_painter.last_sample_at = std::time::Instant::now();
+                    self.interaction.frontline_painter.mode = PainterMode::ArrowPainter(aid, anchor);
+                    self.interaction.frontline_painter.samples.clear();
+                    self.interaction.frontline_painter.last_sample_at = std::time::Instant::now();
                     println!("[frontline] entering arrow paint mode for army {id}");
                 }
                 MilitaryCommand::ClearArrow(id) => {
                     let aid = hoi4_state::ArmyId(id);
                     match hoi4_logic::military::frontline::clear_arrow(&mut self.world, aid) {
                         Ok(()) => {
-                            self.prev_armies_hash = 0;
+                            self.render_toggles.prev_armies_hash = 0;
                             println!("[frontline] cleared arrow for army {id}");
                         }
                         Err(e) => println!("[frontline] clear_arrow failed: {e}"),
                     }
                 }
                 MilitaryCommand::ToggleOverlay => {
-                    self.frontline_overlay_visible = !self.frontline_overlay_visible;
-                    self.prev_armies_hash = 0;
+                    self.render_toggles.frontline_overlay_visible = !self.render_toggles.frontline_overlay_visible;
+                    self.render_toggles.prev_armies_hash = 0;
                     println!(
                         "[frontline] overlay visible: {}",
-                        self.frontline_overlay_visible
+                        self.render_toggles.frontline_overlay_visible
                     );
                 }
                 MilitaryCommand::SelectArmy(id) => {
-                    self.selected_army_id = Some(hoi4_state::ArmyId(id));
+                    self.interaction.selected_army_id = Some(hoi4_state::ArmyId(id));
                 }
                 MilitaryCommand::ClearArmySelection => {
-                    self.selected_army_id = None;
+                    self.interaction.selected_army_id = None;
                 }
                 MilitaryCommand::AddSelectedDivisionsToArmy(id) => {
                     let aid = hoi4_state::ArmyId(id);
-                    let members = self.selected_divisions.clone();
+                    let members = self.interaction.selected_divisions.clone();
                     if !members.is_empty() {
                         match hoi4_logic::military::frontline::add_members(
                             &mut self.world,
@@ -966,8 +966,8 @@ impl App {
                             &members,
                         ) {
                             Ok(()) => {
-                                self.selected_army_id = Some(aid);
-                                self.prev_armies_hash = 0;
+                                self.interaction.selected_army_id = Some(aid);
+                                self.render_toggles.prev_armies_hash = 0;
                                 println!(
                                     "[frontline] right-click added {} divisions to army {id}",
                                     members.len()
@@ -978,22 +978,22 @@ impl App {
                     }
                 }
                 MilitaryCommand::ToggleDivisionSelection(idx) => {
-                    if let Some(pos) = self.selected_divisions.iter().position(|&x| x == idx) {
-                        self.selected_divisions.remove(pos);
+                    if let Some(pos) = self.interaction.selected_divisions.iter().position(|&x| x == idx) {
+                        self.interaction.selected_divisions.remove(pos);
                     } else {
-                        self.selected_divisions.push(idx);
+                        self.interaction.selected_divisions.push(idx);
                     }
-                    self.selected_army_id = None;
+                    self.interaction.selected_army_id = None;
                 }
                 MilitaryCommand::SelectAllDivisions => {
-                    let player = hoi4_state::CountryId(self.player_country as u16);
-                    self.selected_divisions.clear();
+                    let player = hoi4_state::CountryId(self.view.player_country as u16);
+                    self.interaction.selected_divisions.clear();
                     for i in 0..self.world.divisions.count {
                         if self.world.divisions.owners[i] == player {
-                            self.selected_divisions.push(i);
+                            self.interaction.selected_divisions.push(i);
                         }
                     }
-                    self.selected_army_id = None;
+                    self.interaction.selected_army_id = None;
                 }
                 MilitaryCommand::Panel(panel_cmd) => {
                     panel_commands.push(panel_cmd);
@@ -1003,7 +1003,7 @@ impl App {
                     match hoi4_logic::military::frontline::execute_plan(&mut self.world, aid) {
                         Ok(()) => {
                             hoi4_logic::military::frontline::tick_frontlines(&mut self.world);
-                            self.prev_armies_hash = 0;
+                            self.render_toggles.prev_armies_hash = 0;
                             eprintln!("[frontline] executing plan for army {id}");
                         }
                         Err(e) => eprintln!("[frontline] execute_plan failed: {e}"),
@@ -1013,7 +1013,7 @@ impl App {
                     let aid = hoi4_state::ArmyId(id);
                     match hoi4_logic::military::frontline::halt_plan(&mut self.world, aid) {
                         Ok(()) => {
-                            self.prev_armies_hash = 0;
+                            self.render_toggles.prev_armies_hash = 0;
                             eprintln!("[frontline] halted plan for army {id}");
                         }
                         Err(e) => eprintln!("[frontline] halt_plan failed: {e}"),
@@ -1025,7 +1025,7 @@ impl App {
                 } => {
                     let aid = hoi4_state::ArmyId(army_id);
                     let gid = hoi4_state::GeneralId(general_id);
-                    let player = hoi4_state::CountryId(self.player_country as u16);
+                    let player = hoi4_state::CountryId(self.view.player_country as u16);
                     let general_ok = self
                         .world
                         .generals
@@ -1057,22 +1057,22 @@ impl App {
 
         if let Some(cmd) = focus_cmd {
             use hoi4_ui::focus_tree_panel::FocusCommand;
-            let player = hoi4_state::CountryId(self.player_country as u16);
+            let player = hoi4_state::CountryId(self.view.player_country as u16);
             match cmd {
                 FocusCommand::Start(id) => {
                     // P0.3??tart_focus ???????available ???
                     if !hoi4_content::start_focus(
                         &mut self.world,
                         player,
-                        &self.content.focus_tree,
+                        &self.runtime.content.focus_tree,
                         &id,
-                        &self.content.global_flags,
+                        &self.runtime.content.global_flags,
                     ) {
                         println!("[focus] skipped {}: unavailable", id);
                     }
                 }
                 FocusCommand::Cancel => {
-                    let i = self.player_country;
+                    let i = self.view.player_country;
                     self.world.countries.current_focus[i] = None;
                     self.world.countries.focus_progress[i] = 0.0;
                 }
@@ -1089,16 +1089,16 @@ impl App {
                     event_id,
                     option_idx,
                 } => {
-                    self.ui_sounds
+                    self.ui_state.ui_sounds
                         .play_with_fallback(UiSound::OptionClick, UiSound::Click);
                     println!("[event] resolved: {event_id} option={option_idx}");
-                    let (_, report) = self.content.event_scheduler.resolve_option(
+                    let (_, report) = self.runtime.content.event_scheduler.resolve_option(
                         option_idx,
                         &mut self.world,
-                        &mut self.content.global_flags,
+                        &mut self.runtime.content.global_flags,
                     );
                     deferred_switch_player_country.extend(report.switch_player_country);
-                    let cascaded = self.content.process_pending_triggers(&mut self.world);
+                    let cascaded = self.runtime.content.process_pending_triggers(&mut self.world);
                     deferred_switch_player_country
                         .extend(cascaded.effect_report.switch_player_country);
                     for w in report
@@ -1119,13 +1119,13 @@ impl App {
                         println!("[event] cascaded trigger: {target}");
                     }
                     if cascaded.pause_for_country_event {
-                        if self.world.speed != GameSpeed::Paused && self.pre_event_speed.is_none() {
-                            self.pre_event_speed = Some(self.world.speed);
+                        if self.world.speed != GameSpeed::Paused && self.ui_state.pre_event_speed.is_none() {
+                            self.ui_state.pre_event_speed = Some(self.world.speed);
                         }
                         self.world.speed = GameSpeed::Paused;
                     }
-                    if self.content.event_scheduler.pending_len() == 0 {
-                        if let Some(prev) = self.pre_event_speed.take() {
+                    if self.runtime.content.event_scheduler.pending_len() == 0 {
+                        if let Some(prev) = self.ui_state.pre_event_speed.take() {
                             if self.world.speed == GameSpeed::Paused {
                                 self.world.speed = prev;
                                 println!("[event] queue cleared, restored speed: {:?}", prev);
@@ -1139,11 +1139,11 @@ impl App {
         if let Some(hoi4_ui::surrender_notification::SurrenderNotificationCommand::Acknowledge) =
             surrender_notif_cmd
         {
-            self.ui_sounds
+            self.ui_state.ui_sounds
                 .play_with_fallback(UiSound::OptionClick, UiSound::Click);
-            self.pending_surrender_notifications.remove(0);
-            if self.pending_surrender_notifications.is_empty() {
-                self.last_surrender_sound_key = None;
+            self.ui_state.pending_surrender_notifications.remove(0);
+            if self.ui_state.pending_surrender_notifications.is_empty() {
+                self.ui_state.last_surrender_sound_key = None;
             }
         }
 
@@ -1153,7 +1153,7 @@ impl App {
                 debug_grant_justified_wargoal, execute_action, DiplomaticAction,
             };
             use hoi4_ui::country_info_panel::CountryInfoCommand;
-            let player = hoi4_state::CountryId(self.player_country as u16);
+            let player = hoi4_state::CountryId(self.view.player_country as u16);
             for cmd in country_info_cmds {
                 match cmd {
                     CountryInfoCommand::JustifyWargoal { target_tag } => {
@@ -1175,7 +1175,7 @@ impl App {
                     }
                     CountryInfoCommand::DeclareWar { target_tag } => {
                         if let Some(&target) = self.world.tag_to_country.get(&target_tag) {
-                            if self.settings.instant_war {
+                            if self.ui_state.settings.instant_war {
                                 debug_grant_justified_wargoal(
                                     &mut self.world,
                                     player,
@@ -1201,7 +1201,7 @@ impl App {
                                     );
                                 }
                             }
-                            self.country_info_panel.close();
+                            self.ui_state.country_info_panel.close();
                         }
                     }
                     CountryInfoCommand::InviteToFaction { target_tag } => {
@@ -1231,7 +1231,7 @@ impl App {
                         }
                     }
                     CountryInfoCommand::Close => {
-                        self.country_info_panel.close();
+                        self.ui_state.country_info_panel.close();
                     }
                 }
             }
@@ -1242,23 +1242,23 @@ impl App {
             match cmd {
                 "move" => {
                     // Select divisions in that province, then set pending_move_command
-                    if let Some(pid) = self.counter_right_click_province {
-                        let player = hoi4_state::CountryId(self.player_country as u16);
+                    if let Some(pid) = self.interaction.counter_right_click_province {
+                        let player = hoi4_state::CountryId(self.view.player_country as u16);
                         let prov = hoi4_state::ProvinceId(pid as u16);
-                        self.selected_divisions.clear();
+                        self.interaction.selected_divisions.clear();
                         for i in 0..self.world.divisions.count {
                             if self.world.divisions.owners[i] == player
                                 && self.world.divisions.locations[i] == prov
                             {
-                                self.selected_divisions.push(i);
+                                self.interaction.selected_divisions.push(i);
                             }
                         }
-                        self.pending_move_command = true;
+                        self.interaction.pending_move_command = true;
                     }
                 }
                 "cancel" => {
-                    if let Some(pid) = self.counter_right_click_province {
-                        let player = hoi4_state::CountryId(self.player_country as u16);
+                    if let Some(pid) = self.interaction.counter_right_click_province {
+                        let player = hoi4_state::CountryId(self.view.player_country as u16);
                         let prov = hoi4_state::ProvinceId(pid as u16);
                         for i in 0..self.world.divisions.count {
                             if self.world.divisions.owners[i] == player
@@ -1273,16 +1273,16 @@ impl App {
                             }
                         }
                     }
-                    self.counter_right_click_province = None;
+                    self.interaction.counter_right_click_province = None;
                 }
                 "disband" => {
-                    if let Some(pid) = self.counter_right_click_province {
+                    if let Some(pid) = self.interaction.counter_right_click_province {
                         println!("[counter_menu] Disband requested for province {pid}");
                     }
-                    self.counter_right_click_province = None;
+                    self.interaction.counter_right_click_province = None;
                 }
                 _ => {
-                    self.counter_right_click_province = None;
+                    self.interaction.counter_right_click_province = None;
                 }
             }
         }
@@ -1292,10 +1292,10 @@ impl App {
                 _ => None,
             };
             ui_binding::settings::apply_command(
-                &mut self.settings,
-                &mut self.settings_panel,
-                &mut self.music_player,
-                &mut self.ui_sounds,
+                &mut self.ui_state.settings,
+                &mut self.ui_state.settings_panel,
+                &mut self.runtime.music_player,
+                &mut self.ui_state.ui_sounds,
                 &s.window,
                 cmd,
             );
@@ -1310,48 +1310,48 @@ impl App {
                 SaveCommand::Load(path) => {
                     println!("[save] loading: {}", path.display());
                     if let Err(e) = hoi4_state::save::read(&path, &mut self.world) {
-                        self.save_browser.last_error = Some(format!("load failed: {e}"));
+                        self.ui_state.save_browser.last_error = Some(format!("load failed: {e}"));
                     } else {
-                        self.save_browser.open = false;
-                        self.open_panel = None;
-                        self.active_detail_panel = None;
+                        self.ui_state.save_browser.open = false;
+                        self.ui_state.open_panel = None;
+                        self.ui_state.active_detail_panel = None;
                     }
                 }
                 SaveCommand::Delete(path) => {
                     if let Err(e) = std::fs::remove_file(&path) {
-                        self.save_browser.last_error = Some(format!("delete failed: {e}"));
+                        self.ui_state.save_browser.last_error = Some(format!("delete failed: {e}"));
                     } else {
                         // Rescan.
-                        let dir = self.save_browser.saves_dir.clone();
+                        let dir = self.ui_state.save_browser.saves_dir.clone();
                         let entries = hoi4_ui::save_browser::scan_saves(&dir, |p| {
                             hoi4_state::save::read_meta(p)
                                 .ok()
                                 .map(|m| (format!("{}", m.date), m.player_tag))
                         });
-                        self.save_browser.set_saves(entries);
+                        self.ui_state.save_browser.set_saves(entries);
                     }
                 }
                 SaveCommand::Rename { from, to } => {
                     if let Err(e) = std::fs::rename(&from, &to) {
-                        self.save_browser.last_error = Some(format!("rename failed: {e}"));
+                        self.ui_state.save_browser.last_error = Some(format!("rename failed: {e}"));
                     } else {
-                        let dir = self.save_browser.saves_dir.clone();
+                        let dir = self.ui_state.save_browser.saves_dir.clone();
                         let entries = hoi4_ui::save_browser::scan_saves(&dir, |p| {
                             hoi4_state::save::read_meta(p)
                                 .ok()
                                 .map(|m| (format!("{}", m.date), m.player_tag))
                         });
-                        self.save_browser.set_saves(entries);
+                        self.ui_state.save_browser.set_saves(entries);
                     }
                 }
                 SaveCommand::Rescan => {
-                    let dir = self.save_browser.saves_dir.clone();
+                    let dir = self.ui_state.save_browser.saves_dir.clone();
                     let entries = hoi4_ui::save_browser::scan_saves(&dir, |p| {
                         hoi4_state::save::read_meta(p)
                             .ok()
                             .map(|m| (format!("{}", m.date), m.player_tag))
                     });
-                    self.save_browser.set_saves(entries);
+                    self.ui_state.save_browser.set_saves(entries);
                 }
             }
         }
@@ -1363,12 +1363,12 @@ impl App {
                     self.world.speed = GameSpeed::Speed3;
                 }
                 EndCommand::ReturnToMainMenu => {
-                    self.game_phase = GamePhase::MainMenu;
-                    self.menu_kind = Some(MenuKind::MainMenu);
-                    self.menu_hovered_btn = None;
-                    self.menu_hovered_row = None;
-                    self.last_main_buttons.clear();
-                    self.last_country_layout = None;
+                    self.view.game_phase = GamePhase::MainMenu;
+                    self.view.menu_kind = Some(MenuKind::MainMenu);
+                    self.view.menu_hovered_btn = None;
+                    self.view.menu_hovered_row = None;
+                    self.view.last_main_buttons.clear();
+                    self.view.last_country_layout = None;
                 }
                 EndCommand::Quit => {
                     // ????????????????exit event_loop???????speed=Paused ??????????                    // ???????????? window_event ???????CloseRequested??                    std::process::exit(0);

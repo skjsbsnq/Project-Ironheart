@@ -14,8 +14,8 @@ impl App {
         };
         let global_debug_key = super::debug_hotkeys::is_global_debug_key(&event);
         let forward_map_click_through_ui = consumed
-            && self.game_phase == GamePhase::Playing
-            && matches!(self.open_panel, Some(InGamePanel::Air | InGamePanel::Naval))
+            && self.view.game_phase == GamePhase::Playing
+            && matches!(self.ui_state.open_panel, Some(InGamePanel::Air | InGamePanel::Naval))
             && matches!(
                 &event,
                 WindowEvent::MouseInput {
@@ -37,7 +37,7 @@ impl App {
                     ..
                 }
             ) {
-                self.selection_box.active = false;
+                self.interaction.selection_box.active = false;
                 self.dragging = false;
                 self.suppress_next_map_click = false;
             }
@@ -54,10 +54,10 @@ impl App {
                     s.depth_view =
                         make_depth_view(&s.device, s.config.width, s.config.height, s.depth_format);
                     s.hdr_target = HdrTarget::new(&s.device, s.config.width, s.config.height);
-                    let water_target_quality = if self.force_water_pass {
+                    let water_target_quality = if self.render_toggles.force_water_pass {
                         MapQualityPreset::High
                     } else {
-                        self.map_quality_preset
+                        self.render_toggles.map_quality_preset
                     };
                     s.water_refraction_target = WaterRefractionTarget::for_quality(
                         &s.device,

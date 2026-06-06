@@ -14,12 +14,12 @@ impl App {
         let interaction_dt = dt.min(MAX_INTERACTION_DT_SECS);
         self.last_frame = now;
 
-        if self.map_phase0.is_some() {
+        if self.audit.map_phase0.is_some() {
             return;
         }
 
         // Only run simulation and camera controls in Playing phase.
-        if self.game_phase != GamePhase::Playing {
+        if self.view.game_phase != GamePhase::Playing {
             return;
         }
 
@@ -64,7 +64,7 @@ impl App {
             || self.dragging
             || self.smooth_zoom_target_distance.is_some();
         if viewport_interacting {
-            self.last_viewport_interaction_at = Some(now);
+            self.render_toggles.last_viewport_interaction_at = Some(now);
         }
         if pan_x != 0.0 || pan_z != 0.0 {
             self.camera.pan(pan_x, pan_z);
@@ -121,28 +121,28 @@ impl App {
         // Daily work can be much heavier than an hourly clock step. Run the
         // queued daily/weekly/monthly systems cooperatively before advancing
         // more hours, so input and redraws get a chance between slices.
-        if self.schedule.has_pending_interactive_work() {
+        if self.runtime.schedule.has_pending_interactive_work() {
             simulation_advanced |= runtime::systems_runtime::run_pending_interactive(
                 &mut runtime::systems_runtime::HourlyRuntime {
                     world: &mut self.world,
-                    econ: &mut self.econ,
-                    research: &mut self.research,
-                    politics_cache: &mut self.politics_cache,
-                    script: &mut self.script,
-                    ai: &mut self.ai,
+                    econ: &mut self.runtime.econ,
+                    research: &mut self.runtime.research,
+                    politics_cache: &mut self.runtime.politics_cache,
+                    script: &mut self.runtime.script,
+                    ai: &mut self.runtime.ai,
                     v6_db: &self.v6_db,
-                    schedule: &mut self.schedule,
-                    feedback_bus: &mut self.feedback_bus,
-                    content: &mut self.content,
+                    schedule: &mut self.runtime.schedule,
+                    feedback_bus: &mut self.runtime.feedback_bus,
+                    content: &mut self.runtime.content,
                 },
                 tick_budget,
             );
-            let pending_work_remains = self.schedule.has_pending_interactive_work();
+            let pending_work_remains = self.runtime.schedule.has_pending_interactive_work();
             let frame_budget_spent =
                 runtime::systems_runtime::should_stop_hourly_catchup(tick_started_at, tick_budget);
             stop_advancing_hours = pending_work_remains
                 || frame_budget_spent
-                || self.content.last_tick_events.day_changed;
+                || self.runtime.content.last_tick_events.day_changed;
         }
 
         if !stop_advancing_hours && secs_per_hour <= 0.0 {
@@ -150,19 +150,19 @@ impl App {
                 runtime::systems_runtime::tick_one_hour_interactive(
                     &mut runtime::systems_runtime::HourlyRuntime {
                         world: &mut self.world,
-                        econ: &mut self.econ,
-                        research: &mut self.research,
-                        politics_cache: &mut self.politics_cache,
-                        script: &mut self.script,
-                        ai: &mut self.ai,
+                        econ: &mut self.runtime.econ,
+                        research: &mut self.runtime.research,
+                        politics_cache: &mut self.runtime.politics_cache,
+                        script: &mut self.runtime.script,
+                        ai: &mut self.runtime.ai,
                         v6_db: &self.v6_db,
-                        schedule: &mut self.schedule,
-                        feedback_bus: &mut self.feedback_bus,
-                        content: &mut self.content,
+                        schedule: &mut self.runtime.schedule,
+                        feedback_bus: &mut self.runtime.feedback_bus,
+                        content: &mut self.runtime.content,
                     },
                 );
                 simulation_advanced = true;
-                if self.schedule.has_pending_interactive_work() {
+                if self.runtime.schedule.has_pending_interactive_work() {
                     break;
                 }
             }
@@ -176,43 +176,43 @@ impl App {
                 runtime::systems_runtime::tick_one_hour_interactive(
                     &mut runtime::systems_runtime::HourlyRuntime {
                         world: &mut self.world,
-                        econ: &mut self.econ,
-                        research: &mut self.research,
-                        politics_cache: &mut self.politics_cache,
-                        script: &mut self.script,
-                        ai: &mut self.ai,
+                        econ: &mut self.runtime.econ,
+                        research: &mut self.runtime.research,
+                        politics_cache: &mut self.runtime.politics_cache,
+                        script: &mut self.runtime.script,
+                        ai: &mut self.runtime.ai,
                         v6_db: &self.v6_db,
-                        schedule: &mut self.schedule,
-                        feedback_bus: &mut self.feedback_bus,
-                        content: &mut self.content,
+                        schedule: &mut self.runtime.schedule,
+                        feedback_bus: &mut self.runtime.feedback_bus,
+                        content: &mut self.runtime.content,
                     },
                 );
                 self.time_accumulator -= secs_per_hour;
                 ticks += 1;
                 simulation_advanced = true;
 
-                if self.schedule.has_pending_interactive_work() {
+                if self.runtime.schedule.has_pending_interactive_work() {
                     let elapsed = tick_started_at.elapsed().as_secs_f32();
                     let remaining_budget = (tick_budget - elapsed).max(0.0);
                     if remaining_budget > 0.0 {
                         simulation_advanced |= runtime::systems_runtime::run_pending_interactive(
                             &mut runtime::systems_runtime::HourlyRuntime {
                                 world: &mut self.world,
-                                econ: &mut self.econ,
-                                research: &mut self.research,
-                                politics_cache: &mut self.politics_cache,
-                                script: &mut self.script,
-                                ai: &mut self.ai,
+                                econ: &mut self.runtime.econ,
+                                research: &mut self.runtime.research,
+                                politics_cache: &mut self.runtime.politics_cache,
+                                script: &mut self.runtime.script,
+                                ai: &mut self.runtime.ai,
                                 v6_db: &self.v6_db,
-                                schedule: &mut self.schedule,
-                                feedback_bus: &mut self.feedback_bus,
-                                content: &mut self.content,
+                                schedule: &mut self.runtime.schedule,
+                                feedback_bus: &mut self.runtime.feedback_bus,
+                                content: &mut self.runtime.content,
                             },
                             remaining_budget,
                         );
                     }
-                    if self.schedule.has_pending_interactive_work()
-                        || self.content.last_tick_events.day_changed
+                    if self.runtime.schedule.has_pending_interactive_work()
+                        || self.runtime.content.last_tick_events.day_changed
                     {
                         break;
                     }

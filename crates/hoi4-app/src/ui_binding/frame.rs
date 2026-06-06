@@ -1,16 +1,16 @@
 use crate::{App, GamePhase, InGamePanel};
 
 pub fn build_frame_model(app: &mut App) -> hoi4_ui::UiFrameModel {
-    if app.game_phase != GamePhase::Playing {
+    if app.view.game_phase != GamePhase::Playing {
         return hoi4_ui::UiFrameModel::empty();
     }
 
     hoi4_ui::UiFrameModel {
         topbar: Some(super::topbar::build_data_cached(app)),
-        active_primary_panel: app.open_panel.and_then(active_primary_panel),
-        active_detail_panel: app.active_detail_panel.clone(),
-        active_popup: app.active_popup.clone(),
-        open_panel: app.open_panel.and_then(panel_kind),
+        active_primary_panel: app.ui_state.open_panel.and_then(active_primary_panel),
+        active_detail_panel: app.ui_state.active_detail_panel.clone(),
+        active_popup: app.ui_state.active_popup.clone(),
+        open_panel: app.ui_state.open_panel.and_then(panel_kind),
     }
 }
 
@@ -93,31 +93,31 @@ pub fn apply_panel_commands(
 fn apply_panel_command(app: &mut App, command: hoi4_ui::PanelCommand) {
     match command {
         hoi4_ui::PanelCommand::OpenPrimary(primary) => {
-            app.open_panel = Some(in_game_panel_for_active_primary(primary));
-            app.province_info_card.open = false;
-            app.country_info_panel.close();
+            app.ui_state.open_panel = Some(in_game_panel_for_active_primary(primary));
+            app.ui_state.province_info_card.open = false;
+            app.ui_state.country_info_panel.close();
         }
         hoi4_ui::PanelCommand::ClosePrimary => {
             app.close_primary_panel();
         }
         hoi4_ui::PanelCommand::OpenDetail(detail)
         | hoi4_ui::PanelCommand::ReplaceDetail(detail) => {
-            app.active_detail_panel = Some(detail);
+            app.ui_state.active_detail_panel = Some(detail);
         }
         hoi4_ui::PanelCommand::CloseDetail => {
-            app.active_detail_panel = None;
+            app.ui_state.active_detail_panel = None;
         }
         hoi4_ui::PanelCommand::OpenPopup(popup) => {
-            app.active_popup = Some(popup);
+            app.ui_state.active_popup = Some(popup);
         }
         hoi4_ui::PanelCommand::ClosePopup => {
-            app.active_popup = None;
+            app.ui_state.active_popup = None;
         }
         hoi4_ui::PanelCommand::Back => {
-            if app.active_popup.is_some() {
-                app.active_popup = None;
-            } else if app.active_detail_panel.is_some() {
-                app.active_detail_panel = None;
+            if app.ui_state.active_popup.is_some() {
+                app.ui_state.active_popup = None;
+            } else if app.ui_state.active_detail_panel.is_some() {
+                app.ui_state.active_detail_panel = None;
             } else {
                 app.close_primary_panel();
             }

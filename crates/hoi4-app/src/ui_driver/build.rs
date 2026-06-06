@@ -47,12 +47,12 @@ pub(crate) struct UiBuildOutput {
 
 pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutput {
     let mut ui_frame_model = ui_binding::build_frame_model(app);
-    app.ui_panel_cache.begin_frame();
+    app.ui_state.panel_cache.begin_frame();
 
     // Begin the egui frame before rendering; painting happens after 3D passes.
     let elapsed_secs = app.start_time.elapsed().as_secs_f32();
-    let game_phase = app.game_phase;
-    let player_country = app.player_country;
+    let game_phase = app.view.game_phase;
+    let player_country = app.view.player_country;
     let demo_visible = app_ui_enabled && app.demo_visible;
     let topbar_data = if app_ui_enabled {
         ui_frame_model.topbar.take()
@@ -70,9 +70,9 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
     } else {
         None
     };
-    let event_badge_count = app.content.event_scheduler.pending_len();
-    let surrender_badge_count = app.pending_surrender_notifications.len();
-    let open_panel = if app_ui_enabled { app.open_panel } else { None };
+    let event_badge_count = app.runtime.content.event_scheduler.pending_len();
+    let surrender_badge_count = app.ui_state.pending_surrender_notifications.len();
+    let open_panel = if app_ui_enabled { app.ui_state.open_panel } else { None };
     let politics_data = if matches!(
         open_panel,
         Some(InGamePanel::Politics) | Some(InGamePanel::Laws)
@@ -142,6 +142,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             .cloned()
             .unwrap_or_default();
         let focus_available = app
+            .runtime
             .content
             .focus_tree
             .country
@@ -175,7 +176,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             .copied()
             .unwrap_or(0.0);
         let current_focus = current_focus_id.and_then(|id| {
-            app.content
+            app.runtime.content
                 .focus_tree
                 .focuses
                 .iter()
@@ -391,10 +392,10 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
         );
     let market_panel_data = if needs_market_panel_data {
         hoi4_app::ui_data::cache::cached_market_panel(
-            &mut app.ui_panel_cache,
+            &mut app.ui_state.panel_cache,
             &app.world,
             &app.v6_db,
-            &app.econ,
+            &app.runtime.econ,
             player_country,
         )
     } else {
@@ -406,10 +407,10 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             Some(hoi4_ui::ActiveDetailPanel::FinanceDebt)
         ) {
         hoi4_app::ui_data::cache::cached_finance_panel(
-            &mut app.ui_panel_cache,
+            &mut app.ui_state.panel_cache,
             &app.world,
             &app.v6_db,
-            &app.econ,
+            &app.runtime.econ,
             player_country,
         )
     } else {
@@ -427,14 +428,14 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
         );
     let construction_v6_data = if needs_construction_data {
         hoi4_app::ui_data::cache::cached_construction_panel(
-            &mut app.ui_panel_cache,
+            &mut app.ui_state.panel_cache,
             &app.world,
             &app.v6_db,
-            &app.econ,
+            &app.runtime.econ,
             player_country,
-            &app.construction_mode,
-            app.auto_build_enabled,
-            &app.last_auto_build_explanations,
+            &app.ui_state.construction_mode,
+            app.runtime.auto_build_enabled,
+            &app.runtime.last_auto_build_explanations,
         )
     } else {
         None
@@ -442,6 +443,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
     let research_data = if open_panel == Some(InGamePanel::Research) {
         let player = player_country;
         let slots: Vec<hoi4_ui::research::SlotEntry> = app
+            .runtime
             .research
             .slots
             .get(player)
@@ -455,7 +457,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
                         } => Some(hoi4_ui::research::SlotEntry {
                             tech_key: tech_key.clone(),
                             progress: if *total_cost > 0.0 {
-                                *progress / *total_cost
+                                progress / *total_cost
                             } else {
                                 0.0
                             },
@@ -465,7 +467,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
                     .collect()
             })
             .unwrap_or_default();
-        let slot_count = app.research.slots.get(player).map(|s| s.len()).unwrap_or(0);
+        let slot_count = app.runtime.research.slots.get(player).map(|s| s.len()).unwrap_or(0);
         let completed = &app.world.countries.completed_techs[player];
         let researching_keys: Vec<&str> = slots.iter().map(|s| s.tech_key.as_str()).collect();
         let techs: Vec<hoi4_ui::research::TechNode> = app
@@ -519,7 +521,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
     let diplomacy_data = if needs_diplomacy_data {
         let selected_tag = match active_detail_panel.as_ref() {
             Some(hoi4_ui::ActiveDetailPanel::Country(target)) => Some(target.tag.clone()),
-            _ => app.diplomacy_selected_country_tag.clone().or_else(|| {
+            _ => app.ui_state.diplomacy_selected_country_tag.clone().or_else(|| {
                 app.world
                     .countries
                     .tags
@@ -530,13 +532,13 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             }),
         };
         hoi4_app::ui_data::cache::cached_diplomacy_panel(
-            &mut app.ui_panel_cache,
+            &mut app.ui_state.panel_cache,
             &app.world,
             &app.historical_1936,
             &app.v6_db,
             player_country,
             selected_tag,
-            app.settings.instant_war,
+            app.ui_state.settings.instant_war,
         )
     } else {
         None
@@ -555,7 +557,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             .cloned()
             .unwrap_or_default();
         let divisions: Vec<hoi4_ui::military::DivisionEntry> =
-            if open_panel == Some(InGamePanel::Military) || app.selected_army_id.is_some() {
+            if open_panel == Some(InGamePanel::Military) || app.interaction.selected_army_id.is_some() {
                 (0..app.world.divisions.count)
                     .filter(|&i| app.world.divisions.owners[i] == player_cid)
                     .map(|i| hoi4_ui::military::DivisionEntry {
@@ -589,7 +591,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             };
         let templates: Vec<hoi4_ui::military::TemplateEntry> =
             if open_panel == Some(InGamePanel::Military) {
-                let stockpile = app.econ.stockpile.get(player).cloned().unwrap_or_default();
+                let stockpile = app.runtime.econ.stockpile.get(player).cloned().unwrap_or_default();
                 app.world
                     .data
                     .division_templates
@@ -621,11 +623,11 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
                 Vec::new()
             };
         let template_editor = if open_panel == Some(InGamePanel::Military) {
-            let stockpile = app.econ.stockpile.get(player).cloned().unwrap_or_default();
+            let stockpile = app.runtime.econ.stockpile.get(player).cloned().unwrap_or_default();
             build_template_editor_data(
                 app.world.data.as_ref(),
                 &player_tag,
-                app.selected_template_idx,
+                app.interaction.selected_template_idx,
                 Some(&stockpile),
             )
         } else {
@@ -635,14 +637,14 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             build_template_subunit_picker_data(
                 app.world.data.as_ref(),
                 &player_tag,
-                app.template_picker_target,
+                app.interaction.template_picker_target,
             )
         } else {
             empty_template_subunit_picker_data()
         };
         let training_queue: Vec<hoi4_ui::military::TrainingQueueEntry> =
             if open_panel == Some(InGamePanel::Military) {
-                app.econ
+                app.runtime.econ
                     .training_queues
                     .get(player)
                     .map(|queue| {
@@ -769,7 +771,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             })
             .collect();
         let active_army_count = armies.iter().filter(|a| a.active).count();
-        let painter_info = match app.frontline_painter.mode {
+        let painter_info = match app.interaction.frontline_painter.mode {
             PainterMode::Idle => hoi4_ui::military::PainterModeInfo::Idle,
             PainterMode::ArmyPainter(id) => {
                 hoi4_ui::military::PainterModeInfo::ArmyPainter(id.raw())
@@ -781,21 +783,21 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
         let data = Some(hoi4_ui::military::MilitaryData {
             divisions,
             templates,
-            template_editor_open: app.template_editor_open,
+            template_editor_open: app.interaction.template_editor_open,
             template_editor,
             template_subunit_picker,
             training_queue,
             player_capital_province: capital_prov,
             armies,
             generals,
-            frontline_overlay_visible: app.frontline_overlay_visible,
-            selected_division_count: app.selected_divisions.len(),
+            frontline_overlay_visible: app.render_toggles.frontline_overlay_visible,
+            selected_division_count: app.interaction.selected_divisions.len(),
             active_army_count,
             max_armies_per_country: hoi4_logic::military::frontline::MAX_FRONTLINES_PER_COUNTRY,
-            selected_army_id: app.selected_army_id.map(|id| id.raw()),
+            selected_army_id: app.interaction.selected_army_id.map(|id| id.raw()),
             painter_mode: painter_info,
         });
-        app.ui_panel_cache.record(
+        app.ui_state.panel_cache.record(
             UiPanelCacheKind::Military,
             cache_started.elapsed(),
             !side_panel_open,
@@ -805,7 +807,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
         None
     };
     let air_data = if open_panel == Some(InGamePanel::Air) {
-        let player_cid = hoi4_state::CountryId(app.player_country as u16);
+        let player_cid = hoi4_state::CountryId(app.view.player_country as u16);
         let air_control = hoi4_logic::air::air_superiority::AirControl::recompute(
             &app.world,
             app.world.data.as_ref(),
@@ -859,24 +861,25 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
         Some(hoi4_ui::air::AirData {
             wings,
             aircraft_stockpile: app
+                .runtime
                 .econ
                 .stockpile
-                .get(app.player_country)
+                .get(app.view.player_country)
                 .and_then(|s| s.get("aircraft"))
                 .copied()
                 .unwrap_or(0.0),
             total_planes,
             active_wings,
             over_capacity_bases,
-            transfer_source_wing: app.air_transfer_source_wing,
-            pending_transfer_wing: app.pending_air_transfer_wing,
+            transfer_source_wing: app.interaction.air_transfer_source_wing,
+            pending_transfer_wing: app.interaction.pending_air_transfer_wing,
         })
     } else {
         None
     };
 
     let naval_data = if open_panel == Some(InGamePanel::Naval) {
-        let player_cid = hoi4_state::CountryId(app.player_country as u16);
+        let player_cid = hoi4_state::CountryId(app.view.player_country as u16);
         let mut fleets = Vec::new();
         for fi in 0..app.world.fleets.count {
             if app.world.fleets.owners[fi] != player_cid {
@@ -923,7 +926,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
                 repair_state: format!("{:?}", app.world.fleets.repair_state[fi]),
             });
         }
-        let stockpile = app.econ.stockpile.get(app.player_country);
+        let stockpile = app.runtime.econ.stockpile.get(app.view.player_country);
         Some(hoi4_ui::naval::NavalData {
             fleets,
             convoys: stockpile
@@ -934,8 +937,8 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
                 .and_then(|s| s.get("naval_vessel"))
                 .copied()
                 .unwrap_or(0.0),
-            transfer_source_fleet: app.naval_transfer_source_fleet,
-            pending_move_fleet: app.pending_naval_move_fleet,
+            transfer_source_fleet: app.interaction.naval_transfer_source_fleet,
+            pending_move_fleet: app.interaction.pending_naval_move_fleet,
         })
     } else {
         None
@@ -946,7 +949,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
         hoi4_app::ui_data::logistics::panel_data(
             &app.world,
             &app.v6_db,
-            &mut app.econ,
+            &mut app.runtime.econ,
             player_country,
         )
     } else {
@@ -957,12 +960,14 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
     let situation_panel_data = if open_panel == Some(InGamePanel::Situation) {
         let player_cid = hoi4_state::CountryId(player_country as u16);
         let situations: Vec<hoi4_ui::situation_panel::SituationEntry> = app
+            .runtime
             .content
             .situation_state
             .active
             .iter()
             .map(|active| {
                 let def = app
+                    .runtime
                     .content
                     .situation_state
                     .defs
@@ -1078,8 +1083,8 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
                                             div_counts[idx] += 1;
                                         }
                                     }
-                                    if ci < app.econ.stockpile.len() {
-                                        eq_stocks[idx] += app.econ.stockpile[ci]
+                                    if ci < app.runtime.econ.stockpile.len() {
+                                        eq_stocks[idx] += app.runtime.econ.stockpile[ci]
                                             .get("infantry_equipment")
                                             .copied()
                                             .unwrap_or(0.0);
@@ -1174,9 +1179,9 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
     } else {
         None
     };
-    let focus_tree = &app.content.focus_tree;
-    let player_idx = app.player_country;
-    let player_cid = hoi4_state::CountryId(app.player_country as u16);
+    let focus_tree = &app.runtime.content.focus_tree;
+    let player_idx = app.view.player_country;
+    let player_cid = hoi4_state::CountryId(app.view.player_country as u16);
     let completed_focuses = app.world.countries.completed_focuses[player_idx].clone();
     let current_focus_ref = app.world.countries.current_focus[player_idx].as_deref();
     let current_focus_progress = app.world.countries.focus_progress[player_idx];
@@ -1189,7 +1194,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
                 &f.available,
                 &app.world,
                 player_cid,
-                &app.content.global_flags,
+                &app.runtime.content.global_flags,
             )
         })
         .map(|f| f.id.clone())
@@ -1197,26 +1202,26 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
     let player_in_faction = app
         .world
         .diplomacy
-        .faction_of(hoi4_state::CountryId(app.player_country as u16))
+        .faction_of(hoi4_state::CountryId(app.view.player_country as u16))
         .is_some();
-    let has_bottom_bar = app.frontline_painter.mode != PainterMode::Idle
-        || app.selected_army_id.is_some()
+    let has_bottom_bar = app.interaction.frontline_painter.mode != PainterMode::Idle
+        || app.interaction.selected_army_id.is_some()
         || !app
             .world
             .player_armies
             .iter()
-            .filter(|a| a.owner == hoi4_state::CountryId(app.player_country as u16))
+            .filter(|a| a.owner == hoi4_state::CountryId(app.view.player_country as u16))
             .next()
             .is_none()
-        || !app.selected_divisions.is_empty();
+        || !app.interaction.selected_divisions.is_empty();
     let province_info_bottom_bar_height = if has_bottom_bar { 118.0 } else { 0.0 };
     // CR-4.5: Counter right-click menu
-    let counter_rclick_prov = app.counter_right_click_province;
+    let counter_rclick_prov = app.interaction.counter_right_click_province;
     let counter_menu_pos = app.last_mouse;
     // V5 G.3 / G.4 / G.5???????disjoint ?????app ?????????????ttings / save_browser /
     let settings_panel_open_cmd = open_panel == Some(InGamePanel::Settings);
     let saves_open_cmd = open_panel == Some(InGamePanel::Saves);
-    let law_error_toast = match (&app.law_error_message, &app.last_law_error_toast) {
+    let law_error_toast = match (&app.ui_state.law_error_message, &app.ui_state.last_law_error_toast) {
         (Some(current), Some(last)) if current == last => None,
         (Some(current), _) => Some(current.clone()),
         (None, _) => None,

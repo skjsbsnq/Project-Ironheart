@@ -2,16 +2,16 @@ use crate::*;
 
 impl App {
     pub(crate) fn handle_campaign_end_screen(&mut self) {
-        if !self.end_screen.triggered
-            && !self.end_screen.continued
-            && self.game_phase == GamePhase::Playing
+        if !self.ui_state.end_screen.triggered
+            && !self.ui_state.end_screen.continued
+            && self.view.game_phase == GamePhase::Playing
             && hoi4_ui::end_screen::EndScreen::should_trigger(
                 self.world.date.year,
                 self.world.date.month,
                 self.world.date.day,
             )
         {
-            let player = self.player_country;
+            let player = self.view.player_country;
             let player_cid = hoi4_state::CountryId(player as u16);
             let player_tag = self
                 .world
@@ -98,7 +98,7 @@ impl App {
                 techs_researched: techs,
                 world_tension: self.world.diplomacy.world_tension,
             };
-            self.end_screen.trigger(stats);
+            self.ui_state.end_screen.trigger(stats);
             self.world.speed = hoi4_state::GameSpeed::Paused;
             println!("[game] campaign end reached: 1940-12-31");
         }

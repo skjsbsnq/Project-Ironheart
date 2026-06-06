@@ -4,9 +4,9 @@ impl App {
     pub(crate) fn update_menu_hover_from_cursor(&mut self, x: f32, y: f32) {
         let mut new_btn: Option<&'static str> = None;
         let mut new_row: Option<usize> = None;
-        match self.game_phase {
+        match self.view.game_phase {
             GamePhase::MainMenu => {
-                for btn in &self.last_main_buttons {
+                for btn in &self.view.last_main_buttons {
                     if btn.enabled && btn.contains(x, y) {
                         new_btn = Some(btn.id);
                         break;
@@ -14,7 +14,7 @@ impl App {
                 }
             }
             GamePhase::CountrySelect => {
-                if let Some(layout) = &self.last_country_layout {
+                if let Some(layout) = &self.view.last_country_layout {
                     if layout.start_button.contains(x, y) {
                         new_btn = Some(layout.start_button.id);
                     } else if layout.back_button.contains(x, y) {
@@ -31,9 +31,9 @@ impl App {
             }
             _ => {}
         }
-        if new_btn != self.menu_hovered_btn || new_row != self.menu_hovered_row {
-            self.menu_hovered_btn = new_btn;
-            self.menu_hovered_row = new_row;
+        if new_btn != self.view.menu_hovered_btn || new_row != self.view.menu_hovered_row {
+            self.view.menu_hovered_btn = new_btn;
+            self.view.menu_hovered_row = new_row;
             if let Some(s) = &self.state {
                 s.window.request_redraw();
             }

@@ -52,7 +52,7 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
         law_error_toast,
     } = input;
     let current_focus_ref = current_focus_id.as_deref();
-    app.province_info_card.bottom_bar_height = province_info_bottom_bar_height;
+    app.ui_state.province_info_card.bottom_bar_height = province_info_bottom_bar_height;
 
     let mut topbar_speed_cmd: Option<hoi4_ui::topbar::SpeedCommand> = None;
     let mut side_rail_panel_cmd: Option<hoi4_ui::PanelKind> = None;
@@ -84,40 +84,40 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
     let mut logistics_close = false;
     let mut situation_close = false;
     let mut situation_cmds: Vec<hoi4_ui::situation_panel::SituationCommand> = Vec::new();
-    let focus_tree = &app.content.focus_tree;
-    let focus_panel = &mut app.focus_panel;
+    let focus_tree = &app.runtime.content.focus_tree;
+    let focus_panel = &mut app.ui_state.focus_panel;
     let mut focus_cmd: Option<hoi4_ui::focus_tree_panel::FocusCommand> = None;
-    let country_info_panel = &mut app.country_info_panel;
+    let country_info_panel = &mut app.ui_state.country_info_panel;
     let mut country_info_cmds: Vec<hoi4_ui::country_info_panel::CountryInfoCommand> = Vec::new();
-    let province_info_card = &mut app.province_info_card;
-    let province_info_data = &app.province_info_data;
+    let province_info_card = &mut app.ui_state.province_info_card;
+    let province_info_data = &app.ui_state.province_info_data;
     let mut counter_menu_cmd: Option<&'static str> = None;
-    let event_scheduler = &app.content.event_scheduler;
+    let event_scheduler = &app.runtime.content.event_scheduler;
     let event_world = &app.world;
-    let event_flags = &app.content.global_flags;
-    let event_country = hoi4_state::CountryId(app.player_country as u16);
+    let event_flags = &app.runtime.content.global_flags;
+    let event_country = hoi4_state::CountryId(app.view.player_country as u16);
     let mut event_cmd: Option<hoi4_ui::event_panel::EventCommand> = None;
     let mut surrender_notif_cmd: Option<
         hoi4_ui::surrender_notification::SurrenderNotificationCommand,
     > = None;
-    if settings_panel_open_cmd && !app.settings_panel.open {
-        app.settings_panel.open_with(app.settings.clone());
+    if settings_panel_open_cmd && !app.ui_state.settings_panel.open {
+        app.ui_state.settings_panel.open_with(app.ui_state.settings.clone());
     }
-    if saves_open_cmd && !app.save_browser.open {
-        app.save_browser.open = true;
-        let saves_dir = app.save_browser.saves_dir.clone();
+    if saves_open_cmd && !app.ui_state.save_browser.open {
+        app.ui_state.save_browser.open = true;
+        let saves_dir = app.ui_state.save_browser.saves_dir.clone();
         let entries = hoi4_ui::save_browser::scan_saves(&saves_dir, |p| {
             hoi4_state::save::read_meta(p)
                 .ok()
                 .map(|m| (format!("{}", m.date), m.player_tag))
         });
-        app.save_browser.set_saves(entries);
+        app.ui_state.save_browser.set_saves(entries);
     }
-    let settings_panel = &mut app.settings_panel;
-    let save_browser = &mut app.save_browser;
-    let end_screen = &mut app.end_screen;
-    let pending_surrender_notifications = &mut app.pending_surrender_notifications;
-    app.last_law_error_toast = app.law_error_message.clone();
+    let settings_panel = &mut app.ui_state.settings_panel;
+    let save_browser = &mut app.ui_state.save_browser;
+    let end_screen = &mut app.ui_state.end_screen;
+    let pending_surrender_notifications = &mut app.ui_state.pending_surrender_notifications;
+    app.ui_state.last_law_error_toast = app.ui_state.law_error_message.clone();
     let v9_notifications = &mut app.v9_notifications;
     let mut settings_close = false;
     let mut settings_cmds: Vec<hoi4_ui::settings::SettingsCommand> = Vec::new();
@@ -136,7 +136,7 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
     let demo_window = &mut app.demo_window;
     let v9_demo = &mut app.v9_demo;
     let ui_last_stats = s.ui.last_stats;
-    let accessibility_settings = app.settings.accessibility();
+    let accessibility_settings = app.ui_state.settings.accessibility();
     let mut v9_frame_profile: Option<hoi4_ui::v9::profiler::V9FrameProfile> = None;
     s.ui.begin_frame(&s.window, |ctx| {
         hoi4_ui::v9::accessibility::set_settings(ctx, accessibility_settings);
@@ -287,8 +287,8 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
             let (close, cmds) = hoi4_ui::diplomacy::DiplomacyPanel::show(
                 ctx,
                 data,
-                &mut app.diplomacy_sort_by_opinion,
-                &mut app.diplomacy_selected_country_tag,
+                &mut app.ui_state.diplomacy_sort_by_opinion,
+                &mut app.ui_state.diplomacy_selected_country_tag,
                 icon_bank,
             );
             if close {
@@ -399,7 +399,7 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
             politics_decision_cmds.extend(cmd.decision_commands);
         }
 
-        show_combat_bubble_overlay(ctx, &combat_bubbles, &mut app.selected_combat_bubble);
+        show_combat_bubble_overlay(ctx, &combat_bubbles, &mut app.interaction.selected_combat_bubble);
 
         if counter_rclick_prov.is_some() {
             hoi4_ui::egui::Window::new("Counter Menu")
@@ -424,7 +424,7 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
         }
 
         let front_event_id = event_scheduler.front().map(|pending| pending.event_id.clone());
-        if app.last_event_sound_id.as_deref() != front_event_id.as_deref() {
+        if app.ui_state.last_event_sound_id.as_deref() != front_event_id.as_deref() {
             if let Some(ref event_id) = front_event_id {
                 let popup_sound = event_scheduler
                     .db
@@ -432,13 +432,13 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
                     .map(event_modal_sound)
                     .unwrap_or(UiSound::EventPopup);
                 if !app
-                    .ui_sounds
+                    .ui_state.ui_sounds
                     .play_with_fallback(popup_sound, UiSound::EventPopup)
                 {
                     println!("[audio] event popup sound requested but no UI sound sample is loaded");
                 }
             }
-            app.last_event_sound_id = front_event_id.clone();
+            app.ui_state.last_event_sound_id = front_event_id.clone();
         }
 
         event_cmd = hoi4_ui::event_panel::show_event_modal_with_icons(
@@ -460,16 +460,16 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
             let remaining = pending_surrender_notifications.len().saturating_sub(1);
             let current = pending_surrender_notifications.first().unwrap();
             let surrender_sound_key = surrender_notification_sound_key(current);
-            if app.last_surrender_sound_key.as_deref() != Some(surrender_sound_key.as_str()) {
+            if app.ui_state.last_surrender_sound_key.as_deref() != Some(surrender_sound_key.as_str()) {
                 if !app
-                    .ui_sounds
+                    .ui_state.ui_sounds
                     .play_with_fallback(UiSound::WorldDefeat, UiSound::EventPopup)
                 {
                     println!(
                         "[audio] surrender notification sound requested but no UI sound sample is loaded"
                     );
                 }
-                app.last_surrender_sound_key = Some(surrender_sound_key);
+                app.ui_state.last_surrender_sound_key = Some(surrender_sound_key);
             }
             surrender_notif_cmd = hoi4_ui::surrender_notification::show_surrender_notification(
                 ctx, current, remaining, 0,
@@ -516,10 +516,10 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
             hoi4_ui::v9::sound::V9SoundEvent::Page => UiSound::PageFlip,
             hoi4_ui::v9::sound::V9SoundEvent::Modal => UiSound::EventPopup,
         };
-        app.ui_sounds.play_with_fallback(sound, UiSound::Click);
+        app.ui_state.ui_sounds.play_with_fallback(sound, UiSound::Click);
     }
     if let Some(profile) = v9_frame_profile {
-        if !profile.within_frame_budget() && app.perf_render_frames % 60 == 0 {
+        if !profile.within_frame_budget() && app.perf.render_frames % 60 == 0 {
             println!("[v9-perf] {}", profile.report());
         }
     }

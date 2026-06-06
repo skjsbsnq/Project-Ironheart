@@ -23,7 +23,7 @@ pub fn build_data_cached(app: &mut App) -> hoi4_ui::topbar::TopBarData {
 }
 
 pub fn build_data(app: &App) -> hoi4_ui::topbar::TopBarData {
-    let player = app.player_country;
+    let player = app.view.player_country;
     let player_cid = hoi4_state::CountryId(player as u16);
     let treasury = app.world.countries.treasury.treasuries.get(player);
     let country_tag = app
@@ -79,39 +79,39 @@ pub fn build_data(app: &App) -> hoi4_ui::topbar::TopBarData {
 
 fn topbar_signature(app: &App) -> u64 {
     let mut h = DefaultHasher::new();
-    app.game_phase.hash(&mut h);
-    app.player_country.hash(&mut h);
+    app.view.game_phase.hash(&mut h);
+    app.view.player_country.hash(&mut h);
     app.world.date.year.hash(&mut h);
     app.world.date.month.hash(&mut h);
     app.world.date.day.hash(&mut h);
     speed_index(app.world.speed).hash(&mut h);
-    if app.player_country < app.world.countries.count {
+    if app.view.player_country < app.world.countries.count {
         app.world
             .countries
             .tags
-            .get(app.player_country)
+            .get(app.view.player_country)
             .hash(&mut h);
         app.world
             .countries
             .ruling_party
-            .get(app.player_country)
+            .get(app.view.player_country)
             .hash(&mut h);
         app.world
             .countries
             .political_power
-            .get(app.player_country)
+            .get(app.view.player_country)
             .map(|value| quantize_f32(*value, 10.0))
             .hash(&mut h);
         app.world
             .countries
             .stability
-            .get(app.player_country)
+            .get(app.view.player_country)
             .map(|value| quantize_f32(*value, 1000.0))
             .hash(&mut h);
         app.world
             .countries
             .war_support
-            .get(app.player_country)
+            .get(app.view.player_country)
             .map(|value| quantize_f32(*value, 1000.0))
             .hash(&mut h);
         if let Some(treasury) = app
@@ -119,7 +119,7 @@ fn topbar_signature(app: &App) -> u64 {
             .countries
             .treasury
             .treasuries
-            .get(app.player_country)
+            .get(app.view.player_country)
         {
             quantize_f64(treasury.gdp_gbp, 10.0).hash(&mut h);
             quantize_f32(treasury.gdp_growth_yoy, 100.0).hash(&mut h);
