@@ -1,5 +1,7 @@
 use super::*;
 use hoi4_render::map_mode::build_occupation_lut;
+use hoi4_render::trees::TreeInstance;
+use wgpu::util::DeviceExt;
 
 impl App {
     pub(crate) fn init_render(&mut self, window: Arc<Window>) {

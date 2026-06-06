@@ -2,6 +2,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use crate::*;
+use wgpu::util::DeviceExt;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct VisualDivisionMotion {
