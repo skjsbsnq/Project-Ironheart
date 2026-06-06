@@ -53,18 +53,20 @@ use text_pass::{TextAlign, TextPass, TextSize};
 
 mod glyphon_text;
 
-mod app_shell;
 mod app_helpers;
+mod app_shell;
 mod binding;
 mod bootstrap;
 mod content_bootstrap;
 mod debug_commands;
+mod edge_pan_test;
 mod flag_bank;
 mod map_baseline;
 mod map_draw;
 mod map_frame;
 mod map_image_diff;
 mod map_perf;
+mod map_phase0_run;
 mod map_renderer;
 mod map_trade_routes;
 mod mapname_atlas;
@@ -79,13 +81,14 @@ mod render_state;
 mod runtime;
 mod ui_binding;
 mod update_loop;
-use flag_bank::FlagBank;
 use app_helpers::{
     decision_id_matches_player_tag, estimate_construction_days_remaining, event_modal_sound,
     intervention_expected_impact, map_mode_from_capture_name, map_mode_terrain_blend_for,
     postprocess_lut_selection_for, surrender_notification_sound_key,
     terrain_debug_view_for_baseline_layer,
 };
+use edge_pan_test::{EdgePanTestConfig, EdgePanTestRun};
+use flag_bank::FlagBank;
 use hoi4_app::ui_data::cache::{UiPanelCache, UiPanelCacheKind};
 use hoi4_app::ui_data::names::localized_content_name;
 pub use hoi4_app::vanilla_resource_views;
@@ -95,6 +98,7 @@ use map_perf::{
     estimate_frame_texture_memory_bytes, phase10_overlay_lines, GpuProfilerStatus,
     GpuTimestampProfiler, MapQualityPreset, Phase10OverlayInput,
 };
+use map_phase0_run::MapPhase0Run;
 use map_renderer::{MapPrepareFrameInput, MapRenderer, WorldObjectPlan, WorldObjectSystem};
 use menu_pass::{CountryEntry, MenuButton};
 use menu_scene::MenuKind;
@@ -186,45 +190,6 @@ impl Default for BuildingParams {
 }
 
 const _: () = assert!(std::mem::size_of::<BuildingParams>() == 16);
-
-struct MapPhase0Run {
-    output_dir: PathBuf,
-    reference_root: Option<PathBuf>,
-    started: Instant,
-    captures: Vec<map_baseline::MapBaselinePlannedCapture>,
-    scenes: Vec<map_baseline::MapBaselineScene>,
-    asset_audit: hoi4_assets::MapAssetAudit,
-    binding_audit: vanilla_resource_views::BindingAudit,
-    capture_index: usize,
-    settle_frames: u8,
-    finished: bool,
-}
-
-impl MapPhase0Run {
-    fn new(path_cfg: &PathConfig, output_dir: PathBuf, reference_root: Option<PathBuf>) -> Self {
-        let vanilla_resources = VanillaResourceViews::load_for_audit(path_cfg);
-        let asset_audit = hoi4_assets::MapAssetAudit::from_map_set(&vanilla_resources.map_set);
-        let binding_audit = vanilla_resources.phase1_binding_audit();
-        let scenes = map_baseline::fixed_scenes();
-        let captures = map_baseline::build_phase0_planned_captures(&scenes, &asset_audit);
-        Self {
-            output_dir,
-            reference_root,
-            started: Instant::now(),
-            captures,
-            scenes,
-            asset_audit,
-            binding_audit,
-            capture_index: 0,
-            settle_frames: 2,
-            finished: false,
-        }
-    }
-
-    fn current_capture(&self) -> Option<&map_baseline::MapBaselinePlannedCapture> {
-        self.captures.get(self.capture_index)
-    }
-}
 
 struct PendingPngReadback {
     buffer: wgpu::Buffer,
@@ -518,43 +483,6 @@ struct SelectionBoxState {
     start: [f32; 2],
     current: [f32; 2],
     pressed_at: Instant,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct EdgePanTestConfig {
-    country_tag: String,
-    duration_secs: f32,
-}
-
-#[derive(Debug, Clone)]
-struct EdgePanTestRun {
-    config: EdgePanTestConfig,
-    started_at: Option<Instant>,
-    last_cursor_log_at: Instant,
-    frames: u32,
-    slow_frames: u32,
-    max_frame_ms: f32,
-    max_surface_ms: f32,
-    max_present_ms: f32,
-    max_egui_ms: f32,
-    max_vanilla_ms: f32,
-}
-
-impl EdgePanTestRun {
-    fn new(config: EdgePanTestConfig) -> Self {
-        Self {
-            config,
-            started_at: None,
-            last_cursor_log_at: Instant::now(),
-            frames: 0,
-            slow_frames: 0,
-            max_frame_ms: 0.0,
-            max_surface_ms: 0.0,
-            max_present_ms: 0.0,
-            max_egui_ms: 0.0,
-            max_vanilla_ms: 0.0,
-        }
-    }
 }
 
 impl Default for SelectionBoxState {
@@ -1136,396 +1064,6 @@ impl App {
             map_phase0: None,
             edge_pan_test: edge_pan_test.map(EdgePanTestRun::new),
         }
-    }
-
-    fn enable_map_phase0(&mut self, output_dir: PathBuf, reference_root: Option<PathBuf>) {
-        let run = MapPhase0Run::new(&self.path_cfg, output_dir, reference_root);
-        println!(
-            "[map-phase0] starting capture batch: scenes={} layers={} captures={} output={}",
-            run.scenes.len(),
-            map_baseline::MapBaselineLayer::ALL.len(),
-            run.captures.len(),
-            run.output_dir.display()
-        );
-        if let Some(reference_root) = &run.reference_root {
-            println!(
-                "[map-phase0] vanilla reference root={}",
-                reference_root.display()
-            );
-        }
-        println!("[map-phase0] {}", run.asset_audit.summary_line());
-        println!("[map-phase0] {}", run.binding_audit.summary_line());
-        if !run.asset_audit.fallback_paths.is_empty() {
-            for path in run.asset_audit.fallback_paths.iter().take(16) {
-                eprintln!("[map-phase0] fallback asset: {path}");
-            }
-            if run.asset_audit.fallback_paths.len() > 16 {
-                eprintln!(
-                    "[map-phase0] fallback asset: ... {} more",
-                    run.asset_audit.fallback_paths.len() - 16
-                );
-            }
-        }
-        if !run.asset_audit.can_use_for_visual_review() {
-            eprintln!(
-                "[map-phase0] critical fallback present; screenshots will be marked unusable for visual review"
-            );
-        }
-        if run.binding_audit.critical_mock_count() > 0 {
-            eprintln!(
-                "[map-phase0] critical binding mocks present; parity screenshots are blocked"
-            );
-        }
-
-        self.game_phase = GamePhase::Playing;
-        self.world.speed = GameSpeed::Paused;
-        self.close_primary_panel();
-        self.active_popup = None;
-        self.demo_visible = false;
-        self.b5_demo_visible = false;
-        self.debug_overlay = false;
-        self.terrain_debug_view = passes::TerrainDebugView::Off;
-        self.water_debug_view = passes::WaterDebugView::Off;
-        self.border_debug_view = passes::BorderDebugView::Off;
-        self.postprocess_debug_view = PostProcessDebugView::Final;
-        self.map_mode = MapMode::Political;
-        self.map_phase0 = Some(run);
-    }
-
-    fn start_edge_pan_test(&mut self) {
-        let Some(run) = self.edge_pan_test.as_ref() else {
-            return;
-        };
-        if run.started_at.is_some() {
-            return;
-        }
-        let country_tag = run.config.country_tag.clone();
-        let duration_secs = run.config.duration_secs.max(1.0);
-
-        let _ = self.set_player_country_by_tag(&country_tag);
-        self.game_phase = GamePhase::Playing;
-        self.world.speed = GameSpeed::Speed5;
-        self.time_accumulator = 0.0;
-        self.close_primary_panel();
-        self.active_popup = None;
-        self.province_info_card.open = false;
-        self.country_info_panel.close();
-        self.reset_menu_state();
-
-        let now = Instant::now();
-        if let Some(run) = self.edge_pan_test.as_mut() {
-            run.config.duration_secs = duration_secs;
-            run.started_at = Some(now);
-            run.last_cursor_log_at = now;
-        }
-        self.update_edge_pan_test_cursor(now);
-        println!(
-            "[edge-pan-test] started country={} speed=5 duration={:.1}s",
-            country_tag, duration_secs
-        );
-        if let Some(s) = &self.state {
-            s.window.request_redraw();
-        }
-    }
-
-    fn update_edge_pan_test_cursor(&mut self, now: Instant) {
-        let Some(started_at) = self.edge_pan_test.as_ref().and_then(|run| run.started_at) else {
-            return;
-        };
-        if self.game_phase != GamePhase::Playing {
-            return;
-        }
-        if self.world.speed != GameSpeed::Speed5 {
-            self.world.speed = GameSpeed::Speed5;
-            self.pre_event_speed = None;
-        }
-        let Some((w, h)) = self.state.as_ref().map(|s| {
-            let dpi = s.window.scale_factor() as f32;
-            (
-                s.config.width as f32 / dpi.max(0.0001),
-                s.config.height as f32 / dpi.max(0.0001),
-            )
-        }) else {
-            return;
-        };
-
-        let edge = (EDGE_PAN_MARGIN_PX * 0.5).clamp(2.0, 24.0);
-        let elapsed = now.saturating_duration_since(started_at).as_secs_f32();
-        let segment_secs = 2.0;
-        let segment = (elapsed / segment_secs).floor() as u32 % 4;
-        let phase = (elapsed / segment_secs).fract();
-        let travel_x = edge + phase * (w - edge * 2.0).max(1.0);
-        let travel_y = edge + phase * (h - edge * 2.0).max(1.0);
-        self.last_mouse = match segment {
-            0 => [w - edge, travel_y],
-            1 => [w - travel_x, h - edge],
-            2 => [edge, h - travel_y],
-            _ => [travel_x, edge],
-        };
-
-        if now.duration_since(self.last_hover_pick_at).as_millis() >= HOVER_PICK_INTERVAL_MS {
-            self.last_hover_pick_at = now;
-            if !self.ui_blocks_map_clicks() {
-                let new_hover = self.pick_province_at_cursor();
-                if new_hover != self.hovered_province_id {
-                    self.hovered_province_id = new_hover;
-                }
-            }
-        }
-
-        let mut should_log = false;
-        if let Some(run) = self.edge_pan_test.as_mut() {
-            if now
-                .saturating_duration_since(run.last_cursor_log_at)
-                .as_secs_f32()
-                >= 5.0
-            {
-                run.last_cursor_log_at = now;
-                should_log = true;
-            }
-        }
-        if should_log {
-            println!(
-                "[edge-pan-test] t={:.1}s cursor=({:.0},{:.0}) date={} speed=5",
-                elapsed, self.last_mouse[0], self.last_mouse[1], self.world.date
-            );
-        }
-    }
-
-    fn edge_pan_test_should_finish(&self, now: Instant) -> bool {
-        self.edge_pan_test
-            .as_ref()
-            .and_then(|run| run.started_at.map(|started| (run, started)))
-            .is_some_and(|(run, started)| {
-                now.saturating_duration_since(started).as_secs_f32()
-                    >= run.config.duration_secs.max(1.0)
-            })
-    }
-
-    fn finish_edge_pan_test(&mut self) {
-        let Some(run) = self.edge_pan_test.take() else {
-            return;
-        };
-        let elapsed = run
-            .started_at
-            .map(|started| started.elapsed().as_secs_f32())
-            .unwrap_or(0.0);
-        println!(
-            "[edge-pan-test] finished elapsed={:.1}s frames={} slow_frames={} max_frame={:.2}ms max_surface={:.2}ms max_present={:.2}ms max_egui={:.2}ms max_vanilla={:.2}ms date={}",
-            elapsed,
-            run.frames,
-            run.slow_frames,
-            run.max_frame_ms,
-            run.max_surface_ms,
-            run.max_present_ms,
-            run.max_egui_ms,
-            run.max_vanilla_ms,
-            self.world.date,
-        );
-    }
-
-    fn record_edge_pan_test_frame(
-        &mut self,
-        frame_ms: f32,
-        surface_ms: f32,
-        present_ms: f32,
-        egui_ms: f32,
-        vanilla_ms: f32,
-    ) {
-        let Some(run) = self.edge_pan_test.as_mut() else {
-            return;
-        };
-        if run.started_at.is_none() {
-            return;
-        }
-        run.frames = run.frames.saturating_add(1);
-        if frame_ms >= 25.0 {
-            run.slow_frames = run.slow_frames.saturating_add(1);
-        }
-        run.max_frame_ms = run.max_frame_ms.max(frame_ms);
-        run.max_surface_ms = run.max_surface_ms.max(surface_ms);
-        run.max_present_ms = run.max_present_ms.max(present_ms);
-        run.max_egui_ms = run.max_egui_ms.max(egui_ms);
-        run.max_vanilla_ms = run.max_vanilla_ms.max(vanilla_ms);
-    }
-
-    fn map_phase0_finished(&self) -> bool {
-        self.map_phase0
-            .as_ref()
-            .map(|run| run.finished)
-            .unwrap_or(false)
-    }
-
-    fn current_map_layer_mask(&self) -> map_baseline::MapLayerMask {
-        self.map_phase0
-            .as_ref()
-            .and_then(|run| run.current_capture())
-            .map(|capture| capture.layer_mask)
-            .unwrap_or_else(map_baseline::MapLayerMask::all)
-    }
-
-    fn map_phase0_capture_ready(&self) -> bool {
-        self.map_phase0.as_ref().is_some_and(|run| {
-            !run.finished && run.settle_frames == 0 && run.current_capture().is_some()
-        })
-    }
-
-    fn map_phase0_capture_path(&self) -> Option<PathBuf> {
-        let run = self.map_phase0.as_ref()?;
-        let capture = run.current_capture()?;
-        Some(run.output_dir.join(&capture.filename))
-    }
-
-    fn map_phase0_debug_lines(&self) -> Vec<String> {
-        let Some(run) = self.map_phase0.as_ref() else {
-            return Vec::new();
-        };
-        let mut lines = vec![
-            "Map Renderer V2 Phase 0 - Asset Fallback Debug".to_string(),
-            run.asset_audit.summary_line(),
-            run.binding_audit.summary_line(),
-            format!(
-                "visual_review_usable={}",
-                run.asset_audit.can_use_for_visual_review()
-            ),
-        ];
-        if run.asset_audit.fallback_paths.is_empty() {
-            lines.push("fallbacks=0".to_string());
-        } else {
-            lines.push(format!(
-                "fallbacks={}",
-                run.asset_audit.fallback_paths.len()
-            ));
-            for path in run.asset_audit.fallback_paths.iter().take(20) {
-                lines.push(format!("fallback: {path}"));
-            }
-            if run.asset_audit.fallback_paths.len() > 20 {
-                lines.push(format!(
-                    "... {} more",
-                    run.asset_audit.fallback_paths.len() - 20
-                ));
-            }
-        }
-        lines
-    }
-
-    fn prepare_map_phase0_capture(&mut self) {
-        let Some(run) = self.map_phase0.as_ref() else {
-            return;
-        };
-        if run.finished {
-            return;
-        }
-        let Some(capture) = run.current_capture() else {
-            self.finish_map_phase0();
-            return;
-        };
-        let Some(scene) = run
-            .scenes
-            .iter()
-            .find(|scene| scene.name == capture.scene_name)
-            .cloned()
-        else {
-            return;
-        };
-        let mask = capture.layer_mask;
-        let world_size = self.camera.world_size;
-        self.camera.target = glam::Vec3::new(
-            scene.camera.target_uv[0] * world_size.x,
-            0.0,
-            scene.camera.target_uv[1] * world_size.y,
-        );
-        self.camera.distance = (world_size.x.max(world_size.y) * scene.camera.distance_factor)
-            .clamp(3.0, world_size.x.max(world_size.y) * 4.0);
-        self.camera.pitch = scene.camera.pitch_degrees.to_radians();
-        self.camera.yaw = scene.camera.yaw_degrees.to_radians();
-        self.camera.clamp_target_to_map();
-        self.world.date = scene.date;
-        self.show_province_names = mask.labels;
-        let scene_map_mode = map_mode_from_capture_name(&scene.map_mode);
-        if self.map_mode != scene_map_mode {
-            self.map_mode = scene_map_mode;
-            self.refresh_lut();
-        }
-        self.terrain_debug_view = terrain_debug_view_for_baseline_layer(capture.layer);
-        self.water_debug_view = passes::WaterDebugView::Off;
-        self.border_debug_view = passes::BorderDebugView::Off;
-        self.postprocess_debug_view = match capture.layer {
-            map_baseline::MapBaselineLayer::HdrRaw => PostProcessDebugView::HdrRaw,
-            map_baseline::MapBaselineLayer::AvgLuminance => PostProcessDebugView::AvgLuminance,
-            map_baseline::MapBaselineLayer::TonemapBefore => PostProcessDebugView::TonemapBefore,
-            map_baseline::MapBaselineLayer::TonemapOnly => PostProcessDebugView::TonemapOnly,
-            map_baseline::MapBaselineLayer::BloomOnly => PostProcessDebugView::BloomOnly,
-            map_baseline::MapBaselineLayer::LutBefore => PostProcessDebugView::LutBefore,
-            map_baseline::MapBaselineLayer::LutAfter => PostProcessDebugView::LutAfter,
-            _ => PostProcessDebugView::Final,
-        };
-        if let Some(s) = self.state.as_mut() {
-            s.post_process.debug_view = self.postprocess_debug_view;
-        }
-        self.upload_camera();
-    }
-
-    fn map_phase0_after_uncaptured_frame(&mut self) {
-        if let Some(run) = self.map_phase0.as_mut() {
-            if !run.finished && run.settle_frames > 0 {
-                run.settle_frames -= 1;
-            }
-        }
-    }
-
-    fn map_phase0_after_capture(&mut self, frame_time_ms: f32, result: Result<(), String>) {
-        if let Err(err) = result {
-            eprintln!("[map-phase0] screenshot write failed: {err}");
-        }
-        let Some(run) = self.map_phase0.as_mut() else {
-            return;
-        };
-        if run.finished {
-            return;
-        }
-        let total = run.captures.len();
-        if let Some(capture) = run.captures.get_mut(run.capture_index) {
-            capture.frame_time_ms = Some(frame_time_ms);
-            println!(
-                "[map-phase0] captured {}/{} {} frame_time_ms={:.2} usable={}",
-                run.capture_index + 1,
-                total,
-                capture.filename,
-                frame_time_ms,
-                capture.visual_review_usable
-            );
-        }
-        run.capture_index += 1;
-        run.settle_frames = 1;
-        if run.capture_index >= total {
-            self.finish_map_phase0();
-        }
-    }
-
-    fn finish_map_phase0(&mut self) {
-        let Some(run) = self.map_phase0.as_mut() else {
-            return;
-        };
-        if run.finished {
-            return;
-        }
-        let report = map_baseline::MapBaselineReport::from_captures(
-            run.scenes.clone(),
-            run.captures.clone(),
-            run.asset_audit.clone(),
-            run.binding_audit.clone(),
-            run.started.elapsed().as_secs_f64() * 1000.0,
-        );
-        match map_baseline::write_phase0_report_files_with_references(
-            &report,
-            &run.output_dir,
-            run.reference_root.as_deref(),
-        ) {
-            Ok(path) => println!("[map-phase0] wrote {}", path.display()),
-            Err(err) => eprintln!("[map-phase0] report write failed: {err}"),
-        }
-        run.finished = true;
     }
 
     fn split_fleet_data(
