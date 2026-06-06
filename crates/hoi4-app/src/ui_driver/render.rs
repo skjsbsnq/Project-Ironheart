@@ -1,50 +1,12 @@
 use super::build::UiBuildOutput;
+use crate::app_command::AppCommand;
 use crate::combat_overlay::show_combat_bubble_overlay;
 use crate::*;
 
 #[derive(Default)]
 pub(crate) struct UiRenderOutput {
-    pub(crate) topbar_speed_cmd: Option<hoi4_ui::topbar::SpeedCommand>,
-    pub(crate) side_rail_panel_cmd: Option<hoi4_ui::PanelKind>,
     pub(crate) open_panel_kind: Option<hoi4_ui::PanelKind>,
-    pub(crate) panel_commands: Vec<hoi4_ui::PanelCommand>,
-    pub(crate) politics_close: bool,
-    pub(crate) politics_decision_cmds: Vec<hoi4_ui::politics::DecisionCommand>,
-    pub(crate) decisions_close: bool,
-    pub(crate) decisions_cmds: Vec<hoi4_ui::politics::DecisionCommand>,
-    pub(crate) law_close: bool,
-    pub(crate) law_cmds: Vec<hoi4_ui::law_panel::LawCommand>,
-    pub(crate) pop_panel_close: bool,
-    pub(crate) market_close: bool,
-    pub(crate) finance_close: bool,
-    pub(crate) finance_cmds: Vec<hoi4_ui::finance_panel::FinanceCommand>,
-    pub(crate) trade_close: bool,
-    pub(crate) construction_v6_close: bool,
-    pub(crate) construction_v6_cmds: Vec<hoi4_ui::construction_v6_panel::ConstructionV6Command>,
-    pub(crate) research_close: bool,
-    pub(crate) research_cmds: Vec<hoi4_ui::research::ResearchCommand>,
-    pub(crate) diplomacy_close: bool,
-    pub(crate) diplomacy_cmds: Vec<hoi4_ui::diplomacy::DiplomacyCommand>,
-    pub(crate) military_close: bool,
-    pub(crate) military_cmds: Vec<hoi4_ui::military::MilitaryCommand>,
-    pub(crate) air_close: bool,
-    pub(crate) air_cmds: Vec<hoi4_ui::air::AirCommand>,
-    pub(crate) naval_close: bool,
-    pub(crate) naval_cmds: Vec<hoi4_ui::naval::NavalCommand>,
-    pub(crate) logistics_close: bool,
-    pub(crate) situation_close: bool,
-    pub(crate) situation_cmds: Vec<hoi4_ui::situation_panel::SituationCommand>,
-    pub(crate) focus_cmd: Option<hoi4_ui::focus_tree_panel::FocusCommand>,
-    pub(crate) country_info_cmds: Vec<hoi4_ui::country_info_panel::CountryInfoCommand>,
-    pub(crate) counter_menu_cmd: Option<&'static str>,
-    pub(crate) event_cmd: Option<hoi4_ui::event_panel::EventCommand>,
-    pub(crate) surrender_notif_cmd:
-        Option<hoi4_ui::surrender_notification::SurrenderNotificationCommand>,
-    pub(crate) settings_close: bool,
-    pub(crate) settings_cmds: Vec<hoi4_ui::settings::SettingsCommand>,
-    pub(crate) saves_close: bool,
-    pub(crate) save_cmds: Vec<hoi4_ui::save_browser::SaveCommand>,
-    pub(crate) end_cmd: Option<hoi4_ui::end_screen::EndCommand>,
+    pub(crate) commands: Vec<AppCommand>,
     pub(crate) egui_current_stats: hoi4_ui::UiFrameStats,
 }
 
@@ -562,47 +524,102 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
         }
     }
 
+    let mut commands = Vec::new();
+    if let Some(cmd) = topbar_speed_cmd {
+        commands.push(AppCommand::TopbarSpeed(cmd));
+    }
+    if let Some(cmd) = side_rail_panel_cmd {
+        commands.push(AppCommand::SideRailPanel(cmd));
+    }
+    commands.extend(panel_commands.into_iter().map(AppCommand::Panel));
+    if politics_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    commands.extend(politics_decision_cmds.into_iter().map(AppCommand::Decision));
+    if decisions_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    commands.extend(decisions_cmds.into_iter().map(AppCommand::Decision));
+    if law_close {
+        commands.push(AppCommand::CloseLawPanel);
+    }
+    commands.extend(law_cmds.into_iter().map(AppCommand::Law));
+    if pop_panel_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    if market_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    if finance_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    commands.extend(finance_cmds.into_iter().map(AppCommand::Finance));
+    if trade_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    if construction_v6_close {
+        commands.push(AppCommand::CloseConstructionPanel);
+    }
+    commands.extend(
+        construction_v6_cmds
+            .into_iter()
+            .map(AppCommand::ConstructionV6),
+    );
+    if research_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    commands.extend(research_cmds.into_iter().map(AppCommand::Research));
+    if diplomacy_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    commands.extend(diplomacy_cmds.into_iter().map(AppCommand::Diplomacy));
+    if military_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    commands.extend(military_cmds.into_iter().map(AppCommand::Military));
+    if air_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    commands.extend(air_cmds.into_iter().map(AppCommand::Air));
+    if naval_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    commands.extend(naval_cmds.into_iter().map(AppCommand::Naval));
+    if logistics_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    if situation_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    commands.extend(situation_cmds.into_iter().map(AppCommand::Situation));
+    if let Some(cmd) = focus_cmd {
+        commands.push(AppCommand::Focus(cmd));
+    }
+    commands.extend(country_info_cmds.into_iter().map(AppCommand::CountryInfo));
+    if let Some(cmd) = counter_menu_cmd {
+        commands.push(AppCommand::CounterMenu(cmd));
+    }
+    if let Some(cmd) = event_cmd {
+        commands.push(AppCommand::Event(cmd));
+    }
+    if let Some(cmd) = surrender_notif_cmd {
+        commands.push(AppCommand::SurrenderNotification(cmd));
+    }
+    if settings_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    commands.extend(settings_cmds.into_iter().map(AppCommand::Settings));
+    if saves_close {
+        commands.push(AppCommand::CloseActivePanel);
+    }
+    commands.extend(save_cmds.into_iter().map(AppCommand::Save));
+    if let Some(cmd) = end_cmd {
+        commands.push(AppCommand::End(cmd));
+    }
+
     UiRenderOutput {
-        topbar_speed_cmd,
-        side_rail_panel_cmd,
         open_panel_kind,
-        panel_commands,
-        politics_close,
-        politics_decision_cmds,
-        decisions_close,
-        decisions_cmds,
-        law_close,
-        law_cmds,
-        pop_panel_close,
-        market_close,
-        finance_close,
-        finance_cmds,
-        trade_close,
-        construction_v6_close,
-        construction_v6_cmds,
-        research_close,
-        research_cmds,
-        diplomacy_close,
-        diplomacy_cmds,
-        military_close,
-        military_cmds,
-        air_close,
-        air_cmds,
-        naval_close,
-        naval_cmds,
-        logistics_close,
-        situation_close,
-        situation_cmds,
-        focus_cmd,
-        country_info_cmds,
-        counter_menu_cmd,
-        event_cmd,
-        surrender_notif_cmd,
-        settings_close,
-        settings_cmds,
-        saves_close,
-        save_cmds,
-        end_cmd,
+        commands,
         egui_current_stats,
     }
 }

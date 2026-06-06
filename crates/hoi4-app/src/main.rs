@@ -45,6 +45,7 @@ use text_pass::{TextAlign, TextPass, TextSize};
 
 mod glyphon_text;
 
+mod app_command;
 mod app_helpers;
 mod app_shell;
 mod binding;

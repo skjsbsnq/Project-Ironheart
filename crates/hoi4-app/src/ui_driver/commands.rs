@@ -1,4 +1,5 @@
 use super::render::UiRenderOutput;
+use crate::app_command::AppCommand;
 use crate::*;
 
 #[derive(Default)]
@@ -25,48 +26,66 @@ pub(crate) fn apply_deferred_ui_commands(app: &mut App, output: UiCommandApplyOu
 impl App {
     fn apply_ui_render_output_inner(&mut self, ui_output: UiRenderOutput) -> UiCommandApplyOutput {
         let ui_driver::render::UiRenderOutput {
-            topbar_speed_cmd,
-            side_rail_panel_cmd,
             open_panel_kind,
-            mut panel_commands,
-            politics_close,
-            mut politics_decision_cmds,
-            decisions_close,
-            decisions_cmds,
-            law_close,
-            law_cmds,
-            pop_panel_close,
-            market_close,
-            finance_close,
-            finance_cmds,
-            trade_close,
-            construction_v6_close,
-            construction_v6_cmds,
-            research_close,
-            research_cmds,
-            diplomacy_close,
-            diplomacy_cmds,
-            military_close,
-            military_cmds,
-            air_close,
-            air_cmds,
-            naval_close,
-            naval_cmds,
-            logistics_close,
-            situation_close,
-            situation_cmds,
-            focus_cmd,
-            country_info_cmds,
-            counter_menu_cmd,
-            event_cmd,
-            surrender_notif_cmd,
-            settings_close,
-            settings_cmds,
-            saves_close,
-            save_cmds,
-            end_cmd,
+            commands,
             egui_current_stats,
         } = ui_output;
+        let mut topbar_speed_cmd: Option<hoi4_ui::topbar::SpeedCommand> = None;
+        let mut side_rail_panel_cmd: Option<hoi4_ui::PanelKind> = None;
+        let mut panel_commands: Vec<hoi4_ui::PanelCommand> = Vec::new();
+        let mut close_active_panel = false;
+        let mut law_close = false;
+        let mut construction_v6_close = false;
+        let mut finance_cmds: Vec<hoi4_ui::finance_panel::FinanceCommand> = Vec::new();
+        let mut construction_v6_cmds: Vec<hoi4_ui::construction_v6_panel::ConstructionV6Command> =
+            Vec::new();
+        let mut law_cmds: Vec<hoi4_ui::law_panel::LawCommand> = Vec::new();
+        let mut politics_decision_cmds: Vec<hoi4_ui::politics::DecisionCommand> = Vec::new();
+        let mut research_cmds: Vec<hoi4_ui::research::ResearchCommand> = Vec::new();
+        let mut diplomacy_cmds: Vec<hoi4_ui::diplomacy::DiplomacyCommand> = Vec::new();
+        let mut military_cmds: Vec<hoi4_ui::military::MilitaryCommand> = Vec::new();
+        let mut air_cmds: Vec<hoi4_ui::air::AirCommand> = Vec::new();
+        let mut naval_cmds: Vec<hoi4_ui::naval::NavalCommand> = Vec::new();
+        let mut situation_cmds: Vec<hoi4_ui::situation_panel::SituationCommand> = Vec::new();
+        let mut focus_cmd: Option<hoi4_ui::focus_tree_panel::FocusCommand> = None;
+        let mut country_info_cmds: Vec<hoi4_ui::country_info_panel::CountryInfoCommand> =
+            Vec::new();
+        let mut counter_menu_cmd: Option<&'static str> = None;
+        let mut event_cmd: Option<hoi4_ui::event_panel::EventCommand> = None;
+        let mut surrender_notif_cmd: Option<
+            hoi4_ui::surrender_notification::SurrenderNotificationCommand,
+        > = None;
+        let mut settings_cmds: Vec<hoi4_ui::settings::SettingsCommand> = Vec::new();
+        let mut save_cmds: Vec<hoi4_ui::save_browser::SaveCommand> = Vec::new();
+        let mut end_cmd: Option<hoi4_ui::end_screen::EndCommand> = None;
+        for command in commands {
+            match command {
+                AppCommand::TopbarSpeed(cmd) => topbar_speed_cmd = Some(cmd),
+                AppCommand::SideRailPanel(cmd) => side_rail_panel_cmd = Some(cmd),
+                AppCommand::Panel(cmd) => panel_commands.push(cmd),
+                AppCommand::CloseActivePanel => close_active_panel = true,
+                AppCommand::CloseLawPanel => law_close = true,
+                AppCommand::CloseConstructionPanel => construction_v6_close = true,
+                AppCommand::Finance(cmd) => finance_cmds.push(cmd),
+                AppCommand::ConstructionV6(cmd) => construction_v6_cmds.push(cmd),
+                AppCommand::Law(cmd) => law_cmds.push(cmd),
+                AppCommand::Decision(cmd) => politics_decision_cmds.push(cmd),
+                AppCommand::Research(cmd) => research_cmds.push(cmd),
+                AppCommand::Diplomacy(cmd) => diplomacy_cmds.push(cmd),
+                AppCommand::Military(cmd) => military_cmds.push(cmd),
+                AppCommand::Air(cmd) => air_cmds.push(cmd),
+                AppCommand::Naval(cmd) => naval_cmds.push(cmd),
+                AppCommand::Situation(cmd) => situation_cmds.push(cmd),
+                AppCommand::Focus(cmd) => focus_cmd = Some(cmd),
+                AppCommand::CountryInfo(cmd) => country_info_cmds.push(cmd),
+                AppCommand::CounterMenu(cmd) => counter_menu_cmd = Some(cmd),
+                AppCommand::Event(cmd) => event_cmd = Some(cmd),
+                AppCommand::SurrenderNotification(cmd) => surrender_notif_cmd = Some(cmd),
+                AppCommand::Settings(cmd) => settings_cmds.push(cmd),
+                AppCommand::Save(cmd) => save_cmds.push(cmd),
+                AppCommand::End(cmd) => end_cmd = Some(cmd),
+            }
+        }
         let mut deferred_switch_player_country: Vec<String> = Vec::new();
         let s = match self.state.as_mut() {
             Some(s) => s,
@@ -75,40 +94,14 @@ impl App {
 
         let topbar_action = topbar_speed_cmd.map(hoi4_ui::TopbarAction::SetSpeed);
 
-        if politics_close {
+        if close_active_panel {
             self.open_panel = None;
             self.active_detail_panel = None;
         }
-
-        if decisions_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
-
         if law_close {
             self.open_panel = None;
             self.active_detail_panel = None;
             self.law_error_message = None;
-        }
-
-        if pop_panel_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
-
-        if market_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
-
-        if finance_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
-
-        if trade_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
         }
 
         if !finance_cmds.is_empty() {
@@ -218,7 +211,6 @@ impl App {
             }
         }
 
-        politics_decision_cmds.extend(decisions_cmds);
         if !politics_decision_cmds.is_empty() {
             let player_id = hoi4_state::CountryId(self.player_country as u16);
             for cmd in politics_decision_cmds {
@@ -276,10 +268,6 @@ impl App {
             s.window.request_redraw();
         }
 
-        if research_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
         for cmd in research_cmds {
             use hoi4_ui::research::ResearchCommand;
             match cmd {
@@ -297,10 +285,6 @@ impl App {
             }
         }
 
-        if diplomacy_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
         for cmd in diplomacy_cmds {
             use hoi4_logic::diplomacy::{execute_action, DiplomaticAction};
             use hoi4_ui::diplomacy::DiplomacyCommand;
@@ -417,26 +401,6 @@ impl App {
             }
         }
 
-        if military_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
-        if naval_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
-        if air_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
-        if logistics_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
-        if situation_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
         for cmd in situation_cmds {
             use hoi4_ui::situation_panel::SituationCommand;
             match cmd {
@@ -1273,11 +1237,6 @@ impl App {
             }
         }
 
-        if settings_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
-
         // CR-4.5: Handle counter right-click menu commands.
         if let Some(cmd) = counter_menu_cmd {
             match cmd {
@@ -1345,10 +1304,6 @@ impl App {
             }
         }
 
-        if saves_close {
-            self.open_panel = None;
-            self.active_detail_panel = None;
-        }
         for cmd in save_cmds {
             use hoi4_ui::save_browser::SaveCommand;
             match cmd {
