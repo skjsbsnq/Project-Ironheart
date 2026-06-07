@@ -101,7 +101,9 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
         hoi4_ui::surrender_notification::SurrenderNotificationCommand,
     > = None;
     if settings_panel_open_cmd && !app.ui_state.settings_panel.open {
-        app.ui_state.settings_panel.open_with(app.ui_state.settings.clone());
+        app.ui_state
+            .settings_panel
+            .open_with(app.ui_state.settings.clone());
     }
     if saves_open_cmd && !app.ui_state.save_browser.open {
         app.ui_state.save_browser.open = true;
@@ -209,10 +211,13 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
             let (speed, _res_click) = hoi4_ui::topbar::TopBar::show(ctx, data, icon_bank);
             topbar_speed_cmd = speed;
 
-            let badge = (event_badge_count + surrender_badge_count).min(u8::MAX as usize) as u8;
-            let rail_data = hoi4_ui::v9::composites::SideRailData::gameplay(open_panel_kind)
-                .with_badge(hoi4_ui::PanelKind::Situation, badge);
-            side_rail_panel_cmd = hoi4_ui::v9::composites::SideRail::show(ctx, &rail_data);
+            if !matches!(open_panel, Some(InGamePanel::Politics | InGamePanel::Laws)) {
+                let badge =
+                    (event_badge_count + surrender_badge_count).min(u8::MAX as usize) as u8;
+                let rail_data = hoi4_ui::v9::composites::SideRailData::gameplay(open_panel_kind)
+                    .with_badge(hoi4_ui::PanelKind::Situation, badge);
+                side_rail_panel_cmd = hoi4_ui::v9::composites::SideRail::show(ctx, &rail_data);
+            }
         }
 
         if let Some(ref data) = politics_data {
@@ -516,7 +521,9 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
             hoi4_ui::v9::sound::V9SoundEvent::Page => UiSound::PageFlip,
             hoi4_ui::v9::sound::V9SoundEvent::Modal => UiSound::EventPopup,
         };
-        app.ui_state.ui_sounds.play_with_fallback(sound, UiSound::Click);
+        app.ui_state
+            .ui_sounds
+            .play_with_fallback(sound, UiSound::Click);
     }
     if let Some(profile) = v9_frame_profile {
         if !profile.within_frame_budget() && app.perf.render_frames % 60 == 0 {
@@ -533,7 +540,7 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
     }
     commands.extend(panel_commands.into_iter().map(AppCommand::Panel));
     if politics_close {
-        commands.push(AppCommand::CloseActivePanel);
+        commands.push(AppCommand::FinishPoliticsClose);
     }
     commands.extend(politics_decision_cmds.into_iter().map(AppCommand::Decision));
     if decisions_close {

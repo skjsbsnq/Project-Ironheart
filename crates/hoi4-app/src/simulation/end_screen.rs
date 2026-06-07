@@ -102,7 +102,5 @@ impl App {
             self.world.speed = hoi4_state::GameSpeed::Paused;
             println!("[game] campaign end reached: 1940-12-31");
         }
-
-
     }
 }

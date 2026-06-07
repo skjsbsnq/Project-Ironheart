@@ -696,7 +696,8 @@ impl App {
             &map_frame_plan,
             MapPrepareFrameInput {
                 layer_mask: input.map_layer_mask,
-                dedicated_water_loaded: s.water_pass.any_loaded || self.render_toggles.force_water_pass,
+                dedicated_water_loaded: s.water_pass.any_loaded
+                    || self.render_toggles.force_water_pass,
                 dedicated_river_loaded: s.river_pass.any_loaded,
                 dedicated_border_loaded: s.border_pass.any_loaded,
             },
@@ -767,11 +768,12 @@ impl App {
             } else {
                 0.0
             };
-            let enabled_mask = if self.render_toggles.border_debug_view == passes::BorderDebugView::Off {
-                passes::BorderParams::DEFAULT_VISIBLE_MASK
-            } else {
-                passes::BorderParams::ALL_VISIBLE_MASK
-            };
+            let enabled_mask =
+                if self.render_toggles.border_debug_view == passes::BorderDebugView::Off {
+                    passes::BorderParams::DEFAULT_VISIBLE_MASK
+                } else {
+                    passes::BorderParams::ALL_VISIBLE_MASK
+                };
             let bp = passes::BorderParams {
                 cam_distance_norm: cam_dist_norm,
                 selection_intensity: sel_intensity,
@@ -840,7 +842,8 @@ impl App {
             && map_frame_plan.draw.water_refraction
             && map_frame_plan.draw.water
             && (s.water_pass.any_loaded || self.render_toggles.force_water_pass)
-            && (render_quality_preset.water_refraction_enabled() || self.render_toggles.force_water_pass);
+            && (render_quality_preset.water_refraction_enabled()
+                || self.render_toggles.force_water_pass);
         let selected_water_effect = s
             .water_pass
             .update_runtime_effect(water_refraction_available, water_runtime_quality);

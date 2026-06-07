@@ -1,7 +1,18 @@
 use std::collections::HashSet;
 
-use hoi4_app::ui_data::cache::UiPanelCache;
 use crate::InGamePanel;
+use hoi4_app::ui_data::cache::UiPanelCache;
+
+pub(crate) fn is_politics_runtime_panel(panel: Option<InGamePanel>) -> bool {
+    matches!(panel, Some(InGamePanel::Politics | InGamePanel::Laws))
+}
+
+pub(crate) fn politics_close_required_before_switch(
+    current: Option<InGamePanel>,
+    next: InGamePanel,
+) -> bool {
+    is_politics_runtime_panel(current) && !matches!(next, InGamePanel::Politics | InGamePanel::Laws)
+}
 
 pub(crate) struct UiStateBundle {
     pub(crate) open_panel: Option<InGamePanel>,
@@ -29,6 +40,7 @@ pub(crate) struct UiStateBundle {
     pub(crate) law_error_message: Option<String>,
     pub(crate) last_law_error_toast: Option<String>,
     pub(crate) panel_cache: UiPanelCache,
+    pub(crate) pending_primary_panel_after_politics_close: Option<InGamePanel>,
 }
 
 impl UiStateBundle {
@@ -63,6 +75,40 @@ impl UiStateBundle {
             law_error_message: None,
             last_law_error_toast: None,
             panel_cache: UiPanelCache::default(),
+            pending_primary_panel_after_politics_close: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gate5_politics_close_request_keeps_panel_until_finish() {
+        assert!(is_politics_runtime_panel(Some(InGamePanel::Politics)));
+        assert!(is_politics_runtime_panel(Some(InGamePanel::Laws)));
+        assert!(!is_politics_runtime_panel(Some(InGamePanel::Research)));
+        assert!(!is_politics_runtime_panel(None));
+    }
+
+    #[test]
+    fn gate5_politics_switches_to_other_panel_after_close_phase() {
+        assert!(politics_close_required_before_switch(
+            Some(InGamePanel::Politics),
+            InGamePanel::Research
+        ));
+        assert!(politics_close_required_before_switch(
+            Some(InGamePanel::Laws),
+            InGamePanel::Decisions
+        ));
+        assert!(!politics_close_required_before_switch(
+            Some(InGamePanel::Politics),
+            InGamePanel::Laws
+        ));
+        assert!(!politics_close_required_before_switch(
+            Some(InGamePanel::Research),
+            InGamePanel::Politics
+        ));
     }
 }

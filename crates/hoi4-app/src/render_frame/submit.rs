@@ -76,7 +76,8 @@ impl App {
         );
         let flag_to_draw: Option<(String, String, [f32; 4])> = match self.view.game_phase {
             GamePhase::CountrySelect => self.view.last_country_layout.as_ref().and_then(|layout| {
-                self.view.available_countries
+                self.view
+                    .available_countries
                     .get(self.view.country_select_idx)
                     .map(|entry| {
                         let (fx, fy, fw, fh) = layout.flag_rect;
@@ -161,21 +162,20 @@ impl App {
         let profile_ui_render_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
         profile_mark = Instant::now();
 
-        let pending_readback = if let (Some(texture), Some(path)) =
-            (capture_texture, map_phase0_capture_path)
-        {
-            Some(enqueue_png_readback(
-                &s.device,
-                &mut enc,
-                texture,
-                s.config.format,
-                s.config.width,
-                s.config.height,
-                path,
-            ))
-        } else {
-            None
-        };
+        let pending_readback =
+            if let (Some(texture), Some(path)) = (capture_texture, map_phase0_capture_path) {
+                Some(enqueue_png_readback(
+                    &s.device,
+                    &mut enc,
+                    texture,
+                    s.config.format,
+                    s.config.width,
+                    s.config.height,
+                    path,
+                ))
+            } else {
+                None
+            };
 
         if let Some(profiler) = s.gpu_profiler.as_mut() {
             profiler.finish_frame(&mut enc);

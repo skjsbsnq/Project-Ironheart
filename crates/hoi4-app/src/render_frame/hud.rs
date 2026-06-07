@@ -171,7 +171,11 @@ impl App {
                         self.view.menu_hovered_row,
                     );
                     // ?????????
-                    if let Some(entry) = self.view.available_countries.get(self.view.country_select_idx) {
+                    if let Some(entry) = self
+                        .view
+                        .available_countries
+                        .get(self.view.country_select_idx)
+                    {
                         let world_idx = self
                             .world
                             .countries
@@ -453,7 +457,6 @@ impl App {
                 });
             }
         }
-
 
         FrameHudOutput {
             quality_label,

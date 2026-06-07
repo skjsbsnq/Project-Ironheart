@@ -24,9 +24,8 @@
 //! - 仅支持 BGRA8 / BC1 / BC3 三种 DDS 格式（[`crate::dds_decode`]）。
 //! - 未实现热重载文件系统监听 —— `add_search_dir` 之后已经命中过的 GFX 名
 //!   仍走 cache；需要重置 cache 才会重新解析路径。
-//! - vanilla 真正的 sprite 索引（`.gfx` 里的 `SpriteType`）在 V5 §0.2 禁解析；
-//!   `IconBank` 走「strip GFX_ prefix + 文件名」的硬编码约定，假设 vanilla
-//!   绝大多数 sprite 名都对应同名 DDS 文件（实测 vanilla `goals/focus_GER_*` 都满足）。
+//! - `IconBank` 会优先读取 vanilla/mod `.gfx` 的 sprite -> texturefile 索引；
+//!   直接按 `<sprite stem>.dds` 搜索只作为缺失 mapping 时的 fallback。
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -51,6 +50,34 @@ enum IconEntry {
     },
     /// 试过但失败（找不到 / 解码失败）。`reason` 仅诊断用。
     Missing { reason: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IconSpriteProbeReport {
+    pub sprite_name: String,
+    pub texture_file: Option<String>,
+    pub attempted_paths: Vec<String>,
+    pub loaded: bool,
+    pub failure_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextureFileProbeReport {
+    pub texture_file: String,
+    pub attempted_path: String,
+    pub loaded: bool,
+    pub failure_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TexturePixelStats {
+    pub width: u32,
+    pub height: u32,
+    pub non_transparent_pixels: usize,
+    pub mean_rgb: [f32; 3],
+    pub min_alpha: u8,
+    pub max_alpha: u8,
+    pub near_white_gray_ratio: f32,
 }
 
 /// 一组 sprite icon 的 lazy 加载缓存。
@@ -81,7 +108,28 @@ impl IconBank {
 
     /// 在搜索路径列表末尾追加一个目录（低优先级 fallback）。
     pub fn add_search_dir(&mut self, rel: impl Into<String>) {
-        self.search_dirs.push(rel.into());
+        let rel = rel.into();
+        if !self.search_dirs.iter().any(|existing| existing == &rel) {
+            self.search_dirs.push(rel);
+            self.cache
+                .retain(|_, entry| !matches!(entry, IconEntry::Missing { .. }));
+        }
+    }
+
+    /// Add the vanilla interface directories used by the country politics panel.
+    ///
+    /// The `.gfx` sprite map is still the preferred path, but these directories make
+    /// direct `<sprite stem>.dds` fallback work for the politics panel shell and idea
+    /// category textures when a mod omits a sprite mapping.
+    pub fn add_politics_search_dirs(&mut self) {
+        for rel in [
+            "gfx/interface",
+            "gfx/interface/ideas",
+            "gfx/interface/tiles",
+            "gfx/interface/goals",
+        ] {
+            self.add_search_dir(rel);
+        }
     }
 
     /// J.1.4：批量追加 `gfx/leaders/<TAG>/` 作为肖像查找路径。
@@ -133,6 +181,24 @@ impl IconBank {
         }
     }
 
+    /// Load a vanilla/mod `textureFile` path directly.
+    ///
+    /// This is used by `.gfx` resource types such as `progressbartype`, where
+    /// foreground and background textures are separate fields under one GFX
+    /// resource name.
+    pub fn get_or_load_texture_file(&mut self, texture_file: &str) -> Option<&TextureHandle> {
+        let texture_file = texture_file.replace('\\', "/").replace("//", "/");
+        let cache_key = format!("textureFile:{texture_file}");
+        if !self.cache.contains_key(&cache_key) {
+            let entry = self.try_load_texture_file(&cache_key, &texture_file);
+            self.cache.insert(cache_key.clone(), entry);
+        }
+        match self.cache.get(&cache_key)? {
+            IconEntry::Loaded { handle, .. } => Some(handle),
+            IconEntry::Missing { .. } => None,
+        }
+    }
+
     /// 已加载 icon 的像素尺寸（如果已 cache 为 Loaded 则返回；其他状态返回 `None`）。
     pub fn size_of(&self, gfx_name: &str) -> Option<[usize; 2]> {
         match self.cache.get(gfx_name)? {
@@ -168,6 +234,124 @@ impl IconBank {
             .values()
             .filter(|e| matches!(e, IconEntry::Missing { .. }))
             .count()
+    }
+
+    /// Whether a sprite name was found in parsed vanilla/mod `.gfx` files.
+    pub fn has_sprite_mapping(&self, gfx_name: &str) -> bool {
+        self.sprite_texturefiles.contains_key(gfx_name)
+    }
+
+    pub fn sprite_texturefile(&self, gfx_name: &str) -> Option<&str> {
+        self.sprite_texturefiles.get(gfx_name).map(String::as_str)
+    }
+
+    /// Probe a set of sprites and return `(loaded, missing)`.
+    ///
+    /// This intentionally goes through `get_or_load`, so the result validates the
+    /// full path resolution and DDS decode path, not only `.gfx` text parsing.
+    pub fn diagnose_sprites<'a>(
+        &mut self,
+        sprites: impl IntoIterator<Item = &'a str>,
+    ) -> (usize, usize) {
+        let mut loaded = 0usize;
+        let mut missing = 0usize;
+        for sprite in sprites {
+            if self.get_or_load(sprite).is_some() {
+                loaded += 1;
+            } else {
+                missing += 1;
+            }
+        }
+        (loaded, missing)
+    }
+
+    pub fn diagnose_sprite(&mut self, gfx_name: &str) -> IconSpriteProbeReport {
+        let _ = self.get_or_load(gfx_name);
+        let stem = gfx_name.strip_prefix("GFX_").unwrap_or(gfx_name);
+        let texture_file = self.sprite_texturefiles.get(gfx_name).cloned();
+        let mut attempted_paths = Vec::new();
+        if let Some(texture_file) = texture_file.as_deref() {
+            attempted_paths.push(
+                self.path_cfg
+                    .find(texture_file)
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| texture_file.to_owned()),
+            );
+        }
+        for dir in &self.search_dirs {
+            let rel = format!("{dir}/{stem}.dds");
+            attempted_paths.push(
+                self.path_cfg
+                    .find(&rel)
+                    .map(|path| path.display().to_string())
+                    .unwrap_or(rel),
+            );
+        }
+        attempted_paths.sort();
+        attempted_paths.dedup();
+
+        IconSpriteProbeReport {
+            sprite_name: gfx_name.to_owned(),
+            texture_file,
+            attempted_paths,
+            loaded: self.get_or_load(gfx_name).is_some(),
+            failure_reason: self.missing_reason(gfx_name).map(str::to_owned),
+        }
+    }
+
+    pub fn diagnose_texture_file(&mut self, texture_file: &str) -> TextureFileProbeReport {
+        let normalized = texture_file.replace('\\', "/").replace("//", "/");
+        let _ = self.get_or_load_texture_file(&normalized);
+        let cache_key = format!("textureFile:{normalized}");
+        let attempted_path = self
+            .path_cfg
+            .find(&normalized)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| normalized.clone());
+        TextureFileProbeReport {
+            texture_file: normalized,
+            attempted_path,
+            loaded: self.get_or_load_texture_file(texture_file).is_some(),
+            failure_reason: self.missing_reason(&cache_key).map(str::to_owned),
+        }
+    }
+
+    pub fn texture_file_pixel_stats(
+        &self,
+        texture_file: &str,
+    ) -> Result<TexturePixelStats, String> {
+        let normalized = texture_file.replace('\\', "/").replace("//", "/");
+        let abs = self
+            .path_cfg
+            .find(&normalized)
+            .ok_or_else(|| format!("{normalized} textureFile path not found"))?;
+        match abs
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("dds") => {
+                let bytes = std::fs::read(&abs)
+                    .map_err(|e| format!("io error on {}: {e}", abs.display()))?;
+                let dds = DdsImage::parse(&bytes)
+                    .map_err(|e| format!("dds parse on {}: {e:?}", abs.display()))?;
+                let rgba = decode_mip0_to_rgba(&dds)
+                    .map_err(|e| format!("decode {}: {e}", abs.display()))?;
+                Ok(texture_pixel_stats(dds.width, dds.height, &rgba))
+            }
+            Some("tga") => {
+                let bytes = std::fs::read(&abs)
+                    .map_err(|e| format!("io error on {}: {e}", abs.display()))?;
+                let tga = TgaImage::parse(&bytes)
+                    .map_err(|e| format!("tga parse on {}: {e}", abs.display()))?;
+                Ok(texture_pixel_stats(tga.width, tga.height, &tga.pixels))
+            }
+            _ => Err(format!(
+                "unsupported textureFile extension for {}",
+                abs.display()
+            )),
+        }
     }
 
     fn try_load(&self, gfx_name: &str) -> IconEntry {
@@ -274,6 +458,30 @@ impl IconBank {
         }
     }
 
+    fn try_load_texture_file(&self, cache_key: &str, texture_file: &str) -> IconEntry {
+        let Some(abs) = self.path_cfg.find(texture_file) else {
+            return IconEntry::Missing {
+                reason: format!("{texture_file} textureFile path not found"),
+            };
+        };
+        match abs
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase())
+            .as_deref()
+        {
+            Some("dds") => self
+                .load_dds_to_entry(cache_key, &abs)
+                .unwrap_or_else(|reason| IconEntry::Missing { reason }),
+            Some("tga") => self
+                .load_tga_to_entry(cache_key, &abs)
+                .unwrap_or_else(|reason| IconEntry::Missing { reason }),
+            _ => IconEntry::Missing {
+                reason: format!("unsupported textureFile extension for {}", abs.display()),
+            },
+        }
+    }
+
     fn try_load_flag_tga(&self, gfx_name: &str, stem: &str) -> Option<IconEntry> {
         let rest = stem.strip_prefix("flag_")?;
         let mut parts = rest.split('_');
@@ -353,6 +561,14 @@ impl IconBank {
         Ok(self.color_image_to_entry(gfx_name, img, dds.width, dds.height))
     }
 
+    fn load_tga_to_entry(&self, gfx_name: &str, abs: &Path) -> Result<IconEntry, String> {
+        let bytes =
+            std::fs::read(abs).map_err(|e| format!("io error on {}: {e}", abs.display()))?;
+        let img =
+            TgaImage::parse(&bytes).map_err(|e| format!("tga parse on {}: {e}", abs.display()))?;
+        Ok(self.rgba_to_entry(gfx_name, img.width, img.height, &img.pixels))
+    }
+
     fn rgba_to_entry(&self, gfx_name: &str, width: u32, height: u32, rgba: &[u8]) -> IconEntry {
         let img = ColorImage::from_rgba_unmultiplied([width as usize, height as usize], rgba);
         self.color_image_to_entry(gfx_name, img, width, height)
@@ -410,6 +626,47 @@ impl IconBank {
             dirs.push(direct);
         }
         dirs
+    }
+}
+
+fn texture_pixel_stats(width: u32, height: u32, rgba: &[u8]) -> TexturePixelStats {
+    let mut non_transparent_pixels = 0usize;
+    let mut rgb_sum = [0u64; 3];
+    let mut min_alpha = u8::MAX;
+    let mut max_alpha = u8::MIN;
+    let mut near_white_gray = 0usize;
+    for px in rgba.chunks_exact(4) {
+        let [r, g, b, a] = [px[0], px[1], px[2], px[3]];
+        min_alpha = min_alpha.min(a);
+        max_alpha = max_alpha.max(a);
+        if a > 0 {
+            non_transparent_pixels += 1;
+            rgb_sum[0] += r as u64;
+            rgb_sum[1] += g as u64;
+            rgb_sum[2] += b as u64;
+            let channels_close = r.abs_diff(g) <= 8 && r.abs_diff(b) <= 8 && g.abs_diff(b) <= 8;
+            if channels_close && r >= 180 && g >= 180 && b >= 180 {
+                near_white_gray += 1;
+            }
+        }
+    }
+    if rgba.is_empty() {
+        min_alpha = 0;
+        max_alpha = 0;
+    }
+    let denom = non_transparent_pixels.max(1) as f32;
+    TexturePixelStats {
+        width,
+        height,
+        non_transparent_pixels,
+        mean_rgb: [
+            rgb_sum[0] as f32 / denom,
+            rgb_sum[1] as f32 / denom,
+            rgb_sum[2] as f32 / denom,
+        ],
+        min_alpha,
+        max_alpha,
+        near_white_gray_ratio: near_white_gray as f32 / denom,
     }
 }
 
@@ -561,7 +818,7 @@ fn load_sprite_texturefiles(path_cfg: &PathConfig) -> HashMap<String, String> {
 }
 
 fn parse_sprite_texturefiles_into(text: &str, out: &mut HashMap<String, String>) {
-    let mut in_sprite = false;
+    let mut in_gfx_resource = false;
     let mut depth = 0i32;
     let mut name: Option<String> = None;
     let mut texturefile: Option<String> = None;
@@ -571,20 +828,22 @@ fn parse_sprite_texturefiles_into(text: &str, out: &mut HashMap<String, String>)
         if line.is_empty() {
             continue;
         }
-        if !in_sprite && is_sprite_type_start(line) {
-            in_sprite = true;
+        if !in_gfx_resource && is_texture_backed_gfx_resource_start(line) {
+            in_gfx_resource = true;
             depth = 0;
             name = None;
             texturefile = None;
         }
-        if !in_sprite {
+        if !in_gfx_resource {
             continue;
         }
 
         if let Some(value) = parse_gfx_assignment(line, "name") {
             name = Some(value);
-        } else if let Some(value) = parse_gfx_assignment(line, "texturefile") {
-            texturefile = Some(value.replace('\\', "/"));
+        } else if texturefile.is_none() {
+            if let Some(value) = parse_gfx_texturefile_assignment(line) {
+                texturefile = Some(normalize_texture_file_path(&value));
+            }
         }
 
         depth += line.matches('{').count() as i32;
@@ -593,22 +852,63 @@ fn parse_sprite_texturefiles_into(text: &str, out: &mut HashMap<String, String>)
             if let (Some(name), Some(texturefile)) = (name.take(), texturefile.take()) {
                 out.insert(name, texturefile);
             }
-            in_sprite = false;
+            in_gfx_resource = false;
         }
     }
 }
 
 fn parse_gfx_assignment(line: &str, key: &str) -> Option<String> {
-    let rest = line.strip_prefix(key)?.trim_start();
-    let rest = rest.strip_prefix('=')?.trim_start();
+    let (line_key, rest) = line.split_once('=')?;
+    if !line_key.trim().eq_ignore_ascii_case(key) {
+        return None;
+    }
+    let rest = rest.trim_start();
     Some(rest.trim_matches('"').to_owned())
 }
 
-fn is_sprite_type_start(line: &str) -> bool {
+fn parse_gfx_texturefile_assignment(line: &str) -> Option<String> {
+    let (line_key, rest) = line.split_once('=')?;
+    if !line_key
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("texturefile")
+    {
+        return None;
+    }
+    Some(rest.trim_start().trim_matches('"').to_owned())
+}
+
+fn normalize_texture_file_path(value: &str) -> String {
+    let replaced = value.replace('\\', "/");
+    let mut out = String::with_capacity(replaced.len());
+    let mut prev_slash = false;
+    for ch in replaced.chars() {
+        if ch == '/' {
+            if !prev_slash {
+                out.push(ch);
+            }
+            prev_slash = true;
+        } else {
+            out.push(ch);
+            prev_slash = false;
+        }
+    }
+    out
+}
+
+fn is_texture_backed_gfx_resource_start(line: &str) -> bool {
     let Some((key, _)) = line.split_once('=') else {
         return false;
     };
-    key.trim() == "spriteType"
+    matches!(
+        key.trim().to_ascii_lowercase().as_str(),
+        "spritetype"
+            | "corneredtilespritetype"
+            | "frameanimatedspritetype"
+            | "progressbartype"
+            | "textspritetype"
+            | "maskedshieldtype"
+    )
 }
 
 /// 工具：把 `TextureHandle` 包成 `egui::Image`（自动取贴图尺寸）。caller 之后
@@ -754,6 +1054,74 @@ spriteTypes = {
             out.get("GFX_portrait_SOV_iosif_stalin").map(String::as_str),
             Some("gfx/leaders/SOV/Portrait_Soviet_Joseph_Stalin.dds")
         );
+    }
+
+    #[test]
+    fn gfx_texturefile_parser_reads_cornered_tiles_and_mixed_case_keys() {
+        let mut out = HashMap::new();
+        parse_sprite_texturefiles_into(
+            r#"
+spriteTypes = {
+    corneredTileSpriteType = {
+        name = "GFX_event_report_tileable_midsection"
+        textureFile = "gfx/interface/event_report_tileable_midsection.dds"
+    }
+    frameAnimatedSpriteType = {
+        name = "GFX_event_operative_background"
+        texturefile = "gfx/interface/events/event_operative_bg.dds"
+    }
+    maskedShieldType = {
+        name = "GFX_player_flag"
+        textureFile1 = "gfx/interface/flag_overlay.dds"
+        textureFile2 = "gfx/interface/shield_mask.tga"
+    }
+}
+"#,
+            &mut out,
+        );
+
+        assert_eq!(
+            out.get("GFX_event_report_tileable_midsection")
+                .map(String::as_str),
+            Some("gfx/interface/event_report_tileable_midsection.dds")
+        );
+        assert_eq!(
+            out.get("GFX_event_operative_background")
+                .map(String::as_str),
+            Some("gfx/interface/events/event_operative_bg.dds")
+        );
+        assert_eq!(
+            out.get("GFX_player_flag").map(String::as_str),
+            Some("gfx/interface/flag_overlay.dds")
+        );
+    }
+
+    #[test]
+    fn gate2_texturefile_parser_normalizes_duplicate_separators() {
+        assert_eq!(
+            normalize_texture_file_path(r#"gfx\\interface//pol_view_bg.dds"#),
+            "gfx/interface/pol_view_bg.dds"
+        );
+    }
+
+    #[test]
+    fn sprite_probe_report_explains_missing_paths() {
+        let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+            return;
+        };
+        let ctx = egui::Context::default();
+        let mut bank = IconBank::new(ctx, path_cfg);
+        bank.add_politics_search_dirs();
+
+        let report = bank.diagnose_sprite("GFX_missing_probe_for_test");
+
+        assert_eq!(report.sprite_name, "GFX_missing_probe_for_test");
+        assert!(!report.loaded);
+        assert!(report.failure_reason.is_some());
+        assert!(report
+            .attempted_paths
+            .iter()
+            .any(|path| path.contains("missing_probe_for_test.dds")));
     }
 
     #[test]

@@ -14,9 +14,11 @@
 //!
 //! ## 设计原则
 //!
-//! - **不解析 vanilla `.gui` / `.gfx` / `.fnt`**：那条路线在 V5 阶段 A 已物理切断。
-//! - 本 crate 只提供「egui 接入薄壳」+ 后续 vanilla theme，**不持有任何业务状态**。
-//!   World / WorldBinding 由 caller 在 `begin_frame` 闭包内捕获。
+//! - `UiState` 仍只提供 egui 接入薄壳，不持有任何业务状态。World / WorldBinding
+//!   由 caller 在 `begin_frame` 闭包内捕获。
+//! - `vanilla_gui` 是新增的原版 `.gui` / `.gfx` runtime 子集：解析窗口树、资源
+//!   元数据、布局、动画和 egui 绘制原语，但不加载原版 `.fnt`，字体仍映射到本
+//!   crate 的现有字体 token。
 //!
 //! ## API 速记
 //!
@@ -83,6 +85,7 @@ pub mod theme;
 pub mod topbar;
 pub mod trade_panel;
 pub mod v9;
+pub mod vanilla_gui;
 pub mod vanilla_iron;
 
 pub use frame_model::{

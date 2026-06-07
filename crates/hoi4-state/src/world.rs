@@ -380,12 +380,14 @@ impl World {
             };
 
             // 1. ideas
-            for idea in &hist.initial_ideas {
-                if !self.countries.ideas[i].iter().any(|x| x == idea) {
-                    self.countries.ideas[i].push(idea.clone());
+            if should_apply_initial_history_ideas(tag) {
+                for idea in &hist.initial_ideas {
+                    if !self.countries.ideas[i].iter().any(|x| x == idea) {
+                        self.countries.ideas[i].push(idea.clone());
+                    }
                 }
+                report.ideas_applied += hist.initial_ideas.len();
             }
-            report.ideas_applied += hist.initial_ideas.len();
 
             // 2. 已完成 / 已解锁 focus
             for f in &hist.completed_focuses {
@@ -1297,6 +1299,10 @@ fn merge_pop_group(target: &mut crate::pops::PopGroup, incoming: &crate::pops::P
     target.radicalism = weight(target.radicalism, incoming.radicalism);
 }
 
+fn should_apply_initial_history_ideas(tag: &str) -> bool {
+    tag != "GER"
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1394,6 +1400,39 @@ mod tests {
             resources: Vec::new(),
         });
         Arc::new(data)
+    }
+
+    #[test]
+    fn populate_from_history_skips_german_initial_ideas() {
+        let mut data = (*test_data()).clone();
+        data.country_histories.insert(
+            "GER".to_owned(),
+            hoi4_data::CountryHistory {
+                tag: "GER".to_owned(),
+                initial_ideas: vec!["german_starting_spirit".to_owned()],
+                ..Default::default()
+            },
+        );
+        data.country_histories.insert(
+            "SOV".to_owned(),
+            hoi4_data::CountryHistory {
+                tag: "SOV".to_owned(),
+                initial_ideas: vec!["soviet_starting_spirit".to_owned()],
+                ..Default::default()
+            },
+        );
+
+        let mut world = World::new(test_map(5), Arc::new(data));
+        let report = world.populate_from_history();
+        let ger = world.country("GER").unwrap();
+        let sov = world.country("SOV").unwrap();
+
+        assert!(world.countries.ideas[ger.0 as usize].is_empty());
+        assert_eq!(
+            world.countries.ideas[sov.0 as usize],
+            vec!["soviet_starting_spirit".to_owned()]
+        );
+        assert_eq!(report.ideas_applied, 1);
     }
 
     #[test]

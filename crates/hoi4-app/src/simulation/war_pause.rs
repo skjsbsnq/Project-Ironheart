@@ -11,7 +11,5 @@ impl App {
             }
         }
         self.runtime.last_war_count = cur_wars;
-
-
     }
 }

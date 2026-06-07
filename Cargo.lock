@@ -1973,6 +1973,7 @@ dependencies = [
 name = "hoi4-ui"
 version = "0.1.0"
 dependencies = [
+ "clausewitz-parser",
  "egui",
  "egui-wgpu",
  "egui-winit",

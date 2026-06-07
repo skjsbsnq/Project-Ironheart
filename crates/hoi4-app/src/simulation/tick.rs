@@ -248,6 +248,5 @@ impl App {
             self.last_status_print = now;
         }
         self.print_perf_diag(now);
-    
     }
 }

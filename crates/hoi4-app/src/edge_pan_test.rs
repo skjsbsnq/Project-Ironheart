@@ -73,7 +73,12 @@ impl App {
     }
 
     pub(crate) fn update_edge_pan_test_cursor(&mut self, now: Instant) {
-        let Some(started_at) = self.audit.edge_pan_test.as_ref().and_then(|run| run.started_at) else {
+        let Some(started_at) = self
+            .audit
+            .edge_pan_test
+            .as_ref()
+            .and_then(|run| run.started_at)
+        else {
             return;
         };
         if self.view.game_phase != GamePhase::Playing {
@@ -137,7 +142,8 @@ impl App {
     }
 
     pub(crate) fn edge_pan_test_should_finish(&self, now: Instant) -> bool {
-        self.audit.edge_pan_test
+        self.audit
+            .edge_pan_test
             .as_ref()
             .and_then(|run| run.started_at.map(|started| (run, started)))
             .is_some_and(|(run, started)| {

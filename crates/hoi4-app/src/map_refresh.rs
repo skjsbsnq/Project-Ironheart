@@ -16,7 +16,8 @@ impl App {
         // clicked province still gets the shader pulse; this LUT tint makes the
         // administrative state boundary readable without adding another pass.
         for pid in self
-            .interaction.selected_province_ids
+            .interaction
+            .selected_province_ids
             .iter()
             .chain(self.ui_state.construction_highlight_province_ids.iter())
         {
@@ -49,7 +50,10 @@ impl App {
         let mut entry = color_lut_entry(&self.world, self.map_mode, player_cid, province_idx);
         let pid = province_idx as u32;
         if self.interaction.selected_province_ids.contains(&pid)
-            || self.ui_state.construction_highlight_province_ids.contains(&pid)
+            || self
+                .ui_state
+                .construction_highlight_province_ids
+                .contains(&pid)
         {
             entry[0] = entry[0].saturating_add(42);
             entry[1] = entry[1].saturating_add(32);
@@ -197,7 +201,8 @@ impl App {
         let lut_data = build_color_lut(&self.world, self.map_mode, player_cid);
         let mut padded = lut_data;
         for pid in self
-            .interaction.selected_province_ids
+            .interaction
+            .selected_province_ids
             .iter()
             .chain(self.ui_state.construction_highlight_province_ids.iter())
         {

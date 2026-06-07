@@ -638,10 +638,12 @@ impl App {
     }
 
     pub(crate) fn update_frontline_arrows(&mut self) {
-        let force_rebuild =
-            self.render_toggles.prev_armies_hash == 0 || self.interaction.frontline_painter.mode != PainterMode::Idle;
-        if !self.high_speed_visual_rebuild_due(self.render_toggles.last_frontline_arrow_rebuild_at, force_rebuild)
-        {
+        let force_rebuild = self.render_toggles.prev_armies_hash == 0
+            || self.interaction.frontline_painter.mode != PainterMode::Idle;
+        if !self.high_speed_visual_rebuild_due(
+            self.render_toggles.last_frontline_arrow_rebuild_at,
+            force_rebuild,
+        ) {
             return;
         }
         let sig = self.frontline_arrow_signature();
@@ -708,9 +710,10 @@ impl App {
             return;
         }
         let force_rebuild = self.render_toggles.frontline_overlay_hash == 0;
-        if !self
-            .high_speed_visual_rebuild_due(self.render_toggles.last_frontline_overlay_rebuild_at, force_rebuild)
-        {
+        if !self.high_speed_visual_rebuild_due(
+            self.render_toggles.last_frontline_overlay_rebuild_at,
+            force_rebuild,
+        ) {
             return;
         }
         let sig = self.frontline_overlay_signature();

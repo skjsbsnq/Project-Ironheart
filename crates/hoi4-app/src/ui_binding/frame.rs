@@ -93,9 +93,7 @@ pub fn apply_panel_commands(
 fn apply_panel_command(app: &mut App, command: hoi4_ui::PanelCommand) {
     match command {
         hoi4_ui::PanelCommand::OpenPrimary(primary) => {
-            app.ui_state.open_panel = Some(in_game_panel_for_active_primary(primary));
-            app.ui_state.province_info_card.open = false;
-            app.ui_state.country_info_panel.close();
+            app.open_primary_panel(in_game_panel_for_active_primary(primary));
         }
         hoi4_ui::PanelCommand::ClosePrimary => {
             app.close_primary_panel();

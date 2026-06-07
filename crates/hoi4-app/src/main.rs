@@ -11,29 +11,29 @@ use hoi4_paths::PathConfig;
 use hoi4_state::{CountryId, GameSpeed, PopClass, World};
 
 use hoi4_audio::{AudioVolumes, MusicPlayer, UiSound, UiSoundBank};
-use hoi4_render::buildings::{PoiIconInstance, generate_buildings, generate_poi_icons};
+use hoi4_render::buildings::{generate_buildings, generate_poi_icons, PoiIconInstance};
 use hoi4_render::camera::{Camera, CameraUniform, RenderParams};
 use hoi4_render::counter_layout::{
-    HitRegion, LayoutCounter, build_hit_regions, hit_test, layout_screen_space,
+    build_hit_regions, hit_test, layout_screen_space, HitRegion, LayoutCounter,
 };
 use hoi4_render::counter_v3::{
-    CounterMotionOverride, Hoi3CounterInstance, flag_bits, generate_hoi3_counters_cr3,
-    project_counter_anchor_screen, project_counter_screen_pos,
+    flag_bits, generate_hoi3_counters_cr3, project_counter_anchor_screen,
+    project_counter_screen_pos, CounterMotionOverride, Hoi3CounterInstance,
 };
 use hoi4_render::defines::VanillaMapSpace;
-use hoi4_render::frontlines::{FrontVertex, generate_frontline_vertices};
-use hoi4_render::map_mode::{MapMode, build_color_lut, color_lut_entry};
+use hoi4_render::frontlines::{generate_frontline_vertices, FrontVertex};
+use hoi4_render::map_mode::{build_color_lut, color_lut_entry, MapMode};
 use hoi4_render::railways::{
-    RailVertex, RailwayParams, build_railway_vertices_with_bridges, compute_province_centroids,
-    parse_railways,
+    build_railway_vertices_with_bridges, compute_province_centroids, parse_railways, RailVertex,
+    RailwayParams,
 };
 use hoi4_render::sdf::{compute_coast_sdf, compute_country_sdf, compute_province_sdf};
 use hoi4_render::terrain::{
-    ChunkGrid, ChunkInstance, LOD_GRID, build_wrapped_instance_buckets_into,
+    build_wrapped_instance_buckets_into, ChunkGrid, ChunkInstance, LOD_GRID,
 };
 use hoi4_render::trees::generate_trees_with_stats;
-use passes::PoiIconPass;
 use passes::counter_v3::Hoi3CounterPass;
+use passes::PoiIconPass;
 
 use hoi4_runtime::init_simulation;
 
@@ -79,8 +79,8 @@ mod render_collect;
 mod render_frame;
 mod render_init;
 mod render_state;
-mod simulation;
 mod runtime;
+mod simulation;
 mod ui_binding;
 mod ui_driver;
 mod update_loop;
@@ -98,7 +98,7 @@ use edge_pan_test::EdgePanTestConfig;
 use flag_bank::FlagBank;
 use gpu_readback::{enqueue_png_readback, finish_png_readback};
 use gpu_utils::{
-    MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY, make_depth_view, parity_required_limits,
+    make_depth_view, parity_required_limits, MIN_FRAGMENT_SAMPLED_TEXTURES_FOR_PARITY,
 };
 use hoi4_app::ui_data::cache::UiPanelCacheKind;
 use hoi4_app::ui_data::names::localized_content_name;
@@ -107,8 +107,8 @@ pub use hoi4_app::vanilla_targets;
 use hoi4_render::global_uniform::GlobalFrameUniform;
 use map_interaction::{FrontlinePainterState, PainterMode, SelectionBoxState};
 use map_perf::{
-    GpuProfilerStatus, GpuTimestampProfiler, MapQualityPreset, Phase10OverlayInput,
-    estimate_frame_texture_memory_bytes, phase10_overlay_lines,
+    estimate_frame_texture_memory_bytes, phase10_overlay_lines, GpuProfilerStatus,
+    GpuTimestampProfiler, MapQualityPreset, Phase10OverlayInput,
 };
 use map_refresh::upload_lut;
 use map_renderer::{MapPrepareFrameInput, MapRenderer, WorldObjectPlan, WorldObjectSystem};
@@ -122,9 +122,9 @@ use military_ui_data::{
 };
 use panel_pass::PanelPass;
 use passes::{
-    ColorCubeSource, DebugOverlay, GlobalUniformBuffer, HDR_FORMAT, HdrTarget, PassRegistry,
-    PostProcessChain, PostProcessDebugView, PostProcessMode, SimpleBlitPass, TerrainPass,
-    WaterRefractionPass, WaterRefractionTarget,
+    ColorCubeSource, DebugOverlay, GlobalUniformBuffer, HdrTarget, PassRegistry, PostProcessChain,
+    PostProcessDebugView, PostProcessMode, SimpleBlitPass, TerrainPass, WaterRefractionPass,
+    WaterRefractionTarget, HDR_FORMAT,
 };
 use render_assets::{
     load_colormap, load_colormap_phase1, load_rivers_texture, load_rivers_texture_phase1,
@@ -1467,14 +1467,80 @@ impl App {
     }
 
     fn open_primary_panel(&mut self, panel: InGamePanel) {
+        if self.request_politics_close_before_switch(panel) {
+            return;
+        }
+        self.finish_open_primary_panel(panel);
+    }
+
+    fn finish_open_primary_panel(&mut self, panel: InGamePanel) {
+        self.ui_state.pending_primary_panel_after_politics_close = None;
         self.ui_state.open_panel = Some(panel);
         self.ui_state.province_info_card.open = false;
         self.ui_state.country_info_panel.close();
     }
 
     fn close_primary_panel(&mut self) {
+        if self.request_politics_close_before_clear() {
+            return;
+        }
+        self.finish_close_primary_panel();
+    }
+
+    fn finish_close_primary_panel(&mut self) {
+        self.ui_state.pending_primary_panel_after_politics_close = None;
         self.ui_state.open_panel = None;
         self.ui_state.active_detail_panel = None;
+    }
+
+    fn request_politics_close_before_switch(&mut self, next_panel: InGamePanel) -> bool {
+        if matches!(
+            self.ui_state.open_panel,
+            Some(InGamePanel::Politics | InGamePanel::Laws)
+        ) && app_state::ui::politics_close_required_before_switch(
+            self.ui_state.open_panel,
+            next_panel,
+        ) {
+            self.ui_state.pending_primary_panel_after_politics_close = Some(next_panel);
+            self.request_country_politics_close();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn request_politics_close_before_clear(&mut self) -> bool {
+        if matches!(
+            self.ui_state.open_panel,
+            Some(InGamePanel::Politics | InGamePanel::Laws)
+        ) {
+            self.ui_state.pending_primary_panel_after_politics_close = None;
+            self.request_country_politics_close();
+            true
+        } else {
+            false
+        }
+    }
+
+    fn request_country_politics_close(&mut self) {
+        if let Some(s) = &self.state {
+            hoi4_ui::politics::request_country_politics_close(&s.ui.ctx);
+            s.window.request_redraw();
+        } else {
+            self.finish_close_primary_panel();
+        }
+    }
+
+    fn finish_country_politics_close_request(&mut self) {
+        if let Some(next_panel) = self
+            .ui_state
+            .pending_primary_panel_after_politics_close
+            .take()
+        {
+            self.finish_open_primary_panel(next_panel);
+        } else {
+            self.finish_close_primary_panel();
+        }
     }
 
     fn set_player_country_by_tag(&mut self, tag: &str) -> bool {
@@ -1532,7 +1598,8 @@ impl App {
             .get(player)
             .copied()
             .unwrap_or(0.0);
-        self.runtime.content
+        self.runtime
+            .content
             .decision_db
             .decisions
             .iter()
@@ -1677,7 +1744,9 @@ impl App {
                             self.reset_menu_state();
                         }
                         "btn_settings" => {
-                            self.ui_state.settings_panel.open_with(self.ui_state.settings.clone());
+                            self.ui_state
+                                .settings_panel
+                                .open_with(self.ui_state.settings.clone());
                         }
                         "btn_quit" => std::process::exit(0),
                         _ => {}
@@ -1704,8 +1773,10 @@ impl App {
                     if layout.start_button.contains(mx, my) {
                         if !layout.start_button.enabled {
                             println!("[menu] selected country not playable");
-                        } else if let Some(entry) =
-                            self.view.available_countries.get(self.view.country_select_idx)
+                        } else if let Some(entry) = self
+                            .view
+                            .available_countries
+                            .get(self.view.country_select_idx)
                         {
                             let tag = entry.tag.clone();
                             self.set_player_country_by_tag(&tag);

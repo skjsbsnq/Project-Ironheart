@@ -27,8 +27,8 @@
 //!
 //! - 仅支持 BGRA8 未压缩 DDS（vanilla 主流 `tiled_window*.dds` 都是这种）。
 //!   BC1 / BC3 解码留给 B.5（focus icon 多用 BC3）。
-//! - 边宽 `NineSliceEdges` 由 caller 显式指定，本模块不解析 vanilla `.gfx`
-//!   的 `stretchy_size`（V5 §0.2 明确禁解析 `.gfx`）。
+//! - 边宽 `NineSliceEdges` 由 caller 显式指定；vanilla `.gfx` 的 tile/corner
+//!   元数据由 `vanilla_gui` runtime 解析后再映射到本模块。
 
 use std::path::{Path, PathBuf};
 

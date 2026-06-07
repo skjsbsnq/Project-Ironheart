@@ -1,5 +1,9 @@
 //! V5 阶段 C.2 + F.2：政治面板。
 //!
+//! 默认渲染路径已切到 `vanilla_gui` runtime：加载原版
+//! `interface/countrypoliticsview.gui` 的窗口几何、动画和 idea category 模板，
+//! 再绑定本项目的政治/法律数据。旧 V9 手工面板只保留为显式 debug fallback。
+//!
 //! - C.2：党派色块 + 民众支持率条 + ideas 列表 + 5 顾问槽位（空）
 //! - F.2：决议列表 — 5 分类 tab，按可见性筛选，按按钮显示状态：
 //!     - 可点（绿色）/ 灰显（条件不满足）/ 冷却中 / 进行中 / 已触发
@@ -8,6 +12,7 @@
 
 #![allow(dead_code, deprecated)]
 
+use crate::vanilla_gui::VanillaPanelProfile;
 use crate::{
     components, i18n::tr, law_panel, vanilla_iron::VanillaIron, ActiveDetailPanel,
     ActivePrimaryPanel, PanelCommand,
@@ -16,6 +21,7 @@ use egui::{Color32, Pos2, Rect, RichText, Sense, Vec2};
 
 use hoi4_content::{Decision, DecisionCategory, DecisionMechanicKind, Effect};
 use hoi4_state::LawCategory;
+use std::{borrow::Cow, sync::OnceLock};
 
 const PANEL_CARD: Color32 = Color32::from_rgb(0x0d, 0x10, 0x0f);
 const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x14, 0x18, 0x17);
@@ -26,6 +32,627 @@ const BAD: Color32 = Color32::from_rgb(0xe0, 0x60, 0x58);
 const IDEA_SLOT_SIZE: f32 = 54.0;
 const IDEA_ICON_SIZE: f32 = 44.0;
 const VANILLA_CARD_GAP: f32 = 6.0;
+const VANILLA_IDEA_CATEGORY_ROW_H: f32 = 100.0;
+const VANILLA_IDEA_CATEGORY_GAP: f32 = 5.0;
+const POLITICS_PANEL_SPRITES: &[&str] = &[
+    "GFX_tiled_plain_bg",
+    "GFX_header_bg",
+    "GFX_pol_view_bg",
+    "GFX_pol_goal_bg",
+    "GFX_goal_unknown",
+    "GFX_pol_leader_frame",
+    "GFX_add_pol_idea_button",
+    "GFX_leading_pol_party_bg",
+    "GFX_pol_party_colour_bg",
+    "GFX_pol_party_colour",
+    "GFX_idea_traits_strip",
+    "GFX_category_header",
+    "GFX_idea_categories",
+];
+
+const COUNTRY_POLITICS_GUI_FILE: &str = "interface/countrypoliticsview.gui";
+const COUNTRY_POLITICS_PROFILE_ID: &str = "country_politics";
+const COUNTRY_POLITICS_ROOT: &str = "countrypoliticsview";
+const COUNTRY_POLITICS_IDEA_CATEGORY_TEMPLATE: &str = "country_politics_idea_category_entry";
+const COUNTRY_POLITICS_PARTY_TEMPLATE: &str = "political_party_info_entry";
+const POLITICS_V9_FALLBACK_ENV: &str = "IRONHEART_POLITICS_V9_FALLBACK";
+
+#[derive(Debug)]
+struct VanillaPoliticsGuiContext {
+    document: crate::vanilla_gui::GuiDocument,
+    gfx_index: crate::vanilla_gui::GfxIndex,
+    gfx_hits: crate::vanilla_gui::diagnostics::GfxHitReport,
+}
+
+fn politics_vanilla_gui_context() -> Option<&'static VanillaPoliticsGuiContext> {
+    static CACHE: OnceLock<Option<VanillaPoliticsGuiContext>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let path_cfg = hoi4_paths::PathConfig::resolve(Default::default()).ok()?;
+            let gui_path = path_cfg.find(COUNTRY_POLITICS_GUI_FILE)?;
+            let document = crate::vanilla_gui::parse_gui_file(gui_path).ok()?;
+            let gfx_index = crate::vanilla_gui::GfxIndex::from_path_config(&path_cfg);
+            let gfx_hits = gfx_index.hit_report(POLITICS_PANEL_SPRITES.iter().copied());
+            Some(VanillaPoliticsGuiContext {
+                document,
+                gfx_index,
+                gfx_hits,
+            })
+        })
+        .as_ref()
+}
+
+struct CountryPoliticsProfile;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CountryPoliticsBindingValue {
+    Visibility,
+    Text,
+    TextColor,
+    Sprite,
+    Tint,
+    Progress,
+    Pie,
+    Tooltip,
+    Command,
+    Instances,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CountryPoliticsBindingSpec {
+    path_pattern: &'static str,
+    values: &'static [CountryPoliticsBindingValue],
+    reason: &'static str,
+}
+
+const COUNTRY_POLITICS_BINDING_SPECS: &[CountryPoliticsBindingSpec] = &[
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.hidden-subsystems",
+        values: &[CountryPoliticsBindingValue::Visibility],
+        reason: "subjects, exiles, occupation and power balance are not wired to game data yet",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.political_title",
+        values: &[CountryPoliticsBindingValue::Text],
+        reason: "localized panel title",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.leader",
+        values: &[
+            CountryPoliticsBindingValue::Sprite,
+            CountryPoliticsBindingValue::Tooltip,
+        ],
+        reason: "runtime leader portrait and hover text",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.leader_name",
+        values: &[CountryPoliticsBindingValue::Text],
+        reason: "runtime leader display name",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.active_goal",
+        values: &[CountryPoliticsBindingValue::Tooltip, CountryPoliticsBindingValue::Command],
+        reason: "focus tree hit target uses vanilla active_goal geometry",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.active_goal.add_national_goal_button",
+        values: &[CountryPoliticsBindingValue::Tooltip, CountryPoliticsBindingValue::Command],
+        reason: "focus tree button uses vanilla button sprite and state frames",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.active_goal.title",
+        values: &[CountryPoliticsBindingValue::Text],
+        reason: "current national focus name",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.active_goal.empty-focus-children",
+        values: &[CountryPoliticsBindingValue::Visibility],
+        reason: "hide vanilla focus progress chrome when no focus exists",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.active_goal.focus_cost",
+        values: &[CountryPoliticsBindingValue::Text],
+        reason: "current focus remaining days",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.active_goal.progress",
+        values: &[CountryPoliticsBindingValue::Progress],
+        reason: "current focus progress value for vanilla progressbartype",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.national_spirit",
+        values: &[CountryPoliticsBindingValue::Tooltip],
+        reason: "runtime tooltip for the vanilla national spirit header",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.national_spirit.spirit_grid",
+        values: &[CountryPoliticsBindingValue::Instances],
+        reason: "national spirit slot count",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.national_spirit.spirit_grid.political_idea_entry[*].add_idea_button",
+        values: &[
+            CountryPoliticsBindingValue::Sprite,
+            CountryPoliticsBindingValue::Tooltip,
+        ],
+        reason: "national spirit icon and tooltip inside vanilla idea slot template",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.ruling_party_info.ideology",
+        values: &[CountryPoliticsBindingValue::Text],
+        reason: "ruling ideology text",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.ruling_party_info.elections",
+        values: &[CountryPoliticsBindingValue::Text],
+        reason: "election status text",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.political_pie_chart",
+        values: &[CountryPoliticsBindingValue::Pie],
+        reason: "party popularity values for vanilla pie chart",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.parties_grid",
+        values: &[CountryPoliticsBindingValue::Instances],
+        reason: "party row count",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.parties_grid.political_party_info_entry[*].name",
+        values: &[
+            CountryPoliticsBindingValue::Text,
+            CountryPoliticsBindingValue::TextColor,
+        ],
+        reason: "party row name text",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.parties_grid.political_party_info_entry[*].leading_pol_party_bg",
+        values: &[CountryPoliticsBindingValue::Visibility],
+        reason: "vanilla row background sprite stays unmodified; party score is engine-provided, not a profile overlay",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.parties_grid.political_party_info_entry[*].color_block",
+        values: &[CountryPoliticsBindingValue::Tint],
+        reason: "party ideology color swatch",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.idea_categories_grid",
+        values: &[CountryPoliticsBindingValue::Instances],
+        reason: "three vanilla idea-category rows",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.idea_categories_grid.country_politics_idea_category_entry[*].name",
+        values: &[CountryPoliticsBindingValue::Text],
+        reason: "idea-category row title",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.idea_categories_grid.country_politics_idea_category_entry[*].category_icon",
+        values: &[CountryPoliticsBindingValue::Sprite],
+        reason: "idea-category frame index on vanilla category icon sprite",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.idea_categories_grid.country_politics_idea_category_entry[*].ideas_grid",
+        values: &[CountryPoliticsBindingValue::Instances],
+        reason: "idea slot count for laws and advisor rows",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.idea_categories_grid.country_politics_idea_category_entry[*].political_idea_entry[*].idea_alert_glow",
+        values: &[CountryPoliticsBindingValue::Visibility],
+        reason: "hide unsupported alert glow over dynamic law/spirit slots",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.idea_categories_grid.country_politics_idea_category_entry[*].political_idea_entry[*].idea_traits",
+        values: &[CountryPoliticsBindingValue::Visibility],
+        reason: "hide unsupported trait strip over dynamic law/spirit slots",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.idea_categories_grid.country_politics_idea_category_entry[0].political_idea_entry[*].add_idea_button",
+        values: &[
+            CountryPoliticsBindingValue::Sprite,
+            CountryPoliticsBindingValue::Tooltip,
+            CountryPoliticsBindingValue::Command,
+        ],
+        reason: "law slot icon, tooltip and detail command",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.idea_categories_grid.country_politics_idea_category_entry[1..].political_idea_entry[*].add_idea_button",
+        values: &[CountryPoliticsBindingValue::Tooltip],
+        reason: "advisor rows are visible but game data is not connected yet",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.close_button",
+        values: &[CountryPoliticsBindingValue::Tooltip, CountryPoliticsBindingValue::Command],
+        reason: "vanilla close button requests animated panel close",
+    },
+];
+
+impl crate::vanilla_gui::VanillaPanelProfile for CountryPoliticsProfile {
+    type Data = PoliticsData;
+    type Command = DecisionCommand;
+
+    fn profile_id(&self) -> &'static str {
+        COUNTRY_POLITICS_PROFILE_ID
+    }
+
+    fn root_template(&self) -> &'static str {
+        COUNTRY_POLITICS_ROOT
+    }
+
+    fn required_gui_files(&self) -> &'static [&'static str] {
+        &[COUNTRY_POLITICS_GUI_FILE]
+    }
+
+    fn template_instances(&self) -> &'static [crate::vanilla_gui::VanillaTemplateInstance] {
+        &[
+            crate::vanilla_gui::VanillaTemplateInstance {
+                template_name: COUNTRY_POLITICS_IDEA_CATEGORY_TEMPLATE,
+                count: 3,
+            },
+            crate::vanilla_gui::VanillaTemplateInstance {
+                template_name: "political_idea_entry",
+                count: 6,
+            },
+            crate::vanilla_gui::VanillaTemplateInstance {
+                template_name: COUNTRY_POLITICS_PARTY_TEMPLATE,
+                count: 4,
+            },
+        ]
+    }
+
+    fn bind_node(
+        &self,
+        node_path: &crate::vanilla_gui::GuiNodePath,
+        data: &Self::Data,
+    ) -> crate::vanilla_gui::GuiBinding {
+        bind_country_politics_dynamic_node(node_path, data)
+    }
+
+    fn handle_action(
+        &self,
+        action: crate::vanilla_gui::GuiAction,
+        data: &Self::Data,
+    ) -> Option<Self::Command> {
+        if action.kind != crate::vanilla_gui::GuiActionKind::Click {
+            return None;
+        }
+        let path = action.node_path.to_string();
+        if path.contains("active_goal") {
+            return Some(DecisionCommand::OpenFocusTree);
+        }
+        data.law_slots.iter().find_map(|slot| {
+            let key = law_panel::law_category_key(slot.category);
+            path.contains(key).then(|| {
+                DecisionCommand::Panel(PanelCommand::OpenDetail(ActiveDetailPanel::Law {
+                    category: key.to_owned(),
+                    law_id: None,
+                }))
+            })
+        })
+    }
+}
+
+fn bind_country_politics_dynamic_node(
+    node_path: &crate::vanilla_gui::GuiNodePath,
+    data: &PoliticsData,
+) -> crate::vanilla_gui::GuiBinding {
+    let path = node_path.to_string();
+    let name = node_path.0.last().map(String::as_str).unwrap_or_default();
+    if country_politics_hidden_node(&path, name) {
+        return crate::vanilla_gui::GuiBinding::default().visible(false);
+    }
+
+    let category_kind = idea_category_kind_from_path(&path);
+    let slot_context = idea_slot_context_from_path(&path);
+    let spirit_slot = spirit_slot_index_from_path(&path);
+    let party_row = party_row_index_from_path(&path);
+
+    bind_country_politics_header_node(name, data)
+        .or_else(|| bind_country_politics_focus_node(&path, name, data))
+        .or_else(|| bind_country_politics_party_node(&path, name, party_row, data))
+        .or_else(|| bind_country_politics_spirit_node(name, spirit_slot, data))
+        .or_else(|| bind_country_politics_idea_category_node(&path, name, category_kind, data))
+        .or_else(|| bind_country_politics_idea_slot_node(name, slot_context, spirit_slot, data))
+        .or_else(|| bind_country_politics_command_node(name))
+        .unwrap_or_default()
+}
+
+fn bind_country_politics_header_node(
+    name: &str,
+    data: &PoliticsData,
+) -> Option<crate::vanilla_gui::GuiBinding> {
+    match name {
+        "political_title" => Some(crate::vanilla_gui::GuiBinding::default().text(tr("politics"))),
+        "leader" => Some(
+            crate::vanilla_gui::GuiBinding::default()
+                .sprite(
+                    data.leader_portrait_key
+                        .as_deref()
+                        .unwrap_or("GFX_leader_unknown"),
+                )
+                .tooltip(if data.leader_name.is_empty() {
+                    tr("leader_unknown").to_owned()
+                } else {
+                    data.leader_name.clone()
+                }),
+        ),
+        "leader_name" => Some(crate::vanilla_gui::GuiBinding::default().text(
+            if data.leader_name.is_empty() {
+                tr("leader_unknown").to_owned()
+            } else {
+                data.leader_name.clone()
+            },
+        )),
+        _ => None,
+    }
+}
+
+fn bind_country_politics_focus_node(
+    path: &str,
+    name: &str,
+    data: &PoliticsData,
+) -> Option<crate::vanilla_gui::GuiBinding> {
+    match name {
+        "active_goal" | "add_national_goal_button" => Some(
+            crate::vanilla_gui::GuiBinding::default()
+                .tooltip(
+                    data.current_focus_name
+                        .as_deref()
+                        .unwrap_or("点击打开国策树"),
+                )
+                .click("open_focus_tree"),
+        ),
+        "title" if path.contains("active_goal") => Some(
+            crate::vanilla_gui::GuiBinding::default()
+                .text(data.current_focus_name.as_deref().unwrap_or("未选择国策")),
+        ),
+        "continuous_glow"
+        | "continuous_small_glow"
+        | "nat_spirit_glow_overlay"
+        | "pol_power_icon"
+        | "progress_frame"
+        | "drop_continuous_focus_button"
+        | "drop_focus_button"
+            if path.contains("active_goal") && data.current_focus_name.is_none() =>
+        {
+            Some(crate::vanilla_gui::GuiBinding::default().visible(false))
+        }
+        "focus_cost" => Some(
+            crate::vanilla_gui::GuiBinding::default().text(
+                data.current_focus_cost_days
+                    .map(|days| format!("{days}天"))
+                    .unwrap_or_default(),
+            ),
+        ),
+        "progress" if path.contains("active_goal") => {
+            Some(crate::vanilla_gui::GuiBinding::default().progress(focus_progress(data)))
+        }
+        _ => None,
+    }
+}
+
+fn bind_country_politics_party_node(
+    path: &str,
+    name: &str,
+    party_row: Option<usize>,
+    data: &PoliticsData,
+) -> Option<crate::vanilla_gui::GuiBinding> {
+    match name {
+        "parties_grid" => {
+            Some(crate::vanilla_gui::GuiBinding::default().instances(data.party_popularity.len()))
+        }
+        "leading_pol_party_bg" if party_row.is_some() => {
+            Some(crate::vanilla_gui::GuiBinding::default().visible(false))
+        }
+        "color_block" if party_row.is_some() => {
+            let idx = party_row.unwrap();
+            let color = data
+                .party_popularity
+                .get(idx)
+                .map(|(key, _)| ideology_color(key))
+                .unwrap_or_else(|| Color32::from_rgb(0x66, 0x66, 0x60));
+            Some(crate::vanilla_gui::GuiBinding::default().tint(color))
+        }
+        "name" if party_row.is_some() => {
+            let idx = party_row.unwrap();
+            Some(
+                crate::vanilla_gui::GuiBinding::default()
+                    .text(
+                        data.party_popularity
+                            .get(idx)
+                            .map(|(key, popularity)| {
+                                party_name_with_popularity(data, key, *popularity)
+                            })
+                            .unwrap_or_default(),
+                    )
+                    .text_color(vanilla_text()),
+            )
+        }
+        "ideology" if path.contains("ruling_party_info") => {
+            Some(crate::vanilla_gui::GuiBinding::default().text(ideology_label(&data.ruling_party)))
+        }
+        "elections" if path.contains("ruling_party_info") => {
+            Some(crate::vanilla_gui::GuiBinding::default().text(tr("no_elections")))
+        }
+        "political_pie_chart" | "chart" => {
+            let mut binding = crate::vanilla_gui::GuiBinding::default();
+            binding.pie_segments = data
+                .party_popularity
+                .iter()
+                .map(|(key, value)| (*value, ideology_color(key)))
+                .collect();
+            Some(binding)
+        }
+        _ => None,
+    }
+}
+
+fn bind_country_politics_spirit_node(
+    name: &str,
+    spirit_slot: Option<usize>,
+    data: &PoliticsData,
+) -> Option<crate::vanilla_gui::GuiBinding> {
+    match name {
+        "national_spirit" => {
+            Some(crate::vanilla_gui::GuiBinding::default().tooltip(tr("national_spirits")))
+        }
+        "spirit_grid" => {
+            Some(crate::vanilla_gui::GuiBinding::default().instances(data.ideas.len()))
+        }
+        "add_idea_button" if spirit_slot.is_some() => {
+            let idx = spirit_slot.unwrap();
+            Some(
+                data.ideas
+                    .get(idx)
+                    .and_then(idea_icon_gfx)
+                    .map(|sprite| {
+                        crate::vanilla_gui::GuiBinding::default()
+                            .sprite(sprite)
+                            .tooltip(data.ideas[idx].name.clone())
+                    })
+                    .unwrap_or_else(|| {
+                        crate::vanilla_gui::GuiBinding::default().tooltip(tr("national_spirits"))
+                    }),
+            )
+        }
+        _ => None,
+    }
+}
+
+fn bind_country_politics_idea_category_node(
+    path: &str,
+    name: &str,
+    category_kind: Option<IdeaCategoryRowKind>,
+    data: &PoliticsData,
+) -> Option<crate::vanilla_gui::GuiBinding> {
+    match name {
+        "idea_categories_grid" => Some(crate::vanilla_gui::GuiBinding::default().instances(3)),
+        "name" if category_kind.is_some() => Some(
+            crate::vanilla_gui::GuiBinding::default()
+                .text(category_kind.unwrap().localized_title()),
+        ),
+        "category_icon" if category_kind.is_some() => Some(
+            crate::vanilla_gui::GuiBinding::default()
+                .sprite("GFX_idea_categories")
+                .frame(category_kind.unwrap().category_frame()),
+        ),
+        "ideas_grid" if category_kind.is_some() => {
+            Some(crate::vanilla_gui::GuiBinding::default().instances(
+                politics_idea_category_slot_count(category_kind.unwrap(), data),
+            ))
+        }
+        "ideas_grid" if path.contains("idea_categories_grid") => {
+            Some(crate::vanilla_gui::GuiBinding::default().instances(data.law_slots.len()))
+        }
+        _ => None,
+    }
+}
+
+fn bind_country_politics_idea_slot_node(
+    name: &str,
+    slot_context: Option<(IdeaCategoryRowKind, usize)>,
+    spirit_slot: Option<usize>,
+    data: &PoliticsData,
+) -> Option<crate::vanilla_gui::GuiBinding> {
+    match name {
+        "idea_alert_glow" | "idea_traits" if slot_context.is_some() || spirit_slot.is_some() => {
+            Some(crate::vanilla_gui::GuiBinding::default().visible(false))
+        }
+        "add_idea_button" if slot_context.is_some() => {
+            let (kind, idx) = slot_context.unwrap();
+            Some(match kind {
+                IdeaCategoryRowKind::GovernmentLaws => data
+                    .law_slots
+                    .get(idx)
+                    .map(|law| {
+                        crate::vanilla_gui::GuiBinding::default()
+                            .sprite(politics_law_idea_sprite(law))
+                            .tooltip(politics_law_tooltip(law))
+                            .click(format!("law:{}", law_panel::law_category_key(law.category)))
+                    })
+                    .unwrap_or_default(),
+                IdeaCategoryRowKind::ResearchProduction | IdeaCategoryRowKind::MilitaryStaff => {
+                    crate::vanilla_gui::GuiBinding::default().tooltip(format!(
+                        "{}\n{}",
+                        kind.localized_title(),
+                        "顾问槽位尚未接入"
+                    ))
+                }
+            })
+        }
+        _ => None,
+    }
+}
+
+fn bind_country_politics_command_node(name: &str) -> Option<crate::vanilla_gui::GuiBinding> {
+    match name {
+        "close_button" => Some(
+            crate::vanilla_gui::GuiBinding::default()
+                .tooltip(tr("panel_close_hint"))
+                .click("close"),
+        ),
+        _ => None,
+    }
+}
+
+fn country_politics_hidden_node(path: &str, name: &str) -> bool {
+    matches!(
+        name,
+        "autonomy_progress_view"
+            | "subjects_button_container"
+            | "show_subjects_button"
+            | "show_exiles_collaborations_button"
+            | "manage_occupied_button"
+            | "power_balance_button"
+            | "faction"
+            | "no_faction"
+            | "in_faction"
+            | "original_in_faction"
+            | "rules"
+    ) || path.contains("power_balance")
+        || path.contains("exile")
+        || path.contains("occupied")
+        || path.contains("subjects")
+}
+
+fn idea_category_kind_from_path(path: &str) -> Option<IdeaCategoryRowKind> {
+    let marker = "country_politics_idea_category_entry[";
+    let start = path.find(marker)? + marker.len();
+    let end = path[start..].find(']')? + start;
+    match path[start..end].parse::<usize>().ok()? {
+        0 => Some(IdeaCategoryRowKind::GovernmentLaws),
+        1 => Some(IdeaCategoryRowKind::ResearchProduction),
+        2 => Some(IdeaCategoryRowKind::MilitaryStaff),
+        _ => None,
+    }
+}
+
+fn idea_slot_context_from_path(path: &str) -> Option<(IdeaCategoryRowKind, usize)> {
+    let kind = idea_category_kind_from_path(path)?;
+    let marker = "political_idea_entry[";
+    let start = path.find(marker)? + marker.len();
+    let end = path[start..].find(']')? + start;
+    Some((kind, path[start..end].parse::<usize>().ok()?))
+}
+
+fn spirit_slot_index_from_path(path: &str) -> Option<usize> {
+    if !path.contains("spirit_grid") {
+        return None;
+    }
+    let marker = "political_idea_entry[";
+    let start = path.find(marker)? + marker.len();
+    let end = path[start..].find(']')? + start;
+    path[start..end].parse::<usize>().ok()
+}
+
+fn party_row_index_from_path(path: &str) -> Option<usize> {
+    if !path.contains("parties_grid") {
+        return None;
+    }
+    let marker = "political_party_info_entry[";
+    let start = path.find(marker)? + marker.len();
+    let end = path[start..].find(']')? + start;
+    path[start..end].parse::<usize>().ok()
+}
 
 fn ideology_color(key: &str) -> Color32 {
     hoi4_ideology_color(key)
@@ -33,10 +660,10 @@ fn ideology_color(key: &str) -> Color32 {
 
 fn hoi4_ideology_color(key: &str) -> Color32 {
     match key {
-        "democratic" => Color32::from_rgb(0x32, 0x68, 0xa6),
-        "communism" => Color32::from_rgb(0xa8, 0x2b, 0x25),
-        "fascism" => Color32::from_rgb(0x83, 0x55, 0x32),
-        "neutrality" => Color32::from_rgb(0x8f, 0x8d, 0x80),
+        "fascism" => Color32::from_rgb(0xb5, 0x92, 0x3c),
+        "democratic" => Color32::from_rgb(0x3b, 0x72, 0xb4),
+        "communism" => Color32::from_rgb(0xa9, 0x32, 0x28),
+        "neutrality" => Color32::from_rgb(0xa7, 0xa4, 0x95),
         _ => Color32::from_rgb(0x66, 0x66, 0x60),
     }
 }
@@ -49,6 +676,26 @@ fn ideology_label(key: &str) -> &'static str {
         "neutrality" => tr("neutrality"),
         _ => tr("unknown"),
     }
+}
+
+fn party_name_for_ideology<'a>(data: &'a PoliticsData, ideology: &str) -> Cow<'a, str> {
+    if let Some((_, name)) = data
+        .party_names
+        .iter()
+        .find(|(key, name)| key == ideology && !name.trim().is_empty())
+    {
+        return Cow::Borrowed(name.as_str());
+    }
+    if ideology == data.ruling_party && !data.party_full_name.trim().is_empty() {
+        return Cow::Borrowed(data.party_full_name.as_str());
+    }
+    Cow::Borrowed(ideology_label(ideology))
+}
+
+fn party_name_with_popularity(data: &PoliticsData, ideology: &str, popularity: f32) -> String {
+    let party_name = party_name_for_ideology(data, ideology);
+    let percent = (popularity.clamp(0.0, 1.0) * 100.0).round() as i32;
+    format!("{} {}%", party_name.as_ref(), percent)
 }
 
 /// F.2：单个决议在面板上的运行时状态（caller 在快照里填好）。
@@ -142,6 +789,7 @@ pub struct PoliticsData {
     /// 党派完整名称（已解过 `<TAG>_<ideology>_party_long` loc，例 "Nationalsozialistische Deutsche Arbeiterpartei"）。
     /// 若本地化缺失则回退为 `ideology_label(ruling_party)`。
     pub party_full_name: String,
+    pub party_names: Vec<(String, String)>,
     pub government_posts: Vec<GovernmentPostEntry>,
     pub law_slots: Vec<PoliticsLawEntry>,
 }
@@ -168,6 +816,7 @@ impl PoliticsData {
             leader_name: String::new(),
             leader_portrait_key: None,
             party_full_name: String::new(),
+            party_names: Vec::new(),
             government_posts: Vec::new(),
             law_slots: Vec::new(),
         }
@@ -222,8 +871,29 @@ impl PoliticsPanel {
         data: &PoliticsData,
         icon_bank: &mut crate::icons::IconBank,
     ) -> (bool, Vec<DecisionCommand>) {
+        if use_v9_politics_debug_fallback() {
+            #[allow(deprecated)]
+            {
+                return v9_show_politics(ctx, data, icon_bank);
+            }
+        }
         vanilla_show_politics(ctx, data, icon_bank)
     }
+}
+
+fn use_v9_politics_debug_fallback() -> bool {
+    std::env::var(POLITICS_V9_FALLBACK_ENV)
+        .ok()
+        .as_deref()
+        .map(politics_v9_fallback_enabled)
+        .unwrap_or(false)
+}
+
+fn politics_v9_fallback_enabled(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on" | "v9" | "legacy"
+    )
 }
 
 fn vanilla_show_politics(
@@ -231,72 +901,786 @@ fn vanilla_show_politics(
     data: &PoliticsData,
     icon_bank: &mut crate::icons::IconBank,
 ) -> (bool, Vec<DecisionCommand>) {
-    use crate::v9::{
-        composites::side_rail::{SIDE_RAIL_PANEL_LEFT, SIDE_RAIL_TOP_OFFSET},
-        paint,
-        tokens::TextRole,
-    };
+    use crate::v9::{paint, tokens::TextRole};
+    use crate::vanilla_gui::VanillaPanelProfile;
 
+    let profile = CountryPoliticsProfile;
     let accent = v9_ideology_color(&data.ruling_party);
+    icon_bank.add_politics_search_dirs();
+    if !data.country_tag.is_empty() {
+        icon_bank.add_leader_dirs([data.country_tag.as_str()]);
+    }
+    let diag_id = egui::Id::new("politics_panel_sprite_diag_logged");
+    let already_logged = ctx
+        .data_mut(|d| d.get_persisted::<bool>(diag_id))
+        .unwrap_or(false);
+    if !already_logged {
+        let (loaded, missing) = icon_bank.diagnose_sprites(POLITICS_PANEL_SPRITES.iter().copied());
+        if let Some(context) = politics_vanilla_gui_context() {
+            println!(
+                "[ui][politics] gui_loaded=true gfx_tokens={}/{} sprites_loaded={} sprites_missing={}",
+                context.gfx_hits.hits, context.gfx_hits.requested, loaded, missing
+            );
+            if !context.gfx_hits.missing.is_empty() {
+                println!(
+                    "[ui][politics] missing_gfx_tokens={:?}",
+                    context.gfx_hits.missing
+                );
+            }
+            for sprite in POLITICS_PANEL_SPRITES {
+                if icon_bank.get_or_load(sprite).is_some() {
+                    continue;
+                }
+                let report = icon_bank.diagnose_sprite(sprite);
+                let gfx_source = context
+                    .gfx_index
+                    .get(sprite)
+                    .and_then(|resource| resource.source.as_ref())
+                    .map(|path| path.display().to_string())
+                    .unwrap_or_else(|| "<unmapped>".to_owned());
+                println!(
+                    "[ui][politics] missing_sprite sprite={} gfx_source={} textureFile={:?} tried={:?} reason={:?}",
+                    report.sprite_name,
+                    gfx_source,
+                    report.texture_file,
+                    report.attempted_paths,
+                    report.failure_reason
+                );
+            }
+        } else {
+            println!(
+                "[ui][politics] gui_loaded=false sprites_loaded={loaded} sprites_missing={missing}"
+            );
+        }
+        ctx.data_mut(|d| d.insert_persisted(diag_id, true));
+    }
     let screen = ctx.screen_rect();
-    let left_gap = if screen.width() >= 980.0 {
-        SIDE_RAIL_PANEL_LEFT
-    } else {
-        8.0
-    };
-    let top_gap = if screen.height() >= 680.0 {
-        SIDE_RAIL_TOP_OFFSET
-    } else {
-        72.0
-    };
-    let panel_w = 590.0_f32.min((screen.width() - left_gap - 8.0).max(420.0));
-    let panel_h = (screen.height() - top_gap - 8.0).max(360.0).min(900.0);
-    let panel_pos = Pos2::new(screen.left() + left_gap, screen.top() + top_gap);
-    let panel_size = Vec2::new(panel_w, panel_h);
+    let viewport = crate::vanilla_gui::GuiRect::new(
+        screen.left(),
+        screen.top(),
+        screen.width(),
+        screen.height(),
+    );
+    let vanilla_context = politics_vanilla_gui_context();
+    let vanilla_root = vanilla_context.and_then(|context| {
+        context
+            .document
+            .template_index()
+            .get(profile.root_template())
+    });
+    let (panel_pos, panel_size, visible, close_finished, root_layout) =
+        if let Some(root) = vanilla_root {
+            let layout = crate::vanilla_gui::compute_layout_tree(
+                root,
+                &crate::vanilla_gui::LayoutOptions::new(viewport).shown_position(true),
+            );
+            let spec = crate::vanilla_gui::AnimationSpec::from_node(root);
+            let update = update_vanilla_panel_animation(ctx, profile.profile_id(), spec);
+            let y = screen.top() + update.position.y;
+            let h = (screen.bottom() - y - 8.0)
+                .max(360.0)
+                .min(layout.rect.height.max(360.0));
+            let geometry = (
+                Pos2::new(screen.left() + update.position.x, y),
+                Vec2::new(layout.rect.width.max(280.0), h),
+                update.visible,
+                update.close_finished,
+            );
+            (geometry.0, geometry.1, geometry.2, geometry.3, Some(layout))
+        } else {
+            let spec = crate::vanilla_gui::AnimationSpec {
+                hidden_position: crate::vanilla_gui::GuiPoint { x: -606.0, y: 78.0 },
+                shown_position: crate::vanilla_gui::GuiPoint { x: -6.0, y: 78.0 },
+                show_curve: crate::vanilla_gui::AnimationCurve::Decelerated,
+                hide_curve: crate::vanilla_gui::AnimationCurve::Accelerated,
+                duration_ms: 300.0,
+            };
+            let update = update_vanilla_panel_animation(ctx, profile.profile_id(), spec);
+            let y = screen.top() + update.position.y;
+            (
+                Pos2::new(screen.left() + update.position.x, y),
+                Vec2::new(550.0, (screen.bottom() - y - 8.0).max(360.0)),
+                update.visible,
+                update.close_finished,
+                None,
+            )
+        };
+
+    if close_finished {
+        ctx.data_mut(|d| {
+            d.insert_persisted(country_politics_close_requested_id(), false);
+        });
+        return (true, Vec::new());
+    }
+    if !visible {
+        return (false, Vec::new());
+    }
 
     let mut close = false;
     let mut output = Vec::new();
     egui::Area::new(egui::Id::new("politics_panel_vanilla_1936"))
         .order(egui::Order::Foreground)
-        .fixed_pos(panel_pos)
+        .fixed_pos(if vanilla_root.is_some() {
+            screen.min
+        } else {
+            panel_pos
+        })
         .show(ctx, |ui| {
-            let (outer, _) = ui.allocate_exact_size(panel_size, Sense::click_and_drag());
-            paint::paint_shadow(ui.painter(), outer, crate::v9::Elevation::E2, 1.0);
-            vanilla_politics_shell(ui, outer, accent);
-
-            let inner = outer.shrink2(Vec2::new(14.0, 12.0));
-            ui.painter().text(
-                Pos2::new(inner.left() + 2.0, inner.top() + 5.0),
-                egui::Align2::LEFT_TOP,
-                tr("politics"),
-                TextRole::Display.font_id(),
-                vanilla_text(),
-            );
-
-            let close_rect = Rect::from_min_size(
-                Pos2::new(inner.right() - 28.0, inner.top() - 2.0),
-                Vec2::splat(23.0),
-            );
-            if vanilla_close_button(ui, close_rect)
-                .on_hover_text(tr("panel_close_hint"))
-                .clicked()
+            if let (Some(context), Some(root), Some(layout)) =
+                (vanilla_context, vanilla_root, root_layout.as_ref())
             {
-                close = true;
+                let outer: Rect = layout.rect.into();
+                ui.interact(
+                    outer.intersect(screen),
+                    ui.id().with("politics_panel_drag_region"),
+                    Sense::click_and_drag(),
+                );
+                paint::paint_shadow(ui.painter(), outer, crate::v9::Elevation::E2, 1.0);
+                let bindings = crate::vanilla_gui::bind_profile_tree(&profile, root, data);
+                let renderer = crate::vanilla_gui::VanillaGuiRenderer::new(&context.gfx_index);
+                let stats = renderer.paint_tree(ui, root, layout, &bindings, icon_bank);
+                log_politics_render_stats(ctx, &stats, icon_bank);
+                if politics_close_requested_from_render_stats(&stats) {
+                    close = true;
+                }
+                output.extend(politics_commands_from_render_stats(&profile, data, &stats));
+                paint_politics_template_instance_bridge(
+                    ui,
+                    &renderer,
+                    context,
+                    &profile,
+                    data,
+                    root,
+                    layout,
+                    icon_bank,
+                    &mut output,
+                );
+            } else {
+                let (outer, _) = ui.allocate_exact_size(panel_size, Sense::click_and_drag());
+                paint::paint_shadow(ui.painter(), outer, crate::v9::Elevation::E2, 1.0);
+                vanilla_politics_shell(ui, outer, accent, icon_bank);
+
+                let inner = outer.shrink2(Vec2::new(14.0, 12.0));
+                ui.painter().text(
+                    Pos2::new(inner.left() + 2.0, inner.top() + 5.0),
+                    egui::Align2::LEFT_TOP,
+                    tr("politics"),
+                    TextRole::Display.font_id(),
+                    vanilla_text(),
+                );
+
+                let close_rect = Rect::from_min_size(
+                    Pos2::new(inner.right() - 28.0, inner.top() - 2.0),
+                    Vec2::splat(23.0),
+                );
+                if vanilla_close_button(ui, close_rect)
+                    .on_hover_text(tr("panel_close_hint"))
+                    .clicked()
+                {
+                    close = true;
+                }
+
+                let body = Rect::from_min_max(
+                    Pos2::new(inner.left(), inner.top() + 52.0),
+                    Pos2::new(inner.right(), inner.bottom() - 8.0),
+                );
+
+                let mut cmds = Vec::new();
+                vanilla_politics_body(ui, outer, body, data, icon_bank, &mut cmds, None);
+                output = cmds;
             }
-
-            let body = Rect::from_min_max(
-                Pos2::new(inner.left(), inner.top() + 52.0),
-                Pos2::new(inner.right(), inner.bottom() - 8.0),
-            );
-
-            let mut cmds = Vec::new();
-            v9_politics_body(ui, body, data, icon_bank, &mut cmds);
-            output = cmds;
         });
 
-    (close, output)
+    if close {
+        request_country_politics_close(ctx);
+    }
+
+    (false, output)
 }
 
+fn log_politics_render_stats(
+    ctx: &egui::Context,
+    stats: &crate::vanilla_gui::RenderStats,
+    icon_bank: &crate::icons::IconBank,
+) {
+    let id = egui::Id::new("politics_panel_render_stats_logged");
+    let already_logged = ctx
+        .data_mut(|d| d.get_persisted::<bool>(id))
+        .unwrap_or(false);
+    if already_logged {
+        return;
+    }
+    println!(
+        "[ui][politics] render nodes={}/{} sprites={} fallback={} text={} buttons={} progress={} pie={} icon_missing_cache={}",
+        stats.nodes_painted,
+        stats.nodes_seen,
+        stats.sprites_painted,
+        stats.fallback_painted,
+        stats.text_painted,
+        stats.buttons,
+        stats.progress_bars,
+        stats.pie_charts,
+        icon_bank.missing_count()
+    );
+    ctx.data_mut(|d| d.insert_persisted(id, true));
+}
+
+fn politics_close_requested_from_render_stats(stats: &crate::vanilla_gui::RenderStats) -> bool {
+    stats
+        .clicked_commands
+        .iter()
+        .any(|command| command == "close")
+}
+
+fn politics_commands_from_render_stats(
+    profile: &CountryPoliticsProfile,
+    data: &PoliticsData,
+    stats: &crate::vanilla_gui::RenderStats,
+) -> Vec<DecisionCommand> {
+    stats
+        .clicked_commands
+        .iter()
+        .filter_map(|command| match command.as_str() {
+            "open_focus_tree" => profile.handle_action(
+                crate::vanilla_gui::GuiAction {
+                    node_path: crate::vanilla_gui::GuiNodePath::root(COUNTRY_POLITICS_ROOT)
+                        .child("active_goal"),
+                    kind: crate::vanilla_gui::GuiActionKind::Click,
+                },
+                data,
+            ),
+            key if key.starts_with("law:") => key.strip_prefix("law:").map(|category| {
+                DecisionCommand::Panel(PanelCommand::OpenDetail(ActiveDetailPanel::Law {
+                    category: category.to_owned(),
+                    law_id: None,
+                }))
+            }),
+            "close" => None,
+            _ => None,
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_politics_template_instance_bridge(
+    ui: &mut egui::Ui,
+    renderer: &crate::vanilla_gui::VanillaGuiRenderer<'_>,
+    context: &VanillaPoliticsGuiContext,
+    profile: &CountryPoliticsProfile,
+    data: &PoliticsData,
+    root: &crate::vanilla_gui::GuiNode,
+    root_layout: &crate::vanilla_gui::LayoutNode,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    // Bridge only: the generic runtime still does not expand vanilla grid/template
+    // instances by itself. These calls place real vanilla templates at vanilla
+    // grid slots, then let CountryPoliticsProfile provide text/sprite/progress/
+    // visibility/command bindings. Do not add hand-painted panel chrome here.
+    paint_politics_party_template_instances(
+        ui,
+        renderer,
+        context,
+        profile,
+        data,
+        root,
+        root_layout,
+        icon_bank,
+        cmds,
+    );
+    paint_politics_national_spirit_template_instances(
+        ui,
+        renderer,
+        context,
+        profile,
+        data,
+        root_layout,
+        icon_bank,
+        cmds,
+    );
+    paint_politics_idea_category_template_instances(
+        ui,
+        renderer,
+        context,
+        profile,
+        data,
+        root,
+        root_layout,
+        icon_bank,
+        cmds,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_politics_party_template_instances(
+    ui: &mut egui::Ui,
+    renderer: &crate::vanilla_gui::VanillaGuiRenderer<'_>,
+    context: &VanillaPoliticsGuiContext,
+    profile: &CountryPoliticsProfile,
+    data: &PoliticsData,
+    root: &crate::vanilla_gui::GuiNode,
+    root_layout: &crate::vanilla_gui::LayoutNode,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    let Some(grid_node) = root.find_node_by_name("parties_grid") else {
+        return;
+    };
+    let Some(grid_layout) = root_layout.find_by_name("parties_grid") else {
+        return;
+    };
+    let Some(row_template) = context
+        .document
+        .template_index()
+        .get(COUNTRY_POLITICS_PARTY_TEMPLATE)
+    else {
+        return;
+    };
+
+    let count = data.party_popularity.len().clamp(1, 4);
+    for (idx, slot) in crate::vanilla_gui::grid_slots(grid_node, grid_layout.rect, count)
+        .into_iter()
+        .enumerate()
+    {
+        let path = grid_layout
+            .path
+            .clone()
+            .child(format!("{COUNTRY_POLITICS_PARTY_TEMPLATE}[{idx}]"));
+        let row_layout = crate::vanilla_gui::compute_layout_tree_with_path(
+            row_template,
+            &crate::vanilla_gui::LayoutOptions::new(slot),
+            path.clone(),
+        );
+        let bindings =
+            crate::vanilla_gui::bind_profile_tree_with_path(profile, row_template, data, path);
+        let stats = renderer.paint_tree(ui, row_template, &row_layout, &bindings, icon_bank);
+        cmds.extend(politics_commands_from_render_stats(profile, data, &stats));
+    }
+}
+
+fn snap_politics_rect(ui: &egui::Ui, rect: Rect) -> Rect {
+    let pixels_per_point = ui.ctx().pixels_per_point().max(1.0);
+    Rect::from_min_max(
+        Pos2::new(
+            (rect.min.x * pixels_per_point).round() / pixels_per_point,
+            (rect.min.y * pixels_per_point).round() / pixels_per_point,
+        ),
+        Pos2::new(
+            (rect.max.x * pixels_per_point).round() / pixels_per_point,
+            (rect.max.y * pixels_per_point).round() / pixels_per_point,
+        ),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_politics_national_spirit_template_instances(
+    ui: &mut egui::Ui,
+    renderer: &crate::vanilla_gui::VanillaGuiRenderer<'_>,
+    context: &VanillaPoliticsGuiContext,
+    profile: &CountryPoliticsProfile,
+    data: &PoliticsData,
+    root_layout: &crate::vanilla_gui::LayoutNode,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    let Some(grid_layout) = root_layout.find_by_name("spirit_grid") else {
+        return;
+    };
+    let Some(slot_template) = context
+        .document
+        .template_index()
+        .get("political_idea_entry")
+    else {
+        return;
+    };
+    let count = data.ideas.len().clamp(1, 6);
+    for idx in 0..count {
+        let slot = crate::vanilla_gui::GuiRect::new(
+            grid_layout.rect.x + idx as f32 * 59.0,
+            grid_layout.rect.y,
+            59.0,
+            68.0,
+        );
+        let path = grid_layout
+            .path
+            .clone()
+            .child(format!("political_idea_entry[{idx}]"));
+        let slot_layout = crate::vanilla_gui::compute_layout_tree_with_path(
+            slot_template,
+            &crate::vanilla_gui::LayoutOptions::new(slot),
+            path.clone(),
+        );
+        let bindings =
+            crate::vanilla_gui::bind_profile_tree_with_path(profile, slot_template, data, path);
+        let stats = renderer.paint_tree(ui, slot_template, &slot_layout, &bindings, icon_bank);
+        cmds.extend(politics_commands_from_render_stats(profile, data, &stats));
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_politics_idea_category_template_instances(
+    ui: &mut egui::Ui,
+    renderer: &crate::vanilla_gui::VanillaGuiRenderer<'_>,
+    context: &VanillaPoliticsGuiContext,
+    profile: &CountryPoliticsProfile,
+    data: &PoliticsData,
+    root: &crate::vanilla_gui::GuiNode,
+    root_layout: &crate::vanilla_gui::LayoutNode,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    let Some(grid_node) = root.find_node_by_name("idea_categories_grid") else {
+        return;
+    };
+    let Some(grid_layout) = root_layout.find_by_name("idea_categories_grid") else {
+        return;
+    };
+    let Some(template) = context
+        .document
+        .template_index()
+        .get(COUNTRY_POLITICS_IDEA_CATEGORY_TEMPLATE)
+    else {
+        return;
+    };
+
+    let rows = [
+        IdeaCategoryRowKind::GovernmentLaws,
+        IdeaCategoryRowKind::ResearchProduction,
+        IdeaCategoryRowKind::MilitaryStaff,
+    ];
+    for (idx, slot) in crate::vanilla_gui::grid_slots(grid_node, grid_layout.rect, rows.len())
+        .into_iter()
+        .enumerate()
+    {
+        let Some(kind) = rows.get(idx).copied() else {
+            continue;
+        };
+        let path = crate::vanilla_gui::GuiNodePath::root(COUNTRY_POLITICS_ROOT)
+            .child("idea_categories_grid")
+            .child(format!("{COUNTRY_POLITICS_IDEA_CATEGORY_TEMPLATE}[{idx}]"));
+        let row_layout = crate::vanilla_gui::compute_layout_tree_with_path(
+            template,
+            &crate::vanilla_gui::LayoutOptions::new(slot),
+            path.clone(),
+        );
+        let row_bindings =
+            crate::vanilla_gui::bind_profile_tree_with_path(profile, template, data, path);
+        let stats = renderer.paint_tree(ui, template, &row_layout, &row_bindings, icon_bank);
+        cmds.extend(politics_commands_from_render_stats(profile, data, &stats));
+        paint_politics_idea_category_slot_templates(
+            ui,
+            renderer,
+            context,
+            profile,
+            data,
+            template,
+            &row_layout,
+            kind,
+            icon_bank,
+            cmds,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_politics_idea_category_slot_templates(
+    ui: &mut egui::Ui,
+    renderer: &crate::vanilla_gui::VanillaGuiRenderer<'_>,
+    context: &VanillaPoliticsGuiContext,
+    profile: &CountryPoliticsProfile,
+    data: &PoliticsData,
+    row_template: &crate::vanilla_gui::GuiNode,
+    row_layout: &crate::vanilla_gui::LayoutNode,
+    kind: IdeaCategoryRowKind,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    let Some(grid_node) = row_template.find_node_by_name("ideas_grid") else {
+        return;
+    };
+    let Some(grid_layout) = row_layout.find_by_name("ideas_grid") else {
+        return;
+    };
+    let Some(slot_template) = context
+        .document
+        .template_index()
+        .get("political_idea_entry")
+    else {
+        return;
+    };
+    let count = politics_idea_category_slot_count(kind, data);
+    for (idx, slot) in crate::vanilla_gui::grid_slots(grid_node, grid_layout.rect, count)
+        .into_iter()
+        .enumerate()
+    {
+        let path = row_layout
+            .path
+            .clone()
+            .child("ideas_grid")
+            .child(format!("political_idea_entry[{idx}]"));
+        let slot_layout = crate::vanilla_gui::compute_layout_tree_with_path(
+            slot_template,
+            &crate::vanilla_gui::LayoutOptions::new(slot),
+            path.clone(),
+        );
+        let bindings =
+            crate::vanilla_gui::bind_profile_tree_with_path(profile, slot_template, data, path);
+        let stats = renderer.paint_tree(ui, slot_template, &slot_layout, &bindings, icon_bank);
+        cmds.extend(politics_commands_from_render_stats(profile, data, &stats));
+    }
+}
+
+fn politics_idea_category_slot_count(kind: IdeaCategoryRowKind, data: &PoliticsData) -> usize {
+    match kind {
+        IdeaCategoryRowKind::GovernmentLaws => data.law_slots.len().clamp(1, 7),
+        IdeaCategoryRowKind::ResearchProduction => 5,
+        IdeaCategoryRowKind::MilitaryStaff => 6,
+    }
+}
+
+fn country_politics_close_requested_id() -> egui::Id {
+    egui::Id::new("country_politics_vanilla_close_requested")
+}
+
+pub fn request_country_politics_close(ctx: &egui::Context) {
+    ctx.data_mut(|data| data.insert_persisted(country_politics_close_requested_id(), true));
+    ctx.request_repaint();
+}
+
+fn vanilla_animation_store_id() -> egui::Id {
+    egui::Id::new("vanilla_gui_panel_animation_store")
+}
+
+fn update_vanilla_panel_animation(
+    ctx: &egui::Context,
+    panel_id: &'static str,
+    spec: crate::vanilla_gui::AnimationSpec,
+) -> crate::vanilla_gui::PanelAnimationUpdate {
+    let close_id = country_politics_close_requested_id();
+    let store_id = vanilla_animation_store_id();
+    let now_ms = ctx.input(|input| input.time * 1000.0);
+    let update = ctx.data_mut(|data| {
+        let mut store = data
+            .get_persisted::<crate::vanilla_gui::PanelAnimationStore>(store_id)
+            .unwrap_or_default();
+        let mut close_requested = data.get_persisted::<bool>(close_id).unwrap_or(false);
+        if close_requested
+            && matches!(
+                store.phase(panel_id),
+                None | Some(crate::vanilla_gui::AnimationPhase::Closed)
+            )
+        {
+            close_requested = false;
+            data.insert_persisted(close_id, false);
+        }
+        let update = store.update(panel_id, !close_requested, spec, now_ms);
+        data.insert_persisted(store_id, store);
+        update
+    });
+    if matches!(
+        update.phase,
+        crate::vanilla_gui::AnimationPhase::Opening | crate::vanilla_gui::AnimationPhase::Closing
+    ) {
+        ctx.request_repaint();
+    }
+    update
+}
+
+fn vanilla_politics_body(
+    ui: &mut egui::Ui,
+    outer: Rect,
+    _body_clip: Rect,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+    root_layout: Option<&crate::vanilla_gui::LayoutNode>,
+) {
+    let leader_rect = vanilla_layout_rect(
+        root_layout,
+        outer,
+        "leader",
+        vanilla_panel_rect(outer, 18.0, 58.0, 136.0, 196.0),
+    );
+    draw_vanilla_portrait(ui, leader_rect, data, icon_bank);
+    vanilla_leader_nameplate(ui, leader_rect, data);
+
+    let focus_rect = vanilla_layout_rect(
+        root_layout,
+        outer,
+        "active_goal",
+        vanilla_panel_rect(outer, 179.0, 48.0, 330.0, 82.0),
+    );
+    let focus_rect = Rect::from_min_size(
+        focus_rect.min,
+        Vec2::new(focus_rect.width().max(330.0), focus_rect.height().max(82.0)),
+    );
+    vanilla_focus_selector_at(ui, focus_rect, data, cmds);
+
+    let spirit_title = vanilla_panel_rect(outer, 191.0, 151.0, 240.0, 20.0);
+    ui.painter().text(
+        spirit_title.left_top(),
+        egui::Align2::LEFT_TOP,
+        tr("national_spirits"),
+        crate::v9::TextRole::Caption.font_id(),
+        vanilla_muted(),
+    );
+    let spirit_grid = vanilla_layout_rect(
+        root_layout,
+        outer,
+        "spirit_grid",
+        vanilla_panel_rect(outer, 181.0, 171.0, 354.0, 68.0),
+    );
+    vanilla_spirit_grid_at(ui, spirit_grid, data, icon_bank);
+
+    let party_rect = vanilla_layout_rect(
+        root_layout,
+        outer,
+        "ruling_party_info",
+        vanilla_panel_rect(outer, 88.0, 305.0, 421.0, 104.0),
+    );
+    let party_rect = Rect::from_min_size(
+        party_rect.min,
+        Vec2::new((outer.right() - party_rect.left() - 14.0).max(260.0), 104.0),
+    );
+    vanilla_ideology_summary_at(ui, party_rect, data);
+
+    let ideas = vanilla_layout_rect(
+        root_layout,
+        outer,
+        "ideas",
+        vanilla_panel_rect(outer, 0.0, 425.0, outer.width(), outer.height() - 425.0),
+    );
+    let ideas_clip = Rect::from_min_max(
+        Pos2::new(outer.left(), ideas.top()),
+        Pos2::new(outer.right(), outer.bottom()),
+    )
+    .intersect(outer);
+    if ideas_clip.is_positive() {
+        ui.painter()
+            .rect_filled(ideas_clip, 0.0, Color32::from_black_alpha(150));
+        paint_vanilla_border(ui.painter(), ideas_clip);
+
+        let grid = vanilla_layout_rect(
+            root_layout,
+            outer,
+            "idea_categories_grid",
+            vanilla_panel_rect(
+                outer,
+                17.0,
+                425.0,
+                (outer.width() - 34.0).max(320.0),
+                vanilla_idea_categories_height(),
+            ),
+        );
+        let categories = Rect::from_min_size(
+            Pos2::new(grid.left(), grid.top()),
+            Vec2::new(
+                (outer.right() - grid.left() - 12.0).max(320.0),
+                vanilla_idea_categories_height(),
+            ),
+        );
+        ui.allocate_ui_at_rect(ideas_clip, |ui| {
+            ui.set_clip_rect(ideas_clip);
+            vanilla_idea_categories_at(ui, data, icon_bank, cmds, categories);
+        });
+    }
+}
+
+fn vanilla_panel_rect(outer: Rect, x: f32, y: f32, width: f32, height: f32) -> Rect {
+    Rect::from_min_size(
+        Pos2::new(outer.left() + x, outer.top() + y),
+        Vec2::new(width, height),
+    )
+}
+
+fn vanilla_layout_rect(
+    root_layout: Option<&crate::vanilla_gui::LayoutNode>,
+    outer: Rect,
+    name: &str,
+    fallback: Rect,
+) -> Rect {
+    let Some(root) = root_layout else {
+        return fallback;
+    };
+    let Some(node) = root.find_by_name(name) else {
+        return fallback;
+    };
+    let width = if node.rect.width >= 1.0 {
+        node.rect.width
+    } else {
+        fallback.width()
+    };
+    let height = if node.rect.height >= 1.0 {
+        node.rect.height
+    } else {
+        fallback.height()
+    };
+    Rect::from_min_size(
+        Pos2::new(
+            outer.left() + node.rect.x - root.rect.x,
+            outer.top() + node.rect.y - root.rect.y,
+        ),
+        Vec2::new(width, height),
+    )
+}
+
+fn vanilla_spirit_grid_at(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+) {
+    vanilla_row_frame(ui, rect);
+    let slot_w = (rect.width() / 6.0).clamp(42.0, 59.0);
+    let slot_h = rect.height().clamp(52.0, 68.0);
+    if data.ideas.is_empty() {
+        let slot = Rect::from_min_size(rect.left_top(), Vec2::new(slot_w, slot_h));
+        vanilla_slot(ui, slot, Color32::from_rgb(0x34, 0x35, 0x30));
+        ui.painter().text(
+            slot.center(),
+            egui::Align2::CENTER_CENTER,
+            "?",
+            crate::v9::TextRole::Subheading.font_id(),
+            vanilla_muted(),
+        );
+        return;
+    }
+
+    for (idx, idea) in data.ideas.iter().take(6).enumerate() {
+        let slot = Rect::from_min_size(
+            Pos2::new(rect.left() + idx as f32 * slot_w, rect.top()),
+            Vec2::new(slot_w, slot_h),
+        );
+        vanilla_slot(ui, slot, vanilla_edge());
+        if let Some(handle) = idea_icon_gfx(idea).and_then(|gfx| icon_bank.get_or_load(&gfx)) {
+            ui.put(
+                slot.shrink(5.0),
+                egui::Image::from_texture(handle).fit_to_exact_size(slot.shrink(5.0).size()),
+            );
+        } else {
+            let letter = idea
+                .name
+                .chars()
+                .find(|c| !c.is_whitespace())
+                .unwrap_or('?');
+            ui.painter().text(
+                slot.center(),
+                egui::Align2::CENTER_CENTER,
+                letter.to_string(),
+                crate::v9::TextRole::Subheading.font_id(),
+                vanilla_gold(),
+            );
+        }
+        ui.interact(
+            slot,
+            ui.id().with(("vanilla_spirit_grid", &idea.key)),
+            Sense::hover(),
+        )
+        .on_hover_ui(|ui| render_idea_tooltip(ui, idea));
+    }
+}
+
+#[deprecated(note = "Debug fallback only; PoliticsPanel::show defaults to vanilla_show_politics.")]
 fn v9_show_politics(
     ctx: &egui::Context,
     data: &PoliticsData,
@@ -414,18 +1798,18 @@ fn v9_politics_body(
             .show(ui, |ui| {
                 let width = ui.available_width().max(360.0);
                 let overview_h = vanilla_overview_card_height(width);
-                let laws_h = vanilla_law_systems_card_height(data, width);
-                let total_h = overview_h + VANILLA_CARD_GAP + laws_h;
+                let categories_h = vanilla_idea_categories_height();
+                let total_h = overview_h + VANILLA_CARD_GAP + categories_h;
                 let (canvas, _) = ui.allocate_exact_size(Vec2::new(width, total_h), Sense::hover());
                 let overview_rect =
                     Rect::from_min_size(canvas.left_top(), Vec2::new(width, overview_h));
-                let laws_rect = Rect::from_min_size(
+                let categories_rect = Rect::from_min_size(
                     Pos2::new(canvas.left(), overview_rect.bottom() + VANILLA_CARD_GAP),
-                    Vec2::new(width, laws_h),
+                    Vec2::new(width, categories_h),
                 );
 
                 vanilla_overview_card_at(ui, data, icon_bank, cmds, overview_rect);
-                vanilla_law_systems_card_at(ui, data, cmds, laws_rect);
+                vanilla_idea_categories_at(ui, data, icon_bank, cmds, categories_rect);
             });
     });
 }
@@ -496,8 +1880,45 @@ fn draw_politics_tab_strip(ui: &mut egui::Ui, rect: Rect, label: &str, accent: C
     );
 }
 
-fn vanilla_politics_shell(ui: &mut egui::Ui, rect: Rect, accent: Color32) {
-    VanillaIron::paint_panel(ui, rect, accent);
+fn vanilla_politics_shell(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    accent: Color32,
+    icon_bank: &mut crate::icons::IconBank,
+) {
+    if let Some(handle) = icon_bank.get_or_load("GFX_pol_view_bg") {
+        ui.put(
+            rect,
+            egui::Image::from_texture(handle).fit_to_exact_size(rect.size()),
+        );
+        ui.painter()
+            .rect_filled(rect, 0.0, Color32::from_black_alpha(82));
+    } else if let Some(handle) = icon_bank.get_or_load("GFX_tiled_plain_bg") {
+        ui.put(
+            rect,
+            egui::Image::from_texture(handle).fit_to_exact_size(rect.size()),
+        );
+        ui.painter()
+            .rect_filled(rect, 0.0, Color32::from_black_alpha(118));
+    } else {
+        VanillaIron::paint_panel(ui, rect, accent);
+        return;
+    }
+
+    let header_rect = Rect::from_min_size(rect.left_top(), Vec2::new(rect.width(), 48.0));
+    if let Some(handle) = icon_bank.get_or_load("GFX_header_bg") {
+        ui.put(
+            header_rect,
+            egui::Image::from_texture(handle).fit_to_exact_size(header_rect.size()),
+        );
+    }
+    VanillaIron::paint_border(ui.painter(), rect);
+    ui.painter().rect_stroke(
+        rect.shrink(2.0),
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, accent),
+        egui::epaint::StrokeKind::Inside,
+    );
 }
 
 fn paint_vanilla_border(painter: &egui::Painter, rect: Rect) {
@@ -593,6 +2014,7 @@ fn vanilla_government_card_height(data: &PoliticsData) -> f32 {
     (48.0 + rows as f32 * 43.0).max(238.0)
 }
 
+#[deprecated(note = "Gate 8 replaced the standalone laws card with idea category rows.")]
 fn vanilla_law_systems_card_height(data: &PoliticsData, width: f32) -> f32 {
     let rows = data.law_slots.len().max(1);
     let columns = vanilla_law_columns(width);
@@ -606,6 +2028,102 @@ fn vanilla_law_columns(width: f32) -> usize {
     } else {
         1
     }
+}
+
+fn vanilla_idea_categories_height() -> f32 {
+    vanilla_idea_category_row_height() + vanilla_idea_category_row_step() * 2.0
+}
+
+fn vanilla_idea_category_template() -> Option<&'static crate::vanilla_gui::GuiNode> {
+    politics_vanilla_gui_context().and_then(|context| {
+        context
+            .document
+            .template_index()
+            .get(COUNTRY_POLITICS_IDEA_CATEGORY_TEMPLATE)
+    })
+}
+
+fn vanilla_idea_category_row_height() -> f32 {
+    vanilla_idea_category_template()
+        .and_then(|node| node.block("size"))
+        .and_then(|size| size.get("height"))
+        .and_then(crate::vanilla_gui::GuiValueExt::as_lossy_f32)
+        .unwrap_or(VANILLA_IDEA_CATEGORY_ROW_H)
+}
+
+fn vanilla_idea_category_row_step() -> f32 {
+    let row_h = vanilla_idea_category_row_height();
+    let parent_stride = politics_vanilla_gui_context()
+        .and_then(|context| context.document.find_node_by_name("idea_categories_grid"))
+        .and_then(|grid| grid.block("slotsize"))
+        .and_then(|slotsize| slotsize.get("height"))
+        .and_then(crate::vanilla_gui::GuiValueExt::as_lossy_f32)
+        .unwrap_or(row_h + VANILLA_IDEA_CATEGORY_GAP);
+    let row = Rect::from_min_size(Pos2::ZERO, Vec2::new(550.0, row_h));
+    let slot_extent = vanilla_idea_category_slot_rects(row, 1)
+        .into_iter()
+        .map(|slot| slot.bottom() - row.top())
+        .fold(row_h, f32::max);
+
+    parent_stride.max(slot_extent).max(row_h)
+}
+
+fn vanilla_idea_category_slot_rects(row: Rect, count: usize) -> Vec<Rect> {
+    let Some(template) = vanilla_idea_category_template() else {
+        return fallback_idea_category_slot_rects(row, count);
+    };
+    let Some(grid) = template.find_node_by_name("ideas_grid") else {
+        return fallback_idea_category_slot_rects(row, count);
+    };
+    let layout = crate::vanilla_gui::compute_layout_tree(
+        template,
+        &crate::vanilla_gui::LayoutOptions::new(crate::vanilla_gui::GuiRect::new(
+            row.left(),
+            row.top(),
+            row.width(),
+            row.height(),
+        )),
+    );
+    let Some(grid_layout) = layout.find_by_name("ideas_grid") else {
+        return fallback_idea_category_slot_rects(row, count);
+    };
+    crate::vanilla_gui::grid_slots(grid, grid_layout.rect, count)
+        .into_iter()
+        .map(Into::into)
+        .collect()
+}
+
+fn fallback_idea_category_slot_rects(row: Rect, count: usize) -> Vec<Rect> {
+    let content = Rect::from_min_max(
+        Pos2::new(row.left() + 92.0, row.top() + 30.0),
+        Pos2::new(row.right() - 8.0, row.bottom() - 8.0),
+    );
+    let gap = 6.0;
+    let slot_count = count.max(1);
+    let slot_w = vanilla_slot_width_for_count(content.width(), slot_count, gap, 66.0);
+    (0..count)
+        .map(|idx| {
+            Rect::from_min_size(
+                Pos2::new(content.left() + idx as f32 * (slot_w + gap), content.top()),
+                Vec2::new(slot_w, 54.0),
+            )
+        })
+        .collect()
+}
+
+fn vanilla_slot_width_for_count(
+    available_width: f32,
+    count: usize,
+    gap: f32,
+    max_width: f32,
+) -> f32 {
+    if count == 0 {
+        return max_width.max(1.0);
+    }
+    let gaps = gap * count.saturating_sub(1) as f32;
+    ((available_width - gaps).max(count as f32) / count as f32)
+        .min(max_width)
+        .max(1.0)
 }
 
 fn vanilla_overview_card_height(width: f32) -> f32 {
@@ -1104,6 +2622,64 @@ fn vanilla_ideology_summary_at(ui: &mut egui::Ui, rect: Rect, data: &PoliticsDat
         data.party_full_name.as_str()
     };
     let compact = rect.height() < 160.0;
+    if compact && rect.width() >= 250.0 {
+        ui.painter().text(
+            Pos2::new(rect.left() + 14.0, rect.top() + 28.0),
+            egui::Align2::LEFT_TOP,
+            party,
+            fit_text_font(
+                party,
+                crate::v9::TextRole::Body.font_id(),
+                rect.width() - 28.0,
+            ),
+            accent,
+        );
+        let donut = Rect::from_center_size(
+            Pos2::new(rect.left() + 52.0, rect.top() + 76.0),
+            Vec2::splat((rect.height() - 50.0).clamp(42.0, 72.0)),
+        );
+        draw_vanilla_ideology_donut(ui, donut, &data.party_popularity);
+        let list_left = donut.right() + 13.0;
+        let list_top = rect.top() + 52.0;
+        for (idx, (key, pop)) in data.party_popularity.iter().take(4).enumerate() {
+            let row = Rect::from_min_size(
+                Pos2::new(list_left, list_top + idx as f32 * 15.0),
+                Vec2::new((rect.right() - list_left - 9.0).max(80.0), 13.0),
+            );
+            let color = v9_ideology_color(key);
+            ui.painter().rect_filled(
+                Rect::from_min_size(row.left_top() + Vec2::new(0.0, 2.0), Vec2::new(16.0, 8.0)),
+                0.0,
+                color,
+            );
+            ui.painter().text(
+                Pos2::new(row.left() + 22.0, row.top() - 1.0),
+                egui::Align2::LEFT_TOP,
+                ideology_label(key),
+                fit_text_font(
+                    ideology_label(key),
+                    crate::v9::TextRole::Caption.font_id(),
+                    row.width() - 58.0,
+                ),
+                vanilla_text(),
+            );
+            ui.painter().text(
+                row.right_top() + Vec2::new(0.0, -1.0),
+                egui::Align2::RIGHT_TOP,
+                format!("{:.0}%", pop * 100.0),
+                crate::v9::TextRole::Caption.font_id(),
+                color,
+            );
+        }
+        ui.painter().text(
+            Pos2::new(rect.right() - 9.0, rect.bottom() - 9.0),
+            egui::Align2::RIGHT_BOTTOM,
+            "Faction: N/A",
+            crate::v9::TextRole::Small.font_id(),
+            vanilla_muted(),
+        );
+        return;
+    }
     if !compact {
         ui.painter().text(
             Pos2::new(rect.center().x, rect.top() + 28.0),
@@ -1394,6 +2970,7 @@ fn vanilla_government_card(ui: &mut egui::Ui, data: &PoliticsData, height: f32) 
     });
 }
 
+#[deprecated(note = "Gate 8 replaced the standalone laws card with idea category rows.")]
 fn vanilla_law_systems_card(
     ui: &mut egui::Ui,
     data: &PoliticsData,
@@ -1405,6 +2982,7 @@ fn vanilla_law_systems_card(
     });
 }
 
+#[deprecated(note = "Gate 8 replaced the standalone laws card with idea category rows.")]
 fn vanilla_law_systems_card_at(
     ui: &mut egui::Ui,
     data: &PoliticsData,
@@ -1422,7 +3000,7 @@ fn vanilla_law_systems_card_contents(
     data: &PoliticsData,
     cmds: &mut Vec<DecisionCommand>,
 ) {
-    vanilla_section_title(ui, inner, "\u{653f}\u{6cbb}\u{653f}\u{7b56}");
+    vanilla_section_title(ui, inner, "Government / Laws");
     if data.law_slots.is_empty() {
         vanilla_empty_text(
             ui,
@@ -1469,9 +3047,341 @@ fn vanilla_law_systems_card_contents(
                 },
             )));
         }
-        response.on_hover_text("\u{70b9}\u{51fb}\u{6253}\u{5f00}\u{6cd5}\u{5f8b}\u{8be6}\u{60c5}");
+        response.on_hover_text(politics_law_tooltip(slot));
         let status = politics_law_status_text(slot);
         vanilla_law_row(ui, rect, slot, &status);
+    }
+}
+
+fn vanilla_idea_categories_at(
+    ui: &mut egui::Ui,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+    rect: Rect,
+) {
+    let mut y = rect.top();
+    let rows = [
+        IdeaCategoryRowKind::GovernmentLaws,
+        IdeaCategoryRowKind::ResearchProduction,
+        IdeaCategoryRowKind::MilitaryStaff,
+    ];
+    let row_h = vanilla_idea_category_row_height();
+    let row_step = vanilla_idea_category_row_step();
+    for kind in rows {
+        let row = Rect::from_min_size(Pos2::new(rect.left(), y), Vec2::new(rect.width(), row_h));
+        vanilla_idea_category_row(ui, row, kind, data, icon_bank, cmds);
+        y += row_step;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum IdeaCategoryRowKind {
+    GovernmentLaws,
+    ResearchProduction,
+    MilitaryStaff,
+}
+
+impl IdeaCategoryRowKind {
+    fn title(self) -> &'static str {
+        match self {
+            Self::GovernmentLaws => "Government / Laws",
+            Self::ResearchProduction => "Research & Production",
+            Self::MilitaryStaff => "Military Staff",
+        }
+    }
+
+    fn localized_title(self) -> &'static str {
+        match self {
+            Self::GovernmentLaws => tr("government_laws"),
+            Self::ResearchProduction => tr("research_production"),
+            Self::MilitaryStaff => tr("military_staff"),
+        }
+    }
+
+    fn category_frame(self) -> u32 {
+        match self {
+            Self::GovernmentLaws => 5,
+            Self::ResearchProduction => 2,
+            Self::MilitaryStaff => 3,
+        }
+    }
+
+    fn glyph(self) -> &'static str {
+        match self {
+            Self::GovernmentLaws => "G",
+            Self::ResearchProduction => "R",
+            Self::MilitaryStaff => "M",
+        }
+    }
+}
+
+fn vanilla_idea_category_row(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    kind: IdeaCategoryRowKind,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    paint_vanilla_idea_category_frame(ui, rect, kind, icon_bank);
+    let content = Rect::from_min_max(
+        Pos2::new(rect.left() + 92.0, rect.top() + 30.0),
+        Pos2::new(rect.right() - 8.0, rect.bottom() - 8.0),
+    );
+
+    match kind {
+        IdeaCategoryRowKind::GovernmentLaws => {
+            vanilla_category_law_slots(ui, rect, data, cmds);
+        }
+        IdeaCategoryRowKind::ResearchProduction | IdeaCategoryRowKind::MilitaryStaff => {
+            vanilla_category_advisor_slots(ui, content);
+        }
+    }
+}
+
+fn paint_vanilla_idea_category_frame(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    kind: IdeaCategoryRowKind,
+    icon_bank: &mut crate::icons::IconBank,
+) {
+    ui.painter()
+        .rect_filled(rect, 1.0, Color32::from_rgb(0x08, 0x09, 0x08));
+    crate::v9::paint::paint_vertical_gradient_mesh(
+        ui.painter(),
+        rect.shrink(1.0),
+        Color32::from_rgba_premultiplied(0x20, 0x22, 0x1d, 230),
+        Color32::from_rgba_premultiplied(0x04, 0x05, 0x04, 252),
+    );
+    paint_vanilla_border(ui.painter(), rect);
+
+    let header = Rect::from_min_size(rect.left_top(), Vec2::new(rect.width(), 25.0));
+    if let Some(handle) = icon_bank.get_or_load("GFX_category_header") {
+        ui.put(
+            header,
+            egui::Image::from_texture(handle).fit_to_exact_size(header.size()),
+        );
+        ui.painter()
+            .rect_filled(header, 0.0, Color32::from_black_alpha(70));
+    } else {
+        VanillaIron::section_title_at(ui, header, "");
+    }
+    ui.painter().text(
+        Pos2::new(header.left() + 92.0, header.center().y),
+        egui::Align2::LEFT_CENTER,
+        kind.title(),
+        crate::v9::TextRole::Subheading.font_id(),
+        VanillaIron::BRASS_BRIGHT,
+    );
+
+    let icon_rect = Rect::from_min_size(
+        Pos2::new(rect.left() + 13.0, rect.top() + 31.0),
+        Vec2::new(64.0, 56.0),
+    );
+    vanilla_slot(ui, icon_rect, vanilla_edge());
+    if let Some(handle) = icon_bank.get_or_load("GFX_idea_categories") {
+        ui.put(
+            icon_rect.shrink(4.0),
+            egui::Image::from_texture(handle).fit_to_exact_size(icon_rect.shrink(4.0).size()),
+        );
+        ui.painter()
+            .rect_filled(icon_rect.shrink(4.0), 0.0, Color32::from_black_alpha(105));
+    }
+    ui.painter().text(
+        icon_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        kind.glyph(),
+        crate::v9::TextRole::Heading.font_id(),
+        vanilla_gold(),
+    );
+}
+
+fn vanilla_category_spirit_slots(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    data: &PoliticsData,
+    icon_bank: &mut crate::icons::IconBank,
+) {
+    let max_slots = 7usize;
+    if data.ideas.is_empty() {
+        let empty = vanilla_idea_category_slot_rects(rect, 1)
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| Rect::from_min_size(rect.left_top(), Vec2::new(80.0, 64.0)));
+        vanilla_slot(ui, empty, Color32::from_rgb(0x34, 0x35, 0x30));
+        ui.painter().text(
+            Pos2::new(empty.right() + 10.0, empty.center().y),
+            egui::Align2::LEFT_CENTER,
+            tr("idea_none"),
+            crate::v9::TextRole::Body.font_id(),
+            vanilla_muted(),
+        );
+        return;
+    }
+
+    let visible = data.ideas.len().min(max_slots);
+    for (idea, slot_rect) in data
+        .ideas
+        .iter()
+        .take(visible)
+        .zip(vanilla_idea_category_slot_rects(rect, visible))
+    {
+        vanilla_slot(ui, slot_rect, vanilla_edge());
+        if let Some(handle) = idea_icon_gfx(idea).and_then(|gfx| icon_bank.get_or_load(&gfx)) {
+            ui.put(
+                slot_rect.shrink(5.0),
+                egui::Image::from_texture(handle).fit_to_exact_size(slot_rect.shrink(5.0).size()),
+            );
+        } else {
+            let letter = idea
+                .name
+                .chars()
+                .find(|c| !c.is_whitespace())
+                .unwrap_or('?');
+            ui.painter().text(
+                slot_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                letter.to_string(),
+                crate::v9::TextRole::Subheading.font_id(),
+                vanilla_gold(),
+            );
+        }
+        ui.interact(
+            slot_rect,
+            ui.id().with(("vanilla_category_idea", &idea.key)),
+            Sense::hover(),
+        )
+        .on_hover_ui(|ui| render_idea_tooltip(ui, idea));
+    }
+
+    if data.ideas.len() > visible {
+        ui.painter().text(
+            Pos2::new(rect.right() - 8.0, rect.bottom() - 32.0),
+            egui::Align2::RIGHT_CENTER,
+            format!("+{}", data.ideas.len() - visible),
+            crate::v9::TextRole::Body.font_id(),
+            vanilla_muted(),
+        );
+    }
+}
+
+fn vanilla_category_law_slots(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    data: &PoliticsData,
+    cmds: &mut Vec<DecisionCommand>,
+) {
+    if data.law_slots.is_empty() {
+        vanilla_empty_text(ui, rect, "No law data");
+        return;
+    }
+    let slot_count = data.law_slots.len().min(7);
+    for (law, slot_rect) in data
+        .law_slots
+        .iter()
+        .take(slot_count)
+        .zip(vanilla_idea_category_slot_rects(rect, slot_count))
+    {
+        let response = ui.interact(
+            slot_rect,
+            ui.id().with((
+                "politics_law_detail_category_row",
+                law_panel::law_category_key(law.category),
+            )),
+            Sense::click(),
+        );
+        if response.clicked() {
+            cmds.push(politics_law_detail_command(law));
+        }
+        response.on_hover_text(politics_law_tooltip(law));
+        vanilla_law_idea_slot(ui, slot_rect, law);
+    }
+}
+
+fn politics_law_detail_command(law: &PoliticsLawEntry) -> DecisionCommand {
+    DecisionCommand::Panel(PanelCommand::OpenDetail(ActiveDetailPanel::Law {
+        category: law_panel::law_category_key(law.category).to_owned(),
+        law_id: None,
+    }))
+}
+
+fn vanilla_law_idea_slot(ui: &mut egui::Ui, rect: Rect, law: &PoliticsLawEntry) {
+    vanilla_slot(ui, rect, politics_law_status_color(law));
+    let icon_size = (rect.width() * 0.38).clamp(14.0, 25.0);
+    let icon = Rect::from_min_size(
+        rect.left_top() + Vec2::new(6.0, 5.0),
+        Vec2::splat(icon_size),
+    );
+    draw_panel_svg_icon(
+        ui,
+        icon.shrink(4.0),
+        PanelSvgIcon::from_law(&law.category),
+        Color32::from_rgb(0xb7, 0xb1, 0x9a),
+    );
+    ui.painter().text(
+        Pos2::new(rect.right() - 7.0, rect.top() + 7.0),
+        egui::Align2::RIGHT_TOP,
+        politics_law_category_glyph(&law.category),
+        fit_text_font(
+            politics_law_category_glyph(&law.category),
+            crate::v9::TextRole::Caption.font_id(),
+            (rect.width() - icon_size - 14.0).max(8.0),
+        ),
+        vanilla_muted(),
+    );
+    ui.painter().text(
+        Pos2::new(rect.center().x, rect.bottom() - 16.0),
+        egui::Align2::CENTER_CENTER,
+        law.current_name.as_str(),
+        fit_text_font(
+            law.current_name.as_str(),
+            crate::v9::TextRole::Caption.font_id(),
+            rect.width() - 8.0,
+        ),
+        vanilla_text(),
+    );
+    let status = if law.is_locked {
+        "LOCK"
+    } else if law.pending.is_some() {
+        "PEND"
+    } else if law.cooldown_days > 0 {
+        "CD"
+    } else {
+        "CUR"
+    };
+    ui.painter().text(
+        Pos2::new(rect.right() - 5.0, rect.bottom() - 5.0),
+        egui::Align2::RIGHT_BOTTOM,
+        status,
+        crate::v9::TextRole::Small.font_id(),
+        politics_law_status_color(law),
+    );
+}
+
+fn vanilla_category_advisor_slots(ui: &mut egui::Ui, rect: Rect) {
+    let gap = 9.0;
+    let slot_w = vanilla_slot_width_for_count(rect.width(), 5, gap, 52.0);
+    let slot = Vec2::new(slot_w, 52.0);
+    for idx in 0..5 {
+        let slot_rect = Rect::from_min_size(
+            Pos2::new(rect.left() + idx as f32 * (slot.x + gap), rect.top()),
+            slot,
+        );
+        vanilla_slot(ui, slot_rect, Color32::from_rgb(0x34, 0x35, 0x30));
+        let icon_pad = (slot_rect.width().min(slot_rect.height()) * 0.25).clamp(5.0, 13.0);
+        draw_panel_svg_icon(
+            ui,
+            slot_rect.shrink(icon_pad),
+            PanelSvgIcon::Person,
+            vanilla_muted(),
+        );
+        ui.interact(
+            slot_rect,
+            ui.id().with(("politics_advisor_placeholder", idx)),
+            Sense::hover(),
+        )
+        .on_hover_text("顾问席位暂未接入。");
     }
 }
 
@@ -1653,8 +3563,18 @@ fn vanilla_row_frame(ui: &mut egui::Ui, rect: Rect) {
 }
 
 fn vanilla_slot(ui: &mut egui::Ui, rect: Rect, accent: Color32) {
-    ui.painter()
-        .rect_filled(rect, 1.0, Color32::from_rgb(0x0d, 0x10, 0x10));
+    let fill = Color32::from_rgb(
+        0x10u8.saturating_add(accent.r() / 8),
+        0x11u8.saturating_add(accent.g() / 8),
+        0x0fu8.saturating_add(accent.b() / 8),
+    );
+    ui.painter().rect_filled(rect, 1.0, fill);
+    crate::v9::paint::paint_vertical_gradient_mesh(
+        ui.painter(),
+        rect.shrink(1.0),
+        Color32::from_rgba_premultiplied(accent.r(), accent.g(), accent.b(), 28),
+        Color32::from_black_alpha(135),
+    );
     ui.painter().rect_stroke(
         rect,
         egui::epaint::CornerRadius::same(1),
@@ -1989,12 +3909,8 @@ fn vanilla_empty_text(ui: &mut egui::Ui, inner: Rect, text: &str) {
     );
 }
 
-fn fit_text_font(text: &str, mut font: egui::FontId, max_width: f32) -> egui::FontId {
-    let estimated = text.chars().count() as f32 * font.size * 0.56;
-    if estimated > max_width && estimated > 1.0 {
-        font.size *= (max_width / estimated).clamp(0.70, 1.0);
-    }
-    font
+fn fit_text_font(text: &str, font: egui::FontId, max_width: f32) -> egui::FontId {
+    crate::v9::text::fit_font_to_width(text, font, max_width, 0.60)
 }
 
 fn vanilla_gold() -> Color32 {
@@ -2632,6 +4548,61 @@ fn politics_law_status_color(slot: &PoliticsLawEntry) -> Color32 {
     }
 }
 
+fn politics_law_tooltip(slot: &PoliticsLawEntry) -> String {
+    let mut lines = vec![
+        format!(
+            "{}: {}",
+            politics_law_category_label(&slot.category),
+            slot.current_name
+        ),
+        "点击打开法律详情".to_owned(),
+    ];
+    if slot.is_locked {
+        lines.push("状态：锁定".to_owned());
+    }
+    if let Some((target, days)) = &slot.pending {
+        lines.push(format!("切换中：{target}，剩余 {days} 天"));
+    }
+    if slot.cooldown_days > 0 {
+        lines.push(format!("冷却中：剩余 {} 天", slot.cooldown_days));
+    }
+    lines.join("\n")
+}
+
+fn politics_law_idea_sprite(slot: &PoliticsLawEntry) -> &'static str {
+    let key = normalize_law_name_for_sprite(&slot.current_name);
+    match slot.category {
+        LawCategory::Conscription => match key.as_str() {
+            "volunteeronly" | "volunteer" => "GFX_idea_volunteer_only",
+            "limitedconscription" => "GFX_idea_limited_conscription",
+            "extensiveconscription" => "GFX_idea_extensive_conscription",
+            _ => "GFX_idea_volunteer_only",
+        },
+        LawCategory::Economy => match key.as_str() {
+            "wareconomy" => "GFX_idea_war_economy",
+            "civilianeconomy" | "laissezfaire" => "GFX_idea_civilian_economy",
+            _ => "GFX_idea_civilian_economy",
+        },
+        LawCategory::Trade => match key.as_str() {
+            "freetrade" => "GFX_idea_free_trade",
+            "limitedexports" => "GFX_idea_limited_exports",
+            "closedeconomy" => "GFX_idea_closed_economy",
+            _ => "GFX_idea_free_trade",
+        },
+        LawCategory::Taxation | LawCategory::CivilRights | LawCategory::InformationControl => {
+            "GFX_add_pol_idea_button"
+        }
+    }
+}
+
+fn normalize_law_name_for_sprite(value: &str) -> String {
+    value
+        .chars()
+        .flat_map(|c| c.to_lowercase())
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect()
+}
+
 fn render_politics_summary(ui: &mut egui::Ui, data: &PoliticsData) {
     let ruling_support = ruling_party_support(data);
     ui.add_space(6.0);
@@ -3235,6 +5206,16 @@ mod tests {
         }
     }
 
+    fn law_entry(category: LawCategory) -> PoliticsLawEntry {
+        PoliticsLawEntry {
+            category,
+            current_name: "Volunteer Only".to_owned(),
+            cooldown_days: 0,
+            pending: None,
+            is_locked: false,
+        }
+    }
+
     #[test]
     fn legacy_constructor_has_no_focus() {
         let d = PoliticsData::legacy("fascism".into(), vec![], vec![]);
@@ -3287,5 +5268,861 @@ mod tests {
         ]);
         assert!(s.contains("政治力量 +0.15/日"));
         assert!(s.contains("消费品工厂 -10%"));
+    }
+}
+#[cfg(test)]
+mod gate8_12_tests {
+    use super::*;
+    use crate::vanilla_gui::{GuiAction, GuiActionKind, GuiNodePath, VanillaPanelProfile};
+    use std::{cell::RefCell, rc::Rc};
+
+    fn all_law_categories() -> [LawCategory; 6] {
+        [
+            LawCategory::Conscription,
+            LawCategory::Economy,
+            LawCategory::Trade,
+            LawCategory::Taxation,
+            LawCategory::CivilRights,
+            LawCategory::InformationControl,
+        ]
+    }
+
+    fn law_entry(category: LawCategory) -> PoliticsLawEntry {
+        PoliticsLawEntry {
+            category,
+            current_name: "Volunteer Only".to_owned(),
+            cooldown_days: 0,
+            pending: None,
+            is_locked: false,
+        }
+    }
+
+    fn gate10_politics_data() -> PoliticsData {
+        let mut data = PoliticsData::legacy(
+            "fascism".to_owned(),
+            vec![
+                ("fascism".to_owned(), 0.71),
+                ("neutrality".to_owned(), 0.18),
+                ("democratic".to_owned(), 0.08),
+                ("communism".to_owned(), 0.03),
+            ],
+            vec![
+                IdeaEntry {
+                    key: "autarky".to_owned(),
+                    name: "Autarky".to_owned(),
+                    category: "country".to_owned(),
+                    picture: Some("GFX_idea_generic_industry".to_owned()),
+                    modifiers: vec![("Factory Output".to_owned(), 0.05)],
+                },
+                IdeaEntry {
+                    key: "four_year_plan".to_owned(),
+                    name: "Four Year Plan".to_owned(),
+                    category: "country".to_owned(),
+                    picture: Some("GFX_idea_generic_production".to_owned()),
+                    modifiers: vec![("Construction Speed".to_owned(), 0.10)],
+                },
+            ],
+        );
+        data.country_tag = "GER".to_owned();
+        data.leader_name = "Adolf Hitler".to_owned();
+        data.leader_portrait_key = Some("GFX_portrait_GER_adolf_hitler".to_owned());
+        data.party_full_name = "Nationalsozialistische Deutsche Arbeiterpartei".to_owned();
+        data.party_names = vec![
+            ("fascism".to_owned(), "NSDAP".to_owned()),
+            ("neutrality".to_owned(), "DNVP".to_owned()),
+            ("democratic".to_owned(), "Zentrum".to_owned()),
+            ("communism".to_owned(), "KPD".to_owned()),
+        ];
+        data.current_focus_name = Some("Rhineland".to_owned());
+        data.current_focus_progress = 35.0;
+        data.current_focus_cost_days = Some(70);
+        data.law_slots = all_law_categories().into_iter().map(law_entry).collect();
+        data
+    }
+
+    #[test]
+    fn gate8_idea_category_rows_match_vanilla_density() {
+        assert!(vanilla_idea_categories_height() >= 310.0);
+        assert!(vanilla_idea_category_row_step() >= vanilla_idea_category_row_height());
+        assert_eq!(
+            IdeaCategoryRowKind::GovernmentLaws.title(),
+            "Government / Laws"
+        );
+        assert_eq!(
+            IdeaCategoryRowKind::ResearchProduction.title(),
+            "Research & Production"
+        );
+        assert_eq!(IdeaCategoryRowKind::MilitaryStaff.title(), "Military Staff");
+    }
+
+    #[test]
+    fn gate6_country_profile_declares_templates_and_dynamic_bindings() {
+        let profile = CountryPoliticsProfile;
+        assert_eq!(profile.profile_id(), COUNTRY_POLITICS_PROFILE_ID);
+        assert_eq!(profile.root_template(), COUNTRY_POLITICS_ROOT);
+        assert_eq!(profile.required_gui_files(), &[COUNTRY_POLITICS_GUI_FILE]);
+        assert!(profile
+            .template_instances()
+            .iter()
+            .any(|instance| instance.template_name == COUNTRY_POLITICS_IDEA_CATEGORY_TEMPLATE));
+        assert!(profile
+            .template_instances()
+            .iter()
+            .any(|instance| instance.template_name == COUNTRY_POLITICS_PARTY_TEMPLATE));
+
+        let mut data = PoliticsData::legacy(
+            "fascism".to_owned(),
+            vec![("fascism".to_owned(), 0.7), ("democratic".to_owned(), 0.3)],
+            vec![],
+        );
+        data.leader_name = "Adolf Hitler".to_owned();
+        data.leader_portrait_key = Some("GFX_portrait_GER_adolf_hitler".to_owned());
+        data.current_focus_name = Some("Four Year Plan".to_owned());
+        data.current_focus_progress = 35.0;
+        data.current_focus_cost_days = Some(70);
+        data.law_slots = vec![law_entry(LawCategory::Conscription)];
+        data.party_names = vec![("fascism".to_owned(), "NSDAP".to_owned())];
+
+        let leader = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT).child("leader"),
+            &data,
+        );
+        assert_eq!(
+            leader.sprite.as_deref(),
+            Some("GFX_portrait_GER_adolf_hitler")
+        );
+        let leader_name = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT).child("leader_name"),
+            &data,
+        );
+        assert_eq!(leader_name.text.as_deref(), Some("Adolf Hitler"));
+
+        let progress = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT)
+                .child("active_goal")
+                .child("progress"),
+            &data,
+        );
+        assert_eq!(progress.progress, Some(0.5));
+
+        let parties = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT).child("parties_grid"),
+            &data,
+        );
+        assert_eq!(parties.instance_count, Some(2));
+        let party_name = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT)
+                .child("parties_grid")
+                .child("political_party_info_entry[0]")
+                .child("name"),
+            &data,
+        );
+        assert_eq!(party_name.text.as_deref(), Some("NSDAP 70%"));
+        assert_eq!(party_name.text_color, Some(vanilla_text()));
+        let fallback_party_name = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT)
+                .child("parties_grid")
+                .child("political_party_info_entry[1]")
+                .child("name"),
+            &data,
+        );
+        let expected_fallback_party_name = format!("{} 30%", tr("democratic"));
+        assert_eq!(
+            fallback_party_name.text.as_deref(),
+            Some(expected_fallback_party_name.as_str())
+        );
+        assert_eq!(fallback_party_name.text_color, Some(vanilla_text()));
+
+        let party_color = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT)
+                .child("parties_grid")
+                .child("political_party_info_entry[0]")
+                .child("color_block"),
+            &data,
+        );
+        assert_eq!(party_color.tint, Some(ideology_color("fascism")));
+        let party_fill = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT)
+                .child("parties_grid")
+                .child("political_party_info_entry[0]")
+                .child("leading_pol_party_bg"),
+            &data,
+        );
+        assert_eq!(party_fill.visible, Some(false));
+        assert_eq!(party_fill.progress, None);
+        assert_eq!(party_fill.tint, None);
+
+        let hidden = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT).child("power_balance_button"),
+            &data,
+        );
+        assert_eq!(hidden.visible, Some(false));
+
+        let command = profile.handle_action(
+            GuiAction {
+                node_path: GuiNodePath::root(COUNTRY_POLITICS_ROOT).child("active_goal"),
+                kind: GuiActionKind::Click,
+            },
+            &data,
+        );
+        assert!(matches!(command, Some(DecisionCommand::OpenFocusTree)));
+    }
+
+    #[test]
+    fn gate6_binding_specs_document_only_data_binding_values() {
+        assert!(COUNTRY_POLITICS_BINDING_SPECS.len() >= 20);
+        for spec in COUNTRY_POLITICS_BINDING_SPECS {
+            assert!(spec.path_pattern.starts_with(COUNTRY_POLITICS_ROOT));
+            assert!(!spec.values.is_empty(), "{spec:?}");
+            assert!(!spec.reason.trim().is_empty(), "{spec:?}");
+            for value in spec.values {
+                assert!(
+                    matches!(
+                        value,
+                        CountryPoliticsBindingValue::Visibility
+                            | CountryPoliticsBindingValue::Text
+                            | CountryPoliticsBindingValue::TextColor
+                            | CountryPoliticsBindingValue::Sprite
+                            | CountryPoliticsBindingValue::Tint
+                            | CountryPoliticsBindingValue::Progress
+                            | CountryPoliticsBindingValue::Pie
+                            | CountryPoliticsBindingValue::Tooltip
+                            | CountryPoliticsBindingValue::Command
+                            | CountryPoliticsBindingValue::Instances
+                    ),
+                    "{spec:?}"
+                );
+            }
+        }
+
+        assert!(COUNTRY_POLITICS_BINDING_SPECS
+            .iter()
+            .any(|spec| spec.path_pattern.contains("active_goal.progress")
+                && spec.values == [CountryPoliticsBindingValue::Progress]));
+        assert!(COUNTRY_POLITICS_BINDING_SPECS.iter().any(|spec| {
+            spec.path_pattern.contains("add_idea_button")
+                && spec.values.contains(&CountryPoliticsBindingValue::Command)
+        }));
+    }
+
+    #[test]
+    fn gate6_profile_binds_law_and_spirit_slots_without_visual_overlay_state() {
+        let profile = CountryPoliticsProfile;
+        let mut data = PoliticsData::legacy(
+            "fascism".to_owned(),
+            vec![],
+            vec![IdeaEntry {
+                key: "spirit".to_owned(),
+                name: "National Spirit".to_owned(),
+                category: "national_spirit".to_owned(),
+                picture: Some("GFX_idea_generic_political_reform".to_owned()),
+                modifiers: vec![],
+            }],
+        );
+        data.law_slots = vec![law_entry(LawCategory::Economy)];
+
+        let law = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT)
+                .child("idea_categories_grid")
+                .child(format!("{COUNTRY_POLITICS_IDEA_CATEGORY_TEMPLATE}[0]"))
+                .child("ideas_grid")
+                .child("political_idea_entry[0]")
+                .child("add_idea_button"),
+            &data,
+        );
+        assert_eq!(
+            law.sprite.as_deref(),
+            Some(politics_law_idea_sprite(&data.law_slots[0]))
+        );
+        assert!(!law.tooltip.as_deref().unwrap_or_default().is_empty());
+        assert_eq!(
+            law.click.as_ref().map(|click| click.command.as_str()),
+            Some("law:Economy")
+        );
+        assert_eq!(law.text, None);
+        assert_eq!(law.progress, None);
+        assert!(law.pie_segments.is_empty());
+
+        let spirit = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT)
+                .child("national_spirit")
+                .child("spirit_grid")
+                .child("political_idea_entry[0]")
+                .child("add_idea_button"),
+            &data,
+        );
+        assert_eq!(
+            spirit.sprite.as_deref(),
+            Some("GFX_idea_generic_political_reform")
+        );
+        assert_eq!(spirit.tooltip.as_deref(), Some("National Spirit"));
+        assert!(spirit.click.is_none());
+        assert_eq!(spirit.text, None);
+        assert_eq!(spirit.progress, None);
+        assert!(spirit.pie_segments.is_empty());
+    }
+
+    #[test]
+    fn gate10_law_and_advisor_slots_stay_inside_small_rows() {
+        let law_width = vanilla_slot_width_for_count(188.0, 6, 6.0, 66.0);
+        let law_total = law_width * 6.0 + 6.0 * 5.0;
+        assert!(law_total <= 188.0 + f32::EPSILON);
+
+        let advisor_width = vanilla_slot_width_for_count(188.0, 5, 9.0, 52.0);
+        let advisor_total = advisor_width * 5.0 + 9.0 * 4.0;
+        assert!(advisor_total <= 188.0 + f32::EPSILON);
+
+        let desktop_width = vanilla_slot_width_for_count(420.0, 6, 6.0, 66.0);
+        assert_eq!(desktop_width, 65.0);
+    }
+
+    #[test]
+    fn gate9_law_slot_statuses_cover_current_pending_cooldown_locked() {
+        let current = law_entry(LawCategory::Conscription);
+        assert_eq!(politics_law_status_text(&current), tr("current"));
+
+        let mut pending = law_entry(LawCategory::Economy);
+        pending.pending = Some(("War Economy".to_owned(), 12));
+        assert!(politics_law_status_text(&pending).contains(tr("v6_law_pending")));
+        assert!(politics_law_tooltip(&pending).contains("War Economy"));
+
+        let mut cooldown = law_entry(LawCategory::Trade);
+        cooldown.cooldown_days = 7;
+        assert!(politics_law_status_text(&cooldown).contains(tr("cooldown")));
+        assert!(politics_law_tooltip(&cooldown).contains("7"));
+
+        let mut locked = law_entry(LawCategory::CivilRights);
+        locked.is_locked = true;
+        assert_eq!(politics_law_status_text(&locked), tr("locked"));
+    }
+
+    #[test]
+    fn gate9_law_detail_command_keeps_category_and_no_specific_law() {
+        let cmd = politics_law_detail_command(&law_entry(LawCategory::InformationControl));
+        match cmd {
+            DecisionCommand::Panel(PanelCommand::OpenDetail(ActiveDetailPanel::Law {
+                category,
+                law_id,
+            })) => {
+                assert_eq!(category, "InformationControl");
+                assert!(law_id.is_none());
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gate6_profile_preserves_close_and_focus_button_bindings() {
+        let profile = CountryPoliticsProfile;
+        let data = PoliticsData::legacy("fascism".to_owned(), vec![], vec![]);
+
+        let close = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT).child("close_button"),
+            &data,
+        );
+        assert_eq!(
+            close.click.as_ref().map(|click| click.command.as_str()),
+            Some("close")
+        );
+
+        let focus = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT).child("add_national_goal_button"),
+            &data,
+        );
+        assert_eq!(
+            focus.click.as_ref().map(|click| click.command.as_str()),
+            Some("open_focus_tree")
+        );
+    }
+
+    #[test]
+    fn gate13_cjk_fit_font_shrinks_long_law_text_without_collapsing() {
+        let base = crate::v9::TextRole::Caption.font_id();
+        let fitted = fit_text_font("非常漫长的中文法律名称", base.clone(), 48.0);
+
+        assert!(fitted.size < base.size);
+        assert!(fitted.size >= base.size * 0.60);
+    }
+
+    #[test]
+    fn gate14_six_law_categories_bind_to_non_overlapping_vanilla_slots() {
+        let mut data = PoliticsData::legacy("fascism".to_owned(), vec![], vec![]);
+        data.law_slots = all_law_categories().into_iter().map(law_entry).collect();
+
+        let profile = CountryPoliticsProfile;
+        let binding = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT)
+                .child("idea_categories_grid")
+                .child("ideas_grid"),
+            &data,
+        );
+        assert_eq!(binding.instance_count, Some(6));
+
+        let row = Rect::from_min_size(
+            Pos2::ZERO,
+            Vec2::new(550.0, vanilla_idea_category_row_height()),
+        );
+        let row_step = vanilla_idea_category_row_step();
+        let slots = vanilla_idea_category_slot_rects(row, data.law_slots.len());
+        assert_eq!(slots.len(), 6);
+        for slot in &slots {
+            assert!(slot.width() > 1.0);
+            assert!(slot.height() > 1.0);
+            assert!(slot.left() >= row.left() - f32::EPSILON);
+            assert!(slot.right() <= row.right() + f32::EPSILON);
+            assert!(slot.top() >= row.top() - f32::EPSILON);
+            assert!(slot.bottom() <= row.top() + row_step + f32::EPSILON);
+        }
+        for pair in slots.windows(2) {
+            assert!(pair[0].right() <= pair[1].left() + f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn gate15_debug_fallback_flag_is_explicit() {
+        for value in ["1", "true", "yes", "on", "v9", "legacy"] {
+            assert!(politics_v9_fallback_enabled(value), "{value}");
+        }
+        for value in ["", "0", "false", "no", "vanilla"] {
+            assert!(!politics_v9_fallback_enabled(value), "{value}");
+        }
+    }
+
+    #[test]
+    fn gate1_politics_context_loads_gui_and_gfx_index_when_vanilla_available() {
+        let Some(context) = politics_vanilla_gui_context() else {
+            return;
+        };
+        assert!(context
+            .document
+            .template_index()
+            .get(COUNTRY_POLITICS_ROOT)
+            .is_some());
+        assert!(!context.gfx_index.is_empty());
+        assert_eq!(context.gfx_hits.requested, POLITICS_PANEL_SPRITES.len());
+        assert!(
+            context.gfx_hits.hits >= 5,
+            "unexpected missing politics GFX tokens: {:?}",
+            context.gfx_hits.missing
+        );
+    }
+
+    #[test]
+    fn gate2_render_stats_commands_keep_close_and_focus_actions() {
+        let mut stats = crate::vanilla_gui::RenderStats::default();
+        stats.clicked_commands.push("open_focus_tree".to_owned());
+        stats.clicked_commands.push("close".to_owned());
+        let profile = CountryPoliticsProfile;
+        let data = PoliticsData::legacy("fascism".to_owned(), vec![], vec![]);
+
+        let commands = politics_commands_from_render_stats(&profile, &data, &stats);
+
+        assert!(politics_close_requested_from_render_stats(&stats));
+        assert!(matches!(
+            commands.as_slice(),
+            [DecisionCommand::OpenFocusTree]
+        ));
+    }
+
+    #[test]
+    fn gate3_profile_binds_dynamic_politics_nodes_after_tree_render() {
+        let profile = CountryPoliticsProfile;
+        let mut data = PoliticsData::legacy(
+            "fascism".to_owned(),
+            vec![
+                ("fascism".to_owned(), 0.65),
+                ("democratic".to_owned(), 0.35),
+            ],
+            vec![IdeaEntry {
+                key: "spirit".to_owned(),
+                name: "National Spirit".to_owned(),
+                category: "national_spirit".to_owned(),
+                picture: Some("GFX_idea_generic_political_reform".to_owned()),
+                modifiers: vec![],
+            }],
+        );
+        data.leader_name = "Leader".to_owned();
+        data.current_focus_name = Some("Focus".to_owned());
+        data.current_focus_progress = 10.0;
+        data.current_focus_cost_days = Some(20);
+        data.law_slots = all_law_categories().into_iter().map(law_entry).collect();
+
+        let pie = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT).child("political_pie_chart"),
+            &data,
+        );
+        let spirits = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT).child("spirit_grid"),
+            &data,
+        );
+        let laws = profile.bind_node(
+            &GuiNodePath::root(COUNTRY_POLITICS_ROOT)
+                .child("idea_categories_grid")
+                .child("ideas_grid"),
+            &data,
+        );
+
+        assert_eq!(pie.pie_segments.len(), 2);
+        assert_eq!(spirits.instance_count, Some(1));
+        assert_eq!(laws.instance_count, Some(6));
+    }
+
+    #[test]
+    fn gate4_runtime_idea_category_slot_counts_follow_data() {
+        let mut data = PoliticsData::legacy(
+            "fascism".to_owned(),
+            vec![],
+            vec![
+                IdeaEntry {
+                    key: "a".to_owned(),
+                    name: "A".to_owned(),
+                    category: "national_spirit".to_owned(),
+                    picture: None,
+                    modifiers: vec![],
+                },
+                IdeaEntry {
+                    key: "b".to_owned(),
+                    name: "B".to_owned(),
+                    category: "national_spirit".to_owned(),
+                    picture: None,
+                    modifiers: vec![],
+                },
+            ],
+        );
+        data.law_slots = all_law_categories().into_iter().map(law_entry).collect();
+
+        assert_eq!(
+            politics_idea_category_slot_count(IdeaCategoryRowKind::GovernmentLaws, &data),
+            6
+        );
+        assert_eq!(
+            politics_idea_category_slot_count(IdeaCategoryRowKind::ResearchProduction, &data),
+            5
+        );
+        assert_eq!(
+            politics_idea_category_slot_count(IdeaCategoryRowKind::MilitaryStaff, &data),
+            6
+        );
+    }
+
+    #[test]
+    fn gate_harden_active_goal_layout() {
+        let Some(context) = politics_vanilla_gui_context() else {
+            return;
+        };
+        let root = context
+            .document
+            .template_index()
+            .get(COUNTRY_POLITICS_ROOT)
+            .unwrap();
+        let button_resource = context
+            .gfx_index
+            .get("GFX_add_national_goal_button")
+            .expect("GFX_add_national_goal_button should come from countrypoliticsview.gfx");
+        assert_eq!(button_resource.frame_count, Some(3));
+
+        for (width, height) in [(1920.0, 1080.0), (960.0, 640.0)] {
+            let viewport = crate::vanilla_gui::GuiRect::new(0.0, 0.0, width, height);
+            let layout = crate::vanilla_gui::compute_layout_tree(
+                root,
+                &crate::vanilla_gui::LayoutOptions::new(viewport).shown_position(true),
+            );
+            let active = layout.find_by_name("active_goal").unwrap();
+            let bg = active.find_by_name("Background").unwrap();
+            let button = active.find_by_name("add_national_goal_button").unwrap();
+            let goal_icon = active.find_by_name("goal_icon").unwrap();
+            let progress = active.find_by_name("progress").unwrap();
+            let progress_frame = active.find_by_name("progress_frame").unwrap();
+            let cost = active.find_by_name("focus_cost").unwrap();
+            let drop_focus = active.find_by_name("drop_focus_button").unwrap();
+            let drop_continuous = active.find_by_name("drop_continuous_focus_button").unwrap();
+
+            assert_eq!(active.rect.x, 173.0, "viewport={width}x{height}");
+            assert_eq!(active.rect.y, 126.0, "viewport={width}x{height}");
+            assert_eq!(active.rect.width, 330.0);
+            assert_eq!(active.rect.height, 50.0);
+            assert_eq!(bg.rect, active.rect);
+            assert_eq!(button.rect.x, active.rect.x + 100.0);
+            assert_eq!(button.rect.y, active.rect.y + 7.0);
+            assert_eq!(button.rect.width, 0.0);
+            assert_eq!(button.rect.height, 0.0);
+
+            let ctx = egui::Context::default();
+            let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+                return;
+            };
+            let mut icon_bank = crate::icons::IconBank::new(ctx, path_cfg);
+            icon_bank.add_politics_search_dirs();
+            let hit = crate::vanilla_gui::resource_hit_rect(
+                Rect::from(button.rect),
+                "GFX_add_national_goal_button",
+                Some(button_resource),
+                &mut icon_bank,
+            );
+            assert!(hit.width() >= 250.0, "{hit:?}");
+            assert!(hit.height() >= 80.0, "{hit:?}");
+            assert_eq!(hit.min, Rect::from(button.rect).min);
+
+            let goal_icon_center_x = goal_icon.rect.x + goal_icon.rect.width * 0.5;
+            let goal_icon_center_y = goal_icon.rect.y + goal_icon.rect.height * 0.5;
+            let active_center_y = active.rect.y + active.rect.height * 0.5;
+            assert!(goal_icon_center_x < button.rect.x);
+            assert!(goal_icon_center_y > active_center_y);
+            assert_eq!(cost.rect.x, active.rect.x + 132.0);
+            assert_eq!(progress.rect.x, active.rect.x + 112.0);
+            assert_eq!(progress.rect.y, active.rect.y + 72.0);
+            assert_eq!(progress_frame.rect.x, active.rect.x + 110.0);
+            assert_eq!(progress_frame.rect.y, progress.rect.y);
+            assert_eq!(drop_focus.rect.x, active.rect.x + 327.0 * 0.9);
+            assert_eq!(drop_continuous.rect.x, drop_focus.rect.x);
+        }
+    }
+
+    #[test]
+    fn gate5_politics_icon_bank_diagnoses_key_sprites_when_vanilla_available() {
+        let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+            return;
+        };
+        if path_cfg.find(COUNTRY_POLITICS_GUI_FILE).is_none() {
+            return;
+        }
+        let ctx = egui::Context::default();
+        let mut icon_bank = crate::icons::IconBank::new(ctx, path_cfg);
+        icon_bank.add_politics_search_dirs();
+        let (loaded, missing) = icon_bank.diagnose_sprites(POLITICS_PANEL_SPRITES.iter().copied());
+
+        assert!(loaded >= 5, "loaded={loaded} missing={missing}");
+        assert!(missing <= POLITICS_PANEL_SPRITES.len().saturating_sub(loaded));
+        assert!(
+            icon_bank.has_sprite_mapping("GFX_pol_view_bg"),
+            "GFX_pol_view_bg must resolve through parsed .gfx metadata"
+        );
+    }
+
+    #[test]
+    fn gate9_viewport_layout_keeps_vanilla_root_and_key_regions_visible() {
+        let Some(context) = politics_vanilla_gui_context() else {
+            return;
+        };
+        let root = context
+            .document
+            .template_index()
+            .get(COUNTRY_POLITICS_ROOT)
+            .unwrap();
+
+        for (width, height) in [(1920.0, 1080.0), (2560.0, 1440.0), (960.0, 640.0)] {
+            let viewport = crate::vanilla_gui::GuiRect::new(0.0, 0.0, width, height);
+            let layout = crate::vanilla_gui::compute_layout_tree(
+                root,
+                &crate::vanilla_gui::LayoutOptions::new(viewport).shown_position(true),
+            );
+            assert_eq!(layout.rect.x, -6.0);
+            assert_eq!(layout.rect.y, 78.0);
+            assert_eq!(layout.rect.width, 550.0);
+            assert!(
+                layout.rect.height >= height - 1.0,
+                "root should keep vanilla percent-height at {width}x{height}: {:?}",
+                layout.rect
+            );
+
+            for name in [
+                "political_title",
+                "leader_name",
+                "active_goal",
+                "national_spirit",
+                "political_pie_chart",
+                "ruling_party_info",
+                "idea_categories_grid",
+            ] {
+                let node = layout
+                    .find_by_name(name)
+                    .unwrap_or_else(|| panic!("missing politics layout node {name}"));
+                assert!(
+                    node.rect.width > 0.0
+                        && node.rect.height > 0.0
+                        && node.rect.x + node.rect.width > 0.0
+                        && node.rect.x < width
+                        && node.rect.y + node.rect.height > 0.0
+                        && node.rect.y < height,
+                    "{name} should remain sized and inside or intersect the {width}x{height} viewport: {:?}",
+                    node.rect
+                );
+            }
+
+            for (name, sprite) in [
+                ("Background", "GFX_tiled_plain_bg"),
+                ("production_header_bg", "GFX_header_bg"),
+                ("pol_view_bg", "GFX_pol_view_bg"),
+                ("leader", "GFX_portrait_unknown"),
+                ("close_button", "GFX_closebutton"),
+            ] {
+                let node = layout
+                    .find_by_name(name)
+                    .unwrap_or_else(|| panic!("missing politics sprite node {name}"));
+                assert!(
+                    node.rect.x >= -16.0
+                        && node.rect.x < width
+                        && node.rect.y >= 0.0
+                        && node.rect.y < height,
+                    "{name} should keep its vanilla anchor in the {width}x{height} viewport: {:?}",
+                    node.rect
+                );
+                if !matches!(sprite, "GFX_portrait_unknown" | "GFX_closebutton") {
+                    assert!(context.gfx_index.contains(sprite), "missing {sprite}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn gate10_real_countrypoliticsview_tree_render_smoke_when_vanilla_available() {
+        let Some(context) = politics_vanilla_gui_context() else {
+            return;
+        };
+        let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+            return;
+        };
+        if path_cfg.find(COUNTRY_POLITICS_GUI_FILE).is_none() {
+            return;
+        }
+
+        let root = context
+            .document
+            .template_index()
+            .get(COUNTRY_POLITICS_ROOT)
+            .unwrap();
+        let viewport = crate::vanilla_gui::GuiRect::new(0.0, 0.0, 1920.0, 1080.0);
+        let layout = crate::vanilla_gui::compute_layout_tree(
+            root,
+            &crate::vanilla_gui::LayoutOptions::new(viewport).shown_position(true),
+        );
+        let profile = CountryPoliticsProfile;
+        let data = gate10_politics_data();
+        let bindings = crate::vanilla_gui::bind_profile_tree(&profile, root, &data);
+        let stats_slot: Rc<RefCell<Option<crate::vanilla_gui::RenderStats>>> =
+            Rc::new(RefCell::new(None));
+        let stats_out = Rc::clone(&stats_slot);
+
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(Vec2::new(1920.0, 1080.0))
+            .build(move |ctx| {
+                let mut icon_bank = crate::icons::IconBank::new(ctx.clone(), path_cfg.clone());
+                icon_bank.add_politics_search_dirs();
+                icon_bank.add_leader_dirs(["GER"]);
+                egui::Area::new(egui::Id::new("gate10_real_politics_tree"))
+                    .order(egui::Order::Foreground)
+                    .fixed_pos(Pos2::ZERO)
+                    .show(ctx, |ui| {
+                        let _ = ui.allocate_exact_size(Vec2::new(1920.0, 1080.0), Sense::hover());
+                        let renderer =
+                            crate::vanilla_gui::VanillaGuiRenderer::new(&context.gfx_index);
+                        let stats =
+                            renderer.paint_tree(ui, root, &layout, &bindings, &mut icon_bank);
+                        *stats_out.borrow_mut() = Some(stats);
+                    });
+            });
+
+        harness.run();
+        let stats = stats_slot
+            .borrow()
+            .clone()
+            .expect("politics tree render stats should be captured");
+        assert!(stats.nodes_seen >= 50, "{stats:?}");
+        assert!(stats.nodes_painted >= 35, "{stats:?}");
+        assert!(stats.sprites_painted >= 15, "{stats:?}");
+        assert_eq!(stats.fallback_painted, 0, "{stats:?}");
+        assert!(stats.text_painted >= 5, "{stats:?}");
+        assert!(stats.buttons >= 3, "{stats:?}");
+        assert_eq!(stats.progress_bars, 1, "{stats:?}");
+        assert_eq!(stats.pie_charts, 1, "{stats:?}");
+    }
+
+    #[test]
+    fn gate10_key_politics_gfx_textures_load_when_vanilla_available() {
+        let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+            return;
+        };
+        if path_cfg.find(COUNTRY_POLITICS_GUI_FILE).is_none() {
+            return;
+        }
+        let ctx = egui::Context::default();
+        let mut icon_bank = crate::icons::IconBank::new(ctx, path_cfg);
+        icon_bank.add_politics_search_dirs();
+
+        for sprite in [
+            "GFX_pol_view_bg",
+            "GFX_pol_goal_bg",
+            "GFX_pol_leader_frame",
+            "GFX_category_header",
+            "GFX_idea_categories",
+        ] {
+            let report = icon_bank.diagnose_sprite(sprite);
+            assert!(
+                report.loaded,
+                "expected {sprite} to load from textureFile={:?}; tried={:?}; reason={:?}",
+                report.texture_file, report.attempted_paths, report.failure_reason
+            );
+        }
+    }
+
+    #[test]
+    fn gate_harden_resource_colors() {
+        let Some(context) = politics_vanilla_gui_context() else {
+            return;
+        };
+        let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+            return;
+        };
+        if path_cfg.find(COUNTRY_POLITICS_GUI_FILE).is_none() {
+            return;
+        }
+        let ctx = egui::Context::default();
+        let mut icon_bank = crate::icons::IconBank::new(ctx, path_cfg);
+        icon_bank.add_politics_search_dirs();
+
+        for sprite in [
+            "GFX_pol_view_bg",
+            "GFX_pol_goal_bg",
+            "GFX_add_national_goal_button",
+            "GFX_category_header",
+            "GFX_idea_categories",
+        ] {
+            let resource = context
+                .gfx_index
+                .get(sprite)
+                .unwrap_or_else(|| panic!("missing {sprite} from parsed .gfx index"));
+            let texture_file = resource
+                .fallback_texture_name()
+                .unwrap_or_else(|| panic!("{sprite} has no textureFile"));
+            assert_eq!(icon_bank.sprite_texturefile(sprite), Some(texture_file));
+            let probe = icon_bank.diagnose_texture_file(texture_file);
+            assert!(
+                probe.loaded,
+                "{sprite} textureFile probe failed: {:?}",
+                probe
+            );
+            let stats = icon_bank
+                .texture_file_pixel_stats(texture_file)
+                .unwrap_or_else(|err| panic!("{sprite} pixel stats failed: {err}"));
+            assert!(
+                stats.non_transparent_pixels > 64,
+                "{sprite} should have visible pixels: {:?}",
+                stats
+            );
+            assert!(stats.max_alpha > 0, "{sprite} alpha should not be empty");
+            assert!(
+                stats
+                    .mean_rgb
+                    .iter()
+                    .all(|channel| *channel >= 0.0 && *channel <= 255.0),
+                "{sprite} mean RGB out of range: {:?}",
+                stats
+            );
+            assert!(
+                stats.near_white_gray_ratio < 0.98,
+                "{sprite} looks like a white/gray placeholder: {:?}",
+                stats
+            );
+        }
     }
 }

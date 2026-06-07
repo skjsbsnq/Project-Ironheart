@@ -3,6 +3,7 @@ pub(crate) enum AppCommand {
     SideRailPanel(hoi4_ui::PanelKind),
     Panel(hoi4_ui::PanelCommand),
     CloseActivePanel,
+    FinishPoliticsClose,
     CloseLawPanel,
     CloseConstructionPanel,
     Finance(hoi4_ui::finance_panel::FinanceCommand),

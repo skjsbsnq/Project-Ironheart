@@ -18,9 +18,10 @@ use crate::{
     ActiveDetailPanel, ActivePrimaryPanel, BuildingDetailTarget, CountryDetailTarget, DetailSource,
     GoodsDetailTarget, PanelCommand, PopGroupDetailTarget, ProvinceDetailTarget, StateDetailTarget,
 };
-use egui::{Color32, RichText, Sense, Vec2};
+use egui::{Color32, Pos2, Rect, RichText, Sense, Vec2};
 use hoi4_content::focus::{Focus, FocusTree};
 use std::collections::HashSet;
+use std::sync::OnceLock;
 
 #[derive(Debug, Default)]
 pub struct DetailPanelOutput {
@@ -57,12 +58,23 @@ impl DetailPanelHost {
     ) -> Option<DetailPanelOutput> {
         let detail = detail?;
         let mut output = DetailPanelOutput::default();
-        if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
-            Some(PanelCommand::CloseDetail)
-        } else {
-            None
+        if let ActiveDetailPanel::Law { category, law_id } = detail {
+            if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+                request_law_political_ideas_close(ctx);
+            }
+            show_law_political_ideas_window(
+                ctx,
+                category,
+                law_id.as_deref(),
+                law_data,
+                &mut output,
+            );
+            return Some(output);
         }
-        .map(|cmd| output.panel_command = Some(cmd));
+
+        if ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+            output.panel_command = Some(PanelCommand::CloseDetail);
+        }
 
         let title = detail_title(detail);
         let mut shell = DossierPanelShell::new("gate1_detail_panel_host", title)
@@ -1612,6 +1624,651 @@ fn find_buildable_entry<'a>(
         .find(|entry| entry.building_def_id == key || entry.building_name == key)
 }
 
+const POLITICAL_IDEAS_GUI_FILE: &str = "interface/countrypoliticsview.gui";
+const POLITICAL_IDEAS_ROOT: &str = "political_ideas_window";
+const POLITICAL_IDEAS_ENTRY_LIST_TEMPLATE: &str = "political_selectable_idea_entry_list";
+
+#[derive(Debug)]
+struct PoliticalIdeasVanillaGuiContext {
+    document: crate::vanilla_gui::GuiDocument,
+}
+
+fn political_ideas_vanilla_gui_context() -> Option<&'static PoliticalIdeasVanillaGuiContext> {
+    static CACHE: OnceLock<Option<PoliticalIdeasVanillaGuiContext>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let path_cfg = hoi4_paths::PathConfig::resolve(Default::default()).ok()?;
+            let gui_path = path_cfg.find(POLITICAL_IDEAS_GUI_FILE)?;
+            let document = crate::vanilla_gui::parse_gui_file(gui_path).ok()?;
+            Some(PoliticalIdeasVanillaGuiContext { document })
+        })
+        .as_ref()
+}
+
+fn political_ideas_root_node() -> Option<&'static crate::vanilla_gui::GuiNode> {
+    political_ideas_vanilla_gui_context()
+        .and_then(|context| context.document.template_index().get(POLITICAL_IDEAS_ROOT))
+}
+
+fn political_ideas_entry_list_size() -> Vec2 {
+    political_ideas_vanilla_gui_context()
+        .and_then(|context| {
+            context
+                .document
+                .template_index()
+                .get(POLITICAL_IDEAS_ENTRY_LIST_TEMPLATE)
+        })
+        .and_then(|node| node.block("size"))
+        .map(|size| {
+            let width = size
+                .get("width")
+                .and_then(crate::vanilla_gui::GuiValueExt::as_lossy_f32)
+                .unwrap_or(462.0);
+            let height = size
+                .get("height")
+                .and_then(crate::vanilla_gui::GuiValueExt::as_lossy_f32)
+                .unwrap_or(74.0);
+            Vec2::new(width, height)
+        })
+        .unwrap_or(Vec2::new(462.0, 74.0))
+}
+
+fn political_ideas_box_list_slot_size() -> Vec2 {
+    political_ideas_vanilla_gui_context()
+        .and_then(|context| context.document.find_node_by_name("box_list"))
+        .and_then(|node| node.block("slotsize"))
+        .map(|size| {
+            let width = size
+                .get("width")
+                .and_then(crate::vanilla_gui::GuiValueExt::as_lossy_f32)
+                .unwrap_or(462.0);
+            let height = size
+                .get("height")
+                .and_then(crate::vanilla_gui::GuiValueExt::as_lossy_f32)
+                .unwrap_or(74.0);
+            Vec2::new(width, height)
+        })
+        .unwrap_or_else(political_ideas_entry_list_size)
+}
+
+fn law_political_ideas_close_requested_id() -> egui::Id {
+    egui::Id::new("law_political_ideas_close_requested")
+}
+
+fn law_political_ideas_animation_store_id() -> egui::Id {
+    egui::Id::new("vanilla_gui_panel_animation_store")
+}
+
+pub fn request_law_political_ideas_close(ctx: &egui::Context) {
+    ctx.data_mut(|data| data.insert_persisted(law_political_ideas_close_requested_id(), true));
+    ctx.request_repaint();
+}
+
+fn update_law_political_ideas_animation(
+    ctx: &egui::Context,
+    spec: crate::vanilla_gui::AnimationSpec,
+) -> crate::vanilla_gui::PanelAnimationUpdate {
+    let close_id = law_political_ideas_close_requested_id();
+    let store_id = law_political_ideas_animation_store_id();
+    let now_ms = ctx.input(|input| input.time * 1000.0);
+    let update = ctx.data_mut(|data| {
+        let mut store = data
+            .get_persisted::<crate::vanilla_gui::PanelAnimationStore>(store_id)
+            .unwrap_or_default();
+        let mut close_requested = data.get_persisted::<bool>(close_id).unwrap_or(false);
+        if close_requested
+            && matches!(
+                store.phase(POLITICAL_IDEAS_ROOT),
+                None | Some(crate::vanilla_gui::AnimationPhase::Closed)
+            )
+        {
+            close_requested = false;
+            data.insert_persisted(close_id, false);
+        }
+        let update = store.update(POLITICAL_IDEAS_ROOT, !close_requested, spec, now_ms);
+        data.insert_persisted(store_id, store);
+        update
+    });
+    if matches!(
+        update.phase,
+        crate::vanilla_gui::AnimationPhase::Opening | crate::vanilla_gui::AnimationPhase::Closing
+    ) {
+        ctx.request_repaint();
+    }
+    update
+}
+
+fn show_law_political_ideas_window(
+    ctx: &egui::Context,
+    category_key: &str,
+    law_id: Option<&str>,
+    law_data: Option<&LawPanelData>,
+    output: &mut DetailPanelOutput,
+) {
+    let screen = ctx.screen_rect();
+    let root = political_ideas_root_node();
+    let (pos, size, visible, close_finished) = if let Some(root) = root {
+        let viewport = crate::vanilla_gui::GuiRect::new(
+            screen.left(),
+            screen.top(),
+            screen.width(),
+            screen.height(),
+        );
+        let layout = crate::vanilla_gui::compute_layout_tree(
+            root,
+            &crate::vanilla_gui::LayoutOptions::new(viewport).shown_position(true),
+        );
+        let spec = crate::vanilla_gui::AnimationSpec::from_node(root);
+        let update = update_law_political_ideas_animation(ctx, spec);
+        let y = screen.top() + update.position.y;
+        let width = layout.rect.width.clamp(360.0, 500.0);
+        let height = layout
+            .rect
+            .height
+            .min((screen.bottom() - y - 8.0).max(430.0))
+            .clamp(430.0, 590.0);
+        (
+            Pos2::new(screen.left() + update.position.x, y),
+            Vec2::new(width, height),
+            update.visible,
+            update.close_finished,
+        )
+    } else {
+        let spec = crate::vanilla_gui::AnimationSpec {
+            hidden_position: crate::vanilla_gui::GuiPoint { x: -356.0, y: 80.0 },
+            shown_position: crate::vanilla_gui::GuiPoint { x: 540.0, y: 80.0 },
+            show_curve: crate::vanilla_gui::AnimationCurve::Decelerated,
+            hide_curve: crate::vanilla_gui::AnimationCurve::Accelerated,
+            duration_ms: 300.0,
+        };
+        let update = update_law_political_ideas_animation(ctx, spec);
+        let y = screen.top() + update.position.y;
+        (
+            Pos2::new(screen.left() + update.position.x, y),
+            Vec2::new(500.0, (screen.bottom() - y - 8.0).clamp(430.0, 590.0)),
+            update.visible,
+            update.close_finished,
+        )
+    };
+
+    if close_finished {
+        ctx.data_mut(|data| {
+            data.insert_persisted(law_political_ideas_close_requested_id(), false);
+        });
+        output.panel_command = Some(PanelCommand::CloseDetail);
+        return;
+    }
+    if !visible {
+        return;
+    }
+
+    let resolved_category = law_panel::law_category_from_key(category_key);
+    let resolved_slot = resolved_category.and_then(|category| {
+        law_data?
+            .slots
+            .iter()
+            .find(|slot| slot.category == category)
+    });
+    let window_title = resolved_slot
+        .map(|slot| law_panel::law_category_label(&slot.category).to_owned())
+        .unwrap_or_else(|| "Political Ideas".to_owned());
+    let mut close = false;
+
+    egui::Area::new(egui::Id::new("political_ideas_window_law_detail"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(pos)
+        .show(ctx, |ui| {
+            let (outer, _) = ui.allocate_exact_size(size, Sense::click_and_drag());
+            VanillaIron::paint_panel(ui, outer, VanillaIron::BRASS);
+            let title_bar = Rect::from_min_size(
+                outer.left_top() + Vec2::new(10.0, 9.0),
+                Vec2::new(outer.width() - 20.0, 34.0),
+            );
+            VanillaIron::section_title_at(ui, title_bar, &window_title);
+            let close_rect = Rect::from_min_size(
+                Pos2::new(title_bar.right() - 27.0, title_bar.top() + 5.0),
+                Vec2::splat(23.0),
+            );
+            if VanillaIron::close_button(ui, close_rect, "political_ideas_law_close").clicked() {
+                close = true;
+            }
+
+            let body = Rect::from_min_max(
+                Pos2::new(outer.left() + 12.0, title_bar.bottom() + 8.0),
+                Pos2::new(outer.right() - 12.0, outer.bottom() - 12.0),
+            );
+
+            let Some(data) = law_data else {
+                law_window_empty(ui, body, "法律数据尚未载入。请从政治面板重新打开详情。");
+                return;
+            };
+            let Some(category) = law_panel::law_category_from_key(category_key) else {
+                law_window_empty(ui, body, &format!("无法识别法律类别：{category_key}"));
+                return;
+            };
+            let Some(slot) = data.slots.iter().find(|slot| slot.category == category) else {
+                law_window_empty(ui, body, "当前国家没有该法律类别数据。");
+                return;
+            };
+
+            let selected_id = ui.id().with(("political_ideas_candidate", category_key));
+            let mut selected_law = ui
+                .ctx()
+                .data_mut(|d| d.get_persisted::<String>(selected_id))
+                .or_else(|| law_id.map(str::to_owned))
+                .unwrap_or_else(|| slot.current_id.clone());
+            if !slot.tiers.iter().any(|tier| tier.id == selected_law) {
+                selected_law = slot.current_id.clone();
+            }
+
+            law_window_header(ui, body, slot, data.political_power);
+            let list_rect = Rect::from_min_max(
+                Pos2::new(body.left(), body.top() + 88.0),
+                Pos2::new(body.right(), body.bottom()),
+            );
+            law_window_candidate_list(
+                ui,
+                list_rect,
+                slot,
+                data.political_power,
+                &mut selected_law,
+                &mut output.law_commands,
+            );
+            ui.ctx()
+                .data_mut(|d| d.insert_persisted(selected_id, selected_law));
+        });
+
+    if close {
+        request_law_political_ideas_close(ctx);
+    }
+}
+
+fn law_window_empty(ui: &mut egui::Ui, rect: Rect, text: &str) {
+    VanillaIron::paint_region(ui.painter(), rect, VanillaIron::CARD_DEEP);
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        crate::v9::TextRole::Body.font_id(),
+        VanillaIron::MUTED,
+    );
+}
+
+fn law_window_header(ui: &mut egui::Ui, rect: Rect, slot: &LawSlotEntry, political_power: f32) {
+    let header = Rect::from_min_size(rect.left_top(), Vec2::new(rect.width(), 78.0));
+    VanillaIron::paint_region(ui.painter(), header, VanillaIron::CARD);
+    let title = law_panel::law_category_label(&slot.category);
+    ui.painter().text(
+        Pos2::new(header.left() + 12.0, header.top() + 9.0),
+        egui::Align2::LEFT_TOP,
+        title,
+        crate::v9::TextRole::Heading.font_id(),
+        VanillaIron::BRASS_BRIGHT,
+    );
+    ui.painter().text(
+        Pos2::new(header.left() + 12.0, header.top() + 34.0),
+        egui::Align2::LEFT_TOP,
+        format!("当前法律：{}", slot.current_name),
+        crate::v9::TextRole::Body.font_id(),
+        VanillaIron::TEXT,
+    );
+    ui.painter().text(
+        Pos2::new(header.left() + 12.0, header.bottom() - 12.0),
+        egui::Align2::LEFT_BOTTOM,
+        law_window_slot_status(slot),
+        crate::v9::TextRole::Caption.font_id(),
+        law_window_slot_color(slot),
+    );
+    ui.painter().text(
+        Pos2::new(header.right() - 12.0, header.top() + 12.0),
+        egui::Align2::RIGHT_TOP,
+        format!("{political_power:.0} PP"),
+        crate::v9::TextRole::Numeric.font_id(),
+        VanillaIron::BRASS_BRIGHT,
+    );
+}
+
+fn law_window_candidate_list(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    slot: &LawSlotEntry,
+    political_power: f32,
+    selected_law: &mut String,
+    law_commands: &mut Vec<LawCommand>,
+) {
+    VanillaIron::paint_region(ui.painter(), rect, VanillaIron::CARD_DEEP);
+    let inner = rect.shrink2(Vec2::new(8.0, 8.0));
+    let entry_size = political_ideas_box_list_slot_size();
+    ui.allocate_ui_at_rect(inner, |ui| {
+        ui.set_min_size(inner.size());
+        egui::ScrollArea::vertical()
+            .id_salt((
+                "political_selectable_idea_entry_list",
+                law_panel::law_category_key(slot.category),
+            ))
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for tier in &slot.tiers {
+                    law_window_tier_entry(
+                        ui,
+                        slot,
+                        tier,
+                        political_power,
+                        selected_law,
+                        law_commands,
+                        entry_size,
+                    );
+                    ui.add_space(6.0);
+                }
+            });
+    });
+}
+
+fn law_window_tier_entry(
+    ui: &mut egui::Ui,
+    slot: &LawSlotEntry,
+    tier: &LawTierEntry,
+    political_power: f32,
+    selected_law: &mut String,
+    law_commands: &mut Vec<LawCommand>,
+    template_size: Vec2,
+) {
+    let row_h = template_size.y + tier.effects.len().min(2) as f32 * 12.0;
+    let row_w = ui.available_width().min(template_size.x).max(260.0);
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(row_w, row_h), Sense::click());
+    let is_current = tier.id == slot.current_id;
+    let is_pending = slot
+        .pending
+        .as_ref()
+        .map_or(false, |(id, _, _)| id == &tier.id);
+    let can_switch = law_panel::law_switch_available(slot, tier, political_power);
+    let selected = tier.id == *selected_law;
+    let accent = if is_current {
+        VanillaIron::GOOD
+    } else if is_pending {
+        VanillaIron::WARN
+    } else if can_switch {
+        VanillaIron::BRASS_BRIGHT
+    } else {
+        VanillaIron::MUTED
+    };
+    let fill = if selected || response.hovered() {
+        VanillaIron::CARD_SOFT
+    } else {
+        VanillaIron::CARD
+    };
+    ui.painter().rect_filled(rect, 1.0, fill);
+    VanillaIron::paint_border(ui.painter(), rect);
+    ui.painter().rect_filled(
+        Rect::from_min_size(rect.left_top(), Vec2::new(5.0, rect.height())),
+        0.0,
+        accent,
+    );
+    if response.clicked() {
+        *selected_law = tier.id.clone();
+    }
+
+    let icon_rect = Rect::from_min_size(rect.left_top() + Vec2::new(14.0, 12.0), Vec2::splat(48.0));
+    ui.painter()
+        .rect_filled(icon_rect, 1.0, VanillaIron::CARD_DEEP);
+    ui.painter().rect_stroke(
+        icon_rect,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, accent),
+        egui::epaint::StrokeKind::Inside,
+    );
+    ui.painter().text(
+        icon_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        law_window_category_glyph(&slot.category),
+        crate::v9::TextRole::Heading.font_id(),
+        accent,
+    );
+
+    let text_left = icon_rect.right() + 12.0;
+    let action_rect = Rect::from_min_size(
+        Pos2::new(rect.right() - 94.0, rect.top() + 14.0),
+        Vec2::new(78.0, 24.0),
+    );
+    ui.painter().text(
+        Pos2::new(text_left, rect.top() + 10.0),
+        egui::Align2::LEFT_TOP,
+        tier.name.as_str(),
+        crate::v9::text::fit_font_to_width(
+            tier.name.as_str(),
+            crate::v9::TextRole::Subheading.font_id(),
+            action_rect.left() - text_left - 8.0,
+            0.70,
+        ),
+        if is_current {
+            VanillaIron::GOOD
+        } else {
+            VanillaIron::TEXT
+        },
+    );
+    ui.painter().text(
+        Pos2::new(text_left, rect.top() + 32.0),
+        egui::Align2::LEFT_TOP,
+        format!("{} PP  |  冷却 {} 天", tier.pp_cost, tier.cooldown_days),
+        crate::v9::TextRole::Caption.font_id(),
+        VanillaIron::BRASS_BRIGHT,
+    );
+    let mut y = rect.top() + 52.0;
+    if tier.effects.is_empty() {
+        ui.painter().text(
+            Pos2::new(text_left, y),
+            egui::Align2::LEFT_TOP,
+            "暂无效果数据。",
+            crate::v9::TextRole::Caption.font_id(),
+            VanillaIron::MUTED,
+        );
+    } else {
+        for effect in tier.effects.iter().take(3) {
+            ui.painter().text(
+                Pos2::new(text_left, y),
+                egui::Align2::LEFT_TOP,
+                effect.as_str(),
+                crate::v9::text::fit_font_to_width(
+                    effect,
+                    crate::v9::TextRole::Caption.font_id(),
+                    rect.right() - text_left - 16.0,
+                    0.68,
+                ),
+                VanillaIron::MUTED,
+            );
+            y += 14.0;
+        }
+    }
+
+    if is_current {
+        ui.painter().text(
+            action_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "当前",
+            crate::v9::TextRole::Caption.font_id(),
+            VanillaIron::GOOD,
+        );
+    } else if can_switch {
+        if VanillaIron::compact_button_at(
+            ui,
+            action_rect,
+            "选择",
+            ("law_window_switch", &slot.category, &tier.id),
+        )
+        .clicked()
+        {
+            push_law_switch_command(law_commands, slot.category, &tier.id);
+        }
+    } else {
+        ui.painter().text(
+            action_rect.center(),
+            egui::Align2::CENTER_CENTER,
+            if is_pending { "切换中" } else { "不可用" },
+            crate::v9::TextRole::Caption.font_id(),
+            if is_pending {
+                VanillaIron::WARN
+            } else {
+                VanillaIron::BAD
+            },
+        );
+        if let Some(reason) = law_error_message(slot, tier, political_power) {
+            ui.painter().text(
+                Pos2::new(text_left, rect.bottom() - 8.0),
+                egui::Align2::LEFT_BOTTOM,
+                reason.as_str(),
+                crate::v9::text::fit_font_to_width(
+                    reason.as_str(),
+                    crate::v9::TextRole::Small.font_id(),
+                    rect.right() - text_left - 16.0,
+                    0.70,
+                ),
+                VanillaIron::BAD,
+            );
+        }
+    }
+}
+
+fn law_window_slot_status(slot: &LawSlotEntry) -> String {
+    if slot.is_locked {
+        slot.locked_reason
+            .clone()
+            .unwrap_or_else(|| "该法律类别当前被锁定。".to_owned())
+    } else if let Some((_, target, days)) = &slot.pending {
+        format!("切换中：{target}，剩余 {days} 天")
+    } else if slot.cooldown_days > 0 {
+        format!("冷却中：剩余 {} 天", slot.cooldown_days)
+    } else {
+        "可选择候选法律。".to_owned()
+    }
+}
+
+fn push_law_switch_command(
+    law_commands: &mut Vec<LawCommand>,
+    category: hoi4_state::LawCategory,
+    target_law_id: &str,
+) {
+    law_commands.push(LawCommand::SwitchLaw {
+        category,
+        target_law_id: target_law_id.to_owned(),
+    });
+}
+
+fn law_error_message(
+    slot: &LawSlotEntry,
+    tier: &LawTierEntry,
+    political_power: f32,
+) -> Option<String> {
+    law_panel::law_unavailable_reason(slot, tier, political_power)
+}
+
+fn law_window_slot_color(slot: &LawSlotEntry) -> Color32 {
+    if slot.is_locked {
+        VanillaIron::BAD
+    } else if slot.pending.is_some() || slot.cooldown_days > 0 {
+        VanillaIron::WARN
+    } else {
+        VanillaIron::GOOD
+    }
+}
+
+fn law_window_category_glyph(category: &hoi4_state::LawCategory) -> &'static str {
+    match category {
+        hoi4_state::LawCategory::Conscription => "C",
+        hoi4_state::LawCategory::Economy => "E",
+        hoi4_state::LawCategory::Trade => "T",
+        hoi4_state::LawCategory::Taxation => "$",
+        hoi4_state::LawCategory::CivilRights => "R",
+        hoi4_state::LawCategory::InformationControl => "I",
+    }
+}
+
+#[cfg(test)]
+mod gate14_tests {
+    use super::*;
+
+    fn sample_law_slot() -> LawSlotEntry {
+        LawSlotEntry {
+            category: hoi4_state::LawCategory::Economy,
+            current_id: "civilian_economy".to_owned(),
+            current_name: "Civilian Economy".to_owned(),
+            cooldown_days: 0,
+            pending: None,
+            is_locked: false,
+            locked_reason: None,
+            previous_before_lock: None,
+            tiers: vec![
+                LawTierEntry {
+                    id: "civilian_economy".to_owned(),
+                    name: "Civilian Economy".to_owned(),
+                    pp_cost: 0,
+                    cooldown_days: 0,
+                    effects: Vec::new(),
+                },
+                LawTierEntry {
+                    id: "war_economy".to_owned(),
+                    name: "War Economy".to_owned(),
+                    pp_cost: 150,
+                    cooldown_days: 90,
+                    effects: vec!["Factory output +10%".to_owned()],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn gate14_switch_law_command_preserves_category_and_target() {
+        let mut commands = Vec::new();
+        push_law_switch_command(
+            &mut commands,
+            hoi4_state::LawCategory::Economy,
+            "war_economy",
+        );
+
+        assert_eq!(
+            commands,
+            vec![LawCommand::SwitchLaw {
+                category: hoi4_state::LawCategory::Economy,
+                target_law_id: "war_economy".to_owned(),
+            }]
+        );
+    }
+
+    #[test]
+    fn gate8_political_ideas_window_uses_vanilla_root_when_available() {
+        let Some(root) = political_ideas_root_node() else {
+            return;
+        };
+
+        assert_eq!(root.name.as_deref(), Some(POLITICAL_IDEAS_ROOT));
+    }
+
+    #[test]
+    fn gate8_candidate_list_uses_vanilla_entry_or_box_list_size() {
+        let entry = political_ideas_entry_list_size();
+        let slot = political_ideas_box_list_slot_size();
+
+        assert!(entry.x >= 260.0);
+        assert!(entry.y >= 40.0);
+        assert!(slot.x >= 260.0);
+        assert!(slot.y >= 40.0);
+    }
+
+    #[test]
+    fn gate8_law_error_message_keeps_existing_unavailable_reason_path() {
+        let slot = sample_law_slot();
+        let tier = slot
+            .tiers
+            .iter()
+            .find(|tier| tier.id == "war_economy")
+            .unwrap();
+
+        let reason = law_error_message(&slot, tier, 10.0).unwrap();
+
+        assert!(reason.contains("政治力量不足"));
+        assert!(reason.contains("150"));
+    }
+}
+
 fn format_count(value: u64) -> String {
     if value >= 1_000_000 {
         format!("{:.1}M", value as f64 / 1_000_000.0)
@@ -1736,7 +2393,7 @@ fn law_candidate_list(
             .as_ref()
             .map_or(false, |(id, _, _)| id == &tier.id);
         let can_switch = law_panel::law_switch_available(slot, tier, political_power);
-        let reason = law_panel::law_unavailable_reason(slot, tier, political_power);
+        let reason = law_error_message(slot, tier, political_power);
         let height = if reason.is_some() && !is_current {
             64.0
         } else {
@@ -1829,10 +2486,7 @@ fn law_candidate_list(
                     .stroke(egui::Stroke::new(1.0, VanillaIron::EDGE)),
             );
             if button.clicked() {
-                law_commands.push(LawCommand::SwitchLaw {
-                    category: slot.category,
-                    target_law_id: tier.id.clone(),
-                });
+                push_law_switch_command(law_commands, slot.category, &tier.id);
             }
         }
     }
@@ -1851,7 +2505,7 @@ fn law_candidate_detail(
     key_value(ui, "法律", tier.name.clone());
     key_value(ui, "执行成本", format!("{} PP", tier.pp_cost));
     key_value(ui, "切换冷却", format!("{} 天", tier.cooldown_days));
-    if let Some(reason) = law_panel::law_unavailable_reason(slot, tier, political_power) {
+    if let Some(reason) = law_error_message(slot, tier, political_power) {
         key_value(ui, "可用性", reason);
     } else {
         key_value(ui, "可用性", "可以执行".to_owned());

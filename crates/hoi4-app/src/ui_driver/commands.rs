@@ -34,6 +34,7 @@ impl App {
         let mut side_rail_panel_cmd: Option<hoi4_ui::PanelKind> = None;
         let mut panel_commands: Vec<hoi4_ui::PanelCommand> = Vec::new();
         let mut close_active_panel = false;
+        let mut finish_politics_close = false;
         let mut law_close = false;
         let mut construction_v6_close = false;
         let mut finance_cmds: Vec<hoi4_ui::finance_panel::FinanceCommand> = Vec::new();
@@ -64,6 +65,7 @@ impl App {
                 AppCommand::SideRailPanel(cmd) => side_rail_panel_cmd = Some(cmd),
                 AppCommand::Panel(cmd) => panel_commands.push(cmd),
                 AppCommand::CloseActivePanel => close_active_panel = true,
+                AppCommand::FinishPoliticsClose => finish_politics_close = true,
                 AppCommand::CloseLawPanel => law_close = true,
                 AppCommand::CloseConstructionPanel => construction_v6_close = true,
                 AppCommand::Finance(cmd) => finance_cmds.push(cmd),
@@ -87,21 +89,27 @@ impl App {
             }
         }
         let mut deferred_switch_player_country: Vec<String> = Vec::new();
-        let s = match self.state.as_mut() {
-            Some(s) => s,
-            None => return UiCommandApplyOutput::default(),
-        };
+        if self.state.is_none() {
+            return UiCommandApplyOutput::default();
+        }
 
         let topbar_action = topbar_speed_cmd.map(hoi4_ui::TopbarAction::SetSpeed);
 
+        if finish_politics_close {
+            self.finish_country_politics_close_request();
+            self.ui_state.law_error_message = None;
+        }
         if close_active_panel {
-            self.ui_state.open_panel = None;
-            self.ui_state.active_detail_panel = None;
+            self.close_primary_panel();
         }
         if law_close {
-            self.ui_state.open_panel = None;
-            self.ui_state.active_detail_panel = None;
-            self.ui_state.law_error_message = None;
+            self.close_primary_panel();
+            if !matches!(
+                self.ui_state.open_panel,
+                Some(InGamePanel::Politics | InGamePanel::Laws)
+            ) {
+                self.ui_state.law_error_message = None;
+            }
         }
 
         if !finance_cmds.is_empty() {
@@ -147,8 +155,7 @@ impl App {
 
         let mut construction_highlight_changed = false;
         if construction_v6_close {
-            self.ui_state.open_panel = None;
-            self.ui_state.active_detail_panel = None;
+            self.close_primary_panel();
             if self.ui_state.construction_mode.is_some() {
                 self.ui_state.construction_mode = None;
                 self.ui_state.construction_highlight_province_ids.clear();
@@ -200,10 +207,11 @@ impl App {
                             }
                             Err(e) => {
                                 println!(
-                                    "[law] ?????????: {:?} ??{}: {}",
+                                    "[law] switch failed: {:?} -> {}: {}",
                                     category, target_law_id, e
                                 );
-                                self.ui_state.law_error_message = Some(format!("?????????: {}", e));
+                                self.ui_state.law_error_message =
+                                    Some(format!("法律切换失败：{}", e));
                             }
                         }
                     }
@@ -246,7 +254,8 @@ impl App {
             };
             let mut color_lut = build_color_lut(&self.world, self.map_mode, player_cid);
             for pid in self
-                .interaction.selected_province_ids
+                .interaction
+                .selected_province_ids
                 .iter()
                 .chain(self.ui_state.construction_highlight_province_ids.iter())
             {
@@ -257,15 +266,17 @@ impl App {
                     color_lut[o + 2] = color_lut[o + 2].saturating_sub(18);
                 }
             }
-            color_lut.resize((s.lut_width * s.lut_height * 4) as usize, 0);
-            upload_lut(
-                &s.queue,
-                &s.lut_texture,
-                &color_lut,
-                s.lut_width,
-                s.lut_height,
-            );
-            s.window.request_redraw();
+            if let Some(s) = self.state.as_mut() {
+                color_lut.resize((s.lut_width * s.lut_height * 4) as usize, 0);
+                upload_lut(
+                    &s.queue,
+                    &s.lut_texture,
+                    &color_lut,
+                    s.lut_width,
+                    s.lut_height,
+                );
+                s.window.request_redraw();
+            }
         }
 
         for cmd in research_cmds {
@@ -384,15 +395,17 @@ impl App {
                             None
                         };
                         let mut color_lut = build_color_lut(&self.world, self.map_mode, player_cid);
-                        color_lut.resize((s.lut_width * s.lut_height * 4) as usize, 0);
-                        upload_lut(
-                            &s.queue,
-                            &s.lut_texture,
-                            &color_lut,
-                            s.lut_width,
-                            s.lut_height,
-                        );
-                        s.window.request_redraw();
+                        if let Some(s) = self.state.as_mut() {
+                            color_lut.resize((s.lut_width * s.lut_height * 4) as usize, 0);
+                            upload_lut(
+                                &s.queue,
+                                &s.lut_texture,
+                                &color_lut,
+                                s.lut_width,
+                                s.lut_height,
+                            );
+                            s.window.request_redraw();
+                        }
                     }
                 }
                 DiplomacyCommand::Panel(panel_cmd) => {
@@ -894,7 +907,8 @@ impl App {
                     }
                 }
                 MilitaryCommand::DrawFrontline(id) => {
-                    self.interaction.frontline_painter.mode = PainterMode::ArmyPainter(hoi4_state::ArmyId(id));
+                    self.interaction.frontline_painter.mode =
+                        PainterMode::ArmyPainter(hoi4_state::ArmyId(id));
                     self.interaction.frontline_painter.samples.clear();
                     self.interaction.frontline_painter.last_sample_at = std::time::Instant::now();
                     println!("[frontline] entering frontline paint mode for army {id}");
@@ -927,7 +941,8 @@ impl App {
                             })
                         })
                         .unwrap_or(hoi4_state::ProvinceId(0));
-                    self.interaction.frontline_painter.mode = PainterMode::ArrowPainter(aid, anchor);
+                    self.interaction.frontline_painter.mode =
+                        PainterMode::ArrowPainter(aid, anchor);
                     self.interaction.frontline_painter.samples.clear();
                     self.interaction.frontline_painter.last_sample_at = std::time::Instant::now();
                     println!("[frontline] entering arrow paint mode for army {id}");
@@ -943,7 +958,8 @@ impl App {
                     }
                 }
                 MilitaryCommand::ToggleOverlay => {
-                    self.render_toggles.frontline_overlay_visible = !self.render_toggles.frontline_overlay_visible;
+                    self.render_toggles.frontline_overlay_visible =
+                        !self.render_toggles.frontline_overlay_visible;
                     self.render_toggles.prev_armies_hash = 0;
                     println!(
                         "[frontline] overlay visible: {}",
@@ -978,7 +994,12 @@ impl App {
                     }
                 }
                 MilitaryCommand::ToggleDivisionSelection(idx) => {
-                    if let Some(pos) = self.interaction.selected_divisions.iter().position(|&x| x == idx) {
+                    if let Some(pos) = self
+                        .interaction
+                        .selected_divisions
+                        .iter()
+                        .position(|&x| x == idx)
+                    {
                         self.interaction.selected_divisions.remove(pos);
                     } else {
                         self.interaction.selected_divisions.push(idx);
@@ -1089,7 +1110,8 @@ impl App {
                     event_id,
                     option_idx,
                 } => {
-                    self.ui_state.ui_sounds
+                    self.ui_state
+                        .ui_sounds
                         .play_with_fallback(UiSound::OptionClick, UiSound::Click);
                     println!("[event] resolved: {event_id} option={option_idx}");
                     let (_, report) = self.runtime.content.event_scheduler.resolve_option(
@@ -1098,7 +1120,10 @@ impl App {
                         &mut self.runtime.content.global_flags,
                     );
                     deferred_switch_player_country.extend(report.switch_player_country);
-                    let cascaded = self.runtime.content.process_pending_triggers(&mut self.world);
+                    let cascaded = self
+                        .runtime
+                        .content
+                        .process_pending_triggers(&mut self.world);
                     deferred_switch_player_country
                         .extend(cascaded.effect_report.switch_player_country);
                     for w in report
@@ -1119,7 +1144,9 @@ impl App {
                         println!("[event] cascaded trigger: {target}");
                     }
                     if cascaded.pause_for_country_event {
-                        if self.world.speed != GameSpeed::Paused && self.ui_state.pre_event_speed.is_none() {
+                        if self.world.speed != GameSpeed::Paused
+                            && self.ui_state.pre_event_speed.is_none()
+                        {
                             self.ui_state.pre_event_speed = Some(self.world.speed);
                         }
                         self.world.speed = GameSpeed::Paused;
@@ -1139,7 +1166,8 @@ impl App {
         if let Some(hoi4_ui::surrender_notification::SurrenderNotificationCommand::Acknowledge) =
             surrender_notif_cmd
         {
-            self.ui_state.ui_sounds
+            self.ui_state
+                .ui_sounds
                 .play_with_fallback(UiSound::OptionClick, UiSound::Click);
             self.ui_state.pending_surrender_notifications.remove(0);
             if self.ui_state.pending_surrender_notifications.is_empty() {
@@ -1291,12 +1319,15 @@ impl App {
                 hoi4_ui::settings::SettingsCommand::SetLanguage(lang) => Some(lang),
                 _ => None,
             };
+            let Some(window) = self.state.as_ref().map(|s| &s.window) else {
+                continue;
+            };
             ui_binding::settings::apply_command(
                 &mut self.ui_state.settings,
                 &mut self.ui_state.settings_panel,
                 &mut self.runtime.music_player,
                 &mut self.ui_state.ui_sounds,
-                &s.window,
+                window,
                 cmd,
             );
             if let Some(lang) = language_changed {
@@ -1313,8 +1344,7 @@ impl App {
                         self.ui_state.save_browser.last_error = Some(format!("load failed: {e}"));
                     } else {
                         self.ui_state.save_browser.open = false;
-                        self.ui_state.open_panel = None;
-                        self.ui_state.active_detail_panel = None;
+                        self.close_primary_panel();
                     }
                 }
                 SaveCommand::Delete(path) => {

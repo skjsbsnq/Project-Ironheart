@@ -881,7 +881,9 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                 };
                 let f_idx = from_cid.0 as usize;
                 let t_idx = to_cid.0 as usize;
-                if f_idx >= app.runtime.econ.stockpile.len() || t_idx >= app.runtime.econ.stockpile.len() {
+                if f_idx >= app.runtime.econ.stockpile.len()
+                    || t_idx >= app.runtime.econ.stockpile.len()
+                {
                     continue;
                 }
                 let equipment_key =

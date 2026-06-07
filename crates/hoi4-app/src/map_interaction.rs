@@ -97,11 +97,14 @@ impl App {
             if self.interaction.frontline_painter.samples.last() == Some(&pid) {
                 continue;
             }
-            if self.interaction.frontline_painter.samples.len() >= hoi4_logic::military::frontline::MAX_SAMPLES
+            if self.interaction.frontline_painter.samples.len()
+                >= hoi4_logic::military::frontline::MAX_SAMPLES
             {
                 self.thin_frontline_painter_samples();
             }
-            if self.interaction.frontline_painter.samples.len() < hoi4_logic::military::frontline::MAX_SAMPLES {
+            if self.interaction.frontline_painter.samples.len()
+                < hoi4_logic::military::frontline::MAX_SAMPLES
+            {
                 self.interaction.frontline_painter.samples.push(pid);
                 changed = true;
             }
@@ -115,7 +118,13 @@ impl App {
             return;
         }
         let mut thinned = Vec::with_capacity(len / 2 + 2);
-        for (idx, &pid) in self.interaction.frontline_painter.samples.iter().enumerate() {
+        for (idx, &pid) in self
+            .interaction
+            .frontline_painter
+            .samples
+            .iter()
+            .enumerate()
+        {
             if idx == 0 || idx + 1 == len || idx % 2 == 0 {
                 if thinned.last() != Some(&pid) {
                     thinned.push(pid);
@@ -320,7 +329,12 @@ impl App {
                 if self.world.divisions.owners[i] == player
                     && self.world.divisions.locations[i] == prov
                 {
-                    if let Some(pos) = self.interaction.selected_divisions.iter().position(|&x| x == i) {
+                    if let Some(pos) = self
+                        .interaction
+                        .selected_divisions
+                        .iter()
+                        .position(|&x| x == i)
+                    {
                         self.interaction.selected_divisions.remove(pos);
                     } else {
                         self.interaction.selected_divisions.push(i);
@@ -446,7 +460,8 @@ impl App {
                                 &self.v6_db,
                             ) {
                                 Ok(()) => {
-                                    self.ui_state.ui_sounds
+                                    self.ui_state
+                                        .ui_sounds
                                         .play_with_fallback(UiSound::OptionClick, UiSound::Click);
                                 }
                                 Err(reason) => {
@@ -454,7 +469,8 @@ impl App {
                                         "[construction] could not queue {} in {}: {:?}",
                                         building_key, self.world.states.names[si], reason
                                     );
-                                    self.ui_state.ui_sounds
+                                    self.ui_state
+                                        .ui_sounds
                                         .play_with_fallback(UiSound::Click, UiSound::Click);
                                 }
                             }
@@ -463,7 +479,8 @@ impl App {
                                 "[construction] state {} is full ({}/{})",
                                 self.world.states.names[si], used, max
                             );
-                            self.ui_state.ui_sounds
+                            self.ui_state
+                                .ui_sounds
                                 .play_with_fallback(UiSound::Click, UiSound::Click);
                         }
                     }
@@ -576,7 +593,9 @@ impl App {
                 let si = sid.0 as usize;
                 if si < self.world.states.count {
                     for province in &self.world.states.provinces[si] {
-                        self.interaction.selected_province_ids.insert(province.0 as u32);
+                        self.interaction
+                            .selected_province_ids
+                            .insert(province.0 as u32);
                     }
                 }
             }
@@ -612,7 +631,12 @@ impl App {
                 if self.world.divisions.owners[i] == player
                     && self.world.divisions.locations[i] == prov
                 {
-                    if let Some(pos) = self.interaction.selected_divisions.iter().position(|&x| x == i) {
+                    if let Some(pos) = self
+                        .interaction
+                        .selected_divisions
+                        .iter()
+                        .position(|&x| x == i)
+                    {
                         self.interaction.selected_divisions.remove(pos);
                     } else {
                         self.interaction.selected_divisions.push(i);
@@ -939,14 +963,27 @@ impl App {
         false
     }
 
+    pub(crate) fn primary_panel_blocks_map_click_actions(&self) -> bool {
+        matches!(
+            self.ui_state.open_panel,
+            Some(InGamePanel::Politics | InGamePanel::Laws)
+        )
+    }
+
     /// Block map clicks whenever an overlay or modal is meant to own input.
     /// Map interaction modes such as construction placement / frontline painting
     /// are exempt so they keep working while the relevant panel is open.
     pub(crate) fn ui_blocks_map_clicks(&self) -> bool {
-        let panel_blocks_map = self
-            .ui_state
-            .open_panel
-            .is_some_and(|panel| !matches!(panel, InGamePanel::Air | InGamePanel::Naval));
+        let pointer_over_ui = self
+            .state
+            .as_ref()
+            .map(|s| s.ui.ctx.is_pointer_over_area())
+            .unwrap_or(false);
+        let panel_blocks_map = self.ui_state.open_panel.is_some_and(|panel| match panel {
+            InGamePanel::Air | InGamePanel::Naval => false,
+            InGamePanel::Politics | InGamePanel::Laws => pointer_over_ui,
+            _ => true,
+        });
         self.view.game_phase == GamePhase::Playing
             && self.ui_state.construction_mode.is_none()
             && self.interaction.pending_move_command == false

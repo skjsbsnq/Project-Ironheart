@@ -18,7 +18,7 @@
 //!
 //! TerrainPass → RiverPass → WaterPass → **BorderPass** → MapSymbolPass
 
-use hoi4_assets::{AssetDb, DdsImage, FsAssetDb, MapResRole, dds_upload_plan};
+use hoi4_assets::{dds_upload_plan, AssetDb, DdsImage, FsAssetDb, MapResRole};
 use hoi4_paths::PathConfig;
 use hoi4_render::border_extract::{BorderKind, BorderMesh, BorderVertex};
 use hoi4_render::defines::{MAP_SIZE_X, MAP_SIZE_Y};

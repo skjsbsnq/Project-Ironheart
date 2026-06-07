@@ -7,7 +7,8 @@ license.workspace = true
 # ROADMAP_V5 阶段 B.1：自研 UI 框架（egui + vanilla theme）。
 #
 # 本 crate 是 V5 全新的 UI 子系统，承接旧 V3 4.3 路线被 DELETE 后留下的位置。
-# 仅包含 egui 集成与 vanilla theme 实现，不再解析任何 .gui / .gfx / .fnt。
+# 2026-06 起新增 vanilla_gui 子集 runtime：解析 .gui / .gfx 元数据并映射到
+# egui primitives；仍不加载 vanilla .fnt，字体走项目现有 token。
 #
 # 依赖版本 pin 说明：
 # - egui / egui-wgpu / egui-winit 0.31.1 是「pre-wgpu-25」最后一个版本系，
@@ -27,6 +28,7 @@ wgpu = "24.0.1"
 winit = "0.30.9"
 
 # B.4：从 vanilla 安装目录查 9-slice 纹理（PathConfig::find） + 解析 DDS。
+clausewitz-parser = { path = "../clausewitz-parser" }
 hoi4-paths = { path = "../hoi4-paths" }
 hoi4-assets = { path = "../hoi4-assets" }
 hoi4-content = { path = "../hoi4-content" }

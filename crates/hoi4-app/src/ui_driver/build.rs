@@ -72,7 +72,11 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
     };
     let event_badge_count = app.runtime.content.event_scheduler.pending_len();
     let surrender_badge_count = app.ui_state.pending_surrender_notifications.len();
-    let open_panel = if app_ui_enabled { app.ui_state.open_panel } else { None };
+    let open_panel = if app_ui_enabled {
+        app.ui_state.open_panel
+    } else {
+        None
+    };
     let politics_data = if matches!(
         open_panel,
         Some(InGamePanel::Politics) | Some(InGamePanel::Laws)
@@ -162,6 +166,22 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             .or_else(|| app.world.data.party_names.get(&party_loc_key))
             .cloned()
             .unwrap_or_default();
+        let party_names = pops
+            .iter()
+            .map(|(ideology, _)| {
+                let long_key = format!("{}_{}_party_long", player_tag_str, ideology);
+                let short_key = format!("{}_{}_party", player_tag_str, ideology);
+                let name = app
+                    .world
+                    .data
+                    .party_names
+                    .get(&short_key)
+                    .or_else(|| app.world.data.party_names.get(&long_key))
+                    .cloned()
+                    .unwrap_or_else(|| hoi4_ui::i18n::tr(ideology).to_owned());
+                (ideology.clone(), name)
+            })
+            .collect::<Vec<_>>();
         let current_focus_id = app
             .world
             .countries
@@ -176,7 +196,8 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             .copied()
             .unwrap_or(0.0);
         let current_focus = current_focus_id.and_then(|id| {
-            app.runtime.content
+            app.runtime
+                .content
                 .focus_tree
                 .focuses
                 .iter()
@@ -303,6 +324,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             leader_name,
             leader_portrait_key,
             party_full_name,
+            party_names,
             government_posts,
             law_slots,
         })
@@ -467,7 +489,13 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
                     .collect()
             })
             .unwrap_or_default();
-        let slot_count = app.runtime.research.slots.get(player).map(|s| s.len()).unwrap_or(0);
+        let slot_count = app
+            .runtime
+            .research
+            .slots
+            .get(player)
+            .map(|s| s.len())
+            .unwrap_or(0);
         let completed = &app.world.countries.completed_techs[player];
         let researching_keys: Vec<&str> = slots.iter().map(|s| s.tech_key.as_str()).collect();
         let techs: Vec<hoi4_ui::research::TechNode> = app
@@ -521,15 +549,19 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
     let diplomacy_data = if needs_diplomacy_data {
         let selected_tag = match active_detail_panel.as_ref() {
             Some(hoi4_ui::ActiveDetailPanel::Country(target)) => Some(target.tag.clone()),
-            _ => app.ui_state.diplomacy_selected_country_tag.clone().or_else(|| {
-                app.world
-                    .countries
-                    .tags
-                    .iter()
-                    .enumerate()
-                    .find(|(idx, tag)| *idx != player_country && !tag.is_empty())
-                    .map(|(_, tag)| tag.clone())
-            }),
+            _ => app
+                .ui_state
+                .diplomacy_selected_country_tag
+                .clone()
+                .or_else(|| {
+                    app.world
+                        .countries
+                        .tags
+                        .iter()
+                        .enumerate()
+                        .find(|(idx, tag)| *idx != player_country && !tag.is_empty())
+                        .map(|(_, tag)| tag.clone())
+                }),
         };
         hoi4_app::ui_data::cache::cached_diplomacy_panel(
             &mut app.ui_state.panel_cache,
@@ -556,42 +588,50 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             .get(player)
             .cloned()
             .unwrap_or_default();
-        let divisions: Vec<hoi4_ui::military::DivisionEntry> =
-            if open_panel == Some(InGamePanel::Military) || app.interaction.selected_army_id.is_some() {
-                (0..app.world.divisions.count)
-                    .filter(|&i| app.world.divisions.owners[i] == player_cid)
-                    .map(|i| hoi4_ui::military::DivisionEntry {
-                        province_name: app
-                            .province_display_name_by_id(app.world.divisions.locations[i].0),
-                        index: i,
-                        name: app.world.divisions.names[i].clone(),
-                        organisation: app.world.divisions.organisation[i],
-                        max_organisation: app.world.divisions.max_organisation[i],
-                        experience: app.world.divisions.experience[i],
-                        strength: app.world.divisions.strength[i],
-                        in_combat: app.world.divisions.in_combat[i],
-                        province_id: app.world.divisions.locations[i].0,
-                        equipment_ratio: app.world.divisions.strength[i],
-                        army_id: app
-                            .world
-                            .player_armies
-                            .iter()
-                            .find(|a| a.members.contains(&i))
-                            .map(|a| a.id.raw()),
-                        army_name: app
-                            .world
-                            .player_armies
-                            .iter()
-                            .find(|a| a.members.contains(&i))
-                            .map(|a| a.name.clone()),
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
+        let divisions: Vec<hoi4_ui::military::DivisionEntry> = if open_panel
+            == Some(InGamePanel::Military)
+            || app.interaction.selected_army_id.is_some()
+        {
+            (0..app.world.divisions.count)
+                .filter(|&i| app.world.divisions.owners[i] == player_cid)
+                .map(|i| hoi4_ui::military::DivisionEntry {
+                    province_name: app
+                        .province_display_name_by_id(app.world.divisions.locations[i].0),
+                    index: i,
+                    name: app.world.divisions.names[i].clone(),
+                    organisation: app.world.divisions.organisation[i],
+                    max_organisation: app.world.divisions.max_organisation[i],
+                    experience: app.world.divisions.experience[i],
+                    strength: app.world.divisions.strength[i],
+                    in_combat: app.world.divisions.in_combat[i],
+                    province_id: app.world.divisions.locations[i].0,
+                    equipment_ratio: app.world.divisions.strength[i],
+                    army_id: app
+                        .world
+                        .player_armies
+                        .iter()
+                        .find(|a| a.members.contains(&i))
+                        .map(|a| a.id.raw()),
+                    army_name: app
+                        .world
+                        .player_armies
+                        .iter()
+                        .find(|a| a.members.contains(&i))
+                        .map(|a| a.name.clone()),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let templates: Vec<hoi4_ui::military::TemplateEntry> =
             if open_panel == Some(InGamePanel::Military) {
-                let stockpile = app.runtime.econ.stockpile.get(player).cloned().unwrap_or_default();
+                let stockpile = app
+                    .runtime
+                    .econ
+                    .stockpile
+                    .get(player)
+                    .cloned()
+                    .unwrap_or_default();
                 app.world
                     .data
                     .division_templates
@@ -623,7 +663,13 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
                 Vec::new()
             };
         let template_editor = if open_panel == Some(InGamePanel::Military) {
-            let stockpile = app.runtime.econ.stockpile.get(player).cloned().unwrap_or_default();
+            let stockpile = app
+                .runtime
+                .econ
+                .stockpile
+                .get(player)
+                .cloned()
+                .unwrap_or_default();
             build_template_editor_data(
                 app.world.data.as_ref(),
                 &player_tag,
@@ -644,7 +690,8 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
         };
         let training_queue: Vec<hoi4_ui::military::TrainingQueueEntry> =
             if open_panel == Some(InGamePanel::Military) {
-                app.runtime.econ
+                app.runtime
+                    .econ
                     .training_queues
                     .get(player)
                     .map(|queue| {
@@ -1221,7 +1268,10 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
     // V5 G.3 / G.4 / G.5???????disjoint ?????app ?????????????ttings / save_browser /
     let settings_panel_open_cmd = open_panel == Some(InGamePanel::Settings);
     let saves_open_cmd = open_panel == Some(InGamePanel::Saves);
-    let law_error_toast = match (&app.ui_state.law_error_message, &app.ui_state.last_law_error_toast) {
+    let law_error_toast = match (
+        &app.ui_state.law_error_message,
+        &app.ui_state.last_law_error_toast,
+    ) {
         (Some(current), Some(last)) if current == last => None,
         (Some(current), _) => Some(current.clone()),
         (None, _) => None,

@@ -220,8 +220,17 @@ impl<'a> Lexer<'a> {
                     }
                 }
                 Some(ch) if Self::is_ident_char(ch) || ch == b'+' => {
+                    if ch == b'+' {
+                        self.advance();
+                    }
                     // handle negative numbers: if '-' followed by digit
-                    self.read_ident_or_number()
+                    match self.read_ident_or_number() {
+                        TokenKind::Integer(v) if ch == b'+' => TokenKind::Integer(v),
+                        TokenKind::Float(v) if ch == b'+' => TokenKind::Float(v),
+                        TokenKind::Percent(v) if ch == b'+' => TokenKind::Percent(v),
+                        TokenKind::Ident(s) if ch == b'+' => TokenKind::Ident(format!("+{s}")),
+                        other => other,
+                    }
                 }
                 Some(b'-') => {
                     // Could be negative number or ident starting with -
@@ -354,6 +363,13 @@ mod tests {
         let input = "width = 1920";
         let tokens = Lexer::new(input).tokenize();
         assert_eq!(tokens[2].kind, TokenKind::Integer(1920));
+    }
+
+    #[test]
+    fn test_plus_prefixed_value_advances() {
+        let input = "offset = +25";
+        let tokens = Lexer::new(input).tokenize();
+        assert_eq!(tokens[2].kind, TokenKind::Integer(25));
     }
 
     #[test]

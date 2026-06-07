@@ -105,14 +105,16 @@ impl App {
     }
 
     pub(crate) fn map_phase0_finished(&self) -> bool {
-        self.audit.map_phase0
+        self.audit
+            .map_phase0
             .as_ref()
             .map(|run| run.finished)
             .unwrap_or(false)
     }
 
     pub(crate) fn current_map_layer_mask(&self) -> map_baseline::MapLayerMask {
-        self.audit.map_phase0
+        self.audit
+            .map_phase0
             .as_ref()
             .and_then(|run| run.current_capture())
             .map(|capture| capture.layer_mask)
@@ -202,7 +204,8 @@ impl App {
             self.map_mode = scene_map_mode;
             self.refresh_lut();
         }
-        self.render_toggles.terrain_debug_view = terrain_debug_view_for_baseline_layer(capture.layer);
+        self.render_toggles.terrain_debug_view =
+            terrain_debug_view_for_baseline_layer(capture.layer);
         self.render_toggles.water_debug_view = passes::WaterDebugView::Off;
         self.render_toggles.border_debug_view = passes::BorderDebugView::Off;
         self.render_toggles.postprocess_debug_view = match capture.layer {

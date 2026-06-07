@@ -144,6 +144,8 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     ("party_popularity", ["Party Popularity", "政党支持率"]),
     ("national_spirits", ["National Spirits", "国家精神"]),
     ("advisors", ["Advisors", "顾问"]),
+    ("research_production", ["Research & Production", "研究与生产"]),
+    ("military_staff", ["Military Staff", "军事参谋"]),
     ("decisions", ["Decisions", "决议"]),
     // J.1.6: leader header fallback
     ("leader_unknown", ["Unknown leader", "未知元首"]),
@@ -296,6 +298,9 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     ("overview", ["OVERVIEW", "概览"]),
     ("tag", ["Tag", "标签"]),
     ("ideology", ["Ideology", "意识形态"]),
+    ("elections", ["Elections", "选举"]),
+    ("no_elections", ["No elections", "无选举"]),
+    ("government_laws", ["Government / Laws", "法律与政府"]),
     ("pool", ["Pool", "储备"]),
     // ─── Ideologies ───────────────────────────────────────────
     ("fascism", ["Fascism", "法西斯主义"]),

@@ -62,7 +62,10 @@ impl App {
                 self.rebuild_country_labels_and_refresh();
             }
 
-            let cascaded_from_situations = self.runtime.content.process_pending_triggers(&mut self.world);
+            let cascaded_from_situations = self
+                .runtime
+                .content
+                .process_pending_triggers(&mut self.world);
             self.apply_effect_report_app_requests(&cascaded_from_situations.effect_report);
             for w in &cascaded_from_situations.effect_report.warnings {
                 println!("[effect] 警告: {w}");

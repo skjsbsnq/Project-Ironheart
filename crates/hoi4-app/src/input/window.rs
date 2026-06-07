@@ -15,7 +15,15 @@ impl App {
         let global_debug_key = super::debug_hotkeys::is_global_debug_key(&event);
         let forward_map_click_through_ui = consumed
             && self.view.game_phase == GamePhase::Playing
-            && matches!(self.ui_state.open_panel, Some(InGamePanel::Air | InGamePanel::Naval))
+            && matches!(
+                self.ui_state.open_panel,
+                Some(
+                    InGamePanel::Air
+                        | InGamePanel::Naval
+                        | InGamePanel::Politics
+                        | InGamePanel::Laws
+                )
+            )
             && matches!(
                 &event,
                 WindowEvent::MouseInput {
@@ -143,6 +151,5 @@ impl App {
             }
             _ => {}
         }
-    
     }
 }
