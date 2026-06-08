@@ -227,7 +227,7 @@ impl App {
         let dpi = self
             .state
             .as_ref()
-            .map(|s| s.window.scale_factor() as f32)
+            .map(|s| s.ui_scale_factor())
             .unwrap_or(1.0);
         let x = position.x as f32 / dpi;
         let y = position.y as f32 / dpi;

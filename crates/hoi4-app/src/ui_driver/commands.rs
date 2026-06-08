@@ -215,6 +215,9 @@ impl App {
                             }
                         }
                     }
+                    LawCommand::Blocked { reason } => {
+                        self.ui_state.law_error_message = Some(reason);
+                    }
                 }
             }
         }
@@ -1319,7 +1322,7 @@ impl App {
                 hoi4_ui::settings::SettingsCommand::SetLanguage(lang) => Some(lang),
                 _ => None,
             };
-            let Some(window) = self.state.as_ref().map(|s| &s.window) else {
+            let Some(s) = self.state.as_mut() else {
                 continue;
             };
             ui_binding::settings::apply_command(
@@ -1327,9 +1330,19 @@ impl App {
                 &mut self.ui_state.settings_panel,
                 &mut self.runtime.music_player,
                 &mut self.ui_state.ui_sounds,
-                window,
+                &s.window,
+                &mut s.ui,
                 cmd,
             );
+            let dpi = s.ui_scale_factor();
+            let logical_w = s.config.width as f32 / dpi;
+            let logical_h = s.config.height as f32 / dpi;
+            self.camera.aspect = logical_w / logical_h.max(1.0);
+            self.camera.clamp_target_to_map();
+            let cam = CameraUniform::from_camera(&self.camera, HEIGHT_SCALE, LAT_CORRECTION);
+            s.queue
+                .write_buffer(&s.camera_buffer, 0, bytemuck::bytes_of(&cam));
+            s.text_pass.set_screen_size(&s.queue, logical_w, logical_h);
             if let Some(lang) = language_changed {
                 self.loc_catalog = load_loc_catalog_for_language(&self.path_cfg, lang);
             }

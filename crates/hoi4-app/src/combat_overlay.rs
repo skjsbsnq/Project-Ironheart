@@ -40,7 +40,7 @@ impl App {
         let Some(state) = self.state.as_ref() else {
             return Vec::new();
         };
-        let dpi = state.window.scale_factor() as f32;
+        let dpi = state.ui_scale_factor();
         let screen_w = state.config.width as f32 / dpi.max(0.0001);
         let screen_h = state.config.height as f32 / dpi.max(0.0001);
         let view_proj = self.camera.view_proj();

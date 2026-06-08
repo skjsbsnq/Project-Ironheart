@@ -80,6 +80,7 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     // ─── Settings panel ───────────────────────────────────────
     ("settings_title", ["Settings", "设置"]),
     ("display", ["Display", "显示"]),
+    ("display_scale", ["Game scale", "游戏缩放率"]),
     ("enable_3d_terrain", ["Enable 3D terrain", "启用 3D 地形"]),
     ("fullscreen", ["Fullscreen (borderless)", "全屏（无边框）"]),
     ("resolution", ["Resolution", "分辨率"]),

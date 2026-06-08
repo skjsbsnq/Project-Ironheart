@@ -13,11 +13,37 @@ pub struct RenderStats {
     pub nodes_painted: usize,
     pub sprites_painted: usize,
     pub fallback_painted: usize,
+    pub fallback_labels: Vec<String>,
     pub text_painted: usize,
     pub buttons: usize,
     pub progress_bars: usize,
     pub pie_charts: usize,
     pub clicked_commands: Vec<String>,
+}
+
+impl RenderStats {
+    pub fn record_fallback(&mut self, label: impl Into<String>) {
+        self.fallback_painted += 1;
+        let label = label.into();
+        if !label.is_empty() && self.fallback_labels.len() < 32 {
+            self.fallback_labels.push(label);
+        }
+    }
+
+    pub fn merge(&mut self, other: RenderStats) {
+        self.nodes_seen += other.nodes_seen;
+        self.nodes_painted += other.nodes_painted;
+        self.sprites_painted += other.sprites_painted;
+        self.fallback_painted += other.fallback_painted;
+        self.text_painted += other.text_painted;
+        self.buttons += other.buttons;
+        self.progress_bars += other.progress_bars;
+        self.pie_charts += other.pie_charts;
+        self.clicked_commands.extend(other.clicked_commands);
+        let remaining = 32usize.saturating_sub(self.fallback_labels.len());
+        self.fallback_labels
+            .extend(other.fallback_labels.into_iter().take(remaining));
+    }
 }
 
 pub struct VanillaGuiRenderer<'a> {
@@ -42,6 +68,21 @@ pub fn button_frame_for_state(frame_count: Option<u32>, state: ButtonVisualState
     }
 }
 
+pub fn checkbox_frame_for_state(
+    frame_count: Option<u32>,
+    state: ButtonVisualState,
+    checked_frame: Option<u32>,
+) -> Option<u32> {
+    let frames = frame_count.unwrap_or(1).max(1);
+    let base = checked_frame.unwrap_or(1).clamp(1, frames);
+    Some(match state {
+        ButtonVisualState::Normal => base,
+        ButtonVisualState::Hover => (base + 1).min(frames),
+        ButtonVisualState::Pressed => (base + 2).min(frames),
+        ButtonVisualState::Disabled => base.min(frames),
+    })
+}
+
 pub fn frame_animated_frame(frame_count: Option<u32>, fps: Option<f32>, time_secs: f64) -> u32 {
     let frames = frame_count.unwrap_or(1).max(1);
     if frames <= 1 {
@@ -57,7 +98,17 @@ pub fn resource_hit_rect(
     resource: Option<&GfxResource>,
     icon_bank: &mut IconBank,
 ) -> Rect {
-    rect_for_resource_hit(rect, gfx_name, resource, icon_bank)
+    rect_for_resource_hit(rect, gfx_name, resource, false, 1.0, icon_bank)
+}
+
+pub fn resource_hit_rect_centered(
+    rect: Rect,
+    gfx_name: &str,
+    resource: Option<&GfxResource>,
+    centerposition: bool,
+    icon_bank: &mut IconBank,
+) -> Rect {
+    rect_for_resource_hit(rect, gfx_name, resource, centerposition, 1.0, icon_bank)
 }
 
 impl<'a> VanillaGuiRenderer<'a> {
@@ -93,6 +144,10 @@ impl<'a> VanillaGuiRenderer<'a> {
         if !visible {
             return;
         }
+        if node.name.as_deref() == Some("political_selectable_idea_entry_list") {
+            self.paint_political_idea_entry_list(ui, node, layout, bindings, icon_bank, stats);
+            return;
+        }
         stats.nodes_painted += 1;
 
         let rect: Rect = layout.rect.into();
@@ -109,25 +164,45 @@ impl<'a> VanillaGuiRenderer<'a> {
                         node.f32("frame").map(|frame| frame as u32),
                         &binding,
                         node.bool("centerposition").unwrap_or(false),
+                        layout.scale,
                         icon_bank,
                         stats,
                     );
                 }
             }
-            GuiNodeKind::Button => {
+            GuiNodeKind::Button | GuiNodeKind::CheckBox => {
                 stats.buttons += 1;
-                let clicked = self.paint_button(ui, rect, node, &binding, icon_bank, stats);
+                let clicked =
+                    self.paint_button(ui, rect, node, layout.scale, &binding, icon_bank, stats);
                 if clicked {
                     if let Some(command) = binding.click.as_ref() {
                         stats.clicked_commands.push(command.command.clone());
                     }
                 }
             }
-            GuiNodeKind::InstantTextbox => {
-                self.paint_textbox(ui, rect, node, &binding, stats);
+            GuiNodeKind::InstantTextbox | GuiNodeKind::EditBox => {
+                if let GuiNodeKind::EditBox = node.kind {
+                    if let Some(sprite) = sprite_for(node, &binding) {
+                        self.paint_resource(
+                            &painter,
+                            rect,
+                            &sprite,
+                            node.f32("frame").map(|frame| frame as u32),
+                            &binding,
+                            node.bool("centerposition").unwrap_or(false),
+                            layout.scale,
+                            icon_bank,
+                            stats,
+                        );
+                    } else if rect.is_positive() {
+                        paint_editbox_background(&painter, rect);
+                    }
+                }
+                self.paint_textbox(ui, rect, node, layout.scale, &binding, stats);
             }
             GuiNodeKind::ContainerWindow
             | GuiNodeKind::GridBox
+            | GuiNodeKind::OverlappingElementsBox
             | GuiNodeKind::VerticalScrollbar => {
                 if let Some(sprite) = sprite_for(node, &binding) {
                     self.paint_resource(
@@ -137,23 +212,206 @@ impl<'a> VanillaGuiRenderer<'a> {
                         node.f32("frame").map(|frame| frame as u32),
                         &binding,
                         node.bool("centerposition").unwrap_or(false),
+                        layout.scale,
                         icon_bank,
                         stats,
                     );
                 }
             }
+            GuiNodeKind::Position => {}
             GuiNodeKind::Unknown(_) => {
-                paint_fallback(&painter, rect, "unknown");
-                stats.fallback_painted += 1;
+                let label = node.name.as_deref().unwrap_or("unknown");
+                paint_fallback(&painter, rect, label);
+                stats.record_fallback(label);
             }
         }
 
-        if !matches!(node.kind, GuiNodeKind::Button) {
+        if !matches!(
+            node.kind,
+            GuiNodeKind::Button | GuiNodeKind::CheckBox | GuiNodeKind::Position
+        ) {
             self.install_hit_region(ui, rect, &binding, stats);
         }
 
         for (child, child_layout) in node.children.iter().zip(layout.children.iter()) {
             self.paint_node(ui, child, child_layout, bindings, icon_bank, stats);
+        }
+    }
+
+    fn paint_political_idea_entry_list(
+        &self,
+        ui: &mut egui::Ui,
+        node: &GuiNode,
+        layout: &LayoutNode,
+        bindings: &GuiBindingMap,
+        icon_bank: &mut IconBank,
+        stats: &mut RenderStats,
+    ) {
+        stats.nodes_painted += 1;
+        let rect: Rect = layout.rect.into();
+        let clip: Rect = layout.clip_rect.into();
+        let painter = ui.painter().with_clip_rect(clip);
+        let binding = bindings.for_node(&layout.path, node.name.as_deref());
+
+        let row_bg = named_child_pair(node, layout, "idea_entry_bg");
+        let bg_binding = row_bg
+            .map(|(child, child_layout)| {
+                bindings.for_node(&child_layout.path, child.name.as_deref())
+            })
+            .unwrap_or_else(|| binding.clone());
+        if let Some((bg_node, bg_layout)) = row_bg {
+            let bg_rect: Rect = bg_layout.rect.into();
+            let bg_sprite = sprite_for(bg_node, &bg_binding)
+                .or_else(|| sprite_for(node, &binding))
+                .unwrap_or_else(|| "GFX_idea_entry_bg_3".to_owned());
+            self.paint_resource(
+                &painter,
+                bg_rect,
+                &bg_sprite,
+                bg_node.f32("frame").map(|frame| frame as u32),
+                &bg_binding,
+                bg_node.bool("centerposition").unwrap_or(false),
+                bg_layout.scale,
+                icon_bank,
+                stats,
+            );
+        } else if let Some(sprite) = sprite_for(node, &binding) {
+            self.paint_resource(
+                &painter,
+                rect,
+                &sprite,
+                node.f32("frame").map(|frame| frame as u32),
+                &binding,
+                node.bool("centerposition").unwrap_or(false),
+                layout.scale,
+                icon_bank,
+                stats,
+            );
+        } else {
+            paint_selectable_idea_row_fallback(&painter, rect);
+        }
+
+        self.install_hit_region(ui, rect, &binding, stats);
+        let row = rect.shrink2(Vec2::new(8.0, 6.0));
+        let icon_rect = selectable_idea_row_icon_rect(rect);
+        paint_selectable_idea_icon_backplate(&painter, icon_rect);
+        if let Some(icon_layout) = layout.find_by_name("icon") {
+            let icon_binding = bindings.for_node(&icon_layout.path, icon_layout.name.as_deref());
+            if let Some(sprite) = icon_binding.sprite.as_deref() {
+                let sprite_rect = icon_rect.shrink(3.0);
+                let _ = self.paint_resource(
+                    &painter,
+                    sprite_rect,
+                    sprite,
+                    None,
+                    &icon_binding,
+                    true,
+                    icon_layout.scale,
+                    icon_bank,
+                    stats,
+                );
+            }
+        }
+
+        let name = layout
+            .find_by_name("name")
+            .map(|child| bindings.for_node(&child.path, child.name.as_deref()).text)
+            .flatten()
+            .unwrap_or_default();
+        let traits = layout
+            .find_by_name("traits")
+            .map(|child| bindings.for_node(&child.path, child.name.as_deref()).text)
+            .flatten()
+            .unwrap_or_default();
+        let cost = layout
+            .find_by_name("cost")
+            .map(|child| bindings.for_node(&child.path, child.name.as_deref()).text)
+            .flatten()
+            .unwrap_or_default();
+        let stats_text = layout
+            .find_by_name("stats")
+            .map(|child| bindings.for_node(&child.path, child.name.as_deref()).text)
+            .flatten()
+            .unwrap_or_default();
+
+        let badge_w = 64.0_f32.min((row.width() * 0.24).max(44.0));
+        let badge_rect = Rect::from_min_size(
+            Pos2::new(row.right() - badge_w, row.top() + 6.0),
+            Vec2::new(badge_w, 20.0),
+        );
+        let text_left = icon_rect.right() + 10.0;
+        let text_right = if traits.is_empty() {
+            row.right() - 6.0
+        } else {
+            (badge_rect.left() - 8.0).max(text_left + 48.0)
+        };
+        let title_rect = Rect::from_min_max(
+            Pos2::new(text_left, row.top() + 2.0),
+            Pos2::new(text_right, row.top() + 20.0),
+        );
+        let meta_rect = Rect::from_min_max(
+            Pos2::new(text_left, row.top() + 23.0),
+            Pos2::new(row.right() - 6.0, row.top() + 38.0),
+        );
+        let stats_rect = Rect::from_min_max(
+            Pos2::new(text_left, row.top() + 41.0),
+            Pos2::new(row.right() - 6.0, row.bottom()),
+        );
+
+        paint_single_line_text(
+            &painter,
+            title_rect,
+            &name,
+            FontToken::Header,
+            VanillaIron::TEXT,
+        );
+        paint_single_line_text(
+            &painter,
+            meta_rect,
+            &cost,
+            FontToken::Caption,
+            VanillaIron::BRASS,
+        );
+        paint_wrapped_text(
+            &painter,
+            stats_rect,
+            if stats_text.is_empty() {
+                ""
+            } else {
+                &stats_text
+            },
+            FontToken::Small,
+            VanillaIron::MUTED,
+        );
+        stats.text_painted += usize::from(!name.is_empty())
+            + usize::from(!cost.is_empty())
+            + usize::from(!traits.is_empty())
+            + usize::from(!stats_text.is_empty());
+
+        if !traits.is_empty() {
+            painter.rect_filled(badge_rect, 1.0, Color32::from_black_alpha(96));
+            painter.rect_stroke(
+                badge_rect,
+                egui::epaint::CornerRadius::same(1),
+                Stroke::new(1.0, VanillaIron::EDGE),
+                egui::epaint::StrokeKind::Inside,
+            );
+            paint_single_line_text(
+                &painter,
+                badge_rect.shrink2(Vec2::new(5.0, 1.0)),
+                &traits,
+                FontToken::Small,
+                VanillaIron::MUTED,
+            );
+        }
+
+        for (child, _child_layout) in node.children.iter().zip(layout.children.iter()) {
+            if matches!(
+                child.name.as_deref(),
+                Some("name" | "traits" | "cost" | "stats" | "icon" | "idea_icon")
+            ) {
+                stats.nodes_seen += 1;
+            }
         }
     }
 
@@ -165,6 +423,7 @@ impl<'a> VanillaGuiRenderer<'a> {
         node_frame: Option<u32>,
         binding: &GuiBinding,
         centerposition: bool,
+        scale: f32,
         icon_bank: &mut IconBank,
         stats: &mut RenderStats,
     ) -> bool {
@@ -181,7 +440,7 @@ impl<'a> VanillaGuiRenderer<'a> {
                         true
                     } else {
                         paint_nine_slice_placeholder(painter, rect);
-                        stats.fallback_painted += 1;
+                        stats.record_fallback(gfx_name);
                         false
                     }
                 } else if paint_sprite_resource(
@@ -193,13 +452,14 @@ impl<'a> VanillaGuiRenderer<'a> {
                     binding.tint,
                     binding.progress,
                     centerposition,
+                    scale,
                     icon_bank,
                 ) {
                     stats.sprites_painted += 1;
                     true
                 } else {
                     paint_nine_slice_placeholder(painter, rect);
-                    stats.fallback_painted += 1;
+                    stats.record_fallback(gfx_name);
                     false
                 }
             }
@@ -234,7 +494,7 @@ impl<'a> VanillaGuiRenderer<'a> {
                     true
                 } else {
                     paint_flag_fallback(painter, rect);
-                    stats.fallback_painted += 1;
+                    stats.record_fallback(gfx_name);
                     false
                 }
             }
@@ -256,13 +516,14 @@ impl<'a> VanillaGuiRenderer<'a> {
                         binding.tint,
                         binding.progress,
                         centerposition,
+                        scale,
                         icon_bank,
                     ) {
                         stats.sprites_painted += 1;
                         true
                     } else {
                         paint_fallback(painter, rect, gfx_name);
-                        stats.fallback_painted += 1;
+                        stats.record_fallback(gfx_name);
                         false
                     }
                 } else if paint_sprite_resource(
@@ -274,13 +535,14 @@ impl<'a> VanillaGuiRenderer<'a> {
                     binding.tint,
                     binding.progress,
                     centerposition,
+                    scale,
                     icon_bank,
                 ) {
                     stats.sprites_painted += 1;
                     true
                 } else {
                     paint_fallback(painter, rect, gfx_name);
-                    stats.fallback_painted += 1;
+                    stats.record_fallback(gfx_name);
                     false
                 }
             }
@@ -294,13 +556,14 @@ impl<'a> VanillaGuiRenderer<'a> {
                     binding.tint,
                     binding.progress,
                     centerposition,
+                    scale,
                     icon_bank,
                 ) {
                     stats.sprites_painted += 1;
                     true
                 } else {
                     paint_fallback(painter, rect, gfx_name);
-                    stats.fallback_painted += 1;
+                    stats.record_fallback(gfx_name);
                     false
                 }
             }
@@ -312,16 +575,22 @@ impl<'a> VanillaGuiRenderer<'a> {
         ui: &mut egui::Ui,
         rect: Rect,
         node: &GuiNode,
+        scale: f32,
         binding: &GuiBinding,
         icon_bank: &mut IconBank,
         stats: &mut RenderStats,
     ) -> bool {
-        let enabled = !node.bool("disabled").unwrap_or(false);
+        let enabled = binding
+            .enabled
+            .unwrap_or_else(|| !node.bool("disabled").unwrap_or(false));
         let sprite = sprite_for(node, binding);
         let resource = sprite.as_deref().and_then(|name| self.gfx_index.get(name));
+        let centerposition = node.bool("centerposition").unwrap_or(false);
         let button_rect = sprite
             .as_deref()
-            .map(|name| rect_for_resource_hit(rect, name, resource, icon_bank))
+            .map(|name| {
+                rect_for_resource_hit(rect, name, resource, centerposition, scale, icon_bank)
+            })
             .unwrap_or(rect);
         let id = Id::new((
             "vanilla_gui_button",
@@ -345,15 +614,28 @@ impl<'a> VanillaGuiRenderer<'a> {
             } else {
                 ButtonVisualState::Normal
             };
-            let state_frame =
-                resource.map(|resource| button_frame_for_state(resource.frame_count, visual_state));
+            let state_frame = match node.kind {
+                GuiNodeKind::CheckBox => checkbox_frame_for_state(
+                    resource.and_then(|resource| resource.frame_count),
+                    visual_state,
+                    checkbox_base_frame(node, binding),
+                ),
+                _ => resource
+                    .map(|resource| button_frame_for_state(resource.frame_count, visual_state)),
+            };
+            let node_frame = node.f32("frame").map(|frame| frame as u32);
+            let frame_override = match node.kind {
+                GuiNodeKind::CheckBox => state_frame.or(node_frame),
+                _ => node_frame.or(state_frame),
+            };
             painted_sprite = self.paint_resource(
                 painter,
                 snap_rect_to_physical_pixels(button_rect, painter.ctx().pixels_per_point()),
                 &sprite,
-                node.f32("frame").map(|frame| frame as u32).or(state_frame),
+                frame_override,
                 binding,
-                node.bool("centerposition").unwrap_or(false),
+                centerposition,
+                scale,
                 icon_bank,
                 stats,
             );
@@ -381,7 +663,10 @@ impl<'a> VanillaGuiRenderer<'a> {
             let node_font = node.string("buttonFont").or_else(|| node.string("font"));
             let font_id = fit_font_to_width(
                 text,
-                FontToken::from_vanilla(node_font.as_deref()).font_id(),
+                scaled_font_id(
+                    FontToken::from_vanilla(node_font.as_deref()).font_id(),
+                    scale,
+                ),
                 button_rect.width() - 6.0,
             );
             painter.text(
@@ -404,30 +689,38 @@ impl<'a> VanillaGuiRenderer<'a> {
         ui: &mut egui::Ui,
         rect: Rect,
         node: &GuiNode,
+        scale: f32,
         binding: &GuiBinding,
         stats: &mut RenderStats,
     ) {
         let node_text = node.string("text");
         let node_name = node.string("name");
         let Some(text) = binding
-            .text
+            .input_text
             .as_deref()
+            .or(binding.text.as_deref())
             .or(node_text.as_deref())
             .or(node_name.as_deref())
         else {
             return;
         };
         let text = vanilla_display_text(text);
-        let max_w = node.f32("maxWidth").unwrap_or(rect.width());
-        let max_h = node.f32("maxHeight").unwrap_or(rect.height());
+        let scale = scale.max(0.01);
+        let max_w = node
+            .f32("maxWidth")
+            .map(|width| width * scale)
+            .unwrap_or(rect.width());
+        let max_h = node
+            .f32("maxHeight")
+            .map(|height| height * scale)
+            .unwrap_or(rect.height());
         let text_rect = Rect::from_min_size(rect.min, Vec2::new(max_w, max_h));
         let painter = ui.painter().with_clip_rect(text_rect);
         let align = align_from_format(node.string("format").as_deref());
         let node_font = node.string("font");
-        let font_id = fit_font_to_rect(
-            text,
+        let base_font = scaled_font_id(
             FontToken::from_vanilla(node_font.as_deref()).font_id(),
-            text_rect,
+            scale,
         );
         let color = binding
             .text_color
@@ -435,11 +728,12 @@ impl<'a> VanillaGuiRenderer<'a> {
         if matches!(align, egui::Align2::LEFT_TOP | egui::Align2::LEFT_CENTER)
             && text_rect.height() > 36.0
         {
-            let galley = painter.layout(text.to_owned(), font_id, color, text_rect.width());
+            let galley = painter.layout(text.to_owned(), base_font, color, text_rect.width());
             painter.galley(text_rect.min, galley, color);
             stats.text_painted += 1;
             return;
         }
+        let font_id = fit_font_to_rect(text, base_font, text_rect);
         let pos = match align {
             egui::Align2::LEFT_TOP | egui::Align2::LEFT_CENTER => text_rect.left_center(),
             egui::Align2::RIGHT_TOP | egui::Align2::RIGHT_CENTER => text_rect.right_center(),
@@ -459,6 +753,7 @@ impl<'a> VanillaGuiRenderer<'a> {
         let Some(command) = binding.click.as_ref() else {
             return;
         };
+        let enabled = binding.enabled.unwrap_or(true);
         let mut response = ui.interact(
             rect,
             Id::new(("vanilla_gui_hit", command.command.as_str())),
@@ -467,10 +762,10 @@ impl<'a> VanillaGuiRenderer<'a> {
         if let Some(tooltip) = &binding.tooltip {
             response = response.on_hover_text(tooltip);
         }
-        if response.hovered() {
+        if enabled && response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
-        if response.clicked() {
+        if enabled && response.clicked() {
             stats.clicked_commands.push(command.command.clone());
         }
     }
@@ -480,6 +775,7 @@ impl<'a> VanillaGuiRenderer<'a> {
 pub enum FontToken {
     Title,
     Header,
+    BodyLarge,
     Body,
     Caption,
     Small,
@@ -489,12 +785,12 @@ impl FontToken {
     pub fn from_vanilla(font: Option<&str>) -> Self {
         match font.unwrap_or_default().to_ascii_lowercase().as_str() {
             "hoi_36header" | "hoi_36b" | "hoi_32b" => Self::Title,
-            "hoi_24b" | "hoi_24bs" | "hoi_22b" | "hoi_22bs" | "hoi_20b" | "hoi_20bs" => {
-                Self::Header
-            }
+            "hoi4_typewriter22" | "hoi_24b" | "hoi_24bs" | "hoi_22b" | "hoi_22bs" | "hoi_20b"
+            | "hoi_20bs" => Self::Header,
             "hoi_18mbs" | "hoi_18b" | "hoi_18bs" | "hoi_16mbs" | "hoi_16b" | "hoi_16bs" => {
                 Self::Body
             }
+            "hoi4_typewriter16" => Self::BodyLarge,
             "hoi_14mbs" | "hoi_14" | "hoi_14b" | "hoi_14bs" => Self::Caption,
             "hoi_12mbs" | "hoi_12" | "hoi_12b" | "hoi_12bs" => Self::Small,
             _ => Self::Body,
@@ -505,6 +801,7 @@ impl FontToken {
         match self {
             Self::Title => crate::v9::TextRole::Title.font_id(),
             Self::Header => crate::v9::TextRole::Heading.font_id(),
+            Self::BodyLarge => crate::v9::TextRole::Subheading.font_id(),
             Self::Body => crate::v9::TextRole::Body.font_id(),
             Self::Caption => crate::v9::TextRole::Caption.font_id(),
             Self::Small => crate::v9::TextRole::Small.font_id(),
@@ -518,6 +815,92 @@ fn sprite_for(node: &GuiNode, binding: &GuiBinding) -> Option<String> {
         .clone()
         .or_else(|| node.string("spriteType"))
         .or_else(|| node.string("quadTextureSprite"))
+}
+
+fn checkbox_base_frame(node: &GuiNode, binding: &GuiBinding) -> Option<u32> {
+    let node_frame = node.f32("frame").map(|frame| frame as u32);
+    match binding.checked {
+        Some(true) => Some(node_frame.unwrap_or(2)),
+        Some(false) => Some(1),
+        None => node_frame,
+    }
+}
+
+fn named_child_pair<'a>(
+    node: &'a GuiNode,
+    layout: &'a LayoutNode,
+    name: &str,
+) -> Option<(&'a GuiNode, &'a LayoutNode)> {
+    node.children
+        .iter()
+        .zip(layout.children.iter())
+        .find(|(child, child_layout)| {
+            child.name.as_deref() == Some(name) || child_layout.name.as_deref() == Some(name)
+        })
+}
+
+fn selectable_idea_row_icon_rect(row_rect: Rect) -> Rect {
+    let row = row_rect.shrink2(Vec2::new(8.0, 6.0));
+    let side = (row.height() - 4.0)
+        .clamp(38.0, 48.0)
+        .min(row.width().max(0.0));
+    Rect::from_center_size(
+        Pos2::new(row.left() + 2.0 + side * 0.5, row.center().y),
+        Vec2::splat(side),
+    )
+}
+
+fn paint_selectable_idea_icon_backplate(painter: &egui::Painter, rect: Rect) {
+    let fill = Color32::from_rgba_premultiplied(0x08, 0x09, 0x08, 210);
+    let hi = Color32::from_rgba_premultiplied(0x8d, 0x78, 0x4c, 150);
+    let lo = Color32::from_rgba_premultiplied(0x00, 0x00, 0x00, 190);
+    painter.rect_filled(rect, egui::epaint::CornerRadius::same(1), fill);
+    painter.rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        Stroke::new(1.0, lo),
+        egui::epaint::StrokeKind::Inside,
+    );
+    painter.hline(
+        (rect.left() + 1.0)..=(rect.right() - 1.0),
+        rect.top() + 1.0,
+        Stroke::new(1.0, hi),
+    );
+}
+
+fn paint_selectable_idea_row_fallback(painter: &egui::Painter, rect: Rect) {
+    painter.rect_filled(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        Color32::from_rgba_premultiplied(0x0b, 0x0d, 0x0b, 238),
+    );
+    painter.rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(0x00, 0x00, 0x00, 220)),
+        egui::epaint::StrokeKind::Inside,
+    );
+    painter.hline(
+        (rect.left() + 2.0)..=(rect.right() - 2.0),
+        rect.top() + 1.0,
+        Stroke::new(1.0, Color32::from_rgba_premultiplied(0x77, 0x62, 0x3f, 90)),
+    );
+}
+
+fn paint_editbox_background(painter: &egui::Painter, rect: Rect) {
+    painter.rect_filled(rect, 1.0, Color32::from_rgb(0x11, 0x13, 0x12));
+    painter.rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        Stroke::new(1.0, Color32::from_black_alpha(210)),
+        egui::epaint::StrokeKind::Inside,
+    );
+    painter.rect_stroke(
+        rect.shrink(1.0),
+        egui::epaint::CornerRadius::same(0),
+        Stroke::new(1.0, Color32::from_white_alpha(28)),
+        egui::epaint::StrokeKind::Inside,
+    );
 }
 
 fn vanilla_display_text(text: &str) -> &str {
@@ -539,6 +922,43 @@ fn vanilla_display_text(text: &str) -> &str {
             }
         }
     }
+}
+
+fn paint_single_line_text(
+    painter: &egui::Painter,
+    rect: Rect,
+    text: &str,
+    token: FontToken,
+    color: Color32,
+) {
+    if text.trim().is_empty() || !rect.is_positive() {
+        return;
+    }
+    let text = vanilla_display_text(text);
+    let font_id = fit_font_to_width(text, token.font_id(), rect.width().max(1.0));
+    painter.with_clip_rect(rect).text(
+        rect.left_center(),
+        egui::Align2::LEFT_CENTER,
+        text,
+        font_id,
+        color,
+    );
+}
+
+fn paint_wrapped_text(
+    painter: &egui::Painter,
+    rect: Rect,
+    text: &str,
+    token: FontToken,
+    color: Color32,
+) {
+    if text.trim().is_empty() || !rect.is_positive() {
+        return;
+    }
+    let text = vanilla_display_text(text);
+    let font_id = token.font_id();
+    let galley = painter.layout(text.to_owned(), font_id, color, rect.width().max(1.0));
+    painter.with_clip_rect(rect).galley(rect.min, galley, color);
 }
 
 fn paint_icon(
@@ -568,6 +988,7 @@ fn paint_sprite_resource(
     tint: Option<Color32>,
     progress: Option<f32>,
     centerposition: bool,
+    scale: f32,
     icon_bank: &mut IconBank,
 ) -> bool {
     let Some(handle) = icon_bank.get_or_load(gfx_name).cloned() else {
@@ -598,7 +1019,11 @@ fn paint_sprite_resource(
         .unwrap_or(source_size.y);
     let src_left = frame_w * (frame - 1) as f32;
     let src = Rect::from_min_size(Pos2::new(src_left, 0.0), Vec2::new(frame_w, frame_h));
-    let dst = rect_with_intrinsic_size_centered(rect, Vec2::new(frame_w, frame_h), centerposition);
+    let dst = rect_with_intrinsic_size_centered(
+        rect,
+        Vec2::new(frame_w, frame_h) * scale.max(0.01),
+        centerposition,
+    );
     let mut dst = dst;
     let mut src = src;
     if let Some(progress) = progress {
@@ -635,6 +1060,8 @@ fn rect_for_resource_hit(
     rect: Rect,
     gfx_name: &str,
     resource: Option<&GfxResource>,
+    centerposition: bool,
+    scale: f32,
     icon_bank: &mut IconBank,
 ) -> Rect {
     if rect.width() > 0.0 && rect.height() > 0.0 {
@@ -658,7 +1085,7 @@ fn rect_for_resource_hit(
             })
         })
         .unwrap_or_else(|| Vec2::new(1.0, 1.0));
-    rect_with_intrinsic_size(rect, intrinsic)
+    rect_with_intrinsic_size_centered(rect, intrinsic * scale.max(0.01), centerposition)
 }
 
 fn rect_with_intrinsic_size(rect: Rect, intrinsic: Vec2) -> Rect {
@@ -1029,10 +1456,7 @@ fn paint_pie_chart(
     icon_bank: &mut IconBank,
     stats: &mut RenderStats,
 ) {
-    let rect = resource
-        .and_then(|resource| resource.size)
-        .map(|size| rect_with_intrinsic_size(rect, Vec2::new(size.x, size.y)))
-        .unwrap_or(rect);
+    let rect = pie_chart_rect(rect, resource);
     if let Some(resource) = resource {
         if let Some(texture) = resource.fallback_texture_name() {
             if paint_texture_file(painter, rect, texture, icon_bank) {
@@ -1085,6 +1509,21 @@ fn paint_pie_chart(
     );
 }
 
+fn pie_chart_rect(rect: Rect, resource: Option<&GfxResource>) -> Rect {
+    if rect.width() > 0.0 && rect.height() > 0.0 {
+        return rect;
+    }
+    let radius = resource
+        .and_then(|resource| resource.size)
+        .map(|size| size.x.min(size.y))
+        .filter(|radius| *radius > 0.0)
+        .unwrap_or(27.0);
+    Rect::from_min_size(
+        Pos2::new(rect.left() - radius, rect.top()),
+        Vec2::splat(radius * 2.0),
+    )
+}
+
 fn texture_file_by_key<'a>(resource: &'a GfxResource, key: &str) -> Option<&'a str> {
     resource
         .raw_properties
@@ -1095,6 +1534,11 @@ fn texture_file_by_key<'a>(resource: &'a GfxResource, key: &str) -> Option<&'a s
 
 fn fit_font_to_width(text: &str, font: FontId, max_width: f32) -> FontId {
     crate::v9::text::fit_font_to_width(text, font, max_width.max(1.0), 0.60)
+}
+
+fn scaled_font_id(mut font: FontId, scale: f32) -> FontId {
+    font.size = (font.size * scale.max(0.01)).max(1.0);
+    font
 }
 
 fn fit_font_to_rect(text: &str, font: FontId, rect: Rect) -> FontId {
@@ -1197,6 +1641,21 @@ mod tests {
 
         assert!(fitted.size < base.size);
         assert!(fitted.size >= base.size * 0.60);
+    }
+
+    #[test]
+    fn zoomed_text_uses_scaled_font_before_fitting() {
+        let base = FontToken::from_vanilla(Some("hoi_20b")).font_id();
+        let zoomed = scaled_font_id(base.clone(), 0.5);
+        let fitted = fit_font_to_rect(
+            "National Focus",
+            zoomed.clone(),
+            Rect::from_min_size(Pos2::ZERO, Vec2::new(120.0, 18.0)),
+        );
+
+        assert!((zoomed.size - base.size * 0.5).abs() < f32::EPSILON);
+        assert!(fitted.size <= zoomed.size);
+        assert!(fitted.size < base.size);
     }
 
     #[test]
@@ -1305,6 +1764,29 @@ mod tests {
     }
 
     #[test]
+    fn selectable_idea_row_icon_rect_is_left_aligned_and_vertically_centered() {
+        let row = Rect::from_min_size(Pos2::new(430.0, 104.0), Vec2::new(356.0, 58.0));
+
+        let icon = selectable_idea_row_icon_rect(row);
+
+        assert_eq!(icon.width(), icon.height());
+        assert!(icon.width() >= 38.0 && icon.width() <= 48.0);
+        assert!((icon.center().y - row.center().y).abs() < f32::EPSILON);
+        assert_eq!(icon.left(), row.left() + 10.0);
+    }
+
+    #[test]
+    fn selectable_idea_row_fallback_palette_is_iron_not_debug_blue() {
+        let debug_blue = Color32::from_rgb(0x12, 0x16, 0x14);
+        let fallback_iron = Color32::from_rgba_premultiplied(0x0b, 0x0d, 0x0b, 238);
+
+        assert_ne!(fallback_iron, debug_blue);
+        assert!(fallback_iron.r() < 0x12);
+        assert!(fallback_iron.g() < 0x16);
+        assert!(fallback_iron.b() < 0x14);
+    }
+
+    #[test]
     fn gate3_button_state_frames_follow_vanilla_three_frame_buttons() {
         assert_eq!(
             button_frame_for_state(Some(3), ButtonVisualState::Normal),
@@ -1323,6 +1805,288 @@ mod tests {
     }
 
     #[test]
+    fn gate8_checkbox_state_frames_follow_node_frame_without_overflow() {
+        assert_eq!(
+            checkbox_frame_for_state(Some(5), ButtonVisualState::Normal, Some(2)),
+            Some(2)
+        );
+        assert_eq!(
+            checkbox_frame_for_state(Some(5), ButtonVisualState::Hover, Some(2)),
+            Some(3)
+        );
+        assert_eq!(
+            checkbox_frame_for_state(Some(5), ButtonVisualState::Pressed, Some(2)),
+            Some(4)
+        );
+        assert_eq!(
+            checkbox_frame_for_state(Some(3), ButtonVisualState::Pressed, Some(2)),
+            Some(3)
+        );
+    }
+
+    #[test]
+    fn gate8_renderer_handles_new_basic_nodes_without_unknown_fallbacks() {
+        let doc = crate::vanilla_gui::parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    containerWindowType = {
+        name = "root"
+        size = { width = 360 height = 180 }
+        checkBoxType = {
+            name = "tracked"
+            position = { x = 10 y = 10 }
+            size = { width = 20 height = 20 }
+            frame = 2
+        }
+        editBoxType = {
+            name = "search"
+            position = { x = 40 y = 10 }
+            size = { x = 150 y = 25 }
+            text = "Search"
+        }
+        OverlappingElementsBoxType = {
+            name = "overlap"
+            position = { x = 10 y = 55 }
+            size = { width = 120 height = 40 }
+            instantTextboxType = {
+                name = "overlap_text"
+                text = "Nested"
+                maxWidth = 100
+                maxHeight = 20
+            }
+        }
+        positionType = {
+            name = "focus_spacing"
+            position = { x = 96 y = 130 }
+        }
+    }
+}
+"#,
+        );
+        let root = doc.template_index().get("root").unwrap().clone();
+        let layout = crate::vanilla_gui::compute_layout_tree(
+            &root,
+            &crate::vanilla_gui::LayoutOptions::new(crate::vanilla_gui::GuiRect::new(
+                0.0, 0.0, 360.0, 180.0,
+            )),
+        );
+        let gfx_index = crate::vanilla_gui::GfxIndex::from_files(Vec::<std::path::PathBuf>::new());
+        let stats_slot = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let stats_out = std::rc::Rc::clone(&stats_slot);
+
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(Vec2::new(360.0, 180.0))
+            .build(move |ctx| {
+                let path_cfg = hoi4_paths::PathConfig::with_game_path(std::env::temp_dir());
+                let mut icon_bank = IconBank::new(ctx.clone(), path_cfg);
+                let renderer = VanillaGuiRenderer::new(&gfx_index);
+                egui::Area::new(egui::Id::new("gate8_renderer_new_nodes"))
+                    .fixed_pos(Pos2::ZERO)
+                    .show(ctx, |ui| {
+                        let _ = ui.allocate_exact_size(Vec2::new(360.0, 180.0), Sense::hover());
+                        let stats = renderer.paint_tree(
+                            ui,
+                            &root,
+                            &layout,
+                            &GuiBindingMap::default(),
+                            &mut icon_bank,
+                        );
+                        *stats_out.borrow_mut() = Some(stats);
+                    });
+            });
+        harness.run();
+        let stats = stats_slot.borrow().clone().unwrap();
+
+        assert_eq!(stats.fallback_painted, 0, "{:?}", stats.fallback_labels);
+        assert_eq!(stats.buttons, 1);
+        assert!(stats.text_painted >= 1);
+    }
+
+    #[test]
+    fn gate8_real_decision_and_focus_gui_smoke_has_no_unknown_node_fallbacks() {
+        let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+            return;
+        };
+        let gfx_index = crate::vanilla_gui::GfxIndex::from_path_config(&path_cfg);
+
+        for (rel_path, root_name) in [
+            ("interface/countrydecisionview.gui", "countrydecisionview"),
+            ("interface/nationalfocusview.gui", "nationalfocusview"),
+        ] {
+            let Some(gui_path) = path_cfg.find(rel_path) else {
+                return;
+            };
+            let doc = crate::vanilla_gui::parse_gui_file(gui_path).unwrap();
+            let root = doc.template_index().get(root_name).unwrap().clone();
+            let layout = crate::vanilla_gui::compute_layout_tree(
+                &root,
+                &crate::vanilla_gui::LayoutOptions::new(crate::vanilla_gui::GuiRect::new(
+                    0.0, 0.0, 1280.0, 720.0,
+                ))
+                .shown_position(true),
+            );
+            let stats_slot = std::rc::Rc::new(std::cell::RefCell::new(None));
+            let stats_out = std::rc::Rc::clone(&stats_slot);
+            let path_cfg_for_harness = path_cfg.clone();
+            let gfx_index_for_harness = gfx_index.clone();
+
+            let mut harness = egui_kittest::Harness::builder()
+                .with_size(Vec2::new(1280.0, 720.0))
+                .build(move |ctx| {
+                    let mut icon_bank = IconBank::new(ctx.clone(), path_cfg_for_harness.clone());
+                    icon_bank.add_politics_search_dirs();
+                    icon_bank.add_search_dir("gfx/interface");
+                    icon_bank.add_search_dir("gfx/interface/decisions");
+                    icon_bank.add_search_dir("gfx/interface/focusview");
+                    icon_bank.add_search_dir("gfx/interface/goals");
+                    let renderer = VanillaGuiRenderer::new(&gfx_index_for_harness);
+                    egui::Area::new(egui::Id::new(("gate8_real_gui_smoke", root_name)))
+                        .fixed_pos(Pos2::ZERO)
+                        .show(ctx, |ui| {
+                            let _ =
+                                ui.allocate_exact_size(Vec2::new(1280.0, 720.0), Sense::hover());
+                            let stats = renderer.paint_tree(
+                                ui,
+                                &root,
+                                &layout,
+                                &GuiBindingMap::default(),
+                                &mut icon_bank,
+                            );
+                            *stats_out.borrow_mut() = Some(stats);
+                        });
+                });
+            harness.run();
+            let stats = stats_slot.borrow().clone().unwrap();
+            let unknown_fallbacks: Vec<_> = stats
+                .fallback_labels
+                .iter()
+                .filter(|label| doc.find_node_by_name(label).is_some())
+                .cloned()
+                .collect();
+
+            assert!(
+                unknown_fallbacks.is_empty(),
+                "{root_name} rendered unknown node fallback labels: {unknown_fallbacks:?}"
+            );
+            assert!(stats.nodes_seen > 0, "{root_name} did not render any nodes");
+        }
+    }
+
+    #[test]
+    fn gate16_binding_state_controls_enabled_checked_and_input_text() {
+        let doc = crate::vanilla_gui::parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    containerWindowType = {
+        name = "root"
+        size = { width = 260 height = 80 }
+        buttonType = {
+            name = "disabled_button"
+            position = { x = 10 y = 10 }
+            size = { width = 80 height = 24 }
+            text = "Click"
+        }
+        checkBoxType = {
+            name = "tracked_checkbox"
+            position = { x = 100 y = 10 }
+            size = { width = 24 height = 24 }
+            quadTextureSprite = "GFX_checkbox_test"
+            frame = 2
+        }
+        editBoxType = {
+            name = "search"
+            position = { x = 10 y = 45 }
+            size = { width = 140 height = 24 }
+            text = "node text"
+        }
+    }
+}
+"#,
+        );
+        let root = doc.template_index().get("root").unwrap().clone();
+        let layout = crate::vanilla_gui::compute_layout_tree(
+            &root,
+            &crate::vanilla_gui::LayoutOptions::new(crate::vanilla_gui::GuiRect::new(
+                0.0, 0.0, 260.0, 80.0,
+            )),
+        );
+        let root_for_assert = root.clone();
+        let gfx_index = crate::vanilla_gui::GfxIndex::parse_single(
+            "test.gfx",
+            r#"
+spriteType = {
+    name = "GFX_checkbox_test"
+    noOfFrames = 5
+}
+"#,
+        );
+        let stats_slot = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let stats_out = std::rc::Rc::clone(&stats_slot);
+        let mut harness = egui_kittest::Harness::builder()
+            .with_size(Vec2::new(260.0, 80.0))
+            .build(move |ctx| {
+                let path_cfg = hoi4_paths::PathConfig::with_game_path(std::env::temp_dir());
+                let mut icon_bank = IconBank::new(ctx.clone(), path_cfg);
+                let renderer = VanillaGuiRenderer::new(&gfx_index);
+                let mut bindings = GuiBindingMap::default();
+                bindings.insert_name(
+                    "disabled_button",
+                    GuiBinding::default().click("disabled").enabled(false),
+                );
+                bindings.insert_name(
+                    "tracked_checkbox",
+                    GuiBinding::default()
+                        .checked(true)
+                        .enabled(false)
+                        .click("checked"),
+                );
+                bindings.insert_name("search", GuiBinding::default().input_text("typed filter"));
+                egui::Area::new(egui::Id::new("gate16_binding_states"))
+                    .fixed_pos(Pos2::ZERO)
+                    .show(ctx, |ui| {
+                        let _ = ui.allocate_exact_size(Vec2::new(260.0, 80.0), Sense::hover());
+                        let stats =
+                            renderer.paint_tree(ui, &root, &layout, &bindings, &mut icon_bank);
+                        *stats_out.borrow_mut() = Some(stats);
+                    });
+            });
+        push_click(&mut harness, Pos2::new(20.0, 20.0));
+        push_click(&mut harness, Pos2::new(110.0, 20.0));
+        harness.run_steps(2);
+        let stats = stats_slot.borrow().clone().unwrap();
+
+        assert!(!stats
+            .clicked_commands
+            .iter()
+            .any(|command| command == "disabled"));
+        assert!(!stats
+            .clicked_commands
+            .iter()
+            .any(|command| command == "checked"));
+        assert_eq!(
+            checkbox_base_frame(
+                root_for_assert
+                    .find_node_by_name("tracked_checkbox")
+                    .unwrap(),
+                &GuiBinding::default().checked(true)
+            ),
+            Some(2)
+        );
+        assert_eq!(
+            checkbox_base_frame(
+                root_for_assert
+                    .find_node_by_name("tracked_checkbox")
+                    .unwrap(),
+                &GuiBinding::default().checked(false)
+            ),
+            Some(1)
+        );
+        assert!(stats.text_painted >= 1);
+    }
+
+    #[test]
     fn gate_dpi_snap_rect_aligns_to_physical_pixels() {
         let rect = Rect::from_min_size(Pos2::new(100.2, 7.2), Vec2::new(277.4, 82.4));
         let snapped = snap_rect_to_physical_pixels(rect, 1.5);
@@ -1335,6 +2099,24 @@ mod tests {
         assert!(snapped.height() > 0.0);
     }
 
+    fn push_click<State>(harness: &mut egui_kittest::Harness<'_, State>, pos: Pos2) {
+        let modifiers = harness.input().modifiers;
+        let input = harness.input_mut();
+        input.events.push(egui::Event::PointerMoved(pos));
+        input.events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers,
+        });
+        input.events.push(egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers,
+        });
+    }
+
     #[test]
     fn gate_dpi_snap_centered_goal_icon_rect_at_150_percent() {
         let zero_size_center = Rect::from_min_size(Pos2::new(226.0, 174.0), Vec2::ZERO);
@@ -1342,12 +2124,7 @@ mod tests {
             rect_with_intrinsic_size_centered(zero_size_center, Vec2::new(94.0, 76.0), true);
         let snapped = snap_rect_outward_to_physical_pixels(icon_rect, 1.5);
 
-        for value in [
-            snapped.min.x,
-            snapped.min.y,
-            snapped.max.x,
-            snapped.max.y,
-        ] {
+        for value in [snapped.min.x, snapped.min.y, snapped.max.x, snapped.max.y] {
             let physical = value * 1.5;
             assert!(
                 (physical.round() - physical).abs() < f32::EPSILON,
@@ -1357,6 +2134,31 @@ mod tests {
         let max_center_drift = 0.001;
         assert!((snapped.center().x - zero_size_center.min.x).abs() <= max_center_drift);
         assert!((snapped.center().y - zero_size_center.min.y).abs() <= max_center_drift);
+    }
+
+    #[test]
+    fn gate3_pie_chart_size_uses_vanilla_radius_and_center_x_anchor() {
+        let resource = GfxResource {
+            name: "GFX_political_chart".to_owned(),
+            kind: GfxResourceKind::PieChart,
+            source: None,
+            primary_texture: None,
+            textures: Vec::new(),
+            size: Some(GfxSize { x: 27.0, y: 27.0 }),
+            frame_count: None,
+            fps: None,
+            looped: None,
+            border: None,
+            raw_properties: Vec::new(),
+        };
+        let anchor = Rect::from_min_size(Pos2::new(292.0, 387.0), Vec2::ZERO);
+
+        let rect = pie_chart_rect(anchor, Some(&resource));
+
+        assert_eq!(rect.min, Pos2::new(265.0, 387.0));
+        assert_eq!(rect.width(), 54.0);
+        assert_eq!(rect.height(), 54.0);
+        assert_eq!(rect.center().x, 292.0);
     }
 
     #[test]

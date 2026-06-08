@@ -121,8 +121,12 @@ pub enum GuiNodeKind {
     ContainerWindow,
     Icon,
     Button,
+    CheckBox,
+    EditBox,
     InstantTextbox,
     GridBox,
+    OverlappingElementsBox,
+    Position,
     Background,
     VerticalScrollbar,
     Unknown(String),
@@ -134,8 +138,12 @@ impl GuiNodeKind {
             "containerwindowtype" => Some(Self::ContainerWindow),
             "icontype" => Some(Self::Icon),
             "buttontype" => Some(Self::Button),
+            "checkboxtype" => Some(Self::CheckBox),
+            "editboxtype" => Some(Self::EditBox),
             "instanttextboxtype" => Some(Self::InstantTextbox),
             "gridboxtype" => Some(Self::GridBox),
+            "overlappingelementsboxtype" => Some(Self::OverlappingElementsBox),
+            "positiontype" => Some(Self::Position),
             "background" => Some(Self::Background),
             "verticalscrollbar" => Some(Self::VerticalScrollbar),
             _ => None,
@@ -147,8 +155,12 @@ impl GuiNodeKind {
             Self::ContainerWindow => "containerWindowType",
             Self::Icon => "iconType",
             Self::Button => "buttonType",
+            Self::CheckBox => "checkBoxType",
+            Self::EditBox => "editBoxType",
             Self::InstantTextbox => "instantTextboxType",
             Self::GridBox => "gridBoxType",
+            Self::OverlappingElementsBox => "OverlappingElementsBoxType",
+            Self::Position => "positionType",
             Self::Background => "background",
             Self::VerticalScrollbar => "verticalScrollbar",
             Self::Unknown(key) => key.as_str(),
@@ -314,11 +326,17 @@ fn collect_root_nodes(block: &Block, out: &mut Vec<GuiNode>) {
 }
 
 fn node_from_entry(entry: &Entry) -> Option<GuiNode> {
-    let kind = GuiNodeKind::from_key(&entry.key)?;
     let Value::Block(block) = &entry.value else {
         return None;
     };
+    let kind = GuiNodeKind::from_key(&entry.key).or_else(|| {
+        looks_like_gui_node_key(&entry.key).then(|| GuiNodeKind::Unknown(entry.key.clone()))
+    })?;
     Some(node_from_block(kind, block.clone()))
+}
+
+fn looks_like_gui_node_key(key: &str) -> bool {
+    key.to_ascii_lowercase().ends_with("type")
 }
 
 fn node_from_block(kind: GuiNodeKind, block: Block) -> GuiNode {
@@ -503,6 +521,91 @@ guiTypes = {
     }
 
     #[test]
+    fn gate4_unknown_gui_node_preserves_nested_children() {
+        let doc = parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    futureWidgetType = {
+        name = "future_root"
+        custom_property = yes
+        iconType = {
+            name = "future_icon"
+            spriteType = "GFX_future"
+        }
+        instantTextboxType = {
+            name = "future_label"
+            text = "Future"
+        }
+    }
+}
+"#,
+        );
+
+        let root = doc.template_index().get("future_root").unwrap();
+        assert_eq!(
+            root.kind,
+            GuiNodeKind::Unknown("futureWidgetType".to_owned())
+        );
+        assert!(root
+            .properties
+            .iter()
+            .any(|property| property.key == "custom_property"));
+        assert_eq!(
+            root.find_node_by_name("future_icon").map(|node| &node.kind),
+            Some(&GuiNodeKind::Icon)
+        );
+        assert_eq!(
+            root.find_node_by_name("future_label")
+                .map(|node| &node.kind),
+            Some(&GuiNodeKind::InstantTextbox)
+        );
+        assert!(doc
+            .diagnostics
+            .issues
+            .iter()
+            .any(|issue| issue.kind == VanillaGuiIssueKind::UnknownNodeType
+                && issue.detail.contains("futureWidgetType")));
+    }
+
+    #[test]
+    fn gate5_recognizes_decision_and_focus_required_node_types() {
+        let doc = parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    containerWindowType = {
+        name = "root"
+        checkBoxType = { name = "tracked" }
+        editBoxType = { name = "search" }
+        OverlappingElementsBoxType = { name = "overlap" }
+        positionType = { name = "focus_spacing" position = { x = 96 y = 130 } }
+    }
+}
+"#,
+        );
+        let root = doc.template_index().get("root").unwrap();
+
+        assert_eq!(
+            root.find_node_by_name("tracked").map(|node| &node.kind),
+            Some(&GuiNodeKind::CheckBox)
+        );
+        assert_eq!(
+            root.find_node_by_name("search").map(|node| &node.kind),
+            Some(&GuiNodeKind::EditBox)
+        );
+        assert_eq!(
+            root.find_node_by_name("overlap").map(|node| &node.kind),
+            Some(&GuiNodeKind::OverlappingElementsBox)
+        );
+        assert_eq!(
+            root.find_node_by_name("focus_spacing")
+                .map(|node| &node.kind),
+            Some(&GuiNodeKind::Position)
+        );
+    }
+
+    #[test]
     fn diagnostics_keep_commented_gfx_tokens() {
         let doc = parse_gui_str(
             None,
@@ -542,5 +645,72 @@ guiTypes = {
         ] {
             assert!(index.get(name).is_some(), "missing template {name}");
         }
+    }
+
+    #[test]
+    fn gate4_decision_and_focus_real_gui_node_counts_do_not_regress() {
+        let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+            return;
+        };
+
+        for (rel_path, old_parser_count, required_templates) in [
+            (
+                "interface/countrydecisionview.gui",
+                78usize,
+                &["countrydecisionview", "decision_grid", "decision_item"][..],
+            ),
+            (
+                "interface/nationalfocusview.gui",
+                123usize,
+                &["nationalfocusview", "tree", "national_focus_item"][..],
+            ),
+        ] {
+            let Some(gui_path) = path_cfg.find(rel_path) else {
+                return;
+            };
+            let doc = parse_gui_file(gui_path).unwrap();
+
+            assert!(
+                doc.node_count() >= old_parser_count,
+                "{rel_path} node count {} below old parser baseline {old_parser_count}",
+                doc.node_count()
+            );
+            for template in required_templates {
+                assert!(
+                    doc.find_node_by_name(template).is_some(),
+                    "{rel_path} missing {template}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn gate5_real_decision_and_focus_required_nodes_enter_ast() {
+        let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+            return;
+        };
+
+        let Some(decision_gui_path) = path_cfg.find("interface/countrydecisionview.gui") else {
+            return;
+        };
+        let decision_doc = parse_gui_file(decision_gui_path).unwrap();
+        assert!(contains_kind(&decision_doc.roots, &GuiNodeKind::CheckBox));
+        assert!(contains_kind(
+            &decision_doc.roots,
+            &GuiNodeKind::OverlappingElementsBox
+        ));
+
+        let Some(focus_gui_path) = path_cfg.find("interface/nationalfocusview.gui") else {
+            return;
+        };
+        let focus_doc = parse_gui_file(focus_gui_path).unwrap();
+        assert!(contains_kind(&focus_doc.roots, &GuiNodeKind::EditBox));
+        assert!(contains_kind(&focus_doc.roots, &GuiNodeKind::Position));
+    }
+
+    fn contains_kind(nodes: &[GuiNode], kind: &GuiNodeKind) -> bool {
+        nodes
+            .iter()
+            .any(|node| &node.kind == kind || contains_kind(&node.children, kind))
     }
 }

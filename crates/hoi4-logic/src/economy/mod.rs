@@ -532,7 +532,7 @@ impl EconomyState {
         world: &mut World,
         ci: usize,
         queue_idx: usize,
-        db: &V6Database,
+        _db: &V6Database,
     ) {
         if ci >= self.construction.len() || queue_idx >= self.construction[ci].items.len() {
             return;

@@ -113,7 +113,7 @@ impl App {
         s.debug_render_overlay.append_lines(phase10_lines);
 
         s.panel_pass.clear();
-        let dpi = s.window.scale_factor() as f32;
+        let dpi = s.ui_scale_factor();
         let logical_sw = s.config.width as f32 / dpi.max(0.0001);
         let logical_sh = s.config.height as f32 / dpi.max(0.0001);
         s.panel_pass
@@ -140,7 +140,7 @@ impl App {
         }
         // Phase 4.2 (redesign): Switch between menu rendering and topbar rendering.
         if self.view.game_phase != GamePhase::Playing {
-            let dpi = s.window.scale_factor() as f32;
+            let dpi = s.ui_scale_factor();
             let sw = s.config.width as f32 / dpi.max(0.0001);
             let sh = s.config.height as f32 / dpi.max(0.0001);
 
@@ -305,7 +305,7 @@ impl App {
             && s.hoi3_counter_pass.enabled()
             && !self.interaction.selected_province_ids.is_empty()
         {
-            let dpi = s.window.scale_factor() as f32;
+            let dpi = s.ui_scale_factor();
             let inv_dpi = 1.0 / dpi.max(1.0);
             let lw = s.config.width as f32 * inv_dpi;
             let lh = s.config.height as f32 * inv_dpi;
@@ -361,7 +361,7 @@ impl App {
 
         if self.view.game_phase == GamePhase::Playing {
             let view_proj = self.camera.view_proj();
-            let dpi = s.window.scale_factor() as f32;
+            let dpi = s.ui_scale_factor();
             let sw = s.config.width as f32 / dpi.max(0.0001);
             let sh = s.config.height as f32 / dpi.max(0.0001);
             let player_cid = hoi4_state::CountryId(self.view.player_country as u16);

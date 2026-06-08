@@ -2,12 +2,28 @@
 
 use crate::components;
 use crate::i18n::tr;
+use crate::icons::IconBank;
 use crate::politics::{DecisionCommand, DecisionEntry};
+use crate::vanilla_gui::VanillaPanelProfile;
 use crate::{
     vanilla_iron::{JournalPanelShell, VanillaIron},
     ActiveDetailPanel, JournalEntryDetailTarget, PanelCommand,
 };
 use egui::{Color32, Pos2, Rect, RichText, Sense, Vec2};
+
+const COUNTRY_DECISION_GUI_FILE: &str = crate::vanilla_gui::COUNTRY_DECISION_GUI_FILE;
+const COUNTRY_DECISION_PROFILE_ID: &str = crate::vanilla_gui::COUNTRY_DECISION_PROFILE_ID;
+const COUNTRY_DECISION_ROOT: &str = crate::vanilla_gui::COUNTRY_DECISION_ROOT;
+const DECISION_CATEGORY_HEADER_TEMPLATE: &str = "category_header";
+const DECISION_CATEGORY_DESC_TEMPLATE: &str = "decision_category_desc";
+const DECISION_ITEM_TEMPLATE: &str = "decision_item";
+const TIMED_DECISION_ITEM_TEMPLATE: &str = "timed_decision_item";
+const DECISION_CATEGORY_END_TEMPLATE: &str = "category_end";
+const DECISION_ACTIVATE_PREFIX: &str = "decision:activate:";
+const DECISION_DETAIL_PREFIX: &str = "decision:detail:";
+const DECISION_SCROLL_ID: &str = "countrydecisionview_decision_grid_scroll";
+
+type VanillaDecisionGuiContext = crate::vanilla_gui::VanillaGuiRuntimeContext;
 
 #[derive(Debug, Clone)]
 pub struct DecisionsData {
@@ -42,7 +58,760 @@ const RAIL_INK: Color32 = Color32::from_rgb(0x1a, 0x12, 0x09);
 
 impl DecisionsPanel {
     pub fn show(ctx: &egui::Context, data: &DecisionsData) -> (bool, Vec<DecisionCommand>) {
-        journal_show_decisions(ctx, data)
+        let Some(runtime) = country_decision_runtime_context() else {
+            return vanilla_decision_runtime_unavailable_panel(ctx);
+        };
+        let mut icon_bank = IconBank::new(ctx.clone(), runtime.path_cfg.clone());
+        Self::show_with_icon_bank(ctx, data, &mut icon_bank)
+    }
+
+    pub fn show_with_icon_bank(
+        ctx: &egui::Context,
+        data: &DecisionsData,
+        icon_bank: &mut IconBank,
+    ) -> (bool, Vec<DecisionCommand>) {
+        vanilla_show_decisions(ctx, data, icon_bank)
+    }
+}
+
+pub struct CountryDecisionProfile;
+
+impl crate::vanilla_gui::VanillaPanelProfile for CountryDecisionProfile {
+    type Data = DecisionsData;
+    type Command = DecisionCommand;
+
+    fn profile_id(&self) -> &'static str {
+        COUNTRY_DECISION_PROFILE_ID
+    }
+
+    fn root_template(&self) -> &'static str {
+        COUNTRY_DECISION_ROOT
+    }
+
+    fn required_gui_files(&self) -> &'static [&'static str] {
+        &[COUNTRY_DECISION_GUI_FILE]
+    }
+
+    fn key_templates(&self) -> &'static [&'static str] {
+        &[
+            DECISION_CATEGORY_HEADER_TEMPLATE,
+            DECISION_CATEGORY_DESC_TEMPLATE,
+            DECISION_ITEM_TEMPLATE,
+            TIMED_DECISION_ITEM_TEMPLATE,
+            DECISION_CATEGORY_END_TEMPLATE,
+        ]
+    }
+
+    fn required_sprites(&self) -> &'static [&'static str] {
+        crate::vanilla_gui::DECISION_REQUIRED_SPRITES
+    }
+
+    fn bind_node(
+        &self,
+        node_path: &crate::vanilla_gui::GuiNodePath,
+        _data: &Self::Data,
+    ) -> crate::vanilla_gui::GuiBinding {
+        let name = node_path.0.last().map(String::as_str).unwrap_or_default();
+        match name {
+            "decisionview_title" => crate::vanilla_gui::GuiBinding::default().text(tr("decisions")),
+            "close_button" => crate::vanilla_gui::GuiBinding::default()
+                .tooltip(tr("panel_close_hint"))
+                .click("close"),
+            _ => crate::vanilla_gui::GuiBinding::default(),
+        }
+    }
+
+    fn handle_action(
+        &self,
+        action: crate::vanilla_gui::GuiAction,
+        _data: &Self::Data,
+    ) -> Option<Self::Command> {
+        if action.kind != crate::vanilla_gui::GuiActionKind::Click {
+            return None;
+        }
+        let path = action.node_path.to_string();
+        path.strip_prefix(DECISION_ACTIVATE_PREFIX)
+            .map(|id| DecisionCommand::Activate(id.to_owned()))
+            .or_else(|| {
+                path.strip_prefix(DECISION_DETAIL_PREFIX).map(|id| {
+                    DecisionCommand::Panel(PanelCommand::OpenDetail(
+                        ActiveDetailPanel::JournalEntry(JournalEntryDetailTarget {
+                            entry_id: id.to_owned(),
+                        }),
+                    ))
+                })
+            })
+    }
+}
+
+fn country_decision_runtime_context() -> Option<&'static VanillaDecisionGuiContext> {
+    static CACHE: std::sync::OnceLock<Option<VanillaDecisionGuiContext>> =
+        std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| VanillaDecisionGuiContext::load(&[COUNTRY_DECISION_GUI_FILE]))
+        .as_ref()
+}
+
+pub fn warm_country_decision_runtime<'a>(
+    icon_bank: &mut IconBank,
+    decision_icons: impl IntoIterator<Item = &'a str>,
+) {
+    let context = country_decision_runtime_context();
+    let profile = CountryDecisionProfile;
+    icon_bank.add_profile_search_dirs(profile.profile_id());
+    let _ = icon_bank.diagnose_sprites(
+        crate::vanilla_gui::DECISION_REQUIRED_SPRITES
+            .iter()
+            .copied(),
+    );
+    if let Some(context) = context {
+        let sprites = crate::vanilla_gui::collect_profile_gfx_references(
+            context,
+            &crate::vanilla_gui::COUNTRY_DECISION_DESCRIPTOR,
+        );
+        let _ = icon_bank.diagnose_sprites(sprites.iter().map(String::as_str));
+    }
+    let mut icons: Vec<&str> = decision_icons
+        .into_iter()
+        .filter(|icon| !icon.trim().is_empty())
+        .collect();
+    icons.push("GFX_decision_unknown");
+    icons.sort_unstable();
+    icons.dedup();
+    let _ = icon_bank.diagnose_sprites(icons);
+}
+
+fn vanilla_show_decisions(
+    ctx: &egui::Context,
+    data: &DecisionsData,
+    icon_bank: &mut IconBank,
+) -> (bool, Vec<DecisionCommand>) {
+    let profile = CountryDecisionProfile;
+    icon_bank.add_profile_search_dirs(profile.profile_id());
+
+    let Some(context) = country_decision_runtime_context() else {
+        return vanilla_decision_runtime_unavailable_panel(ctx);
+    };
+    let Some(root) = context.root_template(COUNTRY_DECISION_GUI_FILE, profile.root_template())
+    else {
+        return vanilla_decision_runtime_unavailable_panel(ctx);
+    };
+
+    let screen = ctx.screen_rect();
+    let viewport = crate::vanilla_gui::GuiRect::new(
+        screen.left(),
+        screen.top(),
+        screen.width(),
+        screen.height(),
+    );
+    let layout = crate::vanilla_gui::compute_layout_tree(
+        root,
+        &crate::vanilla_gui::LayoutOptions::new(viewport).shown_position(true),
+    );
+    let spec = crate::vanilla_gui::AnimationSpec::from_node(root);
+    let update = crate::vanilla_gui::update_panel_animation(ctx, profile.profile_id(), spec);
+    if update.close_finished {
+        crate::vanilla_gui::clear_panel_close_request(ctx, profile.profile_id());
+        return (true, Vec::new());
+    }
+    if !update.visible {
+        return (false, Vec::new());
+    }
+
+    let offset = crate::vanilla_gui::GuiPoint {
+        x: update.position.x - spec.shown_position.x,
+        y: update.position.y - spec.shown_position.y,
+    };
+    let root_layout = if offset.x.abs() > f32::EPSILON || offset.y.abs() > f32::EPSILON {
+        offset_layout_tree(&layout, offset)
+    } else {
+        layout
+    };
+
+    let mut close = false;
+    let mut commands = Vec::new();
+    egui::Area::new(egui::Id::new("countrydecisionview_vanilla_runtime"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            let outer: Rect = root_layout.rect.into();
+            ui.interact(
+                outer.intersect(screen),
+                ui.id().with("countrydecisionview_drag_region"),
+                Sense::click_and_drag(),
+            );
+            crate::v9::paint::paint_shadow(ui.painter(), outer, crate::v9::Elevation::E2, 1.0);
+            let renderer = crate::vanilla_gui::VanillaGuiRenderer::new(&context.gfx_index);
+            let bindings = crate::vanilla_gui::bind_profile_tree(&profile, root, data);
+            let mut stats = renderer.paint_tree(ui, root, &root_layout, &bindings, icon_bank);
+            stats.merge(paint_decision_template_instances(
+                ui,
+                &renderer,
+                context,
+                root,
+                &root_layout,
+                data,
+                icon_bank,
+            ));
+            if decision_close_requested_from_render_stats(&stats) {
+                close = true;
+            }
+            commands.extend(decision_commands_from_render_stats(&profile, data, &stats));
+            log_decision_render_stats(ctx, &stats, icon_bank);
+        });
+
+    if close {
+        crate::vanilla_gui::request_panel_close(ctx, profile.profile_id());
+    }
+
+    (false, commands)
+}
+
+fn vanilla_decision_runtime_unavailable_panel(ctx: &egui::Context) -> (bool, Vec<DecisionCommand>) {
+    let screen = ctx.screen_rect();
+    let panel = Rect::from_min_size(
+        Pos2::new(screen.left() + 16.0, screen.top() + 92.0),
+        Vec2::new(550.0_f32.min((screen.width() - 32.0).max(260.0)), 210.0),
+    );
+    let report = crate::vanilla_gui::VanillaGuiRuntimeUnavailableReport::for_profile(
+        &crate::vanilla_gui::COUNTRY_DECISION_DESCRIPTOR,
+    );
+    let mut close = false;
+    egui::Area::new(egui::Id::new("countrydecisionview_runtime_unavailable"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(panel.min)
+        .show(ctx, |ui| {
+            let local = Rect::from_min_size(Pos2::ZERO, panel.size());
+            let response = ui.allocate_rect(local, Sense::click_and_drag());
+            let painter = ui.painter();
+            painter.rect_filled(local, 1.0, Color32::from_rgb(0x0a, 0x0d, 0x0c));
+            painter.rect_stroke(
+                local,
+                1.0,
+                egui::Stroke::new(1.0, Color32::from_rgb(0x6e, 0x5a, 0x35)),
+                egui::StrokeKind::Inside,
+            );
+            painter.text(
+                Pos2::new(local.left() + 16.0, local.top() + 16.0),
+                egui::Align2::LEFT_TOP,
+                "Vanilla decision runtime unavailable",
+                crate::v9::TextRole::Heading.font_id(),
+                VanillaIron::TEXT,
+            );
+            painter.text(
+                Pos2::new(local.left() + 16.0, local.top() + 54.0),
+                egui::Align2::LEFT_TOP,
+                report.reason,
+                crate::v9::TextRole::Body.font_id(),
+                VanillaIron::MUTED,
+            );
+            painter.text(
+                Pos2::new(local.left() + 16.0, local.top() + 88.0),
+                egui::Align2::LEFT_TOP,
+                format!("required: {}", COUNTRY_DECISION_GUI_FILE),
+                crate::v9::TextRole::Caption.font_id(),
+                VanillaIron::MUTED,
+            );
+            let close_rect = Rect::from_min_size(
+                Pos2::new(local.right() - 38.0, local.top() + 10.0),
+                Vec2::splat(26.0),
+            );
+            if ui
+                .put(close_rect, egui::Button::new("X"))
+                .on_hover_text(tr("panel_close_hint"))
+                .clicked()
+            {
+                close = true;
+            }
+            response.on_hover_cursor(egui::CursorIcon::Grab);
+        });
+    (close, Vec::new())
+}
+
+fn paint_decision_template_instances(
+    ui: &mut egui::Ui,
+    renderer: &crate::vanilla_gui::VanillaGuiRenderer<'_>,
+    context: &VanillaDecisionGuiContext,
+    root: &crate::vanilla_gui::GuiNode,
+    root_layout: &crate::vanilla_gui::LayoutNode,
+    data: &DecisionsData,
+    icon_bank: &mut IconBank,
+) -> crate::vanilla_gui::RenderStats {
+    let Some(grid_node) = root.find_node_by_name("decision_grid") else {
+        return crate::vanilla_gui::RenderStats::default();
+    };
+    let Some(grid_layout) = root_layout.find_by_name("decision_grid") else {
+        return crate::vanilla_gui::RenderStats::default();
+    };
+    let entries = decision_vanilla_entries(data);
+    if entries.is_empty() {
+        return paint_decision_empty_state(ui, grid_layout);
+    }
+
+    let content_height = entries
+        .iter()
+        .map(|entry| entry.height())
+        .sum::<f32>()
+        .max(grid_layout.rect.height);
+    let mut total = crate::vanilla_gui::RenderStats::default();
+    let clip: Rect = grid_layout.rect.into();
+    egui::ScrollArea::vertical()
+        .id_salt(DECISION_SCROLL_ID)
+        .auto_shrink([false, false])
+        .max_height(grid_layout.rect.height.max(1.0))
+        .show_viewport(ui, |ui, viewport| {
+            ui.set_clip_rect(clip);
+            let _ = ui.allocate_exact_size(
+                Vec2::new(grid_layout.rect.width.max(1.0), content_height),
+                Sense::hover(),
+            );
+            let mut y = grid_layout.rect.y - viewport.min.y;
+            for entry in &entries {
+                let rect = crate::vanilla_gui::GuiRect::new(
+                    grid_layout.rect.x,
+                    y,
+                    grid_layout.rect.width,
+                    entry.height(),
+                );
+                y += entry.height();
+                total.merge(paint_decision_vanilla_entry(
+                    ui,
+                    renderer,
+                    context,
+                    grid_node,
+                    grid_layout,
+                    entry,
+                    rect,
+                    icon_bank,
+                ));
+            }
+        });
+    total
+}
+
+fn paint_decision_empty_state(
+    ui: &mut egui::Ui,
+    grid_layout: &crate::vanilla_gui::LayoutNode,
+) -> crate::vanilla_gui::RenderStats {
+    let rect: Rect = grid_layout.rect.into();
+    let text_rect = Rect::from_min_size(
+        Pos2::new(rect.left() + 18.0, rect.top() + 18.0),
+        Vec2::new((rect.width() - 36.0).max(1.0), 64.0),
+    );
+    ui.painter().text(
+        text_rect.left_top(),
+        egui::Align2::LEFT_TOP,
+        "No visible decisions",
+        crate::v9::TextRole::Body.font_id(),
+        VanillaIron::MUTED,
+    );
+    crate::vanilla_gui::RenderStats {
+        nodes_seen: 1,
+        nodes_painted: 1,
+        text_painted: 1,
+        ..Default::default()
+    }
+}
+
+fn paint_decision_vanilla_entry(
+    ui: &mut egui::Ui,
+    renderer: &crate::vanilla_gui::VanillaGuiRenderer<'_>,
+    context: &VanillaDecisionGuiContext,
+    grid_node: &crate::vanilla_gui::GuiNode,
+    grid_layout: &crate::vanilla_gui::LayoutNode,
+    entry: &DecisionVanillaEntry<'_>,
+    rect: crate::vanilla_gui::GuiRect,
+    icon_bank: &mut IconBank,
+) -> crate::vanilla_gui::RenderStats {
+    let Some(template) = context
+        .document(COUNTRY_DECISION_GUI_FILE)
+        .and_then(|document| document.template_index().get(entry.template_name()))
+    else {
+        return crate::vanilla_gui::RenderStats::default();
+    };
+    let instancer = crate::vanilla_gui::TemplateInstancer::new(entry.template_name(), template);
+    let instances = instancer.rect_instances_with_options(
+        &grid_layout.path,
+        [rect],
+        crate::vanilla_gui::TemplateInstanceOptions::default(),
+    );
+    let grid_name = grid_node.name.as_deref().unwrap_or("decision_grid");
+    instancer.paint_instances_with_bindings(
+        ui,
+        renderer,
+        instances,
+        |instance| decision_vanilla_entry_bindings(instance, entry, grid_name),
+        icon_bank,
+    )
+}
+
+fn decision_close_requested_from_render_stats(stats: &crate::vanilla_gui::RenderStats) -> bool {
+    stats
+        .clicked_commands
+        .iter()
+        .any(|command| command == "close")
+}
+
+fn decision_commands_from_render_stats(
+    profile: &CountryDecisionProfile,
+    data: &DecisionsData,
+    stats: &crate::vanilla_gui::RenderStats,
+) -> Vec<DecisionCommand> {
+    stats
+        .clicked_commands
+        .iter()
+        .filter_map(|command| {
+            if command == "close" {
+                return None;
+            }
+            profile.handle_action(
+                crate::vanilla_gui::GuiAction {
+                    node_path: crate::vanilla_gui::GuiNodePath::root(command.clone()),
+                    kind: crate::vanilla_gui::GuiActionKind::Click,
+                },
+                data,
+            )
+        })
+        .collect()
+}
+
+fn log_decision_render_stats(
+    ctx: &egui::Context,
+    stats: &crate::vanilla_gui::RenderStats,
+    icon_bank: &IconBank,
+) {
+    let id = egui::Id::new("countrydecisionview_render_stats_logged");
+    let already_logged = ctx
+        .data_mut(|d| d.get_persisted::<bool>(id))
+        .unwrap_or(false);
+    if already_logged {
+        return;
+    }
+    println!(
+        "[ui][decisions] render nodes={}/{} sprites={} fallback={} text={} buttons={} progress={} icon_missing_cache={} fallback_labels={:?}",
+        stats.nodes_painted,
+        stats.nodes_seen,
+        stats.sprites_painted,
+        stats.fallback_painted,
+        stats.text_painted,
+        stats.buttons,
+        stats.progress_bars,
+        icon_bank.missing_count(),
+        stats.fallback_labels
+    );
+    ctx.data_mut(|d| d.insert_persisted(id, true));
+}
+
+fn offset_layout_tree(
+    layout: &crate::vanilla_gui::LayoutNode,
+    offset: crate::vanilla_gui::GuiPoint,
+) -> crate::vanilla_gui::LayoutNode {
+    let mut next = layout.clone();
+    offset_layout_tree_in_place(&mut next, offset);
+    next
+}
+
+fn offset_layout_tree_in_place(
+    layout: &mut crate::vanilla_gui::LayoutNode,
+    offset: crate::vanilla_gui::GuiPoint,
+) {
+    layout.rect.x += offset.x;
+    layout.rect.y += offset.y;
+    layout.clip_rect.x += offset.x;
+    layout.clip_rect.y += offset.y;
+    for child in &mut layout.children {
+        offset_layout_tree_in_place(child, offset);
+    }
+}
+
+#[derive(Debug, Clone)]
+enum DecisionVanillaEntry<'a> {
+    Header {
+        category: hoi4_content::DecisionCategory,
+    },
+    Description {
+        text: String,
+    },
+    Item {
+        entry: &'a DecisionEntry,
+        timed: bool,
+    },
+    End,
+}
+
+impl DecisionVanillaEntry<'_> {
+    fn template_name(&self) -> &'static str {
+        match self {
+            Self::Header { .. } => DECISION_CATEGORY_HEADER_TEMPLATE,
+            Self::Description { .. } => DECISION_CATEGORY_DESC_TEMPLATE,
+            Self::Item { timed, .. } if *timed => TIMED_DECISION_ITEM_TEMPLATE,
+            Self::Item { .. } => DECISION_ITEM_TEMPLATE,
+            Self::End => DECISION_CATEGORY_END_TEMPLATE,
+        }
+    }
+
+    fn height(&self) -> f32 {
+        match self {
+            Self::Header { .. } => 58.0,
+            Self::Description { text } => {
+                if text.is_empty() {
+                    0.0
+                } else {
+                    38.0
+                }
+            }
+            Self::Item { timed, .. } if *timed => 40.0,
+            Self::Item { .. } => 41.0,
+            Self::End => 20.0,
+        }
+    }
+}
+
+fn decision_vanilla_entries(data: &DecisionsData) -> Vec<DecisionVanillaEntry<'_>> {
+    let mut out = Vec::new();
+    for category in decision_category_order() {
+        let visible: Vec<&DecisionEntry> = data
+            .decisions
+            .iter()
+            .filter(|entry| entry.visible && entry.category == category)
+            .collect();
+        if visible.is_empty() {
+            continue;
+        }
+        out.push(DecisionVanillaEntry::Header { category });
+        if let Some(description) = decision_category_description(category, &visible) {
+            out.push(DecisionVanillaEntry::Description { text: description });
+        }
+        for entry in visible {
+            out.push(DecisionVanillaEntry::Item {
+                entry,
+                timed: entry.mission_remaining.is_some(),
+            });
+        }
+        out.push(DecisionVanillaEntry::End);
+    }
+    out
+}
+
+fn decision_category_description(
+    category: hoi4_content::DecisionCategory,
+    entries: &[&DecisionEntry],
+) -> Option<String> {
+    let active = entries.iter().filter(|entry| entry.clickable).count();
+    let timed = entries
+        .iter()
+        .filter(|entry| entry.mission_remaining.is_some())
+        .count();
+    if active == 0 && timed == 0 {
+        return None;
+    }
+    Some(format!(
+        "{}: {} available, {} active",
+        category_label_en(category),
+        active,
+        timed
+    ))
+}
+
+fn decision_vanilla_entry_bindings(
+    instance: &crate::vanilla_gui::TemplateInstanceLayout,
+    entry: &DecisionVanillaEntry<'_>,
+    _grid_name: &str,
+) -> crate::vanilla_gui::GuiBindingMap {
+    let mut bindings = crate::vanilla_gui::GuiBindingMap::default();
+    bindings.insert_path(
+        instance.path.clone(),
+        crate::vanilla_gui::GuiBinding::default(),
+    );
+    match entry {
+        DecisionVanillaEntry::Header { category } => {
+            bindings.insert_path(
+                instance.path.child("icon"),
+                crate::vanilla_gui::GuiBinding::default().sprite(decision_category_icon(*category)),
+            );
+            bindings.insert_path(
+                instance.path.child("name_text"),
+                crate::vanilla_gui::GuiBinding::default().text(category_label_zh(*category)),
+            );
+            bindings.insert_path(
+                instance.path.child("track_decisions_checkbox"),
+                crate::vanilla_gui::GuiBinding::default().checked(false),
+            );
+            bindings.insert_path(
+                instance.path.child("category_collapse_btn"),
+                crate::vanilla_gui::GuiBinding::default().enabled(false),
+            );
+        }
+        DecisionVanillaEntry::Description { text } => {
+            bindings.insert_path(
+                instance.path.child("full_text"),
+                crate::vanilla_gui::GuiBinding::default().text(text),
+            );
+            bindings.insert_path(
+                instance.path.child("short_text"),
+                crate::vanilla_gui::GuiBinding::default().visible(false),
+            );
+            bindings.insert_path(
+                instance.path.child("picture"),
+                crate::vanilla_gui::GuiBinding::default().visible(false),
+            );
+        }
+        DecisionVanillaEntry::Item { entry, timed } => {
+            let icon = if entry.icon.trim().is_empty() {
+                "GFX_decision_unknown"
+            } else {
+                entry.icon.as_str()
+            };
+            bindings.insert_path(
+                instance.path.child("icon"),
+                crate::vanilla_gui::GuiBinding::default().sprite(icon),
+            );
+            bindings.insert_path(
+                instance.path.child("name_text"),
+                crate::vanilla_gui::GuiBinding::default()
+                    .text(entry.name.clone())
+                    .tooltip(decision_hover_text(entry)),
+            );
+            bindings.insert_path(
+                instance.path.child("cost_and_timer_text"),
+                crate::vanilla_gui::GuiBinding::default().text(decision_cost_and_timer_text(entry)),
+            );
+            bindings.insert_path(
+                instance.path.child("target_flag"),
+                crate::vanilla_gui::GuiBinding::default().visible(false),
+            );
+            bindings.insert_path(
+                instance.path.child("target_flag_frame"),
+                crate::vanilla_gui::GuiBinding::default().visible(false),
+            );
+            bindings.insert_path(
+                instance.path.child("track_decision_checkbox"),
+                crate::vanilla_gui::GuiBinding::default().visible(false),
+            );
+            bindings.insert_path(
+                instance.path.child("btn_select"),
+                crate::vanilla_gui::GuiBinding::default()
+                    .enabled(entry.clickable)
+                    .click(format!("{DECISION_ACTIVATE_PREFIX}{}", entry.id))
+                    .tooltip(decision_select_tooltip(entry)),
+            );
+            bindings.insert_path(
+                instance.path.child("btn_bg"),
+                crate::vanilla_gui::GuiBinding::default().tooltip(decision_hover_text(entry)),
+            );
+            bind_decision_progress(&mut bindings, instance, entry);
+            if *timed {
+                bindings.insert_path(
+                    instance.path.child("timer_text"),
+                    crate::vanilla_gui::GuiBinding::default().text(
+                        entry
+                            .mission_remaining
+                            .map(|days| format!("{days}d"))
+                            .unwrap_or_default(),
+                    ),
+                );
+            }
+        }
+        DecisionVanillaEntry::End => {
+            bindings.insert_path(
+                instance.path.child("icon_end_bg"),
+                crate::vanilla_gui::GuiBinding::default().visible(false),
+            );
+        }
+    }
+    bindings
+}
+
+fn bind_decision_progress(
+    bindings: &mut crate::vanilla_gui::GuiBindingMap,
+    instance: &crate::vanilla_gui::TemplateInstanceLayout,
+    entry: &DecisionEntry,
+) {
+    let progress = entry.mission_remaining.and_then(|remaining| {
+        let total = entry.mission_total.unwrap_or(remaining).max(1);
+        let done = total.saturating_sub(remaining);
+        Some(done as f32 / total as f32)
+    });
+    if let Some(progress) = progress {
+        bindings.insert_path(
+            instance.path.child("btn_progress_good"),
+            crate::vanilla_gui::GuiBinding::default()
+                .visible(true)
+                .progress(progress),
+        );
+        bindings.insert_path(
+            instance.path.child("btn_progress_bad"),
+            crate::vanilla_gui::GuiBinding::default()
+                .visible(true)
+                .progress(1.0 - progress),
+        );
+    } else {
+        bindings.insert_path(
+            instance.path.child("btn_progress_good"),
+            crate::vanilla_gui::GuiBinding::default().visible(false),
+        );
+        bindings.insert_path(
+            instance.path.child("btn_progress_bad"),
+            crate::vanilla_gui::GuiBinding::default().visible(false),
+        );
+    }
+}
+
+fn decision_cost_and_timer_text(entry: &DecisionEntry) -> String {
+    let mut parts = Vec::new();
+    if entry.cost_political_power > 0.0 {
+        parts.push(format!("{:.0} PP", entry.cost_political_power));
+    }
+    if let Some(days) = entry.cooldown_remaining {
+        parts.push(format!("{days}d cooldown"));
+    }
+    if entry.already_fired {
+        parts.push("done".to_owned());
+    }
+    if parts.is_empty() {
+        if entry.clickable {
+            "available".to_owned()
+        } else {
+            "locked".to_owned()
+        }
+    } else {
+        parts.join(" / ")
+    }
+}
+
+fn decision_select_tooltip(entry: &DecisionEntry) -> String {
+    if entry.clickable {
+        format!("Activate {}", entry.name)
+    } else if let Some(days) = entry.cooldown_remaining {
+        format!("Cooldown: {days} days")
+    } else if let Some(days) = entry.mission_remaining {
+        format!("Active mission: {days} days remaining")
+    } else if entry.already_fired {
+        "Already completed".to_owned()
+    } else {
+        "Requirements not met".to_owned()
+    }
+}
+
+fn decision_category_icon(category: hoi4_content::DecisionCategory) -> &'static str {
+    match category {
+        hoi4_content::DecisionCategory::Industry => "GFX_decision_category_generic_industry",
+        hoi4_content::DecisionCategory::Diplomacy => {
+            "GFX_decision_category_generic_political_actions"
+        }
+        hoi4_content::DecisionCategory::Military => "GFX_decision_category_military_operation",
+        hoi4_content::DecisionCategory::Internal => "GFX_decision_category_generic_propaganda",
+        hoi4_content::DecisionCategory::Crisis => "GFX_decision_category_generic_crisis",
+    }
+}
+
+fn category_label_en(c: hoi4_content::DecisionCategory) -> &'static str {
+    match c {
+        hoi4_content::DecisionCategory::Industry => "Industry",
+        hoi4_content::DecisionCategory::Diplomacy => "Diplomacy",
+        hoi4_content::DecisionCategory::Military => "Military",
+        hoi4_content::DecisionCategory::Internal => "Internal",
+        hoi4_content::DecisionCategory::Crisis => "Crisis",
     }
 }
 

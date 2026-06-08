@@ -210,3 +210,56 @@ fn party_names_loaded() {
     assert!(val.is_some(), "party_names should contain {key}");
     assert!(val.unwrap().contains("Nationalsozialistische"));
 }
+
+#[test]
+fn ger_1936_initial_ideas_keep_laws_out_of_national_spirit_categories() {
+    let world =
+        hoi4_integration::load_world().expect("HOI4 install required; set IRONHEART_HOI4_PATH");
+
+    let ger = world.country("GER").expect("GER tag missing");
+    let ideas = &world.countries.ideas[ger.0 as usize];
+
+    for expected in [
+        "sour_loser",
+        "limited_exports",
+        "limited_conscription",
+        "partial_economic_mobilisation",
+    ] {
+        assert!(
+            ideas.iter().any(|idea| idea == expected),
+            "GER initial ideas should include {expected}; got {ideas:?}"
+        );
+    }
+
+    let mut national_spirits = Vec::new();
+    let mut law_ideas = Vec::new();
+    for idea in ideas {
+        let Some(def) = world.data.ideas.get(idea) else {
+            continue;
+        };
+        match def.category.as_str() {
+            "country" | "national_spirit" => national_spirits.push(idea.as_str()),
+            "trade_laws" | "economy" | "mobilization_laws" => law_ideas.push(idea.as_str()),
+            _ => {}
+        }
+    }
+
+    assert!(
+        national_spirits.contains(&"sour_loser"),
+        "GER national spirits should include sour_loser; got {national_spirits:?}"
+    );
+    for law in [
+        "limited_exports",
+        "limited_conscription",
+        "partial_economic_mobilisation",
+    ] {
+        assert!(
+            !national_spirits.contains(&law),
+            "{law} is a law idea and must not render in national spirits"
+        );
+        assert!(
+            law_ideas.contains(&law),
+            "{law} should be classified as a law idea; got {law_ideas:?}"
+        );
+    }
+}

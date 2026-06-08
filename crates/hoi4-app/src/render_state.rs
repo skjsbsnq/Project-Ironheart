@@ -148,3 +148,9 @@ pub(crate) struct RenderState {
     pub(crate) icon_bank: hoi4_ui::icons::IconBank,
     pub(crate) window: Arc<Window>,
 }
+
+impl RenderState {
+    pub(crate) fn ui_scale_factor(&self) -> f32 {
+        self.ui.pixels_per_point_override().max(0.0001)
+    }
+}

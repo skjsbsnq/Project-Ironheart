@@ -6,7 +6,7 @@
 //! 本模块解析 `.asset` 文件并索引到 `AssetMetaIndex` 供 audio / mesh / fx 查询。
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use clausewitz_parser::{parse, Block, Value};
 

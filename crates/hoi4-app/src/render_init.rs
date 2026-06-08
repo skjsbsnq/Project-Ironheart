@@ -10,13 +10,18 @@ impl App {
         // GUI layout (and our 2D shaders) must run in logical pixels so absolute
         // coordinates from `.gui` files (designed for 1920脳1080) resolve to the
         // right on-screen size regardless of the OS DPI scale.
-        let dpi = window.scale_factor() as f32;
+        let dpi = self.ui_state.settings.display_scale.max(0.0001);
         let logical_w = size.width as f32 / dpi;
         let logical_h = size.height as f32 / dpi;
         // logical_w / logical_h are consumed when we build UI-pass-removed / TextPass / PanelPass below.
         println!(
-            "[init] window physical={}x{} logical={:.0}x{:.0} dpi={:.2}",
-            size.width, size.height, logical_w, logical_h, dpi
+            "[init] window physical={}x{} logical={:.0}x{:.0} game_scale={:.2} system_dpi={:.2}",
+            size.width,
+            size.height,
+            logical_w,
+            logical_h,
+            dpi,
+            window.scale_factor()
         );
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
         let surface = instance.create_surface(window.clone()).unwrap();
@@ -1659,13 +1664,20 @@ impl App {
         );
 
         // Egui UI overlay must target the swapchain format.
-        let ui = hoi4_ui::UiState::new(&device, format, 1, &window);
+        let ui = hoi4_ui::UiState::new(
+            &device,
+            format,
+            1,
+            &window,
+            self.ui_state.settings.display_scale,
+        );
         // Apply vanilla UI theme and tooltip timing.
         let theme_assets = hoi4_ui::theme::apply_vanilla_theme(&ui.ctx);
         hoi4_ui::loc::configure_tooltip_delay(&ui.ctx);
         println!(
-            "[render] egui UI overlay ready (target_format={:?}, dpi={:.2})\n[ui] vanilla theme: latin={:?} cjk={:?}",
+            "[render] egui UI overlay ready (target_format={:?}, game_scale={:.2}, system_dpi={:.2})\n[ui] vanilla theme: latin={:?} cjk={:?}",
             format,
+            self.ui_state.settings.display_scale,
             window.scale_factor(),
             theme_assets.latin_serif_path,
             theme_assets.cjk_fallback_path,
@@ -1734,6 +1746,21 @@ impl App {
                 eprintln!("[ui] icon preload failed: {name}: {reason}");
             }
         }
+        hoi4_ui::politics::warm_country_politics_runtime(&mut icon_bank);
+        hoi4_ui::law_panel::warm_law_panel_runtime(&mut icon_bank);
+        hoi4_ui::decisions_panel::warm_country_decision_runtime(
+            &mut icon_bank,
+            self.runtime
+                .content
+                .decision_db
+                .decisions
+                .iter()
+                .map(|decision| decision.icon.as_str()),
+        );
+        hoi4_ui::focus_tree_panel::warm_national_focus_runtime(
+            &mut icon_bank,
+            Some(&self.runtime.content.focus_tree),
+        );
 
         // Startup banner: verify country leader coverage for the seven majors.
         {

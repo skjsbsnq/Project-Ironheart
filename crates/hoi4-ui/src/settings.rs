@@ -46,6 +46,9 @@ pub struct Settings {
     pub auto_pause: AutoPauseCategories,
     /// UI 语言。
     pub language: Language,
+    /// Game/UI scale in physical pixels per logical point. 1.0 ignores OS DPI
+    /// scaling, so a 150% Windows desktop can still run the game at 100%.
+    pub display_scale: f32,
     pub color_blind_mode: ColorBlindMode,
     pub font_scale: FontScale,
     /// 显示开关：启用 3D 地形。关闭时使用 legacy 平面地形 fallback。
@@ -70,6 +73,7 @@ impl Default for Settings {
             max_speed: 5,
             auto_pause: AutoPauseCategories::default(),
             language: Language::default(),
+            display_scale: 1.0,
             color_blind_mode: ColorBlindMode::Off,
             font_scale: FontScale::Normal,
             enable_3d_terrain: true,
@@ -189,6 +193,7 @@ impl Settings {
             self.auto_pause.tension_spike
         ));
         s.push_str(&format!("language = {}\n", self.language.code()));
+        s.push_str(&format!("display_scale = {:.3}\n", self.display_scale));
         s.push_str(&format!(
             "color_blind_mode = {}\n",
             self.color_blind_mode.code()
@@ -269,6 +274,11 @@ impl Settings {
                 "language" => {
                     out.language = Language::from_code(val);
                 }
+                "display_scale" => {
+                    if let Ok(v) = val.parse::<f32>() {
+                        out.display_scale = clamp_display_scale(v);
+                    }
+                }
                 "color_blind_mode" => {
                     out.color_blind_mode = ColorBlindMode::from_code(val);
                 }
@@ -315,6 +325,14 @@ fn parse_bool(s: &str) -> Option<bool> {
     }
 }
 
+fn clamp_display_scale(v: f32) -> f32 {
+    if v.is_finite() {
+        v.clamp(0.75, 2.00)
+    } else {
+        1.0
+    }
+}
+
 /// G.3：一组常见的 16:9 候选分辨率。
 pub const COMMON_RESOLUTIONS: &[(u32, u32)] = &[
     (1280, 720),
@@ -324,6 +342,8 @@ pub const COMMON_RESOLUTIONS: &[(u32, u32)] = &[
     (2560, 1440),
     (3840, 2160),
 ];
+
+pub const COMMON_DISPLAY_SCALES: &[f32] = &[0.75, 1.00, 1.25, 1.50, 1.75, 2.00];
 
 /// G.3：从面板返回的副作用命令。caller 按序执行。
 #[derive(Debug, Clone, PartialEq)]
@@ -339,6 +359,8 @@ pub enum SettingsCommand {
     SetMaxSpeed(u8),
     /// 语言切换。caller 调 `i18n::set_language`。
     SetLanguage(Language),
+    /// Set game/UI scale. 1.0 means 100%, independent of OS DPI scaling.
+    SetDisplayScale(f32),
     SetAccessibility(AccessibilitySettings),
     /// 显示：切换 3D 地形。
     SetEnable3dTerrain(bool),
@@ -461,6 +483,26 @@ fn v9_settings_body(
                 i18n::set_language(panel.draft.language);
                 cmds.push(SettingsCommand::SetLanguage(panel.draft.language));
             }
+
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(tr("display_scale")).color(palette::MUTED));
+                let prev_scale = panel.draft.display_scale;
+                egui::ComboBox::from_id_salt("settings_display_scale_v9")
+                    .selected_text(format!("{:.0}%", panel.draft.display_scale * 100.0))
+                    .show_ui(ui, |ui| {
+                        for &scale in COMMON_DISPLAY_SCALES {
+                            ui.selectable_value(
+                                &mut panel.draft.display_scale,
+                                scale,
+                                format!("{:.0}%", scale * 100.0),
+                            );
+                        }
+                    });
+                if (prev_scale - panel.draft.display_scale).abs() > f32::EPSILON {
+                    panel.draft.display_scale = clamp_display_scale(panel.draft.display_scale);
+                    cmds.push(SettingsCommand::SetDisplayScale(panel.draft.display_scale));
+                }
+            });
 
             let prev_accessibility = panel.draft.accessibility();
             ui.horizontal(|ui| {
@@ -662,6 +704,7 @@ fn v9_settings_body(
             {
                 let prev_lang = panel.draft.language;
                 let prev_accessibility = panel.draft.accessibility();
+                let prev_display_scale = panel.draft.display_scale;
                 panel.draft = panel.committed.clone();
                 panel.resolution_idx = COMMON_RESOLUTIONS
                     .iter()
@@ -675,6 +718,9 @@ fn v9_settings_body(
                     cmds.push(SettingsCommand::SetAccessibility(
                         panel.draft.accessibility(),
                     ));
+                }
+                if (prev_display_scale - panel.draft.display_scale).abs() > f32::EPSILON {
+                    cmds.push(SettingsCommand::SetDisplayScale(panel.draft.display_scale));
                 }
             }
             if Button::new(tr("close"))
@@ -733,6 +779,7 @@ mod tests {
                 tension_spike: true,
             },
             language: Language::Chinese,
+            display_scale: 1.25,
             color_blind_mode: ColorBlindMode::Deuteranopia,
             font_scale: FontScale::ExtraLarge,
             enable_3d_terrain: false,
@@ -778,6 +825,16 @@ junk junk junk
         let s = Settings::parse("color_blind_mode = protanopia\nfont_scale = 1.15\n");
         assert_eq!(s.color_blind_mode, ColorBlindMode::Protanopia);
         assert_eq!(s.font_scale, FontScale::Large);
+    }
+
+    #[test]
+    fn parse_display_scale_clamps() {
+        let s = Settings::parse("display_scale = 1.5\n");
+        assert!((s.display_scale - 1.5).abs() < 1e-6);
+        let s = Settings::parse("display_scale = 9.0\n");
+        assert_eq!(s.display_scale, 2.0);
+        let s = Settings::parse("display_scale = 0.1\n");
+        assert_eq!(s.display_scale, 0.75);
     }
 
     #[test]

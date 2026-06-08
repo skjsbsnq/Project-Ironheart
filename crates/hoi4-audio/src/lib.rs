@@ -246,7 +246,7 @@ impl UiSound {
                 "sound/menu/click_ok.wav",
                 "sound/menu/click_submenu.wav",
             ],
-            UiSound::OptionClick => &["sound/menu/click_ok.wav", "sound/menu/click_default.wav"],
+            UiSound::OptionClick => &["sound/menu/click_default.wav", "sound/menu/click_ok.wav"],
             UiSound::Hover => &[
                 "sound/menu/click_mouse_over_01.wav",
                 "sound/menu/click_mouse_over_02.wav",
@@ -264,6 +264,7 @@ impl UiSound {
                 "sound/menu/menu_open_window.wav",
             ],
             UiSound::WorldNews => &[
+                "sound/menu/world_news.wav",
                 "sound/menu/event_popup_01.wav",
                 "sound/menu/menu_open_window.wav",
                 "sound/menu/click_expand.wav",
@@ -466,5 +467,21 @@ mod tests {
         for s in UiSound::all() {
             assert!(!s.vanilla_candidates().is_empty());
         }
+    }
+
+    #[test]
+    fn event_news_and_option_sounds_match_vanilla_priority() {
+        assert_eq!(
+            UiSound::WorldNews.vanilla_candidates().first().copied(),
+            Some("sound/menu/world_news.wav")
+        );
+        assert_eq!(
+            UiSound::EventPopup.vanilla_candidates().first().copied(),
+            Some("sound/menu/event_popup_01.wav")
+        );
+        assert_eq!(
+            UiSound::OptionClick.vanilla_candidates().first().copied(),
+            Some("sound/menu/click_default.wav")
+        );
     }
 }

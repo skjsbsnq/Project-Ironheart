@@ -89,7 +89,7 @@ impl App {
             self.ui_state.pre_event_speed = None;
         }
         let Some((w, h)) = self.state.as_ref().map(|s| {
-            let dpi = s.window.scale_factor() as f32;
+            let dpi = s.ui_scale_factor();
             (
                 s.config.width as f32 / dpi.max(0.0001),
                 s.config.height as f32 / dpi.max(0.0001),

@@ -13,16 +13,16 @@ impl ApplicationHandler for App {
         // 4.1.bis.6: vanilla `.gui` coordinates target 1920x1080. Defaulting to a
         // smaller logical size forced reference-resolution down-scaling on every
         // launch, blurring text and crowding widgets. Use the design size by default.
+        let (initial_w, initial_h) = self.ui_state.settings.resolution.unwrap_or((1920, 1080));
         let window = Arc::new(
             event_loop
                 .create_window(
                     Window::default_attributes()
                         .with_title("HOI4 Rust 3D")
-                        .with_inner_size(winit::dpi::LogicalSize::new(1920, 1080))
-                        // 4.1.bis.6 fix (2026-05-16): clamp minimum size so the
-                        // OS can shrink the window to fit the desktop without
-                        // dropping below `.gui` reference resolution targets.
-                        .with_min_inner_size(winit::dpi::LogicalSize::new(1280, 720)),
+                        .with_inner_size(winit::dpi::PhysicalSize::new(initial_w, initial_h))
+                        // Keep the game minimum in physical pixels so OS DPI scaling does not
+                        // inflate a requested 100% game window.
+                        .with_min_inner_size(winit::dpi::PhysicalSize::new(1280, 720)),
                 )
                 .unwrap(),
         );

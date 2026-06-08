@@ -97,11 +97,20 @@ pub enum GuiOrientation {
 
 impl GuiOrientation {
     pub fn parse(value: Option<String>) -> Self {
-        match value.as_deref().map(str::trim) {
-            Some("UPPER_RIGHT") => Self::UpperRight,
-            Some("LOWER_LEFT") => Self::LowerLeft,
-            Some("LOWER_RIGHT") => Self::LowerRight,
-            Some("CENTER") => Self::Center,
+        let Some(value) = value else {
+            return Self::UpperLeft;
+        };
+        match value
+            .trim()
+            .trim_matches('"')
+            .replace('-', "_")
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "upper_right" | "right" => Self::UpperRight,
+            "lower_left" | "bottom_left" | "left_bottom" | "lower" => Self::LowerLeft,
+            "lower_right" | "bottom_right" | "right_bottom" => Self::LowerRight,
+            "center" | "centre" | "middle" => Self::Center,
             _ => Self::UpperLeft,
         }
     }
@@ -160,8 +169,90 @@ impl LayoutNode {
 pub struct ScrollSpec {
     pub has_vertical_scrollbar: bool,
     pub scroll_wheel_factor: f32,
-    pub margin: f32,
+    pub margin: GuiMargin,
     pub smooth_scrolling: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct GuiMargin {
+    pub top: f32,
+    pub left: f32,
+    pub bottom: f32,
+    pub right: f32,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuiMarker {
+    pub name: String,
+    pub position: GuiPoint,
+    pub rect: GuiRect,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GuiMarkerLookup {
+    pub marker: GuiMarker,
+    pub issues: Vec<VanillaGuiIssue>,
+}
+
+impl GuiMarkerLookup {
+    pub fn position(&self) -> GuiPoint {
+        self.marker.position
+    }
+}
+
+pub fn position_marker(root: &GuiNode, name: &str, fallback: GuiPoint) -> GuiMarkerLookup {
+    let mut issues = Vec::new();
+    let marker = find_position_marker(root, name).unwrap_or_else(|| {
+        issues.push(VanillaGuiIssue::new(
+            VanillaGuiIssueKind::MissingLayoutMarker,
+            format!("missing positionType marker `{name}`; using fallback"),
+        ));
+        GuiMarker {
+            name: name.to_owned(),
+            position: fallback,
+            rect: GuiRect::new(fallback.x, fallback.y, 0.0, 0.0),
+        }
+    });
+    GuiMarkerLookup { marker, issues }
+}
+
+pub fn focus_spacing_marker(root: &GuiNode) -> GuiMarkerLookup {
+    position_marker(root, "focus_spacing", GuiPoint { x: 96.0, y: 130.0 })
+}
+
+pub fn national_focus_center_marker(root: &GuiNode) -> GuiMarkerLookup {
+    position_marker(
+        root,
+        "national_focus_center",
+        GuiPoint { x: 130.0, y: 32.0 },
+    )
+}
+
+pub fn link_spacing_marker(root: &GuiNode) -> GuiMarkerLookup {
+    position_marker(root, "link_spacing", GuiPoint { x: 16.0, y: 16.0 })
+}
+
+pub fn link_begin_marker(root: &GuiNode) -> GuiMarkerLookup {
+    position_marker(root, "link_begin", GuiPoint { x: 80.0, y: 64.0 })
+}
+
+pub fn link_end_marker(root: &GuiNode) -> GuiMarkerLookup {
+    position_marker(root, "link_end", GuiPoint { x: 80.0, y: 0.0 })
+}
+
+fn find_position_marker(node: &GuiNode, name: &str) -> Option<GuiMarker> {
+    if matches!(node.kind, GuiNodeKind::Position) && node.name.as_deref() == Some(name) {
+        let mut issues = Vec::new();
+        let position = parse_point_block(node.block("position"), &mut issues);
+        return Some(GuiMarker {
+            name: name.to_owned(),
+            position,
+            rect: GuiRect::new(position.x, position.y, 0.0, 0.0),
+        });
+    }
+    node.children
+        .iter()
+        .find_map(|child| find_position_marker(child, name))
 }
 
 pub fn compute_layout_tree(root: &GuiNode, options: &LayoutOptions) -> LayoutNode {
@@ -199,7 +290,7 @@ fn layout_node(
     };
     let local = parse_point_block(node.block(position_key), &mut issues);
     let size = resolve_size(node, parent, scale, &mut issues);
-    let orientation = GuiOrientation::parse(node.string("Orientation"));
+    let orientation = GuiOrientation::parse(node.string("orientation"));
     let centerposition = node.bool("centerposition").unwrap_or(false);
     let hidden = node.bool("hide").unwrap_or(false);
     let visible = options
@@ -276,7 +367,10 @@ fn resolve_size(
     issues: &mut Vec<VanillaGuiIssue>,
 ) -> GuiSize {
     let Some(block) = node.block("size") else {
-        if matches!(node.kind, GuiNodeKind::Background) {
+        if matches!(
+            node.kind,
+            GuiNodeKind::Background | GuiNodeKind::GridBox | GuiNodeKind::OverlappingElementsBox
+        ) {
             return parent.size();
         }
         let width = node.f32("maxWidth").unwrap_or(0.0);
@@ -286,11 +380,11 @@ fn resolve_size(
             height: height * scale,
         };
     };
-    let width_dim = dim_from_block(block, "width", issues);
-    let height_dim = dim_from_block(block, "height", issues);
+    let width_dim = dim_from_block_any(block, &["width", "x"], issues);
+    let height_dim = dim_from_block_any(block, &["height", "y"], issues);
     GuiSize {
-        width: width_dim.resolve(parent.width, 0.0).max(0.0) * scale,
-        height: height_dim.resolve(parent.height, 0.0).max(0.0) * scale,
+        width: resolve_size_extent(width_dim, parent.width, 0.0).max(0.0) * scale,
+        height: resolve_size_extent(height_dim, parent.height, 0.0).max(0.0) * scale,
     }
 }
 
@@ -298,20 +392,56 @@ fn parse_point_block(block: Option<&Block>, issues: &mut Vec<VanillaGuiIssue>) -
     let Some(block) = block else {
         return GuiPoint::default();
     };
-    let x = dim_from_block(block, "x", issues).resolve(0.0, 0.0);
-    let y = dim_from_block(block, "y", issues).resolve(0.0, 0.0);
+    let x = dim_from_block_any(block, &["x", "width"], issues).resolve(0.0, 0.0);
+    let y = dim_from_block_any(block, &["y", "height"], issues).resolve(0.0, 0.0);
     GuiPoint { x, y }
 }
 
-fn dim_from_block(block: &Block, key: &str, issues: &mut Vec<VanillaGuiIssue>) -> GuiDim {
-    let Some(value) = block.get(key) else {
-        return GuiDim::Missing;
+fn dim_from_block_any(block: &Block, keys: &[&str], issues: &mut Vec<VanillaGuiIssue>) -> GuiDim {
+    for key in keys {
+        if let Some(dim) = dim_from_block_key(block, key, issues) {
+            return dim;
+        }
+    }
+    let axis_index = if keys
+        .iter()
+        .any(|key| key.eq_ignore_ascii_case("width") || key.eq_ignore_ascii_case("x"))
+    {
+        0
+    } else {
+        1
     };
+    dim_from_block_value(block, axis_index, issues).unwrap_or(GuiDim::Missing)
+}
+
+fn dim_from_block(block: &Block, key: &str, issues: &mut Vec<VanillaGuiIssue>) -> GuiDim {
+    dim_from_block_key(block, key, issues).unwrap_or(GuiDim::Missing)
+}
+
+fn dim_from_block_key(
+    block: &Block,
+    key: &str,
+    issues: &mut Vec<VanillaGuiIssue>,
+) -> Option<GuiDim> {
+    let value = get_value_ci(block, key)?;
+    Some(dim_from_value(value, key, issues))
+}
+
+fn dim_from_block_value(
+    block: &Block,
+    index: usize,
+    issues: &mut Vec<VanillaGuiIssue>,
+) -> Option<GuiDim> {
+    let value = block.values.get(index)?;
+    Some(dim_from_value(value, &format!("value[{index}]"), issues))
+}
+
+fn dim_from_value(value: &Value, key: &str, issues: &mut Vec<VanillaGuiIssue>) -> GuiDim {
     match value {
         Value::Integer(value) => GuiDim::Px(*value as f32),
         Value::Float(value) => GuiDim::Px(*value as f32),
         Value::Percent(value) => GuiDim::Percent(*value as f32),
-        Value::String(value) => match value.parse::<f32>() {
+        Value::String(value) => match parse_vanilla_numeric_prefix(value) {
             Ok(value) => GuiDim::Px(value),
             Err(_) => {
                 issues.push(VanillaGuiIssue::new(
@@ -325,21 +455,76 @@ fn dim_from_block(block: &Block, key: &str, issues: &mut Vec<VanillaGuiIssue>) -
     }
 }
 
+fn resolve_size_extent(dim: GuiDim, parent_extent: f32, fallback: f32) -> f32 {
+    match dim {
+        GuiDim::Px(value) if value < 0.0 => parent_extent + value,
+        _ => dim.resolve(parent_extent, fallback),
+    }
+}
+
+fn parse_vanilla_numeric_prefix(value: &str) -> Result<f32, std::num::ParseFloatError> {
+    let trimmed = value.trim();
+    let end = trimmed
+        .char_indices()
+        .take_while(|(_, ch)| ch.is_ascii_digit() || matches!(ch, '-' | '+' | '.'))
+        .map(|(idx, ch)| idx + ch.len_utf8())
+        .last()
+        .unwrap_or(0);
+    trimmed[..end].parse::<f32>()
+}
+
 fn scroll_spec(node: &GuiNode) -> Option<ScrollSpec> {
     let has_vertical_scrollbar = node
         .children
         .iter()
         .any(|child| matches!(child.kind, GuiNodeKind::VerticalScrollbar))
-        || node.block("verticalScrollbar").is_some();
+        || node.prop("verticalScrollbar").is_some();
     if !has_vertical_scrollbar && node.prop("scroll_wheel_factor").is_none() {
         return None;
     }
     Some(ScrollSpec {
         has_vertical_scrollbar,
         scroll_wheel_factor: node.f32("scroll_wheel_factor").unwrap_or(1.0),
-        margin: node.f32("margin").unwrap_or(0.0),
+        margin: margin_from_node(node),
         smooth_scrolling: node.bool("smooth_scrolling").unwrap_or(false),
     })
+}
+
+fn margin_from_node(node: &GuiNode) -> GuiMargin {
+    let Some(value) = node.prop("margin") else {
+        return GuiMargin::default();
+    };
+    match value {
+        Value::Integer(value) => GuiMargin {
+            top: *value as f32,
+            left: *value as f32,
+            bottom: *value as f32,
+            right: *value as f32,
+        },
+        Value::Float(value) => {
+            let value = *value as f32;
+            GuiMargin {
+                top: value,
+                left: value,
+                bottom: value,
+                right: value,
+            }
+        }
+        Value::Block(block) => {
+            let mut issues = Vec::new();
+            let top = dim_from_block(block, "top", &mut issues).resolve(0.0, 0.0);
+            let left = dim_from_block(block, "left", &mut issues).resolve(0.0, 0.0);
+            let bottom = dim_from_block(block, "bottom", &mut issues).resolve(0.0, 0.0);
+            let right = dim_from_block(block, "right", &mut issues).resolve(0.0, 0.0);
+            GuiMargin {
+                top,
+                left,
+                bottom,
+                right,
+            }
+        }
+        _ => GuiMargin::default(),
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -355,10 +540,10 @@ impl GridSpec {
         let mut issues = Vec::new();
         let slot = match node.block("slotsize") {
             Some(block) => GuiSize {
-                width: dim_from_block(block, "width", &mut issues)
+                width: dim_from_block_any(block, &["width", "x"], &mut issues)
                     .resolve(fallback.width, fallback.width)
                     .max(1.0),
-                height: dim_from_block(block, "height", &mut issues)
+                height: dim_from_block_any(block, &["height", "y"], &mut issues)
                     .resolve(fallback.height, fallback.height)
                     .max(1.0),
             },
@@ -370,7 +555,7 @@ impl GridSpec {
             .map(|value| value as usize)
             .or_else(|| {
                 max_slots
-                    .and_then(|block| block.get("x"))
+                    .and_then(|block| get_value_ci(block, "x"))
                     .and_then(GuiValueExt::as_lossy_f32)
                     .map(|value| value as usize)
             });
@@ -379,7 +564,7 @@ impl GridSpec {
             .map(|value| value as usize)
             .or_else(|| {
                 max_slots
-                    .and_then(|block| block.get("y"))
+                    .and_then(|block| get_value_ci(block, "y"))
                     .and_then(GuiValueExt::as_lossy_f32)
                     .map(|value| value as usize)
             });
@@ -431,6 +616,14 @@ fn inferred_grid_extent(container: f32, slot: f32) -> usize {
     } else {
         usize::MAX
     }
+}
+
+fn get_value_ci<'a>(block: &'a Block, key: &str) -> Option<&'a Value> {
+    block
+        .entries
+        .iter()
+        .find(|entry| entry.key.eq_ignore_ascii_case(key))
+        .map(|entry| &entry.value)
 }
 
 #[cfg(test)]
@@ -547,6 +740,35 @@ guiTypes = {
     }
 
     #[test]
+    fn vanilla_numeric_suffixes_keep_their_leading_value() {
+        let doc = parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    containerWindowType = {
+        name = "root"
+        size = { width = 100 height = 100 }
+        iconType = {
+            name = "overlay"
+            position = { x = -2 y = 1s }
+        }
+    }
+}
+"#,
+        );
+        let root = doc.template_index().get("root").unwrap();
+        let layout = compute_layout_tree(
+            root,
+            &LayoutOptions::new(GuiRect::new(0.0, 0.0, 100.0, 100.0)),
+        );
+        let overlay = layout.find_by_name("overlay").unwrap();
+
+        assert_eq!(overlay.rect.x, -2.0);
+        assert_eq!(overlay.rect.y, 1.0);
+        assert!(overlay.issues.is_empty(), "{:?}", overlay.issues);
+    }
+
+    #[test]
     fn grid_slots_match_law_row_expectation() {
         let doc = parse_gui_str(
             None,
@@ -601,5 +823,204 @@ guiTypes = {
         assert_eq!(slots[1], GuiRect::new(272.0, 394.0, 230.0, 16.0));
         assert_eq!(slots[2], GuiRect::new(272.0, 410.0, 230.0, 16.0));
         assert_eq!(slots[3], GuiRect::new(272.0, 426.0, 230.0, 16.0));
+    }
+
+    #[test]
+    fn gate6_layout_accepts_clausewitz_case_and_xy_size_forms() {
+        let doc = parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    containerWindowType = {
+        name = "root"
+        size = { width = 400 height = 300 }
+        editBoxType = {
+            name = "search"
+            position = { x = 10 y = 20 }
+            size = { x = 150 y = 25 }
+        }
+        containerWindowType = {
+            name = "lower"
+            position = { x = 15 y = -30 }
+            size = { 120 20 }
+            orientation = lower_left
+        }
+        containerWindowType = {
+            name = "centered"
+            position = { x = -20 y = -10 }
+            size = { width = 40 height = 20 }
+            Orientation = center
+        }
+    }
+}
+"#,
+        );
+        let root = doc.template_index().get("root").unwrap();
+        let layout = compute_layout_tree(
+            root,
+            &LayoutOptions::new(GuiRect::new(0.0, 0.0, 800.0, 600.0)),
+        );
+
+        let search = layout.find_by_name("search").unwrap();
+        assert_eq!(search.rect, GuiRect::new(10.0, 20.0, 150.0, 25.0));
+        let lower = layout.find_by_name("lower").unwrap();
+        assert_eq!(lower.rect, GuiRect::new(15.0, 270.0, 120.0, 20.0));
+        let centered = layout.find_by_name("centered").unwrap();
+        assert_eq!(centered.rect, GuiRect::new(180.0, 140.0, 40.0, 20.0));
+    }
+
+    #[test]
+    fn gate6_grid_slots_accept_xy_slot_size_and_case_insensitive_max_slots() {
+        let doc = parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    gridBoxType = {
+        name = "grid"
+        size = { width = 300 height = 200 }
+        slotsize = { x = 45 y = 30 }
+        max_slots = { X = 2 Y = 2 }
+    }
+}
+"#,
+        );
+        let grid = doc.find_node_by_name("grid").unwrap();
+        let slots = grid_slots(grid, GuiRect::new(5.0, 10.0, 300.0, 200.0), 5);
+
+        assert_eq!(slots.len(), 4);
+        assert_eq!(slots[0], GuiRect::new(5.0, 10.0, 45.0, 30.0));
+        assert_eq!(slots[1], GuiRect::new(50.0, 10.0, 45.0, 30.0));
+        assert_eq!(slots[2], GuiRect::new(5.0, 40.0, 45.0, 30.0));
+    }
+
+    #[test]
+    fn gate6_margin_block_is_not_flattened_to_single_number() {
+        let doc = parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    containerWindowType = {
+        name = "scroll"
+        size = { width = 100 height = 100 }
+        verticalScrollbar = "right_vertical_slider"
+        margin = { top = 13 left = 0 bottom = 24 right = 25 }
+    }
+}
+"#,
+        );
+        let node = doc.find_node_by_name("scroll").unwrap();
+        let layout = compute_layout_tree(
+            node,
+            &LayoutOptions::new(GuiRect::new(0.0, 0.0, 100.0, 100.0)),
+        );
+        let margin = layout.scroll.unwrap().margin;
+
+        assert_eq!(
+            margin,
+            GuiMargin {
+                top: 13.0,
+                left: 0.0,
+                bottom: 24.0,
+                right: 25.0,
+            }
+        );
+    }
+
+    #[test]
+    fn gate6_real_decision_and_focus_key_layout_nodes_are_reasonable() {
+        let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+            return;
+        };
+
+        let Some(decision_gui_path) = path_cfg.find("interface/countrydecisionview.gui") else {
+            return;
+        };
+        let decision_doc = crate::vanilla_gui::parse_gui_file(decision_gui_path).unwrap();
+        let decision_root = decision_doc
+            .template_index()
+            .get("countrydecisionview")
+            .unwrap();
+        let decision_layout = compute_layout_tree(
+            decision_root,
+            &LayoutOptions::new(GuiRect::new(0.0, 0.0, 1920.0, 1080.0)).shown_position(true),
+        );
+        let decision_grid_container = decision_layout
+            .find_by_name("decision_grid_container")
+            .unwrap();
+        assert_eq!(decision_grid_container.rect.x, -1.0);
+        assert_eq!(decision_grid_container.rect.y, 123.0);
+        assert!(decision_grid_container.rect.width > 540.0);
+        assert!(decision_grid_container.rect.height > 900.0);
+
+        let Some(focus_gui_path) = path_cfg.find("interface/nationalfocusview.gui") else {
+            return;
+        };
+        let focus_doc = crate::vanilla_gui::parse_gui_file(focus_gui_path).unwrap();
+        let focus_root = focus_doc.template_index().get("nationalfocusview").unwrap();
+        let focus_layout = compute_layout_tree(
+            focus_root,
+            &LayoutOptions::new(GuiRect::new(0.0, 0.0, 1920.0, 1080.0)),
+        );
+        let tree = focus_layout.find_by_name("tree").unwrap();
+        let grid_window = tree.find_by_name("grid_window").unwrap();
+        let grid = grid_window.find_by_name("grid").unwrap();
+        assert!(grid.rect.x >= tree.rect.x);
+        assert!(grid.rect.y >= tree.rect.y);
+        assert!(grid.rect.width >= 1.0);
+        assert!(grid.rect.height >= 1.0);
+    }
+
+    #[test]
+    fn gate7_position_type_markers_are_queryable() {
+        let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+            return;
+        };
+        let Some(gui_path) = path_cfg.find("interface/nationalfocusview.gui") else {
+            return;
+        };
+        let doc = crate::vanilla_gui::parse_gui_file(gui_path).unwrap();
+        let root = doc.template_index().get("nationalfocusview").unwrap();
+
+        assert_eq!(
+            focus_spacing_marker(root).position(),
+            GuiPoint { x: 96.0, y: 130.0 }
+        );
+        assert_eq!(
+            national_focus_center_marker(root).position(),
+            GuiPoint { x: 130.0, y: 32.0 }
+        );
+        assert_eq!(
+            link_spacing_marker(root).position(),
+            GuiPoint { x: 16.0, y: 16.0 }
+        );
+        assert_eq!(
+            link_begin_marker(root).position(),
+            GuiPoint { x: 80.0, y: 64.0 }
+        );
+        assert_eq!(
+            link_end_marker(root).position(),
+            GuiPoint { x: 80.0, y: 0.0 }
+        );
+    }
+
+    #[test]
+    fn gate7_missing_position_marker_returns_fallback_and_diagnostic() {
+        let doc = parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    containerWindowType = { name = "nationalfocusview" }
+}
+"#,
+        );
+        let root = doc.template_index().get("nationalfocusview").unwrap();
+        let lookup = position_marker(root, "focus_spacing", GuiPoint { x: 96.0, y: 130.0 });
+
+        assert_eq!(lookup.position(), GuiPoint { x: 96.0, y: 130.0 });
+        assert_eq!(lookup.issues.len(), 1);
+        assert_eq!(
+            lookup.issues[0].kind,
+            VanillaGuiIssueKind::MissingLayoutMarker
+        );
     }
 }

@@ -15,6 +15,8 @@ pub struct VanillaProfileDescriptor {
     pub root_template: &'static str,
     pub required_gui_files: &'static [&'static str],
     pub template_instances: &'static [VanillaTemplateInstance],
+    pub required_sprites: &'static [&'static str],
+    pub key_templates: &'static [&'static str],
 }
 
 pub trait VanillaPanelProfile {
@@ -33,6 +35,14 @@ pub trait VanillaPanelProfile {
         &[]
     }
 
+    fn required_sprites(&self) -> &'static [&'static str] {
+        &[]
+    }
+
+    fn key_templates(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     fn bind_node(&self, node_path: &GuiNodePath, data: &Self::Data) -> GuiBinding;
 
     fn handle_action(&self, action: GuiAction, data: &Self::Data) -> Option<Self::Command>;
@@ -47,6 +57,8 @@ pub trait VanillaPanelProfile {
             root_template: self.root_template(),
             required_gui_files: self.required_gui_files(),
             template_instances: self.template_instances(),
+            required_sprites: self.required_sprites(),
+            key_templates: self.key_templates(),
         }
     }
 }
@@ -62,8 +74,11 @@ impl VanillaProfileRegistry {
     }
 
     pub fn register<P: VanillaPanelProfile>(&mut self, profile: &P) {
-        self.profiles
-            .insert(profile.profile_id(), profile.descriptor());
+        self.register_descriptor(profile.descriptor());
+    }
+
+    pub fn register_descriptor(&mut self, descriptor: VanillaProfileDescriptor) {
+        self.profiles.insert(descriptor.profile_id, descriptor);
     }
 
     pub fn get(&self, profile_id: &str) -> Option<&VanillaProfileDescriptor> {
@@ -274,5 +289,7 @@ guiTypes = {
                 count: 3,
             }]
         );
+        assert!(dummy.required_sprites.is_empty());
+        assert!(dummy.key_templates.is_empty());
     }
 }

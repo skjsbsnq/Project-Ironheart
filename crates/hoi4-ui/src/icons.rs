@@ -29,6 +29,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use egui::{
@@ -80,6 +81,146 @@ pub struct TexturePixelStats {
     pub near_white_gray_ratio: f32,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct EmbeddedPngIcon {
+    gfx_name: &'static str,
+    file_name: &'static str,
+    bytes: &'static [u8],
+}
+
+const PROJECT_LAW_ICONS: &[EmbeddedPngIcon] = &[
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_volunteer_only",
+        file_name: "volunteer_only.png",
+        bytes: include_bytes!("../assets/law_icons/volunteer_only.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_limited_conscription",
+        file_name: "limited_conscription.png",
+        bytes: include_bytes!("../assets/law_icons/limited_conscription.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_extensive_conscription",
+        file_name: "extensive_conscription.png",
+        bytes: include_bytes!("../assets/law_icons/extensive_conscription.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_total_mobilization",
+        file_name: "total_mobilization.png",
+        bytes: include_bytes!("../assets/law_icons/total_mobilization.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_laissez_faire",
+        file_name: "laissez_faire.png",
+        bytes: include_bytes!("../assets/law_icons/laissez_faire.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_interventionism",
+        file_name: "interventionism.png",
+        bytes: include_bytes!("../assets/law_icons/interventionism.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_war_economy",
+        file_name: "war_economy.png",
+        bytes: include_bytes!("../assets/law_icons/war_economy.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_corporatist_war_economy",
+        file_name: "corporatist_war_economy.png",
+        bytes: include_bytes!("../assets/law_icons/corporatist_war_economy.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_planned_economy",
+        file_name: "planned_economy.png",
+        bytes: include_bytes!("../assets/law_icons/planned_economy.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_free_trade",
+        file_name: "free_trade.png",
+        bytes: include_bytes!("../assets/law_icons/free_trade.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_export_focus",
+        file_name: "export_focus.png",
+        bytes: include_bytes!("../assets/law_icons/export_focus.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_import_substitution",
+        file_name: "import_substitution.png",
+        bytes: include_bytes!("../assets/law_icons/import_substitution.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_autarky",
+        file_name: "autarky.png",
+        bytes: include_bytes!("../assets/law_icons/autarky.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_state_trade_monopoly",
+        file_name: "state_trade_monopoly.png",
+        bytes: include_bytes!("../assets/law_icons/state_trade_monopoly.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_low_taxation",
+        file_name: "low_taxation.png",
+        bytes: include_bytes!("../assets/law_icons/low_taxation.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_medium_taxation",
+        file_name: "medium_taxation.png",
+        bytes: include_bytes!("../assets/law_icons/medium_taxation.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_high_taxation",
+        file_name: "high_taxation.png",
+        bytes: include_bytes!("../assets/law_icons/high_taxation.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_war_taxation",
+        file_name: "war_taxation.png",
+        bytes: include_bytes!("../assets/law_icons/war_taxation.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_open_society",
+        file_name: "open_society.png",
+        bytes: include_bytes!("../assets/law_icons/open_society.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_limited_rights",
+        file_name: "limited_rights.png",
+        bytes: include_bytes!("../assets/law_icons/limited_rights.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_national_security_act",
+        file_name: "national_security_act.png",
+        bytes: include_bytes!("../assets/law_icons/national_security_act.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_police_state",
+        file_name: "police_state.png",
+        bytes: include_bytes!("../assets/law_icons/police_state.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_free_press",
+        file_name: "free_press.png",
+        bytes: include_bytes!("../assets/law_icons/free_press.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_regulated_press",
+        file_name: "regulated_press.png",
+        bytes: include_bytes!("../assets/law_icons/regulated_press.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_state_media",
+        file_name: "state_media.png",
+        bytes: include_bytes!("../assets/law_icons/state_media.png"),
+    },
+    EmbeddedPngIcon {
+        gfx_name: "GFX_law_total_propaganda",
+        file_name: "total_propaganda.png",
+        bytes: include_bytes!("../assets/law_icons/total_propaganda.png"),
+    },
+];
+
 /// 一组 sprite icon 的 lazy 加载缓存。
 ///
 /// `Clone` 不能：里面的 `Context` 与 `PathConfig` 都是 cheap-clone 的，
@@ -129,6 +270,47 @@ impl IconBank {
             "gfx/interface/goals",
         ] {
             self.add_search_dir(rel);
+        }
+    }
+
+    /// Add vanilla interface directories used by `countrydecisionview`.
+    ///
+    /// Sprite `textureFile` metadata remains the preferred lookup path. These
+    /// directories only help when a modded or partial `.gfx` set omits direct
+    /// mappings for decision sprites.
+    pub fn add_decision_search_dirs(&mut self) {
+        for rel in [
+            "gfx/interface/decisions",
+            "gfx/interface",
+            "gfx/interface/goals",
+        ] {
+            self.add_search_dir(rel);
+        }
+    }
+
+    /// Add vanilla interface directories used by `nationalfocusview`.
+    ///
+    /// This covers focus node backgrounds, titlebar variants and focus/goal
+    /// symbols without copying any vanilla texture into the project.
+    pub fn add_focus_search_dirs(&mut self) {
+        for rel in [
+            "gfx/interface/focusview",
+            "gfx/interface/focusview/titlebar",
+            "gfx/interface/techtree",
+            "gfx/interface/goals",
+            "gfx/interface",
+        ] {
+            self.add_search_dir(rel);
+        }
+    }
+
+    /// Add fallback search directories for a vanilla GUI profile id.
+    pub fn add_profile_search_dirs(&mut self, profile_id: &str) {
+        match profile_id {
+            crate::vanilla_gui::COUNTRY_POLITICS_PROFILE_ID => self.add_politics_search_dirs(),
+            crate::vanilla_gui::COUNTRY_DECISION_PROFILE_ID => self.add_decision_search_dirs(),
+            crate::vanilla_gui::NATIONAL_FOCUS_PROFILE_ID => self.add_focus_search_dirs(),
+            _ => {}
         }
     }
 
@@ -354,7 +536,19 @@ impl IconBank {
         }
     }
 
+    pub fn embedded_png_pixel_stats(gfx_name: &str) -> Option<TexturePixelStats> {
+        let icon = embedded_png_icon(gfx_name)?;
+        let (width, height, rgba) = decode_png_rgba(icon.bytes).ok()?;
+        Some(texture_pixel_stats(width, height, &rgba))
+    }
+
     fn try_load(&self, gfx_name: &str) -> IconEntry {
+        if let Some(icon) = embedded_png_icon(gfx_name) {
+            return self
+                .load_embedded_png_to_entry(gfx_name, icon)
+                .unwrap_or_else(|reason| IconEntry::Missing { reason });
+        }
+
         let stem = gfx_name.strip_prefix("GFX_").unwrap_or(gfx_name);
 
         if let Some(entry) = self.try_load_flag_tga(gfx_name, stem) {
@@ -476,6 +670,9 @@ impl IconBank {
             Some("tga") => self
                 .load_tga_to_entry(cache_key, &abs)
                 .unwrap_or_else(|reason| IconEntry::Missing { reason }),
+            Some("png") => self
+                .load_png_to_entry(cache_key, &abs)
+                .unwrap_or_else(|reason| IconEntry::Missing { reason }),
             _ => IconEntry::Missing {
                 reason: format!("unsupported textureFile extension for {}", abs.display()),
             },
@@ -567,6 +764,24 @@ impl IconBank {
         let img =
             TgaImage::parse(&bytes).map_err(|e| format!("tga parse on {}: {e}", abs.display()))?;
         Ok(self.rgba_to_entry(gfx_name, img.width, img.height, &img.pixels))
+    }
+
+    fn load_png_to_entry(&self, gfx_name: &str, abs: &Path) -> Result<IconEntry, String> {
+        let bytes =
+            std::fs::read(abs).map_err(|e| format!("io error on {}: {e}", abs.display()))?;
+        let (width, height, rgba) =
+            decode_png_rgba(&bytes).map_err(|e| format!("png decode on {}: {e}", abs.display()))?;
+        Ok(self.rgba_to_entry(gfx_name, width, height, &rgba))
+    }
+
+    fn load_embedded_png_to_entry(
+        &self,
+        gfx_name: &str,
+        icon: EmbeddedPngIcon,
+    ) -> Result<IconEntry, String> {
+        let (width, height, rgba) = decode_png_rgba(icon.bytes)
+            .map_err(|e| format!("embedded png {} decode: {e}", icon.file_name))?;
+        Ok(self.rgba_to_entry(gfx_name, width, height, &rgba))
     }
 
     fn rgba_to_entry(&self, gfx_name: &str, width: u32, height: u32, rgba: &[u8]) -> IconEntry {
@@ -670,9 +885,58 @@ fn texture_pixel_stats(width: u32, height: u32, rgba: &[u8]) -> TexturePixelStat
     }
 }
 
+fn embedded_png_icon(gfx_name: &str) -> Option<EmbeddedPngIcon> {
+    PROJECT_LAW_ICONS
+        .iter()
+        .copied()
+        .find(|icon| icon.gfx_name == gfx_name)
+}
+
+fn decode_png_rgba(bytes: &[u8]) -> Result<(u32, u32, Vec<u8>), String> {
+    let cursor = Cursor::new(bytes);
+    let mut decoder = png::Decoder::new(cursor);
+    decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
+    let bytes = &buf[..info.buffer_size()];
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => bytes.to_vec(),
+        png::ColorType::Rgb => {
+            let mut out = Vec::with_capacity((info.width * info.height * 4) as usize);
+            for px in bytes.chunks_exact(3) {
+                out.extend_from_slice(&[px[0], px[1], px[2], 255]);
+            }
+            out
+        }
+        png::ColorType::Grayscale => {
+            let mut out = Vec::with_capacity((info.width * info.height * 4) as usize);
+            for &v in bytes {
+                out.extend_from_slice(&[v, v, v, 255]);
+            }
+            out
+        }
+        png::ColorType::GrayscaleAlpha => {
+            let mut out = Vec::with_capacity((info.width * info.height * 4) as usize);
+            for px in bytes.chunks_exact(2) {
+                out.extend_from_slice(&[px[0], px[0], px[0], px[1]]);
+            }
+            out
+        }
+        png::ColorType::Indexed => {
+            return Err("indexed color PNG should have been expanded".to_owned());
+        }
+    };
+    Ok((info.width, info.height, rgba))
+}
+
 fn icon_lookup_names(gfx_name: &str) -> Vec<Cow<'_, str>> {
     let mut names = Vec::with_capacity(4);
     push_unique_lookup_name(&mut names, Cow::Borrowed(gfx_name));
+
+    if let Some(alias) = focus_icon_alias(gfx_name) {
+        push_unique_lookup_name(&mut names, Cow::Borrowed(alias));
+    }
 
     if let Some(alias) = event_picture_alias(gfx_name) {
         push_unique_lookup_name(&mut names, Cow::Borrowed(alias));
@@ -694,6 +958,30 @@ fn push_unique_lookup_name<'a>(names: &mut Vec<Cow<'a, str>>, candidate: Cow<'a,
         return;
     }
     names.push(candidate);
+}
+
+fn focus_icon_alias(gfx_name: &str) -> Option<&'static str> {
+    match gfx_name {
+        "GFX_focus_generic_air_doctrine" => Some("GFX_goal_generic_air_doctrine"),
+        "GFX_focus_generic_air_production" => Some("GFX_goal_generic_air_production"),
+        "GFX_focus_generic_alliance" => Some("GFX_goal_generic_alliance"),
+        "GFX_focus_generic_annex" => Some("GFX_goal_generic_territory_or_war"),
+        "GFX_focus_generic_army_doctrines" => Some("GFX_goal_generic_army_doctrines"),
+        "GFX_focus_generic_demand_territory" => Some("GFX_goal_generic_demand_territory"),
+        "GFX_focus_generic_democracy" => Some("GFX_goal_generic_support_democracy"),
+        "GFX_focus_generic_diplomatic" => Some("GFX_goal_generic_improve_relations"),
+        "GFX_focus_generic_fortify" => Some("GFX_goal_generic_fortify_city"),
+        "GFX_focus_generic_industry" => Some("GFX_goal_generic_production"),
+        "GFX_focus_generic_military_economy" => Some("GFX_goal_generic_construct_military"),
+        "GFX_focus_generic_monarchy" => Some("GFX_goal_generic_neutrality_focus"),
+        "GFX_focus_generic_navy" => Some("GFX_goal_generic_build_navy"),
+        "GFX_focus_generic_parliament" => Some("GFX_goal_generic_political_pressure"),
+        "GFX_focus_generic_provoke_war" => Some("GFX_goal_generic_major_war"),
+        "GFX_focus_generic_purge" => Some("GFX_goal_generic_dangerous_deal"),
+        "GFX_focus_generic_tank" => Some("GFX_goal_generic_build_tank"),
+        "GFX_focus_generic_trade" => Some("GFX_goal_generic_trade"),
+        _ => None,
+    }
 }
 
 fn event_picture_alias(gfx_name: &str) -> Option<&'static str> {
@@ -972,6 +1260,17 @@ mod tests {
     }
 
     #[test]
+    fn focus_icon_lookup_uses_goal_aliases_for_missing_generic_icons() {
+        let names: Vec<String> = icon_lookup_names("GFX_focus_generic_industry")
+            .into_iter()
+            .map(Cow::into_owned)
+            .collect();
+
+        assert_eq!(names[0], "GFX_focus_generic_industry");
+        assert!(names.contains(&"GFX_goal_generic_production".to_owned()));
+    }
+
+    #[test]
     fn event_picture_fallback_paths_are_bounded() {
         assert!(is_event_picture_gfx("GFX_event_mustard_gas"));
         assert!(is_event_picture_gfx(
@@ -1122,6 +1421,70 @@ spriteTypes = {
             .attempted_paths
             .iter()
             .any(|path| path.contains("missing_probe_for_test.dds")));
+    }
+
+    #[test]
+    fn profile_search_dirs_cover_decisions_and_focuses() {
+        let path_cfg = hoi4_paths::PathConfig::with_game_path(std::env::temp_dir());
+        let ctx = egui::Context::default();
+        let mut bank = IconBank::new(ctx, path_cfg);
+
+        bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_DECISION_PROFILE_ID);
+        bank.add_profile_search_dirs(crate::vanilla_gui::NATIONAL_FOCUS_PROFILE_ID);
+        bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_DECISION_PROFILE_ID);
+
+        let dirs = bank.search_dirs();
+        assert!(dirs.iter().any(|dir| dir == "gfx/interface/decisions"));
+        assert!(dirs.iter().any(|dir| dir == "gfx/interface/focusview"));
+        assert!(dirs
+            .iter()
+            .any(|dir| dir == "gfx/interface/focusview/titlebar"));
+        assert!(dirs.iter().any(|dir| dir == "gfx/interface/techtree"));
+        assert!(dirs.iter().any(|dir| dir == "gfx/interface/goals"));
+        assert_eq!(
+            dirs.iter()
+                .filter(|dir| dir.as_str() == "gfx/interface/decisions")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn decision_and_focus_key_sprites_are_diagnosable_when_vanilla_available() {
+        let Ok(path_cfg) = hoi4_paths::PathConfig::resolve(Default::default()) else {
+            return;
+        };
+        if path_cfg
+            .find(crate::vanilla_gui::COUNTRY_DECISION_GUI_FILE)
+            .is_none()
+            || path_cfg
+                .find(crate::vanilla_gui::NATIONAL_FOCUS_GUI_FILE)
+                .is_none()
+        {
+            return;
+        }
+
+        let ctx = egui::Context::default();
+        let mut bank = IconBank::new(ctx, path_cfg);
+        bank.add_decision_search_dirs();
+        bank.add_focus_search_dirs();
+
+        for sprite in [
+            "GFX_decision_item_bg",
+            "GFX_decision_unknown",
+            "GFX_focus_unavailable",
+            "GFX_focus_can_start",
+            "GFX_focus_completed",
+            "GFX_goal_unknown",
+        ] {
+            let report = bank.diagnose_sprite(sprite);
+            assert!(
+                report.loaded
+                    || report.texture_file.is_some()
+                    || !report.attempted_paths.is_empty(),
+                "sprite should produce a useful diagnostic: {report:?}"
+            );
+        }
     }
 
     #[test]

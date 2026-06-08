@@ -7,7 +7,10 @@ use super::ast::GuiNodePath;
 #[derive(Debug, Clone, PartialEq)]
 pub struct GuiBinding {
     pub visible: Option<bool>,
+    pub enabled: Option<bool>,
+    pub checked: Option<bool>,
     pub text: Option<String>,
+    pub input_text: Option<String>,
     pub text_color: Option<Color32>,
     pub sprite: Option<String>,
     pub tint: Option<Color32>,
@@ -23,7 +26,10 @@ impl Default for GuiBinding {
     fn default() -> Self {
         Self {
             visible: None,
+            enabled: None,
+            checked: None,
             text: None,
+            input_text: None,
             text_color: None,
             sprite: None,
             tint: None,
@@ -43,8 +49,23 @@ impl GuiBinding {
         self
     }
 
+    pub fn enabled(mut self, value: bool) -> Self {
+        self.enabled = Some(value);
+        self
+    }
+
+    pub fn checked(mut self, value: bool) -> Self {
+        self.checked = Some(value);
+        self
+    }
+
     pub fn text(mut self, value: impl Into<String>) -> Self {
         self.text = Some(value.into());
+        self
+    }
+
+    pub fn input_text(mut self, value: impl Into<String>) -> Self {
+        self.input_text = Some(value.into());
         self
     }
 
@@ -139,8 +160,17 @@ fn merge_binding(into: &mut GuiBinding, other: &GuiBinding) {
     if other.visible.is_some() {
         into.visible = other.visible;
     }
+    if other.enabled.is_some() {
+        into.enabled = other.enabled;
+    }
+    if other.checked.is_some() {
+        into.checked = other.checked;
+    }
     if other.text.is_some() {
         into.text = other.text.clone();
+    }
+    if other.input_text.is_some() {
+        into.input_text = other.input_text.clone();
     }
     if other.text_color.is_some() {
         into.text_color = other.text_color;
@@ -184,16 +214,22 @@ mod tests {
             path.clone(),
             GuiBinding::default()
                 .text("X")
+                .input_text("typed")
                 .text_color(Color32::RED)
                 .tint(Color32::BLUE)
-                .visible(false),
+                .visible(false)
+                .enabled(false)
+                .checked(true),
         );
 
         let binding = map.for_node(&path, Some("close"));
 
         assert_eq!(binding.text.as_deref(), Some("X"));
+        assert_eq!(binding.input_text.as_deref(), Some("typed"));
         assert_eq!(binding.text_color, Some(Color32::RED));
         assert_eq!(binding.tint, Some(Color32::BLUE));
         assert_eq!(binding.visible, Some(false));
+        assert_eq!(binding.enabled, Some(false));
+        assert_eq!(binding.checked, Some(true));
     }
 }

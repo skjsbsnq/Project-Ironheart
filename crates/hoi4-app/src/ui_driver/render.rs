@@ -229,7 +229,8 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
         }
 
         if let Some(ref data) = decisions_panel_data {
-            let (close, cmds) = hoi4_ui::decisions_panel::DecisionsPanel::show(ctx, data);
+            let (close, cmds) =
+                hoi4_ui::decisions_panel::DecisionsPanel::show_with_icon_bank(ctx, data, icon_bank);
             if close {
                 decisions_close = true;
             }
@@ -358,13 +359,14 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
             .country
             .eq_ignore_ascii_case(app.world.country_tag(player_cid).unwrap_or_default())
         {
-            focus_cmd = focus_panel.show(
+            focus_cmd = focus_panel.show_with_icon_bank(
                 ctx,
                 focus_tree,
                 &completed_focuses,
                 current_focus_ref,
                 current_focus_progress,
                 &available_focus_ids,
+                icon_bank,
             );
         } else {
             focus_panel.open = false;
@@ -395,6 +397,7 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
             current_focus_ref,
             current_focus_progress,
             Some(&available_focus_ids),
+            Some(icon_bank),
         ) {
             if let Some(panel_cmd) = cmd.panel_command {
                 panel_commands.push(panel_cmd);

@@ -1,0 +1,36 @@
+GUI node type audit phase 0
+Date: 2026-06-08
+HOI4 path: C:\Program Files (x86)\Steam\steamapps\common\Hearts of Iron IV
+
+## interface/countrypoliticsview.gui
+background                           19  supported
+buttonType                           33  supported
+containerWindowType                  44  supported
+gridBoxType                          13  supported
+guiTypes                              1  defer_or_unknown_preserve
+iconType                             74  supported
+instantTextboxType                   45  supported
+OverlappingElementsBoxType            1  must_add
+positionType                          1  must_add
+
+## interface/countrydecisionview.gui
+background                            3  supported
+buttonType                           10  supported
+checkBoxType                          3  must_add
+containerWindowType                  15  supported
+gridboxtype                           1  supported
+guiTypes                              1  defer_or_unknown_preserve
+iconType                             29  supported
+instantTextboxType                   20  supported
+OverlappingElementsBoxType            1  must_add
+
+## interface/nationalfocusview.gui
+background                           14  supported
+buttonType                           19  supported
+containerWindowType                  29  supported
+editBoxType                           1  must_add
+gridboxtype                           6  supported
+guiTypes                              1  defer_or_unknown_preserve
+iconType                             32  supported
+instantTextboxType                   23  supported
+positionType                         14  must_add

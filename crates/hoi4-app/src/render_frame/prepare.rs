@@ -16,7 +16,7 @@ pub(crate) struct FramePrepareOutput {
 }
 
 pub(crate) struct FrameSurfaceTarget {
-    pub(crate) frame: wgpu::SurfaceTexture,
+    pub(crate) frame: SurfaceFrameGuard,
     pub(crate) surface_view: wgpu::TextureView,
     pub(crate) capture_texture: Option<wgpu::Texture>,
     pub(crate) capture_view: Option<wgpu::TextureView>,
@@ -89,7 +89,7 @@ pub(crate) struct FrameDrawHudOutput {
 
 pub(crate) struct FrameSubmitPhaseInput<'a> {
     pub(crate) ui_phase: FrameUiPhaseOutput,
-    pub(crate) frame: wgpu::SurfaceTexture,
+    pub(crate) frame: SurfaceFrameGuard,
     pub(crate) output_view: &'a wgpu::TextureView,
     pub(crate) capture_texture: Option<&'a wgpu::Texture>,
     pub(crate) draw_hud_output: FrameDrawHudOutput,
@@ -101,6 +101,72 @@ pub(crate) struct FrameSubmitPhaseInput<'a> {
     pub(crate) profile_pass_params_ms: f32,
 }
 
+pub(crate) struct SurfaceFrameGuard {
+    frame: Option<wgpu::SurfaceTexture>,
+}
+
+impl SurfaceFrameGuard {
+    pub(crate) fn new(frame: wgpu::SurfaceTexture) -> Self {
+        Self { frame: Some(frame) }
+    }
+
+    pub(crate) fn texture(&self) -> Option<&wgpu::Texture> {
+        self.frame.as_ref().map(|frame| &frame.texture)
+    }
+
+    pub(crate) fn present(mut self) {
+        if let Some(frame) = self.frame.take() {
+            frame.present();
+        }
+    }
+}
+
+impl Drop for SurfaceFrameGuard {
+    fn drop(&mut self) {
+        let _ = self.frame.take();
+    }
+}
+
+struct TakenRenderStateGuard {
+    slot: *mut Option<RenderState>,
+    state: Option<RenderState>,
+}
+
+impl TakenRenderStateGuard {
+    fn take_from(slot: &mut Option<RenderState>) -> Option<Self> {
+        let state = slot.take()?;
+        Some(Self {
+            slot: slot as *mut Option<RenderState>,
+            state: Some(state),
+        })
+    }
+
+    fn as_ref(&self) -> &RenderState {
+        self.state.as_ref().expect("render state guard is empty")
+    }
+
+    fn as_mut(&mut self) -> &mut RenderState {
+        self.state.as_mut().expect("render state guard is empty")
+    }
+
+    fn into_inner(mut self) -> RenderState {
+        self.state.take().expect("render state guard is empty")
+    }
+}
+
+impl Drop for TakenRenderStateGuard {
+    fn drop(&mut self) {
+        // SAFETY: the guard is created from `self.state` in `render_pipeline`,
+        // the app is not moved while the guard is alive, and this pointer is
+        // only dereferenced here to restore the slot during unwinding.
+        unsafe {
+            if (*self.slot).is_none() {
+                *self.slot = self.state.take();
+            }
+        }
+    }
+}
+
 impl App {
     pub(crate) fn render_pipeline(&mut self) {
         let ui_phase = match self.prepare_visual_ui_phase(Instant::now()) {
@@ -108,8 +174,8 @@ impl App {
             None => return,
         };
         let mut profile_mark = ui_phase.profile_mark;
-        let mut s = match self.state.take() {
-            Some(s) => s,
+        let mut state_guard = match TakenRenderStateGuard::take_from(&mut self.state) {
+            Some(guard) => guard,
             None => return,
         };
 
@@ -118,7 +184,7 @@ impl App {
             map_layer_mask: ui_phase.map_layer_mask,
             map_phase0_active: ui_phase.map_phase0_active,
         };
-        let frame_prepare = self.prepare_render_params(&s, &frame_prepare_input);
+        let frame_prepare = self.prepare_render_params(state_guard.as_ref(), &frame_prepare_input);
         let mut params = frame_prepare.params;
         let zoom_factor = frame_prepare.zoom_factor;
         let time = frame_prepare.time;
@@ -126,19 +192,17 @@ impl App {
         let season_result = frame_prepare.season_result;
         let vanilla_map_space = frame_prepare.vanilla_map_space;
 
-        self.update_terrain_buckets(&mut s);
+        self.update_terrain_buckets(state_guard.as_mut());
 
         let profile_params_buckets_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
         profile_mark = Instant::now();
 
-        let surface_target =
-            match self.acquire_surface_and_capture_target(&mut s, ui_phase.map_phase0_active) {
-                Some(target) => target,
-                None => {
-                    self.state = Some(s);
-                    return;
-                }
-            };
+        let surface_target = match self
+            .acquire_surface_and_capture_target(state_guard.as_mut(), ui_phase.map_phase0_active)
+        {
+            Some(target) => target,
+            None => return,
+        };
         let FrameSurfaceTarget {
             frame,
             surface_view,
@@ -151,7 +215,7 @@ impl App {
         profile_mark = Instant::now();
 
         self.update_global_uniforms(
-            &mut s,
+            state_guard.as_mut(),
             &params,
             &vanilla_map_space,
             time,
@@ -161,7 +225,7 @@ impl App {
         profile_mark = Instant::now();
 
         let map_prepare_output = self.prepare_map_renderer_frame(
-            &s,
+            state_guard.as_ref(),
             &frame_prepare_input,
             date,
             zoom_factor,
@@ -185,7 +249,7 @@ impl App {
             None
         };
         self.update_vanilla_targets(
-            &mut s,
+            state_guard.as_mut(),
             semantic_overlays,
             runtime_player_country,
             params.season_snow_offset,
@@ -195,7 +259,7 @@ impl App {
         profile_mark = Instant::now();
 
         let pass_params_output = self.update_pass_params(
-            &mut s,
+            state_guard.as_mut(),
             &mut params,
             FramePassParamsInput {
                 render_quality_preset: ui_phase.render_quality_preset,
@@ -214,7 +278,7 @@ impl App {
         let profile_pass_params_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
         profile_mark = Instant::now();
         let draw_hud_output = self.draw_map_and_hud(
-            &mut s,
+            state_guard.as_mut(),
             &mut enc,
             output_view,
             FrameDrawHudInput {
@@ -233,7 +297,7 @@ impl App {
         );
 
         self.submit_prepared_render_frame(
-            s,
+            state_guard.into_inner(),
             enc,
             FrameSubmitPhaseInput {
                 ui_phase,
@@ -580,8 +644,8 @@ impl App {
         s: &mut RenderState,
         map_phase0_active: bool,
     ) -> Option<FrameSurfaceTarget> {
-        let frame = s.surface.get_current_texture().ok()?;
-        let surface_view = frame.texture.create_view(&Default::default());
+        let frame = SurfaceFrameGuard::new(s.surface.get_current_texture().ok()?);
+        let surface_view = frame.texture()?.create_view(&Default::default());
         let capture_texture = if map_phase0_active {
             Some(s.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("map_phase0_output"),

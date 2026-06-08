@@ -20,7 +20,7 @@ impl App {
 
     pub(crate) fn cursor_ndc_at(&self, x: f32, y: f32) -> Option<Vec2> {
         let s = self.state.as_ref()?;
-        let dpi = s.window.scale_factor() as f32;
+        let dpi = s.ui_scale_factor();
         let w = s.config.width as f32 / dpi.max(0.0001);
         let h = s.config.height as f32 / dpi.max(0.0001);
         if w <= 0.0 || h <= 0.0 {

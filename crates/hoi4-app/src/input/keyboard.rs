@@ -536,7 +536,7 @@ mod tests {
     }
 
     #[test]
-    fn gate11_escape_requests_law_detail_close_before_primary_panel() {
+    fn gate17_escape_requests_law_detail_close_before_primary_panel() {
         let mut state = escape_state();
         state.law_detail_open = true;
         state.detail_open = true;
@@ -550,7 +550,7 @@ mod tests {
     }
 
     #[test]
-    fn gate11_escape_requests_politics_close_after_details_are_clear() {
+    fn gate17_escape_requests_politics_close_after_details_are_clear() {
         let mut state = escape_state();
         state.politics_panel_open = true;
         state.primary_panel_open = true;
@@ -562,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn gate11_escape_keeps_legacy_non_politics_close_immediate() {
+    fn gate17_escape_keeps_legacy_non_politics_close_immediate() {
         let mut detail_state = escape_state();
         detail_state.detail_open = true;
         assert_eq!(
@@ -579,7 +579,7 @@ mod tests {
     }
 
     #[test]
-    fn gate11_escape_keeps_popup_priority_over_details() {
+    fn gate17_escape_keeps_popup_priority_over_details() {
         let mut state = escape_state();
         state.popup_open = true;
         state.law_detail_open = true;

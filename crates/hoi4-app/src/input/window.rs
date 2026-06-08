@@ -94,12 +94,12 @@ impl App {
                         s.hdr_target.width,
                         s.hdr_target.height,
                     );
-                    let dpi = s.window.scale_factor() as f32;
+                    let dpi = s.ui_scale_factor();
                     let logical_w = s.config.width as f32 / dpi;
                     let logical_h = s.config.height as f32 / dpi;
                     println!(
-                        "[resize] physical={}x{} logical={:.0}x{:.0} dpi={:.2}",
-                        s.config.width, s.config.height, logical_w, logical_h, dpi
+                        "[resize] physical={}x{} logical={:.0}x{:.0} game_scale={:.2} system_dpi={:.2}",
+                        s.config.width, s.config.height, logical_w, logical_h, dpi, s.window.scale_factor()
                     );
                     self.camera.aspect = logical_w / logical_h.max(1.0);
                     self.camera.clamp_target_to_map();

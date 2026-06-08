@@ -62,6 +62,7 @@ pub enum VanillaGuiIssueKind {
     UnknownNodeType,
     InvalidSize,
     InvalidPosition,
+    MissingLayoutMarker,
     UnsupportedResourceType,
     ParseTolerance,
 }

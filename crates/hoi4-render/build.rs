@@ -99,8 +99,8 @@ fn main() {
     img.save_with_format(&png_path, image::ImageFormat::Png)
         .unwrap_or_else(|e| panic!("[counter_icons] save {} failed: {e}", png_path.display()));
 
-    println!(
-        "cargo:warning=[counter_icons] atlas {}x{} -> {} ({} icons)",
+    eprintln!(
+        "[counter_icons] atlas {}x{} -> {} ({} icons)",
         ATLAS_W,
         ATLAS_H,
         png_path.display(),

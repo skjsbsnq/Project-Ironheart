@@ -192,7 +192,7 @@ impl App {
     pub(crate) fn pick_province_at_cursor(&self) -> u32 {
         let (cw, ch) = match &self.state {
             Some(s) => {
-                let dpi = s.window.scale_factor() as f32;
+                let dpi = s.ui_scale_factor();
                 (s.config.width as f32 / dpi, s.config.height as f32 / dpi)
             }
             None => return u32::MAX,
@@ -276,7 +276,7 @@ impl App {
         let dpi = self
             .state
             .as_ref()
-            .map(|s| s.window.scale_factor() as f32)
+            .map(|s| s.ui_scale_factor())
             .unwrap_or(1.0);
         hit_test(&self._cached_hoi3_hit_regions, mx * dpi, my * dpi).map(|pid| pid as u32)
     }
@@ -374,7 +374,7 @@ impl App {
         let Some(s) = self.state.as_ref() else {
             return false;
         };
-        let dpi = s.window.scale_factor() as f32;
+        let dpi = s.ui_scale_factor();
         let rect = [
             rect_logical[0] * dpi,
             rect_logical[1] * dpi,

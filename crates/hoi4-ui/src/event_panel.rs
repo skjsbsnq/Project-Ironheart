@@ -13,8 +13,8 @@ use hoi4_content::{Event as ContentEvent, EventScheduler};
 use crate::i18n::tr;
 use crate::vanilla_gui::{
     bind_profile_tree, bind_profile_tree_with_path, compute_layout_tree_with_path, grid_slots,
-    GfxIndex, GuiAction, GuiActionKind, GuiBinding, GuiDocument, GuiNodePath, GuiRect,
-    LayoutOptions, VanillaGuiRenderer, VanillaPanelProfile, VanillaTemplateInstance,
+    GfxIndex, GuiAction, GuiActionKind, GuiBinding, GuiDocument, GuiNode, GuiNodePath, GuiRect,
+    LayoutNode, LayoutOptions, VanillaGuiRenderer, VanillaPanelProfile, VanillaTemplateInstance,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -25,7 +25,11 @@ pub enum EventCommand {
 const EVENT_WINDOW_GUI_FILE: &str = "interface/eventwindow.gui";
 const EVENT_WINDOW_PROFILE_ID: &str = "event_window";
 const EVENT_WINDOW_ROOT: &str = "EventWindow";
+const EVENT_WINDOW_NEWS_ROOT: &str = "EventWindow_News";
 const EVENT_OPTION_TEMPLATE: &str = "event_option_entry";
+const EVENT_OPTION_VISUAL_WIDTH: f32 = 352.0;
+const EVENT_OPTION_SLOT_HEIGHT: f32 = 47.0;
+const NEWS_OPTION_BOTTOM_MARGIN: f32 = 18.0;
 
 #[derive(Debug)]
 struct VanillaEventGuiContext {
@@ -49,7 +53,23 @@ fn event_vanilla_gui_context() -> Option<&'static VanillaEventGuiContext> {
         .as_ref()
 }
 
-struct EventWindowProfile;
+struct EventWindowProfile {
+    root_template: &'static str,
+}
+
+impl EventWindowProfile {
+    fn for_event(event: &ContentEvent) -> Self {
+        Self {
+            root_template: event_window_root(event),
+        }
+    }
+
+    fn country() -> Self {
+        Self {
+            root_template: EVENT_WINDOW_ROOT,
+        }
+    }
+}
 
 impl VanillaPanelProfile for EventWindowProfile {
     type Data = EventWindowData;
@@ -60,7 +80,7 @@ impl VanillaPanelProfile for EventWindowProfile {
     }
 
     fn root_template(&self) -> &'static str {
-        EVENT_WINDOW_ROOT
+        self.root_template
     }
 
     fn required_gui_files(&self) -> &'static [&'static str] {
@@ -273,7 +293,7 @@ fn show_vanilla_event_window(
     option_enabled: &[bool],
     context: &VanillaEventGuiContext,
 ) -> Option<EventCommand> {
-    let profile = EventWindowProfile;
+    let profile = EventWindowProfile::for_event(event);
     let data = EventWindowData::from_event(event, queue_extra, option_enabled);
     let root = context
         .document
@@ -284,7 +304,7 @@ fn show_vanilla_event_window(
     let layout = compute_layout_tree_with_path(
         root,
         &LayoutOptions::new(viewport),
-        GuiNodePath::root(EVENT_WINDOW_ROOT),
+        GuiNodePath::root(profile.root_template()),
     );
     let bindings = bind_profile_tree(&profile, root, &data);
 
@@ -348,13 +368,19 @@ fn paint_event_option_instances(
         return;
     };
 
-    for (option_idx, slot) in grid_slots(grid_node, grid_layout.rect, data.options.len())
-        .into_iter()
-        .enumerate()
-    {
-        let path = event_option_instance_path(option_idx);
-        let option_layout =
+    let slots = event_option_slots(
+        profile,
+        root_layout,
+        grid_node,
+        grid_layout.rect,
+        data.options.len(),
+    );
+
+    for (option_idx, slot) in slots.into_iter().enumerate() {
+        let path = event_option_instance_path(profile.root_template(), option_idx);
+        let mut option_layout =
             compute_layout_tree_with_path(template, &LayoutOptions::new(slot), path.clone());
+        fit_event_option_visual(&mut option_layout);
         let option_bindings = bind_profile_tree_with_path(profile, template, data, path);
         let stats = renderer.paint_tree(ui, template, &option_layout, &option_bindings, icon_bank);
         for command in stats.clicked_commands {
@@ -365,6 +391,71 @@ fn paint_event_option_instances(
     }
 }
 
+fn event_option_slots(
+    profile: &EventWindowProfile,
+    root_layout: &LayoutNode,
+    grid_node: &GuiNode,
+    grid_rect: GuiRect,
+    count: usize,
+) -> Vec<GuiRect> {
+    if profile.root_template() != EVENT_WINDOW_NEWS_ROOT {
+        let mut slots = grid_slots(grid_node, grid_rect, count);
+        let first = slots.first().copied().unwrap_or(grid_rect);
+        if slots.len() < count {
+            slots = (0..count)
+                .map(|idx| {
+                    GuiRect::new(
+                        first.x,
+                        first.y + idx as f32 * first.height.max(EVENT_OPTION_SLOT_HEIGHT),
+                        first.width,
+                        first.height.max(EVENT_OPTION_SLOT_HEIGHT),
+                    )
+                })
+                .collect();
+        }
+        for slot in &mut slots {
+            slot.width = EVENT_OPTION_VISUAL_WIDTH;
+        }
+        return slots;
+    }
+
+    let count = count.min(usize::MAX / 2);
+    let total_height = count as f32 * EVENT_OPTION_SLOT_HEIGHT;
+    let root = root_layout.rect;
+    let x = root.x + (root.width - EVENT_OPTION_VISUAL_WIDTH) * 0.5;
+    let y = root.bottom() - total_height - NEWS_OPTION_BOTTOM_MARGIN;
+    (0..count)
+        .map(|idx| {
+            GuiRect::new(
+                x,
+                y + idx as f32 * EVENT_OPTION_SLOT_HEIGHT,
+                EVENT_OPTION_VISUAL_WIDTH,
+                EVENT_OPTION_SLOT_HEIGHT,
+            )
+        })
+        .collect()
+}
+
+fn fit_event_option_visual(layout: &mut LayoutNode) {
+    layout.rect.width = layout.rect.width.max(EVENT_OPTION_VISUAL_WIDTH);
+    if let Some(background) = find_layout_by_name_mut(layout, "event_option_background") {
+        background.rect.width = background.rect.width.max(EVENT_OPTION_VISUAL_WIDTH);
+    }
+}
+
+fn find_layout_by_name_mut<'a>(
+    layout: &'a mut LayoutNode,
+    name: &str,
+) -> Option<&'a mut LayoutNode> {
+    if layout.name.as_deref() == Some(name) {
+        return Some(layout);
+    }
+    layout
+        .children
+        .iter_mut()
+        .find_map(|child| find_layout_by_name_mut(child, name))
+}
+
 fn event_command_from_render_command(
     profile: &EventWindowProfile,
     data: &EventWindowData,
@@ -373,15 +464,23 @@ fn event_command_from_render_command(
     let option_idx = command.strip_prefix("event_option:")?.parse().ok()?;
     profile.handle_action(
         GuiAction {
-            node_path: event_option_instance_path(option_idx),
+            node_path: event_option_instance_path(profile.root_template(), option_idx),
             kind: GuiActionKind::Click,
         },
         data,
     )
 }
 
-fn event_option_instance_path(option_idx: usize) -> GuiNodePath {
-    GuiNodePath::root(EVENT_WINDOW_ROOT)
+fn event_window_root(event: &ContentEvent) -> &'static str {
+    if matches!(event.scope, hoi4_content::EventScope::News) {
+        EVENT_WINDOW_NEWS_ROOT
+    } else {
+        EVENT_WINDOW_ROOT
+    }
+}
+
+fn event_option_instance_path(root_template: &'static str, option_idx: usize) -> GuiNodePath {
+    GuiNodePath::root(root_template)
         .child("options_grid")
         .child(format!("{EVENT_OPTION_TEMPLATE}[{option_idx}]"))
 }
@@ -479,7 +578,7 @@ mod tests {
     fn gate12_event_profile_declares_window_and_binds_dynamic_fields() {
         let db = sample_db();
         let event = &db.events[0];
-        let profile = super::EventWindowProfile;
+        let profile = super::EventWindowProfile::country();
         let data = super::EventWindowData::from_event(event, 2, &[true, false]);
 
         assert_eq!(profile.profile_id(), super::EVENT_WINDOW_PROFILE_ID);
@@ -519,8 +618,10 @@ mod tests {
         );
         assert_eq!(grid.instance_count, Some(2));
 
-        let option0_name =
-            profile.bind_node(&super::event_option_instance_path(0).child("Name"), &data);
+        let option0_name = profile.bind_node(
+            &super::event_option_instance_path(super::EVENT_WINDOW_ROOT, 0).child("Name"),
+            &data,
+        );
         assert_eq!(option0_name.text.as_deref(), Some("A"));
         assert_eq!(
             option0_name
@@ -530,14 +631,16 @@ mod tests {
             Some("event_option:0")
         );
 
-        let option1_name =
-            profile.bind_node(&super::event_option_instance_path(1).child("Name"), &data);
+        let option1_name = profile.bind_node(
+            &super::event_option_instance_path(super::EVENT_WINDOW_ROOT, 1).child("Name"),
+            &data,
+        );
         assert_eq!(option1_name.text.as_deref(), Some("B"));
         assert!(option1_name.click.is_none());
 
         let command = profile.handle_action(
             super::GuiAction {
-                node_path: super::event_option_instance_path(0),
+                node_path: super::event_option_instance_path(super::EVENT_WINDOW_ROOT, 0),
                 kind: super::GuiActionKind::Click,
             },
             &data,
@@ -552,12 +655,140 @@ mod tests {
 
         let disabled = profile.handle_action(
             super::GuiAction {
-                node_path: super::event_option_instance_path(1),
+                node_path: super::event_option_instance_path(super::EVENT_WINDOW_ROOT, 1),
                 kind: super::GuiActionKind::Click,
             },
             &data,
         );
         assert!(disabled.is_none());
+    }
+
+    #[test]
+    fn gate12_news_events_use_news_window_template() {
+        let mut db = sample_db();
+        let event = &mut db.events[0];
+        event.scope = hoi4_content::EventScope::News;
+
+        let profile = super::EventWindowProfile::for_event(event);
+        assert_eq!(profile.root_template(), super::EVENT_WINDOW_NEWS_ROOT);
+
+        let path = super::event_option_instance_path(super::EVENT_WINDOW_NEWS_ROOT, 0);
+        assert_eq!(
+            path.to_string(),
+            "EventWindow_News.options_grid.event_option_entry[0]"
+        );
+    }
+
+    #[test]
+    fn gate12_news_event_options_are_placed_below_news_body() {
+        let doc = crate::vanilla_gui::parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    containerWindowType = {
+        name = "EventWindow_News"
+        size = { width = 528 height = 595 }
+        containerWindowType = {
+            name = "midsection"
+            position = { x = 0 y = 121 }
+            size = { width = 580 height = 385 }
+            instantTextBoxType = {
+                name = "Description"
+                position = { x = 39 y = 170 }
+                maxWidth = 460
+                maxHeight = 230
+            }
+        }
+        containerWindowType = {
+            name = "bottom_Window"
+            position = { x = 0 y = 221 }
+            size = { width = 581 height = 405 }
+            gridBoxType = {
+                name = "options_grid"
+                position = { x = 80 y = -1 }
+                size = { width = 300 height = 30 }
+                slotsize = { width = 300 height = 47 }
+                max_slots_horizontal = 1
+            }
+        }
+    }
+}
+"#,
+        );
+        let root = doc
+            .find_node_by_name(super::EVENT_WINDOW_NEWS_ROOT)
+            .unwrap();
+        let layout = crate::vanilla_gui::compute_layout_tree(
+            root,
+            &crate::vanilla_gui::LayoutOptions::new(crate::vanilla_gui::GuiRect::new(
+                0.0, 0.0, 1920.0, 1080.0,
+            )),
+        );
+        let grid_node = root.find_node_by_name("options_grid").unwrap();
+        let grid_layout = layout.find_by_name("options_grid").unwrap();
+        let description_layout = layout.find_by_name("Description").unwrap();
+        let mut db = sample_db();
+        db.events[0].scope = hoi4_content::EventScope::News;
+        let profile = super::EventWindowProfile::for_event(&db.events[0]);
+
+        let slots = super::event_option_slots(&profile, &layout, grid_node, grid_layout.rect, 1);
+
+        assert_eq!(slots.len(), 1);
+        assert_eq!(slots[0].width, super::EVENT_OPTION_VISUAL_WIDTH);
+        assert!(
+            slots[0].y > description_layout.rect.bottom(),
+            "news option slot {:?} should be below description {:?}",
+            slots[0],
+            description_layout.rect
+        );
+    }
+
+    #[test]
+    fn gate12_event_options_keep_all_dynamic_slots_and_full_visual_width() {
+        let doc = crate::vanilla_gui::parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    containerWindowType = {
+        name = "EventWindow"
+        size = { width = 581 height = 427 }
+        containerWindowType = {
+            name = "bottom_Window"
+            position = { x = 0 y = 221 }
+            size = { width = 581 height = 206 }
+            gridBoxType = {
+                name = "options_grid"
+                position = { x = 215 y = -1 }
+                size = { width = 300 height = 30 }
+                slotsize = { width = 300 height = 47 }
+                max_slots_horizontal = 1
+            }
+        }
+    }
+}
+"#,
+        );
+        let root = doc.find_node_by_name(super::EVENT_WINDOW_ROOT).unwrap();
+        let layout = crate::vanilla_gui::compute_layout_tree(
+            root,
+            &crate::vanilla_gui::LayoutOptions::new(crate::vanilla_gui::GuiRect::new(
+                0.0, 0.0, 1920.0, 1080.0,
+            )),
+        );
+        let grid_node = root.find_node_by_name("options_grid").unwrap();
+        let grid_layout = layout.find_by_name("options_grid").unwrap();
+        let profile = super::EventWindowProfile::country();
+
+        let slots = super::event_option_slots(&profile, &layout, grid_node, grid_layout.rect, 2);
+
+        assert_eq!(slots.len(), 2);
+        assert_eq!(slots[0].width, super::EVENT_OPTION_VISUAL_WIDTH);
+        assert_eq!(slots[1].width, super::EVENT_OPTION_VISUAL_WIDTH);
+        assert_eq!(slots[0].y, grid_layout.rect.y);
+        assert_eq!(
+            slots[1].y,
+            grid_layout.rect.y + super::EVENT_OPTION_SLOT_HEIGHT
+        );
     }
 
     #[test]

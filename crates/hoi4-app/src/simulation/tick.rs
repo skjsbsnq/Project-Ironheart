@@ -43,7 +43,7 @@ impl App {
             pan_x += pan_speed;
         }
         if let Some(s) = self.state.as_ref() {
-            let dpi = s.window.scale_factor() as f32;
+            let dpi = s.ui_scale_factor();
             let w = s.config.width as f32 / dpi.max(0.0001);
             let h = s.config.height as f32 / dpi.max(0.0001);
             let [mx, my] = self.last_mouse;

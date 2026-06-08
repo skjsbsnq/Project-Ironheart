@@ -96,8 +96,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             .get(player)
             .cloned()
             .unwrap_or_default();
-        let mut pops: Vec<(String, f32)> = pop_map.into_iter().collect();
-        pops.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let pops = normalize_politics_party_popularity(pop_map, &ruling);
         let ideas = app
             .world
             .countries
@@ -116,6 +115,9 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
                     return None;
                 }
                 let idea_def = app.world.data.ideas.get(&idea_key)?;
+                if !is_politics_national_spirit_category(&idea_def.category) {
+                    return None;
+                }
                 let name = localized_content_name(&idea_def.key, &idea_def.key);
                 let modifiers = idea_def
                     .modifiers
@@ -1316,5 +1318,108 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
         settings_panel_open_cmd,
         saves_open_cmd,
         law_error_toast,
+    }
+}
+
+fn is_politics_national_spirit_category(category: &str) -> bool {
+    matches!(category, "country" | "national_spirit")
+}
+
+fn normalize_politics_party_popularity(
+    pop_map: std::collections::HashMap<String, f32>,
+    ruling_party: &str,
+) -> Vec<(String, f32)> {
+    const IDEOLOGIES: [&str; 4] = ["fascism", "democratic", "communism", "neutrality"];
+    let mut totals = std::collections::HashMap::<&'static str, f32>::new();
+    for (key, value) in pop_map {
+        let Some(canonical) = canonical_politics_ideology_key(&key) else {
+            continue;
+        };
+        *totals.entry(canonical).or_insert(0.0) += value.max(0.0);
+    }
+    if totals.values().all(|value| *value <= f32::EPSILON) {
+        if let Some(canonical) = canonical_politics_ideology_key(ruling_party) {
+            totals.insert(canonical, 1.0);
+        }
+    }
+    IDEOLOGIES
+        .into_iter()
+        .map(|key| (key.to_owned(), totals.get(key).copied().unwrap_or(0.0)))
+        .collect()
+}
+
+fn canonical_politics_ideology_key(key: &str) -> Option<&'static str> {
+    match key.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "fascism" | "fascist" => Some("fascism"),
+        "democratic" | "democracy" | "democrat" => Some("democratic"),
+        "communism" | "communist" => Some("communism"),
+        "neutrality" | "neutral" | "non_aligned" | "nonaligned" => Some("neutrality"),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_politics_national_spirit_category, normalize_politics_party_popularity};
+    use std::collections::HashMap;
+
+    #[test]
+    fn politics_national_spirits_exclude_law_and_advisor_idea_categories() {
+        assert!(is_politics_national_spirit_category("country"));
+        assert!(is_politics_national_spirit_category("national_spirit"));
+
+        for category in [
+            "trade_laws",
+            "economy",
+            "mobilization_laws",
+            "political_advisor",
+            "theorist",
+            "army_chief",
+            "navy_chief",
+            "air_chief",
+            "high_command",
+        ] {
+            assert!(
+                !is_politics_national_spirit_category(category),
+                "{category} should render in law/advisor slots, not national spirits"
+            );
+        }
+    }
+
+    #[test]
+    fn politics_party_popularity_normalizes_to_vanilla_ideologies() {
+        let pops = normalize_politics_party_popularity(
+            HashMap::from([
+                ("fascist".to_owned(), 0.65),
+                ("democracy".to_owned(), 0.25),
+                ("custom".to_owned(), 0.10),
+            ]),
+            "fascism",
+        );
+
+        assert_eq!(
+            pops,
+            vec![
+                ("fascism".to_owned(), 0.65),
+                ("democratic".to_owned(), 0.25),
+                ("communism".to_owned(), 0.0),
+                ("neutrality".to_owned(), 0.0),
+            ]
+        );
+    }
+
+    #[test]
+    fn empty_party_popularity_falls_back_to_ruling_party() {
+        let pops = normalize_politics_party_popularity(HashMap::new(), "neutrality");
+
+        assert_eq!(
+            pops,
+            vec![
+                ("fascism".to_owned(), 0.0),
+                ("democratic".to_owned(), 0.0),
+                ("communism".to_owned(), 0.0),
+                ("neutrality".to_owned(), 1.0),
+            ]
+        );
     }
 }

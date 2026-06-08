@@ -40,6 +40,8 @@
 //! frame.present();
 //! ```
 
+#![allow(dead_code, deprecated)]
+
 pub use egui;
 pub use egui_wgpu;
 pub use egui_winit;
@@ -132,6 +134,14 @@ pub struct UiFrameStats {
     pub triangle_count: u32,
 }
 
+fn sanitize_pixels_per_point(v: f32) -> f32 {
+    if v.is_finite() {
+        v.clamp(0.75, 2.00)
+    } else {
+        1.0
+    }
+}
+
 impl UiFrameStats {
     /// `total_us` 是否在 [`FRAME_BUDGET_US`] 之内。
     pub fn within_budget(&self) -> bool {
@@ -157,6 +167,7 @@ pub struct UiState {
     /// 临时计时器：begin_frame 起点，paint 取走（保留 `begin_us` 的累积值）。
     /// `Option` 避免 paint 在没有 begin_frame 的状态下使用未初始化值。
     pending_begin_started: Option<Instant>,
+    pixels_per_point_override: f32,
 }
 
 impl UiState {
@@ -169,14 +180,23 @@ impl UiState {
         target_format: wgpu::TextureFormat,
         msaa_samples: u32,
         window: &Window,
+        pixels_per_point: f32,
     ) -> Self {
         let ctx = egui::Context::default();
+        ctx.options_mut(|options| {
+            options.zoom_with_keyboard = false;
+        });
+        let pixels_per_point = sanitize_pixels_per_point(pixels_per_point);
+        let native_pixels_per_point = window.scale_factor() as f32;
+        ctx.options_mut(|options| {
+            options.zoom_factor = pixels_per_point / native_pixels_per_point.max(0.0001);
+        });
         let viewport_id = ctx.viewport_id();
         let winit_state = egui_winit::State::new(
             ctx.clone(),
             viewport_id,
             window,
-            Some(window.scale_factor() as f32),
+            Some(pixels_per_point),
             None, // theme — 跟随系统
             None, // max_texture_side — 让 egui 走 device 上限
         );
@@ -194,6 +214,7 @@ impl UiState {
             pending: None,
             last_stats: UiFrameStats::default(),
             pending_begin_started: None,
+            pixels_per_point_override: pixels_per_point,
         }
     }
 
@@ -209,11 +230,28 @@ impl UiState {
         self.winit_state.on_window_event(window, event)
     }
 
+    pub fn pixels_per_point_override(&self) -> f32 {
+        self.pixels_per_point_override
+    }
+
+    pub fn set_pixels_per_point_override(&mut self, pixels_per_point: f32) {
+        self.pixels_per_point_override = sanitize_pixels_per_point(pixels_per_point);
+    }
+
+    fn apply_pixels_per_point_override(&self, window: &Window) {
+        let native_pixels_per_point = window.scale_factor() as f32;
+        self.ctx.options_mut(|options| {
+            options.zoom_factor =
+                self.pixels_per_point_override / native_pixels_per_point.max(0.0001);
+        });
+    }
+
     /// 开始一帧：从 winit_state 拉 RawInput，运行 UI 闭包，缓存 FullOutput
     /// 等待 `paint` 消费。
     pub fn begin_frame(&mut self, window: &Window, run_ui: impl FnMut(&egui::Context)) {
         // V5 阶段 B.7：起点计时；paint 阶段累加其余分桶。
         let t_begin = Instant::now();
+        self.apply_pixels_per_point_override(window);
         self.pending_begin_started = Some(t_begin);
         let t_input = Instant::now();
         let raw_input = self.winit_state.take_egui_input(window);

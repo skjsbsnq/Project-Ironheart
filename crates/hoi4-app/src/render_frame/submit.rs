@@ -5,7 +5,7 @@ use crate::*;
 pub(crate) struct FrameSubmitInput<'a> {
     pub(crate) render_started: Instant,
     pub(crate) profile_mark: Instant,
-    pub(crate) frame: wgpu::SurfaceTexture,
+    pub(crate) frame: render_frame::prepare::SurfaceFrameGuard,
     pub(crate) output_view: &'a wgpu::TextureView,
     pub(crate) capture_texture: Option<&'a wgpu::Texture>,
     pub(crate) map_phase0_capture_path: Option<PathBuf>,
@@ -66,7 +66,7 @@ impl App {
         s.text_pass.prepare(&s.queue);
         s.panel_pass.prepare(&s.queue);
         // Legacy UI command rendering is removed; panel/text/flag passes remain.
-        let dpi = s.window.scale_factor() as f32;
+        let dpi = s.ui_scale_factor();
         let logical_sw = s.config.width as f32 / dpi.max(0.0001);
         let logical_sh = s.config.height as f32 / dpi.max(0.0001);
         s.queue.write_buffer(

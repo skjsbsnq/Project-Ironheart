@@ -10,8 +10,8 @@ EventDb(
         // ═════════════════════════════════════════════════════════════════
         Event(
             id: "news.eth_mustard_gas",
-            title: "Italy Uses Mustard Gas in Ethiopia!",
-            description: "Reports confirm that Italian forces have deployed mustard gas against Ethiopian troops and civilians. The League of Nations condemns the action but takes no meaningful steps. Haile Selassie appeals to the world in vain.",
+            title: "意大利在埃塞俄比亚使用芥子气！",
+            description: "前线报告证实，意大利军队已对埃塞俄比亚士兵和平民使用芥子气。国际联盟谴责这一行动，却没有采取任何真正有效的措施。海尔·塞拉西向世界发出呼吁，但回声仍然空洞。",
             picture: "GFX_event_mustard_gas",
             scope: News,
             is_triggered_only: true,
@@ -19,7 +19,7 @@ EventDb(
             mean_time_to_happen_days: 1,
             options: [
                 EventOption(
-                    name: "The horror of modern warfare.",
+                    name: "现代战争的恐怖。",
                     effects: [],
                     ai_chance: 1.0,
                 ),

@@ -11,6 +11,8 @@
 //!
 //! 后续会加入：脚本引擎。
 
+#![allow(dead_code)]
+
 pub mod air;
 pub mod balance;
 pub mod diplomacy;

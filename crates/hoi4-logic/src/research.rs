@@ -376,7 +376,7 @@ pub fn tick_daily_v6(
 
         if total_research_cost > 0.0 && cash_rm > 0.0 {
             let actual_cost = total_research_cost.min(cash_rm);
-            drop(treasury);
+            let _ = treasury;
             world.countries.treasury.treasuries[ci].pay(actual_cost, "research");
         }
 

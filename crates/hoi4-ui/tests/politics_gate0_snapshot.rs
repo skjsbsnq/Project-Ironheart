@@ -2,10 +2,10 @@ use egui_kittest::Harness;
 use hoi4_paths::PathConfig;
 use hoi4_state::LawCategory;
 use hoi4_ui::detail_panel::DetailPanelHost;
-use hoi4_ui::egui::Vec2;
+use hoi4_ui::egui::{Pos2, Vec2};
 use hoi4_ui::frame_model::ActiveDetailPanel;
 use hoi4_ui::icons::IconBank;
-use hoi4_ui::law_panel::{LawPanelData, LawSlotEntry, LawTierEntry};
+use hoi4_ui::law_panel::{LawPanel, LawPanelData, LawSlotEntry, LawTierEntry};
 use hoi4_ui::politics::{
     GovernmentPostEntry, IdeaEntry, PoliticsData, PoliticsLawEntry, PoliticsPanel,
 };
@@ -83,6 +83,7 @@ fn gate0_politics_data() -> PoliticsData {
         law_slots: vec![
             PoliticsLawEntry {
                 category: LawCategory::Conscription,
+                current_id: "volunteer_only".to_owned(),
                 current_name: "Volunteer Only".to_owned(),
                 cooldown_days: 0,
                 pending: None,
@@ -90,6 +91,7 @@ fn gate0_politics_data() -> PoliticsData {
             },
             PoliticsLawEntry {
                 category: LawCategory::Economy,
+                current_id: "laissez_faire".to_owned(),
                 current_name: "Laissez-faire".to_owned(),
                 cooldown_days: 0,
                 pending: Some(("Partial Mobilization".to_owned(), 24)),
@@ -97,6 +99,7 @@ fn gate0_politics_data() -> PoliticsData {
             },
             PoliticsLawEntry {
                 category: LawCategory::Trade,
+                current_id: "free_trade".to_owned(),
                 current_name: "Free Trade".to_owned(),
                 cooldown_days: 12,
                 pending: None,
@@ -104,6 +107,7 @@ fn gate0_politics_data() -> PoliticsData {
             },
             PoliticsLawEntry {
                 category: LawCategory::Taxation,
+                current_id: "medium_taxation".to_owned(),
                 current_name: "Medium Taxation".to_owned(),
                 cooldown_days: 0,
                 pending: None,
@@ -111,6 +115,7 @@ fn gate0_politics_data() -> PoliticsData {
             },
             PoliticsLawEntry {
                 category: LawCategory::CivilRights,
+                current_id: "limited_rights".to_owned(),
                 current_name: "Limited Rights".to_owned(),
                 cooldown_days: 0,
                 pending: None,
@@ -118,6 +123,7 @@ fn gate0_politics_data() -> PoliticsData {
             },
             PoliticsLawEntry {
                 category: LawCategory::InformationControl,
+                current_id: "regulated_press".to_owned(),
                 current_name: "Regulated Press".to_owned(),
                 cooldown_days: 0,
                 pending: None,
@@ -176,6 +182,266 @@ fn gate11_law_panel_data() -> LawPanelData {
     }
 }
 
+fn phase3_law_panel_data() -> LawPanelData {
+    let mk_tiers = |current: &str| {
+        vec![
+            LawTierEntry {
+                id: current.to_owned(),
+                name: current.replace('_', " ").to_owned(),
+                pp_cost: 0,
+                cooldown_days: 0,
+                effects: vec!["Current legal framework remains active.".to_owned()],
+            },
+            LawTierEntry {
+                id: "war_economy".to_owned(),
+                name: "War Economy".to_owned(),
+                pp_cost: 250,
+                cooldown_days: 120,
+                effects: vec![
+                    "Military factory construction speed +20%".to_owned(),
+                    "Dockyard output +10%".to_owned(),
+                ],
+            },
+            LawTierEntry {
+                id: "partial_mobilization".to_owned(),
+                name: "Partial Mobilization".to_owned(),
+                pp_cost: 150,
+                cooldown_days: 90,
+                effects: vec![
+                    "Military factory construction speed +10%".to_owned(),
+                    "Consumer goods factories -5%".to_owned(),
+                ],
+            },
+        ]
+    };
+
+    LawPanelData {
+        political_power: 125.0,
+        slots: vec![
+            LawSlotEntry {
+                category: LawCategory::Conscription,
+                current_id: "volunteer_only".to_owned(),
+                current_name: "Volunteer Only".to_owned(),
+                cooldown_days: 0,
+                pending: Some((
+                    "partial_mobilization".to_owned(),
+                    "Partial Mobilization".to_owned(),
+                    18,
+                )),
+                is_locked: false,
+                locked_reason: None,
+                previous_before_lock: None,
+                tiers: mk_tiers("volunteer_only"),
+            },
+            LawSlotEntry {
+                category: LawCategory::Economy,
+                current_id: "civilian_economy".to_owned(),
+                current_name: "Civilian Economy".to_owned(),
+                cooldown_days: 0,
+                pending: None,
+                is_locked: false,
+                locked_reason: None,
+                previous_before_lock: None,
+                tiers: mk_tiers("civilian_economy"),
+            },
+            LawSlotEntry {
+                category: LawCategory::Trade,
+                current_id: "free_trade".to_owned(),
+                current_name: "Free Trade".to_owned(),
+                cooldown_days: 12,
+                pending: None,
+                is_locked: false,
+                locked_reason: None,
+                previous_before_lock: None,
+                tiers: mk_tiers("free_trade"),
+            },
+            LawSlotEntry {
+                category: LawCategory::Taxation,
+                current_id: "medium_taxation".to_owned(),
+                current_name: "Medium Taxation".to_owned(),
+                cooldown_days: 0,
+                pending: None,
+                is_locked: false,
+                locked_reason: None,
+                previous_before_lock: None,
+                tiers: mk_tiers("medium_taxation"),
+            },
+            LawSlotEntry {
+                category: LawCategory::CivilRights,
+                current_id: "limited_rights".to_owned(),
+                current_name: "Limited Rights".to_owned(),
+                cooldown_days: 0,
+                pending: None,
+                is_locked: true,
+                locked_reason: Some("Locked by political reform requirements.".to_owned()),
+                previous_before_lock: None,
+                tiers: mk_tiers("limited_rights"),
+            },
+            LawSlotEntry {
+                category: LawCategory::InformationControl,
+                current_id: "regulated_press".to_owned(),
+                current_name: "Regulated Press".to_owned(),
+                cooldown_days: 0,
+                pending: None,
+                is_locked: false,
+                locked_reason: None,
+                previous_before_lock: None,
+                tiers: mk_tiers("regulated_press"),
+            },
+        ],
+    }
+}
+
+fn phase4_law_panel_tooltip_data() -> LawPanelData {
+    LawPanelData {
+        political_power: 40.0,
+        slots: vec![LawSlotEntry {
+            category: LawCategory::Economy,
+            current_id: "civilian_economy".to_owned(),
+            current_name: "Civilian Economy".to_owned(),
+            cooldown_days: 7,
+            pending: Some((
+                "partial_mobilization".to_owned(),
+                "Partial Mobilization".to_owned(),
+                19,
+            )),
+            is_locked: true,
+            locked_reason: Some("Locked by political reform requirements.".to_owned()),
+            previous_before_lock: None,
+            tiers: vec![
+                LawTierEntry {
+                    id: "civilian_economy".to_owned(),
+                    name: "Civilian Economy".to_owned(),
+                    pp_cost: 0,
+                    cooldown_days: 0,
+                    effects: vec!["Current legal framework remains active.".to_owned()],
+                },
+                LawTierEntry {
+                    id: "partial_mobilization".to_owned(),
+                    name: "Partial Mobilization".to_owned(),
+                    pp_cost: 150,
+                    cooldown_days: 90,
+                    effects: vec![
+                        "Military factory construction speed +10%".to_owned(),
+                        "Consumer goods factories -5%".to_owned(),
+                        "Dockyard output +10%".to_owned(),
+                    ],
+                },
+            ],
+        }],
+    }
+}
+
+fn phase6_law_panel_state_matrix_data() -> LawPanelData {
+    let mk_tiers = |current: &str| {
+        vec![
+            LawTierEntry {
+                id: current.to_owned(),
+                name: current.replace('_', " ").to_owned(),
+                pp_cost: 0,
+                cooldown_days: 0,
+                effects: vec!["Current legal framework remains active.".to_owned()],
+            },
+            LawTierEntry {
+                id: "war_economy".to_owned(),
+                name: "War Economy".to_owned(),
+                pp_cost: 250,
+                cooldown_days: 120,
+                effects: vec![
+                    "Military factory construction speed +20%".to_owned(),
+                    "Dockyard output +10%".to_owned(),
+                ],
+            },
+            LawTierEntry {
+                id: "partial_mobilization".to_owned(),
+                name: "Partial Mobilization".to_owned(),
+                pp_cost: 150,
+                cooldown_days: 90,
+                effects: vec![
+                    "Military factory construction speed +10%".to_owned(),
+                    "Consumer goods factories -5%".to_owned(),
+                ],
+            },
+        ]
+    };
+
+    LawPanelData {
+        political_power: 175.0,
+        slots: vec![
+            LawSlotEntry {
+                category: LawCategory::Economy,
+                current_id: "civilian_economy".to_owned(),
+                current_name: "Civilian Economy".to_owned(),
+                cooldown_days: 0,
+                pending: None,
+                is_locked: false,
+                locked_reason: None,
+                previous_before_lock: None,
+                tiers: mk_tiers("civilian_economy"),
+            },
+            LawSlotEntry {
+                category: LawCategory::Conscription,
+                current_id: "volunteer_only".to_owned(),
+                current_name: "Volunteer Only".to_owned(),
+                cooldown_days: 0,
+                pending: Some((
+                    "partial_mobilization".to_owned(),
+                    "Partial Mobilization".to_owned(),
+                    18,
+                )),
+                is_locked: false,
+                locked_reason: None,
+                previous_before_lock: None,
+                tiers: mk_tiers("volunteer_only"),
+            },
+            LawSlotEntry {
+                category: LawCategory::Trade,
+                current_id: "free_trade".to_owned(),
+                current_name: "Free Trade".to_owned(),
+                cooldown_days: 12,
+                pending: None,
+                is_locked: false,
+                locked_reason: None,
+                previous_before_lock: None,
+                tiers: mk_tiers("free_trade"),
+            },
+            LawSlotEntry {
+                category: LawCategory::Taxation,
+                current_id: "medium_taxation".to_owned(),
+                current_name: "Medium Taxation".to_owned(),
+                cooldown_days: 0,
+                pending: None,
+                is_locked: false,
+                locked_reason: None,
+                previous_before_lock: None,
+                tiers: mk_tiers("medium_taxation"),
+            },
+            LawSlotEntry {
+                category: LawCategory::CivilRights,
+                current_id: "limited_rights".to_owned(),
+                current_name: "Limited Rights".to_owned(),
+                cooldown_days: 0,
+                pending: None,
+                is_locked: true,
+                locked_reason: Some("Locked by political reform requirements.".to_owned()),
+                previous_before_lock: None,
+                tiers: mk_tiers("limited_rights"),
+            },
+            LawSlotEntry {
+                category: LawCategory::InformationControl,
+                current_id: "regulated_press".to_owned(),
+                current_name: "Regulated Press".to_owned(),
+                cooldown_days: 0,
+                pending: None,
+                is_locked: false,
+                locked_reason: None,
+                previous_before_lock: None,
+                tiers: mk_tiers("regulated_press"),
+            },
+        ],
+    }
+}
+
 #[test]
 fn politics_gate0_project_baseline_snapshot() {
     let path_cfg = path_config();
@@ -227,11 +493,89 @@ fn politics_gate11_law_detail_window_snapshot() {
                 None,
                 0.0,
                 None,
+                None,
             );
         });
 
     harness.run();
     snapshot_if_enabled(&mut harness, "politics_gate11_law_detail_window");
+}
+
+#[test]
+fn law_panel_phase3_visual_snapshot() {
+    let data = phase3_law_panel_data();
+    let mut harness = Harness::builder()
+        .with_size(Vec2::new(1280.0, 720.0))
+        .build(move |ctx| {
+            let _ = apply_vanilla_theme(ctx);
+            let _ = LawPanel::show(ctx, &data);
+        });
+
+    harness.run();
+    snapshot_if_enabled(&mut harness, "law_panel_phase3_visual");
+}
+
+#[test]
+fn law_panel_phase3_small_window_snapshot() {
+    let data = phase3_law_panel_data();
+    let mut harness = Harness::builder()
+        .with_size(Vec2::new(960.0, 640.0))
+        .build(move |ctx| {
+            let _ = apply_vanilla_theme(ctx);
+            let _ = LawPanel::show(ctx, &data);
+        });
+
+    harness.run();
+    snapshot_if_enabled(&mut harness, "law_panel_phase3_small_window");
+}
+
+#[test]
+fn law_panel_phase4_tooltip_state_snapshot() {
+    let data = phase4_law_panel_tooltip_data();
+    let mut harness = Harness::builder()
+        .with_size(Vec2::new(1280.0, 720.0))
+        .build(move |ctx| {
+            let _ = apply_vanilla_theme(ctx);
+            ctx.style_mut(|style| {
+                style.interaction.tooltip_delay = 0.0;
+            });
+            let _ = LawPanel::show(ctx, &data);
+        });
+
+    harness
+        .input_mut()
+        .events
+        .push(hoi4_ui::egui::Event::PointerMoved(Pos2::new(620.0, 455.0)));
+    harness.run_steps(2);
+    snapshot_if_enabled(&mut harness, "law_panel_phase4_tooltip_state");
+}
+
+#[test]
+fn law_panel_phase6_state_matrix_1080p_snapshot() {
+    let data = phase6_law_panel_state_matrix_data();
+    let mut harness = Harness::builder()
+        .with_size(Vec2::new(1920.0, 1080.0))
+        .build(move |ctx| {
+            let _ = apply_vanilla_theme(ctx);
+            let _ = LawPanel::show(ctx, &data);
+        });
+
+    harness.run();
+    snapshot_if_enabled(&mut harness, "law_panel_phase6_state_matrix_1080p");
+}
+
+#[test]
+fn law_panel_phase6_state_matrix_small_window_snapshot() {
+    let data = phase6_law_panel_state_matrix_data();
+    let mut harness = Harness::builder()
+        .with_size(Vec2::new(960.0, 640.0))
+        .build(move |ctx| {
+            let _ = apply_vanilla_theme(ctx);
+            let _ = LawPanel::show(ctx, &data);
+        });
+
+    harness.run();
+    snapshot_if_enabled(&mut harness, "law_panel_phase6_state_matrix_small_window");
 }
 
 #[test]
@@ -281,6 +625,7 @@ fn politics_gate13_viewport_smoke_1080p_1440p_and_small() {
                 None,
                 None,
                 0.0,
+                None,
                 None,
             );
         });

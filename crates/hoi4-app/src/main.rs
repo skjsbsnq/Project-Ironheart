@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)]
+
 // Phase 0.2: Entry point (moved from hoi4-render). Render module is now a library.
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -368,6 +370,7 @@ fn build_politics_law_entries(
         .into_iter()
         .map(|slot| hoi4_ui::politics::PoliticsLawEntry {
             category: slot.category,
+            current_id: slot.current_id,
             current_name: slot.current_name,
             cooldown_days: slot.cooldown_days,
             pending: slot

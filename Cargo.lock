@@ -1982,6 +1982,7 @@ dependencies = [
  "hoi4-content",
  "hoi4-paths",
  "hoi4-state",
+ "png 0.17.16",
  "wgpu",
  "winit",
 ]

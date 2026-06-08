@@ -33,6 +33,7 @@ hoi4-paths = { path = "../hoi4-paths" }
 hoi4-assets = { path = "../hoi4-assets" }
 hoi4-content = { path = "../hoi4-content" }
 hoi4-state = { path = "../hoi4-state" }
+png = "0.17"
 
 [dev-dependencies]
 egui_kittest = { version = "=0.31.1", features = ["snapshot", "wgpu"] }

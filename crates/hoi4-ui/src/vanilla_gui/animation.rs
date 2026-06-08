@@ -179,6 +179,53 @@ impl PanelAnimationStore {
     }
 }
 
+pub fn panel_close_requested_id(panel_id: &str) -> egui::Id {
+    egui::Id::new(("vanilla_gui_panel_close_requested", panel_id.to_owned()))
+}
+
+pub fn panel_animation_store_id() -> egui::Id {
+    egui::Id::new("vanilla_gui_panel_animation_store")
+}
+
+pub fn request_panel_close(ctx: &egui::Context, panel_id: &str) {
+    ctx.data_mut(|data| data.insert_persisted(panel_close_requested_id(panel_id), true));
+    ctx.request_repaint();
+}
+
+pub fn clear_panel_close_request(ctx: &egui::Context, panel_id: &str) {
+    ctx.data_mut(|data| data.insert_persisted(panel_close_requested_id(panel_id), false));
+}
+
+pub fn update_panel_animation(
+    ctx: &egui::Context,
+    panel_id: &'static str,
+    spec: AnimationSpec,
+) -> PanelAnimationUpdate {
+    let close_id = panel_close_requested_id(panel_id);
+    let store_id = panel_animation_store_id();
+    let now_ms = ctx.input(|input| input.time * 1000.0);
+    let update = ctx.data_mut(|data| {
+        let mut store = data
+            .get_persisted::<PanelAnimationStore>(store_id)
+            .unwrap_or_default();
+        let mut close_requested = data.get_persisted::<bool>(close_id).unwrap_or(false);
+        if close_requested && matches!(store.phase(panel_id), None | Some(AnimationPhase::Closed)) {
+            close_requested = false;
+            data.insert_persisted(close_id, false);
+        }
+        let update = store.update(panel_id, !close_requested, spec, now_ms);
+        data.insert_persisted(store_id, store);
+        update
+    });
+    if matches!(
+        update.phase,
+        AnimationPhase::Opening | AnimationPhase::Closing
+    ) {
+        ctx.request_repaint();
+    }
+    update
+}
+
 fn point_from_block(block: Option<&Block>) -> GuiPoint {
     let Some(block) = block else {
         return GuiPoint::default();
@@ -254,5 +301,24 @@ guiTypes = {
         assert!(closed.close_finished);
         assert!(!closed.visible);
         assert_eq!(store.phase("politics"), Some(AnimationPhase::Closed));
+    }
+
+    #[test]
+    fn egui_close_request_is_scoped_by_panel_id() {
+        let ctx = egui::Context::default();
+        request_panel_close(&ctx, "politics");
+        assert_eq!(
+            ctx.data_mut(|data| data.get_persisted::<bool>(panel_close_requested_id("politics"))),
+            Some(true)
+        );
+        assert_eq!(
+            ctx.data_mut(|data| data.get_persisted::<bool>(panel_close_requested_id("decisions"))),
+            None
+        );
+        clear_panel_close_request(&ctx, "politics");
+        assert_eq!(
+            ctx.data_mut(|data| data.get_persisted::<bool>(panel_close_requested_id("politics"))),
+            Some(false)
+        );
     }
 }

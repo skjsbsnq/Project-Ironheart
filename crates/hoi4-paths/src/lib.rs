@@ -3,6 +3,10 @@
 //! 路径与资源根。把"HOI4 安装目录在哪里"和"mod 链怎么排"集中到一个 crate，
 //! 避免散在 11 个文件里硬编码 `C:/Program Files (x86)/Steam/...`。
 //!
+//! 许可边界：这里的路径解析只用于运行时读取用户本机合法安装目录中的 vanilla
+//! 文件。项目代码只能保存相对路径、元数据和诊断信息；不得把 Paradox / HOI4
+//! 原版 `.dds`、`.gui`、`.gfx`、字体或美术资源复制进仓库或随项目分发。
+//!
 //! ## 优先级（高→低）
 //! 1. CLI `--game-path <PATH>`（由 `hoi4-app` 命令行解析后传入 [`PathConfig::from_overrides`]）
 //! 2. 环境变量 `IRONHEART_HOI4_PATH`
