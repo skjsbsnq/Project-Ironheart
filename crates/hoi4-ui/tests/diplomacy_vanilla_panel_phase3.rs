@@ -762,7 +762,9 @@ fn diplomacy_gate18_relation_grid_generates_typed_vanilla_instances() {
         profile
             .bind_node(&binding_path("relations_info"), &empty)
             .visible,
-        Some(false)
+        Some(true),
+        "relations_info box stays visible even when empty so its dark vanilla \
+         inset matches the actions column instead of exposing the lighter root bg"
     );
 
     let mut report = String::from("# Gate 18 Relation Grid\n\n");
@@ -966,4 +968,55 @@ fn diplomacy_gate20_scroll_clip_and_close_escape_hit_behavior() {
     report.push_str("- close_button_outside_scroll_clip: true\n");
     report.push_str("- escape_command_closes: true\n");
     write_report("gate20_scroll_clip_hit.md", report);
+}
+
+#[test]
+fn probe_action_row_and_bg() {
+    let mut data = sample_data();
+    let view = DiplomaticActionView::enabled("x");
+    data.actions = vec![
+        action("justify_wargoal","正当化战争目标",&view,Some("50"),
+            DiplomacyActionCommand::JustifyWargoal{target_tag:"FRA".into()}),
+    ];
+    let ctx = match VanillaGuiRuntimeContext::load_result(COUNTRY_DIPLOMACY_DESCRIPTOR.required_gui_files) {
+        Ok(c) => c, Err(_) => { eprintln!("no vanilla ctx"); return; }
+    };
+    let root = ctx.root_template(COUNTRY_DIPLOMACY_GUI_FILE, COUNTRY_DIPLOMACY_ROOT).unwrap();
+    let registry = GuiTemplateRegistry::from_documents(ctx.documents());
+    let vp = GuiRect::new(0.0,0.0,1920.0,1080.0);
+    let parts = country_diplomacy_vanilla_runtime_frame_parts(
+        root,&data,vp,GuiRuntimeState::shown(vp),registry,Some(&ctx.gfx_index),None);
+
+    eprintln!("--- action row instance layout rects ---");
+    for inst in parts.frame.generated_instances.iter() {
+        fn walk(l: &hoi4_ui::vanilla_gui::LayoutNode, depth: usize) {
+            if let Some(n) = &l.name {
+                if matches!(n.as_str(), "diplomacy_action_entry"|"name"|"cost"|"accept_icon"|"diplo_actions_entry_bg") {
+                    eprintln!("{:indent$}{n}: rect=({:.0},{:.0},{:.0}x{:.0})", "",
+                        l.rect.x,l.rect.y,l.rect.width,l.rect.height, indent=depth*2);
+                }
+            }
+            for c in &l.children { walk(c, depth+1); }
+        }
+        walk(&inst.layout, 0);
+    }
+
+    eprintln!("--- accept_icon / cost draw commands ---");
+    for cmd in parts.frame.draw_list.iter() {
+        let nm = cmd.source_name.as_deref().unwrap_or("");
+        if matches!(nm, "accept_icon"|"cost"|"name") {
+            eprintln!("  {nm:14} kind={} res={:?} rect=({:.0},{:.0},{:.0}x{:.0})",
+                cmd.kind_label(), cmd.resource_name(),
+                cmd.rect.x,cmd.rect.y,cmd.rect.width,cmd.rect.height);
+        }
+    }
+
+    eprintln!("--- GFX_tiled_bg resource ---");
+    if let Some(r) = ctx.gfx_index.get("GFX_tiled_bg") {
+        eprintln!("  kind={:?} size={:?} border={:?}", r.kind, r.size, r.border);
+    } else { eprintln!("  NOT IN INDEX"); }
+    eprintln!("--- GFX_accept_decline_icon resource ---");
+    if let Some(r) = ctx.gfx_index.get("GFX_accept_decline_icon") {
+        eprintln!("  kind={:?} size={:?} frames={:?}", r.kind, r.size, r.frame_count);
+    } else { eprintln!("  NOT IN INDEX"); }
 }

@@ -349,6 +349,22 @@ pub fn diplomacy_panel_signature(world: &World, player: usize) -> u64 {
     world.diplomacy.world_tension.to_bits().hash(&mut h);
     world.countries.tags.len().hash(&mut h);
     player.hash(&mut h);
+    if let Some(pp) = world.countries.political_power.get(player) {
+        pp.to_bits().hash(&mut h);
+    }
+    if let Some(goals) = world
+        .diplomacy
+        .pending_wargoals
+        .get(&CountryId(player as u16))
+    {
+        goals.len().hash(&mut h);
+        for goal in goals {
+            goal.target.0.hash(&mut h);
+            (goal.kind as u8).hash(&mut h);
+            goal.target_state.hash(&mut h);
+            goal.justified.hash(&mut h);
+        }
+    }
     h.finish()
 }
 

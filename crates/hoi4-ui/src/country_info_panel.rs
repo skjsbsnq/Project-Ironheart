@@ -247,7 +247,7 @@ fn vanilla_show_country_diplomacy(
 
 fn paint_vanilla_diplomacy_panel_backing(painter: &egui::Painter, rect: Rect) {
     if rect.is_positive() {
-        painter.rect_filled(rect, 0.0, Color32::from_rgb(0x1f, 0x20, 0x1e));
+        painter.rect_filled(rect, 0.0, Color32::from_rgb(0x39, 0x36, 0x2f));
     }
 }
 

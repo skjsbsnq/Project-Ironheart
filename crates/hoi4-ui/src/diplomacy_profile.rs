@@ -151,7 +151,7 @@ impl VanillaPanelProfile for CountryDiplomacyProfile {
             "national_spirit_ideas_grid" | "nat_spirit_ideas_grid_over_defined" => {
                 GuiBinding::default().instances(0)
             }
-            "relations_info" => GuiBinding::default().visible(!data.relations.is_empty()),
+            "relations_info" => GuiBinding::default().visible(true),
             "relations_grid" => GuiBinding::default().instances(data.relations.len()),
             "diplomatic_actions" => GuiBinding::default().visible(!data.actions.is_empty()),
             "actions_grid" => GuiBinding::default().instances(data.actions.len()),
@@ -393,8 +393,7 @@ impl VanillaPanelProfile for DiplomacyPanelProfile {
                     ))
                 })
                 .unwrap_or_default(),
-            "relations_info" => GuiBinding::default()
-                .visible(selected_detail.is_some_and(|d| !d.relations.is_empty())),
+            "relations_info" => GuiBinding::default().visible(detail_mode),
             "relations_grid" => GuiBinding::default()
                 .instances(selected_detail.map(|d| d.relations.len()).unwrap_or(0)),
             "diplomatic_actions" => GuiBinding::default()
@@ -951,7 +950,9 @@ fn bind_action_node(name: &str, action: Option<&DiplomacyActionEntry>) -> GuiBin
             } else {
                 Color32::from_rgb(0x8e, 0x88, 0x78)
             }),
-        "cost" => GuiBinding::default().text(action.cost_text.clone().unwrap_or_default()),
+        "cost" => GuiBinding::default()
+            .text(action.cost_text.clone().unwrap_or_default())
+            .layout_position(96.0, 5.0),
         "accept_icon" => GuiBinding::default()
             .sprite("GFX_accept_decline_icon")
             .frame(if action.enabled { 2 } else { 1 })

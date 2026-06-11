@@ -981,7 +981,7 @@ impl App {
             .unwrap_or(false);
         let panel_blocks_map = self.ui_state.open_panel.is_some_and(|panel| match panel {
             InGamePanel::Air | InGamePanel::Naval => false,
-            InGamePanel::Politics | InGamePanel::Laws => pointer_over_ui,
+            InGamePanel::Politics | InGamePanel::Laws | InGamePanel::Diplomacy => pointer_over_ui,
             _ => true,
         });
         self.view.game_phase == GamePhase::Playing
