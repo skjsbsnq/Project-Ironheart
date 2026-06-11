@@ -580,9 +580,14 @@ guiTypes = {
             kind: grid.kind.clone(),
             rect: GuiRect::new(0.0, 0.0, 260.0, 80.0),
             clip_rect: GuiRect::new(0.0, 0.0, 260.0, 80.0),
+            rects: crate::vanilla_gui::GuiControlRects::from_layout_rect(GuiRect::new(
+                0.0, 0.0, 260.0, 80.0,
+            )),
+            intrinsic_size: None,
             visible: true,
             scale: 1.0,
             scroll: None,
+            scroll_offset: GuiPoint::default(),
             children: Vec::new(),
             issues: Vec::new(),
         };

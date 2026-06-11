@@ -304,12 +304,47 @@ impl IconBank {
         }
     }
 
+    /// Add vanilla interface directories used by `countrylogisticsview`.
+    ///
+    /// Sprite `textureFile` metadata remains the primary lookup path; these
+    /// directories are bounded fallbacks for partial or modded `.gfx` indexes.
+    pub fn add_logistics_search_dirs(&mut self) {
+        for rel in [
+            "gfx/interface/production",
+            "gfx/interface/archetypes",
+            "gfx/interface/technologies",
+            "gfx/interface",
+        ] {
+            self.add_search_dir(rel);
+        }
+    }
+
+    /// Add vanilla interface directories used by `countrydiplomacyview`.
+    ///
+    /// The `.gfx` sprite map remains the authoritative lookup source. These
+    /// directories are only bounded fallbacks for partial indexes or modded
+    /// installs, and keep diplomacy assets runtime-only.
+    pub fn add_diplomacy_search_dirs(&mut self) {
+        for rel in [
+            "gfx/interface",
+            "gfx/interface/diplomacy",
+            "gfx/interface/ideologies",
+            "gfx/interface/ideas",
+            "gfx/interface/goals",
+            "gfx/leaders",
+        ] {
+            self.add_search_dir(rel);
+        }
+    }
+
     /// Add fallback search directories for a vanilla GUI profile id.
     pub fn add_profile_search_dirs(&mut self, profile_id: &str) {
         match profile_id {
             crate::vanilla_gui::COUNTRY_POLITICS_PROFILE_ID => self.add_politics_search_dirs(),
             crate::vanilla_gui::COUNTRY_DECISION_PROFILE_ID => self.add_decision_search_dirs(),
             crate::vanilla_gui::NATIONAL_FOCUS_PROFILE_ID => self.add_focus_search_dirs(),
+            crate::vanilla_gui::COUNTRY_LOGISTICS_PROFILE_ID => self.add_logistics_search_dirs(),
+            crate::vanilla_gui::COUNTRY_DIPLOMACY_PROFILE_ID => self.add_diplomacy_search_dirs(),
             _ => {}
         }
     }
@@ -384,6 +419,15 @@ impl IconBank {
     /// 已加载 icon 的像素尺寸（如果已 cache 为 Loaded 则返回；其他状态返回 `None`）。
     pub fn size_of(&self, gfx_name: &str) -> Option<[usize; 2]> {
         match self.cache.get(gfx_name)? {
+            IconEntry::Loaded { size_px, .. } => Some(*size_px),
+            _ => None,
+        }
+    }
+
+    pub fn size_of_texture_file(&self, texture_file: &str) -> Option<[usize; 2]> {
+        let normalized = texture_file.replace('\\', "/").replace("//", "/");
+        let cache_key = format!("textureFile:{normalized}");
+        match self.cache.get(&cache_key)? {
             IconEntry::Loaded { size_px, .. } => Some(*size_px),
             _ => None,
         }
@@ -1431,7 +1475,10 @@ spriteTypes = {
 
         bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_DECISION_PROFILE_ID);
         bank.add_profile_search_dirs(crate::vanilla_gui::NATIONAL_FOCUS_PROFILE_ID);
+        bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_LOGISTICS_PROFILE_ID);
+        bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_DIPLOMACY_PROFILE_ID);
         bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_DECISION_PROFILE_ID);
+        bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_DIPLOMACY_PROFILE_ID);
 
         let dirs = bank.search_dirs();
         assert!(dirs.iter().any(|dir| dir == "gfx/interface/decisions"));
@@ -1441,9 +1488,18 @@ spriteTypes = {
             .any(|dir| dir == "gfx/interface/focusview/titlebar"));
         assert!(dirs.iter().any(|dir| dir == "gfx/interface/techtree"));
         assert!(dirs.iter().any(|dir| dir == "gfx/interface/goals"));
+        assert!(dirs.iter().any(|dir| dir == "gfx/interface/archetypes"));
+        assert!(dirs.iter().any(|dir| dir == "gfx/interface/technologies"));
+        assert!(dirs.iter().any(|dir| dir == "gfx/interface/diplomacy"));
         assert_eq!(
             dirs.iter()
                 .filter(|dir| dir.as_str() == "gfx/interface/decisions")
+                .count(),
+            1
+        );
+        assert_eq!(
+            dirs.iter()
+                .filter(|dir| dir.as_str() == "gfx/interface/diplomacy")
                 .count(),
             1
         );

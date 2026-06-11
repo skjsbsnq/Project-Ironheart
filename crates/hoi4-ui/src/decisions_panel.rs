@@ -519,6 +519,7 @@ fn offset_layout_tree_in_place(
     layout.rect.y += offset.y;
     layout.clip_rect.x += offset.x;
     layout.clip_rect.y += offset.y;
+    layout.rects.translate(offset);
     for child in &mut layout.children {
         offset_layout_tree_in_place(child, offset);
     }

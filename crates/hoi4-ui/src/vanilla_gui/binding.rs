@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use egui::Color32;
 
 use super::ast::GuiNodePath;
+use super::layout::{GuiPoint, GuiSize};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GuiBinding {
@@ -20,6 +21,8 @@ pub struct GuiBinding {
     pub tooltip: Option<String>,
     pub click: Option<GuiClickCommand>,
     pub instance_count: Option<usize>,
+    pub layout_position: Option<GuiPoint>,
+    pub layout_size: Option<GuiSize>,
 }
 
 impl Default for GuiBinding {
@@ -39,6 +42,8 @@ impl Default for GuiBinding {
             tooltip: None,
             click: None,
             instance_count: None,
+            layout_position: None,
+            layout_size: None,
         }
     }
 }
@@ -110,6 +115,16 @@ impl GuiBinding {
         self.instance_count = Some(count);
         self
     }
+
+    pub fn layout_position(mut self, x: f32, y: f32) -> Self {
+        self.layout_position = Some(GuiPoint { x, y });
+        self
+    }
+
+    pub fn layout_size(mut self, width: f32, height: f32) -> Self {
+        self.layout_size = Some(GuiSize { width, height });
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,6 +168,36 @@ impl GuiBindingMap {
             merge_binding(&mut binding, path_binding);
         }
         binding
+    }
+
+    pub fn extend(&mut self, other: GuiBindingMap) {
+        self.by_path.extend(other.by_path);
+        self.by_name.extend(other.by_name);
+    }
+
+    pub fn visibility_overrides(&self) -> HashMap<GuiNodePath, bool> {
+        self.by_path
+            .iter()
+            .filter_map(|(path, binding)| binding.visible.map(|visible| (path.clone(), visible)))
+            .collect()
+    }
+
+    pub fn layout_position_overrides(&self) -> HashMap<GuiNodePath, GuiPoint> {
+        self.by_path
+            .iter()
+            .filter_map(|(path, binding)| {
+                binding
+                    .layout_position
+                    .map(|position| (path.clone(), position))
+            })
+            .collect()
+    }
+
+    pub fn layout_size_overrides(&self) -> HashMap<GuiNodePath, GuiSize> {
+        self.by_path
+            .iter()
+            .filter_map(|(path, binding)| binding.layout_size.map(|size| (path.clone(), size)))
+            .collect()
     }
 }
 
@@ -198,6 +243,12 @@ fn merge_binding(into: &mut GuiBinding, other: &GuiBinding) {
     }
     if other.instance_count.is_some() {
         into.instance_count = other.instance_count;
+    }
+    if other.layout_position.is_some() {
+        into.layout_position = other.layout_position;
+    }
+    if other.layout_size.is_some() {
+        into.layout_size = other.layout_size;
     }
 }
 

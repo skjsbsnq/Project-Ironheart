@@ -26,6 +26,7 @@ ScenarioManifest(
     decision_libraries: [
         "GER_decisions.ron",
         "SPA_decisions.ron",
+        "SPR_spanish_prewar_decisions.ron",
     ],
     situation_libraries: [
         "situations/italo_ethiopian_war.ron",

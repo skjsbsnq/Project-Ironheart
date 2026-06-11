@@ -186,7 +186,7 @@ impl EventScheduler {
     /// 主动触发事件（绕过 trigger / MTTH，但受 fire_only_once 限制）。
     ///
     /// 返回 `true` = 成功入队 / 立即执行；`false` = id 不存在或已触发过。
-    /// P1.3：返回 (success, effect_report)。
+    /// P1.3：返回 (success, effect_report)，失败时 report 包含诊断 warning。
     pub fn trigger(
         &mut self,
         event_id: &str,
@@ -201,7 +201,7 @@ impl EventScheduler {
     ///
     /// `effect_country` 是效果执行上下文国家（如法国投降事件中法国）。
     /// `display_country` 是事件显示国家（新闻事件中可能不同于作用国家）。
-    /// P1.3：返回 (success, effect_report)。
+    /// P1.3：返回 (success, effect_report)，失败时 report 包含诊断 warning。
     pub fn trigger_scoped(
         &mut self,
         event_id: &str,
@@ -212,9 +212,11 @@ impl EventScheduler {
     ) -> (bool, crate::eval::EffectReport) {
         let mut report = crate::eval::EffectReport::default();
         let Some(event) = self.db.find(event_id).cloned() else {
+            push_trigger_warning(&mut report, event_id, "missing event");
             return (false, report);
         };
         if event.fire_only_once && self.fired_once.contains(event_id) {
+            push_trigger_warning(&mut report, event_id, "fire_only_once already fired");
             return (false, report);
         }
         if self.defer_if_country_event_on_cooldown(&event, world, effect_country, display_country) {
@@ -239,7 +241,7 @@ impl EventScheduler {
     ///
     /// 把选项 effects 跑进 World，然后从 pending 头部弹掉。
     /// 返回 `true` = 处理成功；`false` = pending 为空 / 选项 idx 越界 / event id 丢失。
-    /// P1.3：返回效果报告。
+    /// P1.3：返回效果报告，失败时 report 包含诊断 warning。
     pub fn trigger_scoped_for_player(
         &mut self,
         event_id: &str,
@@ -251,9 +253,11 @@ impl EventScheduler {
     ) -> (bool, crate::eval::EffectReport) {
         let mut report = crate::eval::EffectReport::default();
         let Some(event) = self.db.find(event_id).cloned() else {
+            push_trigger_warning(&mut report, event_id, "missing event");
             return (false, report);
         };
         if event.fire_only_once && self.fired_once.contains(event_id) {
+            push_trigger_warning(&mut report, event_id, "fire_only_once already fired");
             return (false, report);
         }
         if self.defer_if_country_event_on_cooldown(&event, world, effect_country, display_country) {
@@ -411,13 +415,25 @@ impl EventScheduler {
     ) -> (bool, crate::eval::EffectReport) {
         let mut report = crate::eval::EffectReport::default();
         let Some(pending) = self.pending.front().cloned() else {
+            report
+                .warnings
+                .push("ResolveEventOption skipped: no pending event".to_owned());
             return (false, report);
         };
         let Some(event) = self.db.find(&pending.event_id).cloned() else {
             self.pending.pop_front();
+            report.warnings.push(format!(
+                "ResolveEventOption skipped: missing event id={}",
+                pending.event_id
+            ));
             return (false, report);
         };
         let Some(opt) = event.options.get(option_idx) else {
+            report.warnings.push(format!(
+                "ResolveEventOption skipped: invalid option index {option_idx} for event id={} options={}",
+                event.id,
+                event.options.len()
+            ));
             return (false, report);
         };
         report.merge(run_effects(&opt.effects, world, pending.country, flags));
@@ -548,6 +564,12 @@ pub fn daily_event_tick(
 
 fn day_key(world: &World) -> u64 {
     (world.date.year as u64) * 400 + (world.date.month as u64) * 32 + world.date.day as u64
+}
+
+fn push_trigger_warning(report: &mut crate::eval::EffectReport, event_id: &str, reason: &str) {
+    report.warnings.push(format!(
+        "TriggerEvent skipped: event id={event_id} reason={reason}"
+    ));
 }
 
 fn trigger_is_date_blocked(trigger: &Trigger, world: &World) -> bool {

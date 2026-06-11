@@ -174,7 +174,7 @@ pub struct GuiProperty {
     pub value: Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct GuiNodePath(pub Vec<String>);
 
 impl GuiNodePath {

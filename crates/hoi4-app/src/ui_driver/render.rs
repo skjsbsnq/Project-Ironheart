@@ -43,7 +43,7 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
         current_focus_id,
         current_focus_progress,
         available_focus_ids,
-        player_in_faction,
+        player_in_faction: _,
         province_info_bottom_bar_height,
         counter_rclick_prov,
         counter_menu_pos,
@@ -340,7 +340,10 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
         }
 
         if let Some(ref data) = logistics_data {
-            let (close, cmds) = hoi4_ui::logistics_panel::LogisticsPanel::show(ctx, data);
+            let (close, cmds) =
+                hoi4_ui::logistics_panel::LogisticsPanel::show_with_icon_bank(
+                    ctx, data, icon_bank,
+                );
             if close {
                 logistics_close = true;
             }
@@ -372,7 +375,7 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
             focus_panel.open = false;
         }
 
-        country_info_cmds = country_info_panel.show(ctx, icon_bank, player_in_faction);
+        country_info_cmds = country_info_panel.show_with_icon_bank(ctx, icon_bank);
 
         province_info_card.show(ctx, province_info_data);
 

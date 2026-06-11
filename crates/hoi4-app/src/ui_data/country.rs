@@ -38,6 +38,7 @@ pub fn build_country_info_data(
         .cloned()
         .unwrap_or_else(|| ruling.clone());
     let ruling_party_label = hoi4_ui::i18n::tr(&ruling).to_string();
+    let party_popularity = party_popularity_for_country(world, target, &ruling);
 
     let (industrial_level, military_industrial_level) = v6_industrial_levels(world, target);
     let gdp_gbp = world
@@ -58,7 +59,10 @@ pub fn build_country_info_data(
         .filter(|&i| world.divisions.owners[i] == target)
         .count() as u32;
 
-    let opinion = world.diplomacy.opinions.get(player, target);
+    let target_tag = tag.clone();
+    let our_opinion_of_target = world.diplomacy.opinions.get(player, target);
+    let their_opinion_of_us = world.diplomacy.opinions.get(target, player);
+    let opinion = our_opinion_of_target;
     let at_war = world.diplomacy.at_war_with(player, target);
     let player_faction = world.diplomacy.faction_of(player);
     let target_faction = world.diplomacy.faction_of(target);
@@ -77,24 +81,9 @@ pub fn build_country_info_data(
         .collect();
     subject_names.sort();
 
-    let (justifying_wargoal, justify_progress, justify_days_remaining) = world
-        .diplomacy
-        .pending_wargoals
-        .get(&player)
-        .and_then(|wgs| wgs.iter().find(|w| w.target == target))
-        .map(|wg| {
-            if wg.justified {
-                (false, 1.0_f32, 0_u32)
-            } else {
-                let total = wg.justify_total_days.max(1.0);
-                let prog = (wg.justify_progress / total).clamp(0.0, 1.0);
-                let days = (wg.justify_total_days - wg.justify_progress)
-                    .max(0.0)
-                    .ceil() as u32;
-                (true, prog, days)
-            }
-        })
-        .unwrap_or((false, 0.0, 0));
+    let (ready_wargoal, justifying_wargoal, justify_progress, justify_days_remaining) =
+        country_wargoal_state(world, player, target);
+    let has_wargoal = has_wargoal || ready_wargoal;
 
     let justify_action = diplomacy_action_view(
         world,
@@ -124,15 +113,28 @@ pub fn build_country_info_data(
         hoi4_logic::diplomacy::DiplomaticAction::RequestMilitaryAccess { target },
         false,
     );
+    let relations =
+        country_relation_entries(world, player, target, has_wargoal, justifying_wargoal);
+    let actions = diplomacy_action_entries(
+        &target_tag,
+        &justify_action,
+        &declare_war_action,
+        &invite_to_faction_action,
+        &request_access_action,
+    );
 
     Some(hoi4_ui::country_info_panel::CountryInfoData {
+        target_tag,
         tag: tag.clone(),
         display_name,
-        flag_gfx: format!("GFX_flag_{}_{}", tag, ruling),
+        flag_gfx: flag_gfx_for_country(world, target),
+        player_flag_gfx: flag_gfx_for_country(world, player),
         leader_name,
         leader_portrait_key,
+        ruling_party: ruling,
         ruling_party_label,
         party_full_name,
+        party_popularity,
         gdp_gbp,
         industrial_level,
         military_industrial_level,
@@ -148,6 +150,8 @@ pub fn build_country_info_data(
         stability,
         war_support,
         opinion,
+        our_opinion_of_target,
+        their_opinion_of_us,
         at_war,
         same_faction,
         faction_name,
@@ -160,6 +164,8 @@ pub fn build_country_info_data(
         justify_days_remaining,
         wargoals: country_wargoal_details(world, player, target),
         relation_factors: country_relation_factors(world, player, target),
+        relations,
+        actions,
         justify_action,
         declare_war_action,
         invite_to_faction_action,
@@ -186,6 +192,7 @@ pub fn build_diplomacy_panel_data(
         .get(player)
         .cloned()
         .unwrap_or_default();
+    let player_flag_gfx = flag_gfx_for_country(world, player_cid);
     let player_faction = world
         .diplomacy
         .factions
@@ -197,7 +204,12 @@ pub fn build_diplomacy_panel_data(
         .filter(|&i| i != player && !world.countries.tags[i].is_empty())
         .map(|i| {
             let cid = CountryId(i as u16);
-            let opinion = world.diplomacy.opinions.get(player_cid, cid);
+            let tag = world.countries.tags[i].clone();
+            let target_tag = tag.clone();
+            let display_name = hoi4_ui::i18n::tr(&tag).to_string();
+            let our_opinion_of_target = world.diplomacy.opinions.get(player_cid, cid);
+            let their_opinion_of_us = world.diplomacy.opinions.get(cid, player_cid);
+            let opinion = our_opinion_of_target;
             let same_faction = player_faction.is_some()
                 && world
                     .diplomacy
@@ -206,17 +218,10 @@ pub fn build_diplomacy_panel_data(
                     .any(|f| f.contains(player_cid) && f.contains(cid));
             let (leader_name, leader_portrait_key) =
                 head_of_state_display(world, historical_1936, cid);
-            let has_wargoal = world
-                .diplomacy
-                .pending_wargoals
-                .get(&player_cid)
-                .map(|goals| {
-                    goals
-                        .iter()
-                        .any(|goal| goal.target == cid && goal.justified)
-                })
-                .unwrap_or(false);
-            let detail = if selected_tag == Some(world.countries.tags[i].as_str()) {
+            let (has_wargoal, justifying_wargoal, _, _) =
+                country_wargoal_state(world, player_cid, cid);
+            let selected = selected_tag == Some(tag.as_str());
+            let detail = if selected {
                 build_country_info_data(
                     world,
                     historical_1936,
@@ -231,21 +236,46 @@ pub fn build_diplomacy_panel_data(
                 None
             };
 
+            let ruling = world
+                .countries
+                .ruling_party
+                .get(i)
+                .cloned()
+                .unwrap_or_default();
+            let party_loc_key_long = format!("{}_{}_party_long", tag, ruling);
+            let party_loc_key = format!("{}_{}_party", tag, ruling);
+            let party_full_name = world
+                .data
+                .party_names
+                .get(&party_loc_key_long)
+                .or_else(|| world.data.party_names.get(&party_loc_key))
+                .cloned()
+                .unwrap_or_else(|| ruling.clone());
+            let ruling_party_label = hoi4_ui::i18n::tr(&ruling).to_string();
+            let party_popularity = party_popularity_for_country(world, cid, &ruling);
+
             hoi4_ui::diplomacy::CountryEntry {
-                tag: world.countries.tags[i].clone(),
-                flag_gfx: format!(
-                    "GFX_flag_{}_{}",
-                    world.countries.tags[i],
-                    world
-                        .countries
-                        .ruling_party
-                        .get(i)
-                        .map(String::as_str)
-                        .unwrap_or_default()
-                ),
+                target_tag,
+                tag: tag.clone(),
+                display_name,
+                flag_gfx: flag_gfx_for_country(world, cid),
+                ruling_party: ruling,
+                ruling_party_label,
+                party_full_name,
+                party_popularity,
                 opinion,
+                our_opinion_of_target,
+                their_opinion_of_us,
                 at_war: world.diplomacy.at_war_with(player_cid, cid),
                 same_faction,
+                relations: country_relation_entries(
+                    world,
+                    player_cid,
+                    cid,
+                    has_wargoal,
+                    justifying_wargoal,
+                ),
+                selected,
                 autonomy_summary: autonomy_summary(world, cid),
                 leader_name,
                 leader_portrait_key,
@@ -285,6 +315,7 @@ pub fn build_diplomacy_panel_data(
 
     Some(hoi4_ui::diplomacy::DiplomacyData {
         player_tag,
+        player_flag_gfx,
         player_faction,
         all_factions,
         countries,
@@ -480,6 +511,31 @@ fn country_wargoal_details(
         .unwrap_or_default()
 }
 
+fn country_wargoal_state(
+    world: &World,
+    player: CountryId,
+    target: CountryId,
+) -> (bool, bool, f32, u32) {
+    world
+        .diplomacy
+        .pending_wargoals
+        .get(&player)
+        .and_then(|wgs| wgs.iter().find(|w| w.target == target))
+        .map(|wg| {
+            if wg.justified {
+                (true, false, 1.0_f32, 0_u32)
+            } else {
+                let total = wg.justify_total_days.max(1.0);
+                let progress = (wg.justify_progress / total).clamp(0.0, 1.0);
+                let days_remaining = (wg.justify_total_days - wg.justify_progress)
+                    .max(0.0)
+                    .ceil() as u32;
+                (false, true, progress, days_remaining)
+            }
+        })
+        .unwrap_or((false, false, 0.0, 0))
+}
+
 fn wargoal_detail_entry(goal: &hoi4_state::Wargoal) -> hoi4_ui::diplomacy::WargoalDetailEntry {
     let total = goal.justify_total_days.max(1.0);
     let progress = if goal.justified {
@@ -579,6 +635,299 @@ fn country_relation_factors(
     factors
 }
 
+#[derive(Default)]
+struct DiplomacyRelationFacts {
+    player_tag: String,
+    target_tag: String,
+    at_war: bool,
+    same_faction: bool,
+    different_faction: bool,
+    target_is_subject_of_player: bool,
+    target_is_overlord_of_player: bool,
+    has_wargoal: bool,
+    justifying_wargoal: bool,
+    has_military_access: bool,
+    pending_request: Option<String>,
+}
+
+fn country_relation_entries(
+    world: &World,
+    player: CountryId,
+    target: CountryId,
+    has_wargoal: bool,
+    justifying_wargoal: bool,
+) -> Vec<hoi4_ui::diplomacy::DiplomacyRelationEntry> {
+    let player_faction = world.diplomacy.faction_of(player);
+    let target_faction = world.diplomacy.faction_of(target);
+    let facts = DiplomacyRelationFacts {
+        player_tag: tag_of(world, player),
+        target_tag: tag_of(world, target),
+        at_war: world.diplomacy.at_war_with(player, target),
+        same_faction: player_faction.is_some() && player_faction == target_faction,
+        different_faction: matches!((player_faction, target_faction), (Some(a), Some(b)) if a != b),
+        target_is_subject_of_player: world.diplomacy.is_subject_of(target, player),
+        target_is_overlord_of_player: world.diplomacy.is_subject_of(player, target),
+        has_wargoal,
+        justifying_wargoal,
+        has_military_access: world.diplomacy.has_military_access(player, target),
+        pending_request: pending_request_label(world, player, target),
+    };
+    relation_entries_from_facts(&facts)
+}
+
+fn relation_entries_from_facts(
+    facts: &DiplomacyRelationFacts,
+) -> Vec<hoi4_ui::diplomacy::DiplomacyRelationEntry> {
+    use hoi4_ui::diplomacy::{DiplomacyRelationEntry, DiplomacyRelationKind};
+
+    let mut entries = Vec::new();
+    if facts.at_war {
+        entries.push(relation_entry(
+            "at_war",
+            DiplomacyRelationKind::AtWar,
+            "At war",
+            "GFX_relation_war_relation",
+            format!("{} and {} are at war.", facts.player_tag, facts.target_tag),
+            false,
+        ));
+    }
+    if facts.same_faction {
+        entries.push(relation_entry(
+            "same_faction",
+            DiplomacyRelationKind::SameFaction,
+            "Same faction",
+            "GFX_relation_faction",
+            format!("{} is in the same faction.", facts.target_tag),
+            true,
+        ));
+    } else if facts.different_faction {
+        entries.push(relation_entry(
+            "different_faction",
+            DiplomacyRelationKind::DifferentFaction,
+            "Different faction",
+            "GFX_relation_faction",
+            format!("{} is in another faction.", facts.target_tag),
+            false,
+        ));
+    }
+    if facts.target_is_subject_of_player {
+        entries.push(relation_entry(
+            "subject",
+            DiplomacyRelationKind::Subject,
+            "Subject",
+            "GFX_relation_puppet",
+            format!("{} is a subject of {}.", facts.target_tag, facts.player_tag),
+            true,
+        ));
+    } else if facts.target_is_overlord_of_player {
+        entries.push(relation_entry(
+            "overlord",
+            DiplomacyRelationKind::Overlord,
+            "Overlord",
+            "GFX_relation_master",
+            format!(
+                "{} is the overlord of {}.",
+                facts.target_tag, facts.player_tag
+            ),
+            false,
+        ));
+    }
+    if facts.has_wargoal {
+        entries.push(relation_entry(
+            "wargoal",
+            DiplomacyRelationKind::Wargoal,
+            "War goal",
+            "GFX_relation_wargoal",
+            format!("{} has a justified war goal.", facts.player_tag),
+            false,
+        ));
+    } else if facts.justifying_wargoal {
+        entries.push(relation_entry(
+            "justifying_wargoal",
+            DiplomacyRelationKind::JustifyingWargoal,
+            "Justifying war goal",
+            "GFX_relation_wargoal",
+            format!(
+                "{} is justifying against {}.",
+                facts.player_tag, facts.target_tag
+            ),
+            false,
+        ));
+    }
+    if facts.has_military_access {
+        entries.push(relation_entry(
+            "military_access",
+            DiplomacyRelationKind::MilitaryAccess,
+            "Military access",
+            "GFX_relation_military_access",
+            format!(
+                "{} can move through {}.",
+                facts.player_tag, facts.target_tag
+            ),
+            true,
+        ));
+    }
+    if let Some(request) = facts.pending_request.as_ref() {
+        entries.push(DiplomacyRelationEntry {
+            id: "pending_request".to_owned(),
+            kind: DiplomacyRelationKind::PendingRequest,
+            label: "Pending request".to_owned(),
+            sprite: "GFX_accept_decline_icon".to_owned(),
+            tooltip: request.clone(),
+            positive: false,
+        });
+    }
+    entries
+}
+
+fn relation_entry(
+    id: &str,
+    kind: hoi4_ui::diplomacy::DiplomacyRelationKind,
+    label: &str,
+    sprite: &str,
+    tooltip: String,
+    positive: bool,
+) -> hoi4_ui::diplomacy::DiplomacyRelationEntry {
+    hoi4_ui::diplomacy::DiplomacyRelationEntry {
+        id: id.to_owned(),
+        kind,
+        label: label.to_owned(),
+        sprite: sprite.to_owned(),
+        tooltip,
+        positive,
+    }
+}
+
+fn pending_request_label(world: &World, player: CountryId, target: CountryId) -> Option<String> {
+    world
+        .diplomacy
+        .diplomatic_requests
+        .iter()
+        .find(|request| {
+            request.status == hoi4_state::DiplomaticRequestStatus::Pending
+                && request.from == player
+                && request.to == target
+        })
+        .map(|request| format!("Pending {}", diplomatic_request_kind_label(&request.kind)))
+}
+
+fn diplomacy_action_entries(
+    target_tag: &str,
+    justify_action: &hoi4_ui::diplomacy::DiplomaticActionView,
+    declare_war_action: &hoi4_ui::diplomacy::DiplomaticActionView,
+    invite_to_faction_action: &hoi4_ui::diplomacy::DiplomaticActionView,
+    request_access_action: &hoi4_ui::diplomacy::DiplomaticActionView,
+) -> Vec<hoi4_ui::diplomacy::DiplomacyActionEntry> {
+    use hoi4_ui::diplomacy::DiplomacyActionCommand;
+
+    vec![
+        diplomacy_action_entry(
+            "declare_war",
+            hoi4_ui::i18n::tr("declare_war"),
+            "GFX_relation_war_relation",
+            declare_war_action,
+            None,
+            DiplomacyActionCommand::DeclareWar {
+                target_tag: target_tag.to_owned(),
+            },
+        ),
+        diplomacy_action_entry(
+            "justify_wargoal",
+            hoi4_ui::i18n::tr("justify_wargoal"),
+            "GFX_diplo_actions_bg",
+            justify_action,
+            Some(format!(
+                "{:.0} PP",
+                hoi4_logic::diplomacy::constants::BASE_JUSTIFY_PP_COST
+            )),
+            DiplomacyActionCommand::JustifyWargoal {
+                target_tag: target_tag.to_owned(),
+            },
+        ),
+        unavailable_diplomacy_action_entry("guarantee_independence", "guarantee_independence"),
+        diplomacy_action_entry(
+            "request_military_access",
+            hoi4_ui::i18n::tr("request_access"),
+            "GFX_relation_military_access",
+            request_access_action,
+            None,
+            DiplomacyActionCommand::RequestMilitaryAccess {
+                target_tag: target_tag.to_owned(),
+            },
+        ),
+        unavailable_diplomacy_action_entry("offer_military_access", "offer_military_access"),
+        unavailable_diplomacy_action_entry("request_docking_rights", "request_docking_rights"),
+        unavailable_diplomacy_action_entry("offer_docking_rights", "offer_docking_rights"),
+        unavailable_diplomacy_action_entry("request_airbase_access", "request_airbase_access"),
+        unavailable_diplomacy_action_entry("offer_airbase_access", "offer_airbase_access"),
+        unavailable_diplomacy_action_entry("improve_relations", "improve_relations"),
+        unavailable_diplomacy_action_entry("send_attache", "send_attache"),
+        unavailable_diplomacy_action_entry("non_aggression_pact", "non_aggression_pact"),
+        diplomacy_action_entry(
+            "invite_to_faction",
+            hoi4_ui::i18n::tr("invite_to_faction"),
+            "GFX_relation_faction",
+            invite_to_faction_action,
+            None,
+            DiplomacyActionCommand::InviteToFaction {
+                target_tag: target_tag.to_owned(),
+            },
+        ),
+        unavailable_diplomacy_action_entry("ask_to_join_faction", "ask_to_join_faction"),
+        unavailable_diplomacy_action_entry("negotiate_license", "negotiate_license"),
+        unavailable_diplomacy_action_entry("lend_lease", "lend_lease"),
+        unavailable_diplomacy_action_entry("request_lend_lease", "request_lend_lease"),
+        unavailable_diplomacy_action_entry("trade_embargo", "trade_embargo"),
+        unavailable_diplomacy_action_entry("send_volunteers", "send_volunteers"),
+        unavailable_diplomacy_action_entry("expeditionary_force", "expeditionary_force"),
+        unavailable_diplomacy_action_entry(
+            "withdraw_expeditionary_force",
+            "withdraw_expeditionary_force",
+        ),
+        unavailable_diplomacy_action_entry("market_access", "market_access"),
+        unavailable_diplomacy_action_entry("naval_blockade", "naval_blockade"),
+    ]
+}
+
+fn diplomacy_action_entry(
+    id: &str,
+    label: &str,
+    sprite: &str,
+    view: &hoi4_ui::diplomacy::DiplomaticActionView,
+    cost_text: Option<String>,
+    command: hoi4_ui::diplomacy::DiplomacyActionCommand,
+) -> hoi4_ui::diplomacy::DiplomacyActionEntry {
+    hoi4_ui::diplomacy::DiplomacyActionEntry {
+        id: id.to_owned(),
+        label: label.to_owned(),
+        enabled: view.enabled,
+        preview: view.preview.clone(),
+        reason: view.reason.clone(),
+        cost_text,
+        sprite: sprite.to_owned(),
+        command,
+    }
+}
+
+fn unavailable_diplomacy_action_entry(
+    id: &str,
+    label_key: &str,
+) -> hoi4_ui::diplomacy::DiplomacyActionEntry {
+    let reason = hoi4_ui::i18n::tr("diplomacy_action_unavailable").to_owned();
+    hoi4_ui::diplomacy::DiplomacyActionEntry {
+        id: id.to_owned(),
+        label: hoi4_ui::i18n::tr(label_key).to_owned(),
+        enabled: false,
+        preview: reason.clone(),
+        reason: Some(reason),
+        cost_text: None,
+        sprite: "GFX_diplo_actions_bg".to_owned(),
+        command: hoi4_ui::diplomacy::DiplomacyActionCommand::Unavailable {
+            action_id: id.to_owned(),
+        },
+    }
+}
+
 pub fn wargoal_kind_label(kind: hoi4_state::WargoalType) -> &'static str {
     match kind {
         hoi4_state::WargoalType::Annex => "吞并",
@@ -648,9 +997,16 @@ fn country_info_to_diplomacy_detail(
     info: hoi4_ui::country_info_panel::CountryInfoData,
 ) -> hoi4_ui::diplomacy::CountryDiplomacyDetail {
     hoi4_ui::diplomacy::CountryDiplomacyDetail {
+        target_tag: info.target_tag,
         tag: info.tag,
         display_name: info.display_name,
+        ruling_party: info.ruling_party,
+        ruling_party_label: info.ruling_party_label,
+        party_full_name: info.party_full_name,
+        party_popularity: info.party_popularity,
         opinion: info.opinion,
+        our_opinion_of_target: info.our_opinion_of_target,
+        their_opinion_of_us: info.their_opinion_of_us,
         at_war: info.at_war,
         same_faction: info.same_faction,
         faction_name: info.faction_name,
@@ -668,6 +1024,8 @@ fn country_info_to_diplomacy_detail(
         justify_days_remaining: info.justify_days_remaining,
         wargoals: info.wargoals,
         relation_factors: info.relation_factors,
+        relations: info.relations,
+        actions: info.actions,
         justify_action: info.justify_action,
         declare_war_action: info.declare_war_action,
         invite_to_faction_action: info.invite_to_faction_action,
@@ -785,6 +1143,47 @@ fn tag_of(world: &World, country: CountryId) -> String {
         .unwrap_or_default()
 }
 
+fn flag_gfx_for_country(world: &World, country: CountryId) -> String {
+    let index = country.0 as usize;
+    let tag = world
+        .countries
+        .tags
+        .get(index)
+        .map(String::as_str)
+        .unwrap_or_default();
+    let ruling = world
+        .countries
+        .ruling_party
+        .get(index)
+        .map(String::as_str)
+        .unwrap_or_default();
+    format!("GFX_flag_{tag}_{ruling}")
+}
+
+fn party_popularity_for_country(
+    world: &World,
+    country: CountryId,
+    ruling_party: &str,
+) -> Vec<(String, f32)> {
+    let index = country.0 as usize;
+    let mut entries = world
+        .countries
+        .party_popularity
+        .get(index)
+        .map(|popularity| {
+            popularity
+                .iter()
+                .map(|(ideology, value)| (ideology.clone(), *value))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    if entries.iter().all(|(_, value)| *value <= f32::EPSILON) && !ruling_party.trim().is_empty() {
+        entries.push((ruling_party.to_owned(), 1.0));
+    }
+    entries
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -810,5 +1209,129 @@ mod tests {
         assert_eq!(detail.source, "外交");
         assert_eq!(detail.days_remaining, 5);
         assert_eq!(detail.progress, 0.5);
+    }
+
+    #[test]
+    fn diplomacy_contract_relation_entries_cover_vanilla_relation_icons() {
+        use hoi4_ui::diplomacy::DiplomacyRelationKind;
+
+        let facts = DiplomacyRelationFacts {
+            player_tag: "GER".to_owned(),
+            target_tag: "ENG".to_owned(),
+            at_war: true,
+            same_faction: true,
+            target_is_subject_of_player: true,
+            has_wargoal: true,
+            has_military_access: true,
+            ..Default::default()
+        };
+
+        let entries = relation_entries_from_facts(&facts);
+
+        assert_relation(
+            &entries,
+            DiplomacyRelationKind::AtWar,
+            "GFX_relation_war_relation",
+            false,
+        );
+        assert_relation(
+            &entries,
+            DiplomacyRelationKind::SameFaction,
+            "GFX_relation_faction",
+            true,
+        );
+        assert_relation(
+            &entries,
+            DiplomacyRelationKind::Subject,
+            "GFX_relation_puppet",
+            true,
+        );
+        assert_relation(
+            &entries,
+            DiplomacyRelationKind::Wargoal,
+            "GFX_relation_wargoal",
+            false,
+        );
+        assert_relation(
+            &entries,
+            DiplomacyRelationKind::MilitaryAccess,
+            "GFX_relation_military_access",
+            true,
+        );
+    }
+
+    #[test]
+    fn diplomacy_contract_action_entries_keep_disabled_reason_and_command_target() {
+        use hoi4_ui::diplomacy::{DiplomacyActionCommand, DiplomaticActionView};
+
+        let justify = DiplomaticActionView::disabled("GER starts justifying", "not enough PP");
+        let declare = DiplomaticActionView::disabled("GER declares war", "missing wargoal");
+        let invite = DiplomaticActionView::enabled("GER invites ENG");
+        let access = DiplomaticActionView::disabled("GER requests access", "opinion too low");
+
+        let actions = diplomacy_action_entries("ENG", &justify, &declare, &invite, &access);
+
+        assert!(actions.len() > 4);
+        let justify = actions
+            .iter()
+            .find(|action| action.id == "justify_wargoal")
+            .expect("justify action entry");
+        assert!(!justify.enabled);
+        assert_eq!(justify.reason.as_deref(), Some("not enough PP"));
+        assert_eq!(justify.cost_text.as_deref(), Some("50 PP"));
+        assert_eq!(
+            justify.command,
+            DiplomacyActionCommand::JustifyWargoal {
+                target_tag: "ENG".to_owned()
+            }
+        );
+
+        let ids: Vec<&str> = actions.iter().map(|action| action.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "declare_war",
+                "justify_wargoal",
+                "guarantee_independence",
+                "request_military_access",
+                "offer_military_access",
+                "request_docking_rights",
+                "offer_docking_rights",
+                "request_airbase_access",
+                "offer_airbase_access",
+                "improve_relations",
+                "send_attache",
+                "non_aggression_pact",
+                "invite_to_faction",
+                "ask_to_join_faction",
+                "negotiate_license",
+                "lend_lease",
+                "request_lend_lease",
+                "trade_embargo",
+                "send_volunteers",
+                "expeditionary_force",
+                "withdraw_expeditionary_force",
+                "market_access",
+                "naval_blockade",
+            ]
+        );
+        assert!(actions
+            .iter()
+            .filter(|action| matches!(action.command, DiplomacyActionCommand::Unavailable { .. }))
+            .all(|action| !action.enabled));
+    }
+
+    fn assert_relation(
+        entries: &[hoi4_ui::diplomacy::DiplomacyRelationEntry],
+        kind: hoi4_ui::diplomacy::DiplomacyRelationKind,
+        sprite: &str,
+        positive: bool,
+    ) {
+        let entry = entries
+            .iter()
+            .find(|entry| entry.kind == kind)
+            .unwrap_or_else(|| panic!("missing relation kind {kind:?}"));
+        assert_eq!(entry.sprite, sprite);
+        assert_eq!(entry.positive, positive);
     }
 }

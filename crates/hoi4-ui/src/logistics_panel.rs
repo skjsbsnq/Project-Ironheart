@@ -1,30 +1,23 @@
-//! J.4b: 物流仓储面板。快捷键 L 开关。
+//! J.4b: 后勤面板。快捷键 L 开关。
 //!
-//! 上半部分：装备库存（库存/日产/军队需求/采购/缺口）
-//! 下半部分：战略资源速览（只保留摘要，详细供需在市场面板）。
+//! 面板结构来自 HOI4 原版 `countrylogisticsview` runtime，数据仍由项目后勤数据链路提供。
 
-use crate::{
-    components,
-    i18n::tr,
-    vanilla_iron::{LedgerPanelShell, VanillaIron},
-    ActiveDetailPanel, BuildingDetailTarget, DetailSource, GoodsDetailTarget, PanelCommand,
-};
-use egui::{Color32, RichText};
+use crate::{i18n::tr, icons::IconBank, vanilla_gui::VanillaPanelProfile, PanelCommand};
+use egui::{Color32, Pos2, Rect, Sense, Vec2};
 
-const GOLD: Color32 = Color32::from_rgb(0x9f, 0xc1, 0xc8);
-const GOLD_BRIGHT: Color32 = Color32::from_rgb(0xd1, 0xdf, 0xdd);
-const MUTED: Color32 = Color32::from_gray(155);
-const PANEL_CARD: Color32 = Color32::from_rgb(0x0d, 0x10, 0x0f);
-const PANEL_CARD_SOFT: Color32 = Color32::from_rgb(0x14, 0x18, 0x17);
-const STROKE_DARK: Color32 = Color32::from_rgb(0x28, 0x31, 0x31);
-const GOOD: Color32 = Color32::from_rgb(0x70, 0xc8, 0x78);
-const WARN: Color32 = Color32::from_rgb(0xff, 0xc0, 0x60);
-const BAD: Color32 = Color32::from_rgb(0xe0, 0x60, 0x58);
-const BLUE: Color32 = Color32::from_rgb(0x68, 0xa0, 0xd8);
+pub use crate::logistics_profile::CountryLogisticsProfile;
+
+pub const LOGISTICS_VANILLA_SNAPSHOT_1080P: &str =
+    "crates/hoi4-ui/tests/snapshots/logistics_vanilla_1080p.png";
+const LOGISTICS_MATERIEL_ROW_HEIGHT: f32 = 58.0;
 
 /// 单条装备库存条目。
+#[derive(Clone, Debug, PartialEq)]
 pub struct LogisticsEntry {
+    pub id: String,
     pub name: String,
+    pub kind: LogisticsEntryKind,
+    pub equipment_icon_sprite: Option<String>,
     pub stockpile: f32,
     pub daily_production: f32,
     pub daily_replenishment_need: f32,
@@ -36,9 +29,63 @@ pub struct LogisticsEntry {
     pub days_until_empty: Option<f32>,
     pub procurement_rm: f64,
     pub production_sources: Vec<String>,
+    pub resource_inputs: Vec<ResourceInputEntry>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogisticsEntryKind {
+    Land,
+    Naval,
+    Air,
+    Other,
+}
+
+pub type LogisticsVanillaEntryKind = LogisticsEntryKind;
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ResourceInputEntry {
+    pub id: String,
+    pub name: String,
+    pub amount: f32,
+}
+
+pub fn logistics_entry_kind_for_id(equipment_id: &str) -> LogisticsEntryKind {
+    match equipment_id {
+        "aircraft" | "飞机" => LogisticsEntryKind::Air,
+        "naval_vessel" | "convoy" | "舰艇" | "运输船" => LogisticsEntryKind::Naval,
+        "infantry_equipment" | "artillery" | "anti_tank" | "anti_air" | "support_equipment"
+        | "motorized" | "mechanized" | "armor" | "train" | "步兵装备" | "火炮" | "反坦克炮"
+        | "防空炮" | "支援装备" | "摩托化装备" | "机械化装备" | "装甲车辆" | "火车" => {
+            LogisticsEntryKind::Land
+        }
+        _ => LogisticsEntryKind::Other,
+    }
+}
+
+pub fn logistics_vanilla_entry_kind(equipment_id: &str) -> LogisticsEntryKind {
+    logistics_entry_kind_for_id(equipment_id)
+}
+
+pub fn logistics_equipment_icon_sprite_for_id(equipment_id: &str) -> Option<&'static str> {
+    match equipment_id {
+        "infantry_equipment" | "步兵装备" => Some("GFX_archetype_infantry_equipment_medium"),
+        "artillery" | "火炮" => Some("GFX_archetype_artillery_equipment_medium"),
+        "anti_tank" | "反坦克炮" => Some("GFX_archetype_anti_tank_equipment_medium"),
+        "anti_air" | "防空炮" => Some("GFX_archetype_anti_air_equipment_medium"),
+        "support_equipment" | "支援装备" => Some("GFX_archetype_support_equipment_medium"),
+        "motorized" | "摩托化装备" => Some("GFX_archetype_motorized_equipment_medium"),
+        "mechanized" | "机械化装备" => Some("GFX_mechanised_infantry_medium"),
+        "armor" | "装甲车辆" => Some("GFX_archetype_medium_tank_equipment_medium"),
+        "train" | "火车" => Some("GFX_archetype_train_medium"),
+        "aircraft" | "飞机" => Some("GFX_archetype_fighter_equipment_medium"),
+        "naval_vessel" | "舰艇" => Some("GFX_early_destroyer_medium"),
+        "convoy" | "运输船" => Some("GFX_archetype_convoy_medium"),
+        _ => None,
+    }
 }
 
 /// 单条资源条目。
+#[derive(Clone, Debug, PartialEq)]
 pub struct ResourceEntry {
     pub name: String,
     pub produced: f32,
@@ -48,6 +95,7 @@ pub struct ResourceEntry {
 }
 
 /// 面板数据快照。
+#[derive(Clone, Debug, PartialEq)]
 pub struct LogisticsData {
     pub entries: Vec<LogisticsEntry>,
     pub total_types: usize,
@@ -60,834 +108,692 @@ pub struct LogisticsData {
     pub resources: Vec<ResourceEntry>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct LogisticsVanillaEntryPlan {
+    pub entry_index: usize,
+    pub template_name: &'static str,
+    pub model_key: String,
+    pub kind: LogisticsEntryKind,
+}
+
+pub fn logistics_vanilla_summary_text(data: &LogisticsData) -> String {
+    let net = data.total_daily_production - data.total_daily_need;
+    format!(
+        "类型 {} | 缺口 {} | 日产 {} | 需求 -{:.1}/日 | 净变化 {}",
+        data.total_types,
+        data.deficit_types,
+        signed_one_decimal(data.total_daily_production),
+        data.total_daily_need,
+        signed_one_decimal(net)
+    )
+}
+
+pub fn logistics_vanilla_entry_plan(data: &LogisticsData) -> Vec<LogisticsVanillaEntryPlan> {
+    let mut indexed: Vec<(usize, &LogisticsEntry)> = data.entries.iter().enumerate().collect();
+    indexed.sort_by(|(_, a), (_, b)| {
+        b.deficit
+            .partial_cmp(&a.deficit)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    indexed
+        .into_iter()
+        .map(|(entry_index, entry)| {
+            let kind = entry.kind;
+            LogisticsVanillaEntryPlan {
+                entry_index,
+                template_name: logistics_template_for_kind(kind),
+                model_key: entry_model_key(entry),
+                kind,
+            }
+        })
+        .collect()
+}
+
+pub fn logistics_vanilla_entry_instance_specs(
+    data: &LogisticsData,
+    parent_path: crate::vanilla_gui::GuiNodePath,
+    parent_grid_node: &crate::vanilla_gui::GuiNode,
+    parent_rect: crate::vanilla_gui::GuiRect,
+) -> Vec<crate::vanilla_gui::GuiRuntimeInstanceSpec> {
+    let mut groups: Vec<(&'static str, Vec<crate::vanilla_gui::GuiRect>, Vec<String>)> = Vec::new();
+    let plan = logistics_vanilla_entry_plan(data);
+    let slots = logistics_scroll_content_grid_slots(parent_grid_node, parent_rect, plan.len());
+    for (plan, rect) in plan.into_iter().zip(slots) {
+        if let Some((_, rects, model_keys)) = groups
+            .iter_mut()
+            .find(|(template_name, _, _)| *template_name == plan.template_name)
+        {
+            rects.push(rect);
+            model_keys.push(plan.model_key);
+        } else {
+            groups.push((plan.template_name, vec![rect], vec![plan.model_key]));
+        }
+    }
+    groups
+        .into_iter()
+        .map(|(template_name, rects, model_keys)| {
+            crate::vanilla_gui::GuiRuntimeInstanceSpec::absolute_rects(
+                template_name,
+                parent_path.clone(),
+                rects,
+            )
+            .with_options(
+                crate::vanilla_gui::TemplateInstanceOptions::default().template_size(true),
+            )
+            .with_semantic_role("logistics_equipment_entry")
+            .with_model_keys(model_keys)
+        })
+        .collect()
+}
+
+fn logistics_scroll_content_grid_slots(
+    parent_grid_node: &crate::vanilla_gui::GuiNode,
+    parent_rect: crate::vanilla_gui::GuiRect,
+    count: usize,
+) -> Vec<crate::vanilla_gui::GuiRect> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let Some(first_slot) = crate::vanilla_gui::grid_slots(parent_grid_node, parent_rect, 1)
+        .into_iter()
+        .next()
+    else {
+        return Vec::new();
+    };
+    let expanded_rect = crate::vanilla_gui::GuiRect::new(
+        parent_rect.x,
+        parent_rect.y,
+        parent_rect.width,
+        parent_rect
+            .height
+            .max(first_slot.height.max(1.0) * count as f32),
+    );
+    crate::vanilla_gui::grid_slots(parent_grid_node, expanded_rect, count)
+}
+
+pub fn logistics_vanilla_resource_strip_instance_specs(
+    data: &LogisticsData,
+    parent_path: crate::vanilla_gui::GuiNodePath,
+    parent_grid_node: &crate::vanilla_gui::GuiNode,
+    parent_rect: crate::vanilla_gui::GuiRect,
+) -> Vec<crate::vanilla_gui::GuiRuntimeInstanceSpec> {
+    if data.resources.is_empty() {
+        return Vec::new();
+    }
+    let rects = crate::vanilla_gui::grid_slots(parent_grid_node, parent_rect, data.resources.len());
+    vec![crate::vanilla_gui::GuiRuntimeInstanceSpec::absolute_rects(
+        "logistics_overview_resource_item",
+        parent_path,
+        rects,
+    )
+    .with_options(crate::vanilla_gui::TemplateInstanceOptions::default().template_size(true))
+    .with_semantic_role("logistics_resource_strip_item")
+    .with_model_keys(data.resources.iter().map(|resource| resource.name.clone()))]
+}
+
+pub fn logistics_vanilla_entry_resource_instance_specs(
+    entry: &LogisticsEntry,
+    parent_path: crate::vanilla_gui::GuiNodePath,
+    parent_grid_node: &crate::vanilla_gui::GuiNode,
+    parent_rect: crate::vanilla_gui::GuiRect,
+) -> Vec<crate::vanilla_gui::GuiRuntimeInstanceSpec> {
+    if entry.resource_inputs.is_empty() {
+        return Vec::new();
+    }
+    let rects =
+        crate::vanilla_gui::grid_slots(parent_grid_node, parent_rect, entry.resource_inputs.len());
+    vec![crate::vanilla_gui::GuiRuntimeInstanceSpec::absolute_rects(
+        "logistics_entry_resource_item",
+        parent_path,
+        rects,
+    )
+    .with_semantic_role("logistics_entry_resource_item")
+    .with_model_keys(entry.resource_inputs.iter().map(|input| input.id.clone()))]
+}
+
+pub fn logistics_vanilla_runtime_frame(
+    root: &crate::vanilla_gui::GuiNode,
+    data: &LogisticsData,
+    viewport: crate::vanilla_gui::GuiRect,
+    runtime_state: crate::vanilla_gui::GuiRuntimeState,
+    registry: crate::vanilla_gui::GuiTemplateRegistry<'_>,
+) -> crate::vanilla_gui::GuiRuntimeFrame {
+    logistics_vanilla_runtime_frame_parts(root, data, viewport, runtime_state, registry, None, None)
+        .frame
+}
+
+#[derive(Debug, Clone)]
+pub struct LogisticsVanillaRuntimeFrameParts {
+    pub frame: crate::vanilla_gui::GuiRuntimeFrame,
+    pub bindings: crate::vanilla_gui::GuiBindingMap,
+}
+
+pub fn logistics_vanilla_runtime_frame_parts(
+    root: &crate::vanilla_gui::GuiNode,
+    data: &LogisticsData,
+    viewport: crate::vanilla_gui::GuiRect,
+    runtime_state: crate::vanilla_gui::GuiRuntimeState,
+    registry: crate::vanilla_gui::GuiTemplateRegistry<'_>,
+    gfx_index: Option<&crate::vanilla_gui::GfxIndex>,
+    icon_bank: Option<&mut IconBank>,
+) -> LogisticsVanillaRuntimeFrameParts {
+    let mut bindings = crate::vanilla_gui::bind_profile_tree(&CountryLogisticsProfile, root, data);
+    let base = crate::vanilla_gui::GuiRuntimeFrame::build(
+        crate::vanilla_gui::GuiRuntimeFrameInput::new(
+            root,
+            viewport,
+            crate::vanilla_gui::COUNTRY_LOGISTICS_PROFILE_ID,
+            &bindings,
+        )
+        .with_runtime_state(runtime_state.clone()),
+    );
+    let mut specs = Vec::new();
+    if let Some(resources_grid) = base.root_layout.find_by_name("resources_grid") {
+        let resources_grid_node = find_gui_node_by_layout_path(root, &resources_grid.path)
+            .or_else(|| root.find_node_by_name("resources_grid"));
+        if let Some(resources_grid_node) = resources_grid_node {
+            specs.extend(logistics_vanilla_resource_strip_instance_specs(
+                data,
+                resources_grid.path.clone(),
+                resources_grid_node,
+                resources_grid.rect,
+            ));
+        }
+    }
+    if let Some(materiel_grid) = base.root_layout.find_by_name("materiel_grid") {
+        let materiel_grid_node = find_gui_node_by_layout_path(root, &materiel_grid.path)
+            .or_else(|| root.find_node_by_name("materiel_grid"));
+        if let Some(materiel_grid_node) = materiel_grid_node {
+            specs.extend(logistics_vanilla_entry_instance_specs(
+                data,
+                materiel_grid.path.clone(),
+                materiel_grid_node,
+                materiel_grid.rect,
+            ));
+        }
+    }
+    let mut first_pass_bindings = bindings.clone();
+    first_pass_bindings.extend(logistics_vanilla_instance_bindings(data, &specs, &registry));
+    let first_pass = crate::vanilla_gui::GuiRuntimeFrame::build(
+        crate::vanilla_gui::GuiRuntimeFrameInput::new(
+            root,
+            viewport,
+            crate::vanilla_gui::COUNTRY_LOGISTICS_PROFILE_ID,
+            &first_pass_bindings,
+        )
+        .with_runtime_state(runtime_state.clone())
+        .with_template_registry(registry.clone())
+        .with_instance_specs(specs.clone()),
+    );
+    for instance in &first_pass.generated_instances {
+        if instance.context.semantic_role.as_deref() != Some("logistics_equipment_entry") {
+            continue;
+        }
+        let Some(model_key) = instance.context.model_key.as_deref() else {
+            continue;
+        };
+        let Some(entry) = data
+            .entries
+            .iter()
+            .find(|entry| entry_model_key(entry) == model_key)
+        else {
+            continue;
+        };
+        let Some(resources_grid) = instance.layout.find_by_name("resources_grid") else {
+            continue;
+        };
+        let Some(template) = registry.get(instance.template_name) else {
+            continue;
+        };
+        let Some(resources_grid_node) = template.node.find_node_by_name("resources_grid") else {
+            continue;
+        };
+        specs.extend(logistics_vanilla_entry_resource_instance_specs(
+            entry,
+            resources_grid.path.clone(),
+            resources_grid_node,
+            resources_grid.rect,
+        ));
+    }
+    bindings.extend(logistics_vanilla_instance_bindings(data, &specs, &registry));
+    let mut input = crate::vanilla_gui::GuiRuntimeFrameInput::new(
+        root,
+        viewport,
+        crate::vanilla_gui::COUNTRY_LOGISTICS_PROFILE_ID,
+        &bindings,
+    )
+    .with_runtime_state(runtime_state)
+    .with_template_registry(registry)
+    .with_instance_specs(specs);
+    if let Some(gfx_index) = gfx_index {
+        input = input.with_gfx_index(gfx_index);
+    }
+    if let Some(icon_bank) = icon_bank {
+        input = input.with_icon_bank(icon_bank);
+    }
+    LogisticsVanillaRuntimeFrameParts {
+        frame: crate::vanilla_gui::GuiRuntimeFrame::build(input),
+        bindings,
+    }
+}
+
+fn find_gui_node_by_layout_path<'a>(
+    node: &'a crate::vanilla_gui::GuiNode,
+    path: &crate::vanilla_gui::GuiNodePath,
+) -> Option<&'a crate::vanilla_gui::GuiNode> {
+    fn visit<'a>(
+        node: &'a crate::vanilla_gui::GuiNode,
+        path: &crate::vanilla_gui::GuiNodePath,
+        depth: usize,
+    ) -> Option<&'a crate::vanilla_gui::GuiNode> {
+        if depth >= path.0.len() {
+            return Some(node);
+        }
+        node.children.iter().enumerate().find_map(|(index, child)| {
+            (child.path_label(index) == path.0[depth])
+                .then(|| visit(child, path, depth + 1))
+                .flatten()
+        })
+    }
+
+    if path
+        .0
+        .first()
+        .is_some_and(|label| label == &node.path_label(0))
+    {
+        visit(node, path, 1)
+    } else {
+        None
+    }
+}
+
+fn logistics_vanilla_instance_bindings(
+    data: &LogisticsData,
+    specs: &[crate::vanilla_gui::GuiRuntimeInstanceSpec],
+    registry: &crate::vanilla_gui::GuiTemplateRegistry<'_>,
+) -> crate::vanilla_gui::GuiBindingMap {
+    let mut bindings = crate::vanilla_gui::GuiBindingMap::default();
+    for spec in specs {
+        let Some(template) = registry.get(spec.template_name) else {
+            continue;
+        };
+        let count = match &spec.source {
+            crate::vanilla_gui::GuiRuntimeInstanceSource::Descriptor { count }
+            | crate::vanilla_gui::GuiRuntimeInstanceSource::Grid { count } => *count,
+            crate::vanilla_gui::GuiRuntimeInstanceSource::Absolute { rects } => rects.len(),
+        };
+        for index in 0..count {
+            let path = crate::vanilla_gui::template_instance_path(
+                &spec.parent_path,
+                spec.template_name,
+                index,
+            );
+            let mut context = crate::vanilla_gui::GuiInstanceContext::new(
+                spec.template_name,
+                index,
+                spec.parent_path.clone(),
+            );
+            if let Some(role) = spec.semantic_role.clone() {
+                context = context.with_semantic_role(role);
+            }
+            if let Some(model_key) = spec.model_keys.get(index).cloned() {
+                context = context.with_model_key(model_key);
+            }
+            bindings.extend(crate::vanilla_gui::bind_profile_tree_with_path_and_context(
+                &CountryLogisticsProfile,
+                template.node,
+                data,
+                path,
+                Some(&context),
+            ));
+        }
+    }
+    bindings
+}
+
+fn logistics_template_for_kind(kind: LogisticsEntryKind) -> &'static str {
+    match kind {
+        LogisticsEntryKind::Naval => "logistics_overview_naval_equipment_entry",
+        LogisticsEntryKind::Air => "logistics_overview_air_equipment_entry",
+        LogisticsEntryKind::Land | LogisticsEntryKind::Other => {
+            "logistics_overview_land_equipment_entry"
+        }
+    }
+}
+
+fn entry_model_key(entry: &LogisticsEntry) -> String {
+    if entry.id.is_empty() {
+        entry.name.clone()
+    } else {
+        entry.id.clone()
+    }
+}
+
 pub struct LogisticsPanel;
 
 impl LogisticsPanel {
     /// 返回 (close_requested, panel_commands)。
     pub fn show(ctx: &egui::Context, data: &LogisticsData) -> (bool, Vec<PanelCommand>) {
-        ledger_show_logistics(ctx, data)
+        let Some(context) = crate::vanilla_gui::country_logistics_runtime_context() else {
+            return vanilla_logistics_runtime_unavailable_panel(ctx);
+        };
+        let mut icon_bank = IconBank::new(ctx.clone(), context.path_cfg.clone());
+        Self::show_with_icon_bank(ctx, data, &mut icon_bank)
+    }
+
+    /// 返回 (close_requested, panel_commands)。
+    pub fn show_with_icon_bank(
+        ctx: &egui::Context,
+        data: &LogisticsData,
+        icon_bank: &mut IconBank,
+    ) -> (bool, Vec<PanelCommand>) {
+        vanilla_show_logistics(ctx, data, icon_bank)
     }
 }
 
-fn ledger_show_logistics(ctx: &egui::Context, data: &LogisticsData) -> (bool, Vec<PanelCommand>) {
-    let net = data.total_daily_production - data.total_daily_need;
-    let accent = if data.deficit_types > 0 {
-        VanillaIron::BAD
-    } else if net < 0.0 {
-        VanillaIron::WARN
-    } else {
-        VanillaIron::GOOD
-    };
-    let (close, output) = LedgerPanelShell::new("logistics_panel_ledger", tr("logistics"))
-        .subtitle("装备库存 / 日增减 / 缺口来源")
-        .footer("Q 关闭 | 点击缺口打开详情")
-        .accent(accent)
-        .show(ctx, |ui, layout| {
-            let mut commands = Vec::new();
-            logistics_ledger_metrics(ui, layout.top_strip, data, net);
-            logistics_ledger_table(ui, layout.main, data, &mut commands);
-            logistics_ledger_side(ui, layout.side, data, &mut commands);
-            commands
-        });
-    (close, output.unwrap_or_default())
-}
-
-fn logistics_ledger_metrics(ui: &mut egui::Ui, rect: egui::Rect, data: &LogisticsData, net: f32) {
-    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
-        ui.columns(6, |columns| {
-            VanillaIron::info_row(&mut columns[0], "类型", data.total_types.to_string());
-            VanillaIron::value_row(
-                &mut columns[1],
-                "缺口",
-                data.deficit_types.to_string(),
-                if data.deficit_types > 0 {
-                    VanillaIron::BAD
-                } else {
-                    VanillaIron::GOOD
-                },
-            );
-            VanillaIron::value_row(
-                &mut columns[2],
-                "生产",
-                signed_one_decimal(data.total_daily_production),
-                VanillaIron::GOOD,
-            );
-            VanillaIron::value_row(
-                &mut columns[3],
-                "需求",
-                format!("-{:.1}/日", data.total_daily_need),
-                VanillaIron::WARN,
-            );
-            VanillaIron::value_row(
-                &mut columns[4],
-                "净值",
-                signed_one_decimal(net),
-                if net < 0.0 {
-                    VanillaIron::BAD
-                } else {
-                    VanillaIron::GOOD
-                },
-            );
-            VanillaIron::info_row(
-                &mut columns[5],
-                "军购",
-                format_rm(data.military_procurement_rm),
-            );
-        });
-    });
-}
-
-fn logistics_ledger_table(
-    ui: &mut egui::Ui,
-    rect: egui::Rect,
+fn vanilla_show_logistics(
+    ctx: &egui::Context,
     data: &LogisticsData,
-    commands: &mut Vec<PanelCommand>,
-) {
-    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
-        VanillaIron::section_heading(ui, "装备与补给账本");
-        ui.add_space(4.0);
-        egui::Grid::new("logistics_ledger_header")
-            .spacing(egui::vec2(10.0, 0.0))
-            .show(ui, |ui| {
-                for label in ["项目", "库存", "日产", "需求", "净值", "缺口", "耗尽"]
-                {
-                    ui.label(
-                        RichText::new(label)
-                            .small()
-                            .strong()
-                            .color(VanillaIron::BRASS_BRIGHT),
-                    );
-                }
-                ui.end_row();
-            });
-        ui.separator();
-        let mut entries: Vec<&LogisticsEntry> = data.entries.iter().collect();
-        entries.sort_by(|a, b| {
-            b.deficit
-                .partial_cmp(&a.deficit)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.name.cmp(&b.name))
-        });
-        egui::ScrollArea::vertical()
-            .auto_shrink([false, false])
-            .show(ui, |ui| {
-                egui::Grid::new("logistics_ledger_rows")
-                    .striped(true)
-                    .spacing(egui::vec2(10.0, 4.0))
-                    .show(ui, |ui| {
-                        for entry in entries {
-                            let risk = entry.deficit > 0.0
-                                || entry.days_until_empty.is_some_and(|days| days <= 30.0);
-                            if ui
-                                .selectable_label(
-                                    false,
-                                    RichText::new(&entry.name).strong().color(if risk {
-                                        VanillaIron::WARN
-                                    } else {
-                                        VanillaIron::TEXT
-                                    }),
-                                )
-                                .on_hover_text("打开相关商品详情")
-                                .clicked()
-                            {
-                                commands.push(PanelCommand::OpenDetail(ActiveDetailPanel::Goods(
-                                    GoodsDetailTarget::from_source(
-                                        entry.name.clone(),
-                                        DetailSource::Logistics,
-                                    ),
-                                )));
-                            }
-                            logistics_value(
-                                ui,
-                                format!("{:.1}", entry.stockpile),
-                                VanillaIron::TEXT,
-                            );
-                            logistics_value(
-                                ui,
-                                format!("{:.1}", entry.daily_production),
-                                VanillaIron::GOOD,
-                            );
-                            logistics_value(
-                                ui,
-                                format!(
-                                    "{:.1}",
-                                    entry.daily_replenishment_need
-                                        + entry.daily_training_need
-                                        + entry.daily_maintenance_need
-                                        + entry.daily_consumption
-                                ),
-                                VanillaIron::WARN,
-                            );
-                            logistics_value(
-                                ui,
-                                signed_one_decimal(entry.net_change),
-                                if entry.net_change < 0.0 {
-                                    VanillaIron::BAD
-                                } else {
-                                    VanillaIron::GOOD
-                                },
-                            );
-                            logistics_value(
-                                ui,
-                                format!("{:.1}", entry.deficit),
-                                if entry.deficit > 0.0 {
-                                    VanillaIron::BAD
-                                } else {
-                                    VanillaIron::MUTED
-                                },
-                            );
-                            logistics_value(
-                                ui,
-                                entry
-                                    .days_until_empty
-                                    .map(|days| format!("{days:.0}日"))
-                                    .unwrap_or_else(|| "-".to_owned()),
-                                if entry.days_until_empty.is_some_and(|days| days <= 30.0) {
-                                    VanillaIron::BAD
-                                } else {
-                                    VanillaIron::MUTED
-                                },
-                            );
-                            ui.end_row();
-                        }
-                    });
-            });
-    });
-}
+    icon_bank: &mut IconBank,
+) -> (bool, Vec<PanelCommand>) {
+    let profile = CountryLogisticsProfile;
+    icon_bank.add_profile_search_dirs(profile.profile_id());
 
-fn logistics_ledger_side(
-    ui: &mut egui::Ui,
-    rect: egui::Rect,
-    data: &LogisticsData,
-    commands: &mut Vec<PanelCommand>,
-) {
-    ui.allocate_ui_at_rect(rect.shrink2(egui::vec2(8.0, 7.0)), |ui| {
-        VanillaIron::section_heading(ui, "缺口定位");
-        let mut deficits: Vec<&LogisticsEntry> = data
-            .entries
-            .iter()
-            .filter(|entry| entry.deficit > 0.0)
-            .collect();
-        deficits.sort_by(|a, b| {
-            b.deficit
-                .partial_cmp(&a.deficit)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        if deficits.is_empty() {
-            ui.label(
-                RichText::new("暂无装备缺口。")
-                    .small()
-                    .color(VanillaIron::MUTED),
-            );
-        } else {
-            for entry in deficits.iter().take(5) {
-                if ui
-                    .link(format!("{}：{:.1}/日", entry.name, entry.deficit))
-                    .clicked()
-                {
-                    commands.push(PanelCommand::OpenDetail(ActiveDetailPanel::Goods(
-                        GoodsDetailTarget::from_source(entry.name.clone(), DetailSource::Logistics),
-                    )));
-                }
-            }
-        }
-        ui.separator();
-        VanillaIron::section_heading(ui, "生产来源");
-        for entry in data
-            .entries
-            .iter()
-            .filter(|entry| !entry.production_sources.is_empty())
-            .take(5)
-        {
-            ui.label(
-                RichText::new(&entry.name)
-                    .small()
-                    .strong()
-                    .color(VanillaIron::TEXT),
-            );
-            for source in entry.production_sources.iter().take(3) {
-                if ui.link(source).clicked() {
-                    commands.push(PanelCommand::OpenDetail(ActiveDetailPanel::Building(
-                        BuildingDetailTarget {
-                            building_key: source.clone(),
-                            state_id: None,
-                        },
-                    )));
-                }
-            }
-            ui.add_space(4.0);
-        }
-        ui.separator();
-        VanillaIron::section_heading(ui, "战略资源");
-        for resource in &data.resources {
-            let net = resource.produced - resource.consumed;
-            VanillaIron::value_row(
-                ui,
-                &resource.name,
-                format!("{} / 库存 {:.1}", signed_one_decimal(net), resource.stored),
-                if net < 0.0 {
-                    VanillaIron::WARN
-                } else {
-                    VanillaIron::MUTED
-                },
-            );
-        }
-    });
-}
-
-fn logistics_value(ui: &mut egui::Ui, value: String, color: Color32) {
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        ui.label(RichText::new(value).monospace().color(color));
-    });
-}
-
-fn v9_show_logistics(ctx: &egui::Context, data: &LogisticsData) -> bool {
-    use crate::v9::composites::panel_shell::{
-        draw_summary_tiles, draw_tab_strip, PanelClass, PanelShell,
+    let Some(context) = crate::vanilla_gui::country_logistics_runtime_context() else {
+        return vanilla_logistics_runtime_unavailable_panel(ctx);
     };
-    use crate::v9::tokens::palette;
-
-    let net = data.total_daily_production - data.total_daily_need;
-    let accent = if data.deficit_types > 0 {
-        palette::BAD
-    } else if net < 0.0 {
-        palette::WARN
-    } else {
-        palette::GOOD
+    let Some(root) = context.root_template(
+        crate::vanilla_gui::COUNTRY_LOGISTICS_GUI_FILE,
+        profile.root_template(),
+    ) else {
+        return vanilla_logistics_runtime_unavailable_panel(ctx);
     };
-    let (close, _) = PanelShell::new("logistics_panel_v9", tr("logistics"))
-        .subtitle("装备库存 / 缺口压力")
-        .class(PanelClass::Economy)
-        .accent(accent)
-        .footer("Q Close  |  Equipment table / Deficit bars")
-        .show(ctx, |ui, layout| {
-            draw_summary_tiles(
-                ui,
-                layout.summary,
-                &[
-                    ("类型", data.total_types.to_string(), palette::GOLD),
-                    (
-                        "缺口",
-                        data.deficit_types.to_string(),
-                        if data.deficit_types > 0 {
-                            palette::BAD
-                        } else {
-                            palette::GOOD
-                        },
-                    ),
-                    (
-                        "生产",
-                        signed_one_decimal(data.total_daily_production),
-                        palette::GOOD,
-                    ),
-                    (
-                        "需求",
-                        format!("-{:.1}/d", data.total_daily_need),
-                        palette::WARN,
-                    ),
-                    (
-                        "净值",
-                        signed_one_decimal(net),
-                        v9_logistics_signed_color(net),
-                    ),
-                    (
-                        "军购",
-                        format_rm(data.military_procurement_rm),
-                        palette::GOLD,
-                    ),
-                ],
-            );
-            draw_tab_strip(ui, layout.tabs, "装备表 / 缺口进度", accent);
-            v9_logistics_body(ui, layout.body, data);
-        });
-    close
-}
 
-fn v9_logistics_body(ui: &mut egui::Ui, rect: egui::Rect, data: &LogisticsData) {
-    use crate::v9::layout::{GridLayout, Track};
-    use crate::v9::tokens::spacing;
-
-    ui.allocate_ui_at_rect(rect, |ui| {
-        let grid = GridLayout::new(vec![Track::Fr(1.0)], vec![Track::Fr(0.68), Track::Fr(0.32)])
-            .with_gutter(spacing::S5, 0.0);
-        let cells = grid.measure(rect);
-        v9_logistics_equipment_table(ui, GridLayout::cell(&cells, 0, 0), data);
-        v9_logistics_side(ui, GridLayout::cell(&cells, 0, 1), data);
-    });
-}
-
-fn v9_logistics_equipment_table(ui: &mut egui::Ui, rect: egui::Rect, data: &LogisticsData) {
-    use crate::v9::primitives::{Card, DataTable, TableCell, TableColumn, TableRow};
-    use crate::v9::tokens::{palette, TextRole};
-    use egui::{Align2, Pos2, Rect};
-
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        "装备库存",
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
+    let screen = ctx.screen_rect();
+    let viewport = crate::vanilla_gui::GuiRect::new(
+        screen.left(),
+        screen.top(),
+        screen.width(),
+        screen.height(),
     );
-
-    let mut entries: Vec<&LogisticsEntry> = data.entries.iter().collect();
-    entries.sort_by(|a, b| {
-        b.deficit
-            .partial_cmp(&a.deficit)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                a.days_until_empty
-                    .unwrap_or(f32::MAX)
-                    .partial_cmp(&b.days_until_empty.unwrap_or(f32::MAX))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-    });
-    let rows: Vec<TableRow> = entries
-        .into_iter()
-        .take(18)
-        .map(|entry| {
-            let accent = if entry.deficit > 0.0 {
-                palette::BAD
-            } else if entry.net_change < 0.0 {
-                palette::WARN
-            } else {
-                palette::GOOD
-            };
-            TableRow::new(vec![
-                TableCell::strong(entry.name.as_str()),
-                TableCell::new(format!("{:.0}", entry.stockpile)).right(),
-                TableCell::colored(format!("{:+.1}", entry.daily_production), palette::GOOD)
-                    .right(),
-                TableCell::new(format!("{:.1}", entry.daily_consumption)).right(),
-                TableCell::colored(format!("{:+.1}", entry.net_change), accent).right(),
-                TableCell::colored(
-                    if entry.deficit > 0.0 {
-                        format!("{:.1}", entry.deficit)
-                    } else {
-                        "-".to_owned()
-                    },
-                    if entry.deficit > 0.0 {
-                        palette::BAD
-                    } else {
-                        palette::MUTED
-                    },
-                )
-                .right(),
-                TableCell::new(
-                    entry
-                        .days_until_empty
-                        .map(|days| format!("{:.0}d", days))
-                        .unwrap_or_else(|| "-".to_owned()),
-                )
-                .right(),
-            ])
-            .accent(accent)
-        })
-        .collect();
-
-    DataTable::new(
-        vec![
-            TableColumn::new("装备", 1.25),
-            TableColumn::new("库存", 0.65).right(),
-            TableColumn::new("生产", 0.65).right(),
-            TableColumn::new("需求", 0.65).right(),
-            TableColumn::new("净值", 0.65).right(),
-            TableColumn::new("缺口", 0.65).right(),
-            TableColumn::new("耗尽", 0.65).right(),
-        ],
-        rows,
-    )
-    .row_height(28.0)
-    .show_at(
-        ui,
-        Rect::from_min_max(
-            Pos2::new(inner.left(), inner.top() + 34.0),
-            inner.right_bottom(),
-        ),
-    );
-}
-
-fn v9_logistics_side(ui: &mut egui::Ui, rect: egui::Rect, data: &LogisticsData) {
-    use crate::v9::primitives::{
-        draw_progress_bar, Card, DataTable, TableCell, TableColumn, TableRow,
-    };
-    use crate::v9::tokens::{palette, spacing, TextRole};
-    use egui::{Align2, Pos2, Rect, Vec2};
-
-    let inner = Card::new().as_panel().show_at(ui, rect);
-    ui.painter().text(
-        inner.left_top(),
-        Align2::LEFT_TOP,
-        "缺口压力",
-        TextRole::Heading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
-
-    let max_deficit = data
-        .entries
-        .iter()
-        .map(|entry| entry.deficit.max(0.0))
-        .fold(0.0_f32, f32::max)
-        .max(1.0);
-    let mut deficit_entries: Vec<&LogisticsEntry> = data
-        .entries
-        .iter()
-        .filter(|entry| entry.deficit > 0.0 || entry.net_change < 0.0)
-        .collect();
-    deficit_entries.sort_by(|a, b| {
-        b.deficit
-            .partial_cmp(&a.deficit)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    let mut y = inner.top() + 34.0;
-    if deficit_entries.is_empty() {
-        crate::v9::composites::panel_shell::draw_empty_state(
-            ui,
-            Rect::from_min_size(Pos2::new(inner.left(), y), Vec2::new(inner.width(), 112.0)),
-            "库存稳定",
-            "当前没有装备缺口。",
-        );
-        y += 124.0;
-    } else {
-        for entry in deficit_entries.iter().take(6) {
-            ui.painter().text(
-                Pos2::new(inner.left(), y),
-                Align2::LEFT_TOP,
-                entry.name.as_str(),
-                TextRole::Caption.font_id(),
-                palette::PARCHMENT,
-            );
-            let ratio = (entry.deficit.max(-entry.net_change) / max_deficit).clamp(0.0, 1.0);
-            draw_progress_bar(
-                ui,
-                Rect::from_min_size(
-                    Pos2::new(inner.left(), y + 18.0),
-                    Vec2::new(inner.width(), 9.0),
-                ),
-                ratio,
-                if entry.deficit > 0.0 {
-                    palette::BAD
-                } else {
-                    palette::WARN
-                },
-            );
-            y += 38.0;
-        }
+    let spec = crate::vanilla_gui::AnimationSpec::from_node(root);
+    let update = crate::vanilla_gui::update_panel_animation(ctx, profile.profile_id(), spec);
+    if update.close_finished {
+        crate::vanilla_gui::clear_panel_close_request(ctx, profile.profile_id());
+        clear_logistics_scroll_offset(ctx);
+        return (true, Vec::new());
+    }
+    if !update.visible {
+        return (false, Vec::new());
     }
 
-    let rows: Vec<TableRow> = data
-        .resources
-        .iter()
-        .take(8)
-        .map(|entry| {
-            let net = entry.produced - entry.consumed;
-            let accent = v9_logistics_signed_color(net);
-            TableRow::new(vec![
-                TableCell::strong(entry.name.as_str()),
-                TableCell::new(format!("{:.0}", entry.stored)).right(),
-                TableCell::colored(format!("{:+.0}", net), accent).right(),
-            ])
-            .accent(accent)
-        })
-        .collect();
-    ui.painter().text(
-        Pos2::new(inner.left(), y + spacing::S4),
-        Align2::LEFT_TOP,
-        "战略资源",
-        TextRole::Subheading.font_id(),
-        palette::BRASS_BRIGHT,
-    );
-    DataTable::new(
-        vec![
-            TableColumn::new("资源", 1.1),
-            TableColumn::new("库存", 0.7).right(),
-            TableColumn::new("净值", 0.7).right(),
-        ],
-        rows,
-    )
-    .row_height(27.0)
-    .show_at(
-        ui,
-        Rect::from_min_max(
-            Pos2::new(inner.left(), y + spacing::S7),
-            Pos2::new(inner.right(), inner.bottom() - 56.0),
-        ),
+    let registry = crate::vanilla_gui::GuiTemplateRegistry::from_documents(context.documents());
+    let mut runtime_state = crate::vanilla_gui::GuiRuntimeState::shown(viewport)
+        .with_pixels_per_point(ctx.pixels_per_point());
+    runtime_state.root_position =
+        crate::vanilla_gui::GuiRuntimeRootPosition::Current(update.position);
+    runtime_state.phase = Some(update.phase);
+    runtime_state.visible = update.visible;
+    runtime_state = apply_logistics_scroll_input(ctx, root, data, viewport, runtime_state);
+
+    let parts = logistics_vanilla_runtime_frame_parts(
+        root,
+        data,
+        viewport,
+        runtime_state,
+        registry.clone(),
+        Some(&context.gfx_index),
+        Some(&mut *icon_bank),
     );
 
-    let procurement = format!(
-        "Procurement {}  |  Maintenance {}",
-        format_rm(data.military_procurement_rm),
-        format_rm(data.military_maintenance_rm)
-    );
-    let galley = ui.painter().layout(
-        procurement,
-        TextRole::Caption.font_id(),
-        palette::PARCHMENT_DIM,
-        inner.width(),
-    );
-    ui.painter().galley(
-        Pos2::new(inner.left(), inner.bottom() - 42.0),
-        galley,
-        palette::PARCHMENT_DIM,
-    );
-}
-
-fn v9_logistics_signed_color(value: f32) -> Color32 {
-    use crate::v9::tokens::palette;
-    if value >= 0.0 {
-        palette::GOOD
-    } else {
-        palette::BAD
-    }
-}
-
-fn render_summary(ui: &mut egui::Ui, data: &LogisticsData) {
-    let net = data.total_daily_production - data.total_daily_need;
-    ui.add_space(6.0);
-    components::summary_strip(
-        ui,
-        &[
-            ("装备种类", data.total_types.to_string()),
-            ("缺口种类", data.deficit_types.to_string()),
-            ("军工日产", signed_one_decimal(data.total_daily_production)),
-            ("军队需求", format!("-{:.1}/日", data.total_daily_need)),
-            ("净变化", signed_one_decimal(net)),
-        ],
-    );
-    ui.add_space(6.0);
-}
-
-fn render_status_banner(ui: &mut egui::Ui, data: &LogisticsData) {
-    let net = data.total_daily_production - data.total_daily_need;
-    let (label, text, color) = if data.deficit_types > 0 {
-        (
-            "补给缺口",
-            format!(
-                "{} 类装备存在缺口，优先检查军购分摊和生产来源。",
-                data.deficit_types
-            ),
-            BAD,
-        )
-    } else if net < 0.0 {
-        (
-            "库存消耗",
-            format!("军队每日净消耗 {:.1}，库存正在被动下降。", -net),
-            WARN,
-        )
-    } else {
-        (
-            "库存稳定",
-            "当前军工日产覆盖军队需求，可继续观察重点装备来源。".to_owned(),
-            GOOD,
-        )
-    };
-
-    egui::Frame::new()
-        .fill(Color32::from_rgba_premultiplied(0x1d, 0x16, 0x10, 230))
-        .stroke(egui::Stroke::new(1.0, color))
-        .inner_margin(egui::Margin::symmetric(10, 7))
-        .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(label).strong().color(color));
-                ui.label(
-                    RichText::new(text)
-                        .small()
-                        .color(Color32::from_rgb(0xe0, 0xd2, 0xa8)),
-                );
-            });
-        });
-    ui.add_space(8.0);
-}
-
-fn render_equipment_section(ui: &mut egui::Ui, data: &LogisticsData) {
-    logistics_card(ui, "装备库存与军工闭环", |ui| {
-        ui.columns(2, |columns| {
-            metric_tile(
-                &mut columns[0],
-                "政府军购",
-                format_rm(data.military_procurement_rm),
-                GOLD_BRIGHT,
+    let mut close_requested = ctx.input(|input| input.key_pressed(egui::Key::Escape));
+    let mut stats = crate::vanilla_gui::RenderStats::default();
+    egui::Area::new(egui::Id::new("countrylogisticsview_vanilla_runtime"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            let outer: Rect = parts.frame.root_layout.rect.into();
+            let visible_outer = outer.intersect(screen);
+            let _ = ui.allocate_rect(visible_outer, Sense::hover());
+            ui.interact(
+                visible_outer,
+                ui.id().with("countrylogisticsview_drag_region"),
+                Sense::click_and_drag(),
             );
-            metric_tile(
-                &mut columns[1],
-                "维护费",
-                format_rm(data.military_maintenance_rm),
-                MUTED,
-            );
-        });
-        ui.add_space(6.0);
-
-        if data.entries.is_empty() {
-            components::empty_state(ui, "暂无装备库存", "生产线与部队需求出现后会在这里汇总。");
-            return;
-        }
-
-        for entry in &data.entries {
-            render_equipment_row(ui, entry);
-            ui.add_space(5.0);
-        }
-    });
-}
-
-fn render_equipment_row(ui: &mut egui::Ui, entry: &LogisticsEntry) {
-    let accent = if entry.deficit > 0.0 {
-        BAD
-    } else if entry.net_change < 0.0 {
-        WARN
-    } else {
-        GOOD
-    };
-    egui::Frame::new()
-        .fill(PANEL_CARD_SOFT)
-        .stroke(egui::Stroke::new(1.0, accent))
-        .inner_margin(egui::Margin::symmetric(9, 7))
-        .show(ui, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.label(RichText::new(&entry.name).strong().color(Color32::WHITE));
-                status_pill(ui, format!("库存 {:.0}", entry.stockpile), GOOD);
-                status_pill(ui, format!("日产 +{:.1}", entry.daily_production), BLUE);
-                status_pill(
+            crate::v9::paint::paint_shadow(ui.painter(), outer, crate::v9::Elevation::E2, 1.0);
+            let renderer = crate::vanilla_gui::VanillaGuiRenderer::new(&context.gfx_index);
+            stats.merge(renderer.paint_tree(
+                ui,
+                root,
+                &parts.frame.root_layout,
+                &parts.bindings,
+                icon_bank,
+            ));
+            for instance in &parts.frame.generated_instances {
+                let Some(template) = registry.get(instance.template_name) else {
+                    continue;
+                };
+                stats.merge(renderer.paint_tree(
                     ui,
-                    format!("净 {:+.1}/日", entry.net_change),
-                    signed_color(entry.net_change),
-                );
-            });
-            ui.add_space(4.0);
-            ui.columns(4, |columns| {
-                small_metric(
-                    &mut columns[0],
-                    "补充",
-                    format!("-{:.1}/日", entry.daily_replenishment_need),
-                );
-                small_metric(
-                    &mut columns[1],
-                    "训练",
-                    format!("-{:.1}/日", entry.daily_training_need),
-                );
-                small_metric(
-                    &mut columns[2],
-                    "维护",
-                    format!("-{:.1}/日", entry.daily_maintenance_need),
-                );
-                small_metric(&mut columns[3], "军购", format_rm(entry.procurement_rm));
-            });
-            if entry.deficit > 0.0 {
-                let empty_text = entry
-                    .days_until_empty
-                    .map(|days| format!("预计 {:.0} 天耗尽", days))
-                    .unwrap_or_else(|| "库存已耗尽".to_owned());
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new(format!("缺口 {:.1}/日，{}", entry.deficit, empty_text))
-                        .small()
-                        .color(BAD),
-                );
-            }
-            if !entry.production_sources.is_empty() {
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new(format!("来源：{}", entry.production_sources.join("、")))
-                        .small()
-                        .color(MUTED),
-                );
+                    template.node,
+                    &instance.layout,
+                    &parts.bindings,
+                    icon_bank,
+                ));
             }
         });
+
+    if logistics_close_requested_from_render_stats(&stats) {
+        close_requested = true;
+    }
+    let commands = logistics_commands_from_render_stats(&profile, data, &stats);
+    log_logistics_render_stats(ctx, &stats, icon_bank);
+
+    if close_requested {
+        crate::vanilla_gui::request_panel_close(ctx, profile.profile_id());
+    }
+
+    (false, commands)
 }
 
-fn render_resource_section(ui: &mut egui::Ui, data: &LogisticsData) {
-    logistics_card(ui, "战略资源速览", |ui| {
-        ui.label(
-            RichText::new("详细供需与市场流向请在市场面板查看。")
-                .small()
-                .color(MUTED),
-        );
-        ui.add_space(6.0);
-        if data.resources.is_empty() {
-            components::empty_state(
-                ui,
-                "暂无战略资源库存",
-                "资源产出和消耗出现后会在这里显示摘要。",
-            );
-            return;
-        }
-        for entry in &data.resources {
-            let net = entry.produced - entry.consumed;
-            let accent = if net < 0.0 { WARN } else { GOOD };
-            egui::Frame::new()
-                .fill(PANEL_CARD_SOFT)
-                .stroke(egui::Stroke::new(1.0, Color32::from_rgb(0x28, 0x31, 0x31)))
-                .inner_margin(egui::Margin::symmetric(8, 6))
-                .show(ui, |ui| {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(&entry.name).strong().color(Color32::WHITE));
-                        status_pill(ui, format!("库存 {:.0}", entry.stored), GOOD);
-                        status_pill(ui, format!("产出 +{:.0}/日", entry.produced), BLUE);
-                        status_pill(ui, format!("消耗 -{:.0}/日", entry.consumed), WARN);
-                        status_pill(ui, format!("净 {:+.0}/日", net), accent);
-                    });
-                });
-            ui.add_space(4.0);
+fn apply_logistics_scroll_input(
+    ctx: &egui::Context,
+    root: &crate::vanilla_gui::GuiNode,
+    data: &LogisticsData,
+    viewport: crate::vanilla_gui::GuiRect,
+    mut runtime_state: crate::vanilla_gui::GuiRuntimeState,
+) -> crate::vanilla_gui::GuiRuntimeState {
+    let bindings = crate::vanilla_gui::bind_profile_tree(&CountryLogisticsProfile, root, data);
+    let probe = crate::vanilla_gui::GuiRuntimeFrame::build(
+        crate::vanilla_gui::GuiRuntimeFrameInput::new(
+            root,
+            viewport,
+            crate::vanilla_gui::COUNTRY_LOGISTICS_PROFILE_ID,
+            &bindings,
+        )
+        .with_runtime_state(runtime_state.clone()),
+    );
+    let Some(scroll_state) = probe
+        .scroll_states
+        .iter()
+        .find(|state| state.node_name.as_deref() == Some("materiel"))
+    else {
+        return runtime_state;
+    };
+
+    let max_scroll = (data.entries.len() as f32 * LOGISTICS_MATERIEL_ROW_HEIGHT
+        - scroll_state.content_clip_rect.height)
+        .max(0.0);
+    let scroll_id = logistics_scroll_offset_id();
+    let mut offset = ctx
+        .data_mut(|data| data.get_persisted::<f32>(scroll_id))
+        .unwrap_or(0.0)
+        .clamp(0.0, max_scroll);
+    let pointer = ctx.input(|input| input.pointer.latest_pos());
+    let clip: Rect = scroll_state.content_clip_rect.into();
+    let wheel = ctx.input(|input| {
+        if input.smooth_scroll_delta.y.abs() > f32::EPSILON {
+            input.smooth_scroll_delta.y
+        } else {
+            input.raw_scroll_delta.y
         }
     });
-}
-
-fn logistics_card(ui: &mut egui::Ui, title: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
-    ui.add_space(5.0);
-    egui::Frame::new()
-        .fill(PANEL_CARD)
-        .stroke(egui::Stroke::new(1.0, STROKE_DARK))
-        .inner_margin(egui::Margin::symmetric(10, 8))
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            ui.label(RichText::new(title).strong().color(GOLD));
-            ui.separator();
-            add_contents(ui);
-        });
-}
-
-fn metric_tile(ui: &mut egui::Ui, label: &str, value: String, color: Color32) {
-    egui::Frame::new()
-        .fill(PANEL_CARD_SOFT)
-        .stroke(egui::Stroke::new(1.0, Color32::from_rgb(0x28, 0x31, 0x31)))
-        .inner_margin(egui::Margin::symmetric(8, 6))
-        .show(ui, |ui| {
-            ui.label(RichText::new(label).small().color(MUTED));
-            ui.label(RichText::new(value).strong().color(color));
-        });
-}
-
-fn small_metric(ui: &mut egui::Ui, label: &str, value: String) {
-    ui.label(RichText::new(label).small().color(MUTED));
-    ui.label(
-        RichText::new(value)
-            .small()
-            .color(Color32::from_rgb(0xe0, 0xd2, 0xa8)),
-    );
-}
-
-fn status_pill(ui: &mut egui::Ui, text: String, color: Color32) {
-    ui.label(RichText::new(text).small().strong().color(color));
-}
-
-fn signed_color(value: f32) -> Color32 {
-    if value >= 0.0 {
-        GOOD
+    if pointer.is_some_and(|pos| clip.contains(pos)) && wheel.abs() > f32::EPSILON {
+        let delta = if scroll_state.spec.smooth_scrolling {
+            -wheel
+        } else {
+            -wheel.signum() * scroll_state.spec.scroll_wheel_factor
+        };
+        let next = (offset + delta).clamp(0.0, max_scroll);
+        if (next - offset).abs() > f32::EPSILON {
+            offset = next;
+            ctx.data_mut(|data| data.insert_persisted(scroll_id, offset));
+            ctx.input_mut(|input| {
+                input.smooth_scroll_delta = Vec2::ZERO;
+                input.raw_scroll_delta = Vec2::ZERO;
+            });
+            ctx.request_repaint();
+        }
     } else {
-        BAD
+        ctx.data_mut(|data| data.insert_persisted(scroll_id, offset));
     }
+    runtime_state = runtime_state.with_scroll_offset(
+        scroll_state.path.clone(),
+        crate::vanilla_gui::GuiPoint { x: 0.0, y: offset },
+    );
+    runtime_state
+}
+
+fn logistics_scroll_offset_id() -> egui::Id {
+    egui::Id::new("countrylogisticsview_materiel_scroll_offset")
+}
+
+fn clear_logistics_scroll_offset(ctx: &egui::Context) {
+    ctx.data_mut(|data| data.insert_persisted(logistics_scroll_offset_id(), 0.0));
+}
+
+fn logistics_close_requested_from_render_stats(stats: &crate::vanilla_gui::RenderStats) -> bool {
+    stats
+        .clicked_commands
+        .iter()
+        .any(|command| command == "close")
+}
+
+fn logistics_commands_from_render_stats(
+    profile: &CountryLogisticsProfile,
+    data: &LogisticsData,
+    stats: &crate::vanilla_gui::RenderStats,
+) -> Vec<PanelCommand> {
+    stats
+        .clicked_commands
+        .iter()
+        .filter(|command| command.as_str() != "close")
+        .filter_map(|command| {
+            profile.handle_action(
+                crate::vanilla_gui::GuiAction {
+                    node_path: crate::vanilla_gui::GuiNodePath::root(command.clone()),
+                    kind: crate::vanilla_gui::GuiActionKind::Click,
+                },
+                data,
+            )
+        })
+        .collect()
+}
+
+fn log_logistics_render_stats(
+    ctx: &egui::Context,
+    stats: &crate::vanilla_gui::RenderStats,
+    icon_bank: &IconBank,
+) {
+    let id = egui::Id::new("countrylogisticsview_render_stats_logged");
+    let already_logged = ctx
+        .data_mut(|data| data.get_persisted::<bool>(id))
+        .unwrap_or(false);
+    if already_logged {
+        return;
+    }
+    println!(
+        "[ui][logistics] render nodes={}/{} sprites={} fallback={} text={} buttons={} progress={} icon_missing_cache={} fallback_labels={:?}",
+        stats.nodes_painted,
+        stats.nodes_seen,
+        stats.sprites_painted,
+        stats.fallback_painted,
+        stats.text_painted,
+        stats.buttons,
+        stats.progress_bars,
+        icon_bank.missing_count(),
+        stats.fallback_labels
+    );
+    ctx.data_mut(|data| data.insert_persisted(id, true));
+}
+
+fn vanilla_logistics_runtime_unavailable_panel(ctx: &egui::Context) -> (bool, Vec<PanelCommand>) {
+    let screen = ctx.screen_rect();
+    let panel = Rect::from_min_size(
+        Pos2::new(screen.left() + 16.0, screen.top() + 92.0),
+        Vec2::new(550.0_f32.min((screen.width() - 32.0).max(260.0)), 210.0),
+    );
+    let report = crate::vanilla_gui::VanillaGuiRuntimeUnavailableReport::for_profile(
+        &crate::vanilla_gui::COUNTRY_LOGISTICS_DESCRIPTOR,
+    );
+    let text_color = Color32::from_rgb(0xe8, 0xe2, 0xd4);
+    let muted_color = Color32::from_rgb(0xa5, 0xa0, 0x94);
+    let mut close = ctx.input(|input| input.key_pressed(egui::Key::Escape));
+    egui::Area::new(egui::Id::new("countrylogisticsview_runtime_unavailable"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(panel.min)
+        .show(ctx, |ui| {
+            let local = Rect::from_min_size(Pos2::ZERO, panel.size());
+            let response = ui.allocate_rect(local, Sense::click_and_drag());
+            let painter = ui.painter();
+            painter.rect_filled(local, 1.0, Color32::from_rgb(0x0a, 0x0d, 0x0c));
+            painter.rect_stroke(
+                local,
+                1.0,
+                egui::Stroke::new(1.0, Color32::from_rgb(0x6e, 0x5a, 0x35)),
+                egui::StrokeKind::Inside,
+            );
+            painter.text(
+                Pos2::new(local.left() + 16.0, local.top() + 16.0),
+                egui::Align2::LEFT_TOP,
+                "Vanilla logistics runtime unavailable",
+                crate::v9::TextRole::Heading.font_id(),
+                text_color,
+            );
+            painter.text(
+                Pos2::new(local.left() + 16.0, local.top() + 54.0),
+                egui::Align2::LEFT_TOP,
+                report.reason,
+                crate::v9::TextRole::Body.font_id(),
+                muted_color,
+            );
+            painter.text(
+                Pos2::new(local.left() + 16.0, local.top() + 88.0),
+                egui::Align2::LEFT_TOP,
+                format!(
+                    "required: {}",
+                    crate::vanilla_gui::COUNTRY_LOGISTICS_GUI_FILE
+                ),
+                crate::v9::TextRole::Caption.font_id(),
+                muted_color,
+            );
+            let close_rect = Rect::from_min_size(
+                Pos2::new(local.right() - 38.0, local.top() + 10.0),
+                Vec2::splat(26.0),
+            );
+            if ui
+                .put(close_rect, egui::Button::new("X"))
+                .on_hover_text(tr("panel_close_hint"))
+                .clicked()
+            {
+                close = true;
+            }
+            response.on_hover_cursor(egui::CursorIcon::Grab);
+        });
+    (close, Vec::new())
 }
 
 fn signed_one_decimal(value: f32) -> String {
     format!("{:+.1}/日", value)
-}
-
-fn format_rm(value: f64) -> String {
-    if value.abs() >= 1_000_000.0 {
-        format!("{:.1}M RM/日", value / 1_000_000.0)
-    } else if value.abs() >= 1_000.0 {
-        format!("{:.1}K RM/日", value / 1_000.0)
-    } else {
-        format!("{:.0} RM/日", value)
-    }
 }

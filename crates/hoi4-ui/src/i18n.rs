@@ -3,6 +3,8 @@
 //! 极简实现：一个 [`Language`] 枚举 + 一个 [`tr`] 函数按 key 返回当前语言字符串。
 //! 所有 UI 文本统一走 `tr("key")`，不再硬编码双语拼接。
 
+use std::sync::atomic::{AtomicU8, Ordering};
+
 /// 支持的语言。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Language {
@@ -35,6 +37,20 @@ impl Language {
             _ => Self::English,
         }
     }
+
+    const fn as_u8(self) -> u8 {
+        match self {
+            Self::English => 0,
+            Self::Chinese => 1,
+        }
+    }
+
+    fn from_u8(value: u8) -> Self {
+        match value {
+            0 => Self::English,
+            _ => Self::Chinese,
+        }
+    }
 }
 
 impl Default for Language {
@@ -43,19 +59,17 @@ impl Default for Language {
     }
 }
 
-/// 全局当前语言（简单 static；单线程游戏无竞争）。
-static mut CURRENT_LANG: Language = Language::Chinese;
+/// 全局当前语言。
+static CURRENT_LANG: AtomicU8 = AtomicU8::new(Language::Chinese.as_u8());
 
 /// 设置当前语言。
 pub fn set_language(lang: Language) {
-    unsafe {
-        CURRENT_LANG = lang;
-    }
+    CURRENT_LANG.store(lang.as_u8(), Ordering::Relaxed);
 }
 
 /// 获取当前语言。
 pub fn current_language() -> Language {
-    unsafe { CURRENT_LANG }
+    Language::from_u8(CURRENT_LANG.load(Ordering::Relaxed))
 }
 
 /// 按 key 查找当前语言的翻译。找不到时返回 key 本身。
@@ -138,6 +152,11 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     ("buildings_panel_title", ["Buildings & Production", "建筑与生产"]),
     ("research", ["Research", "科研"]),
     ("diplomacy", ["Diplomacy", "外交"]),
+    ("DIPLOMACY_RELATIONS_TAB", ["Diplomacy", "外交"]),
+    ("DIPLOMACY_INFO_TAB", ["Details", "详细"]),
+    ("DIPLOMACY_INTELLIGENCE", ["Intelligence Information", "情报信息"]),
+    ("OPEN_COUNTRY_LIST", ["Open Country List", "打开国家列表"]),
+    ("OPEN_COUNTRY_LOGISTICS", ["Open Country Logistics", "打开国家后勤"]),
     ("military", ["Military", "军事"]),
     ("national_focus", ["National Focus", "国策"]),
     // ─── Politics panel ───────────────────────────────────────
@@ -1141,6 +1160,34 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     ("need_wargoal_first", ["Justify a wargoal first", "需先正当化战争目标"]),
     ("leader_unknown", ["Unknown leader", "元首信息缺失"]),
     ("request_access", ["Request Access", "请求军事通行"]),
+    ("no_faction", ["No faction", "没有阵营"]),
+    ("unknown_national_focus", ["Unknown Focus", "未知国策"]),
+    (
+        "diplomacy_action_unavailable",
+        [
+            "This diplomatic action is not implemented yet.",
+            "该外交行动尚未接入。",
+        ],
+    ),
+    ("guarantee_independence", ["Guarantee Independence", "保障独立"]),
+    ("offer_military_access", ["Offer Military Access", "提供军事通行权"]),
+    ("request_docking_rights", ["Request Docking Rights", "请求驻港权"]),
+    ("offer_docking_rights", ["Offer Docking Rights", "给予驻港权"]),
+    ("request_airbase_access", ["Request Air Base Access", "要求空军基地通行权"]),
+    ("offer_airbase_access", ["Offer Air Base Access", "提供空军基地通行权"]),
+    ("improve_relations", ["Improve Relations", "改善关系"]),
+    ("send_attache", ["Send Attache", "派遣军事顾问"]),
+    ("non_aggression_pact", ["Non-Aggression Pact", "互不侵犯条约"]),
+    ("ask_to_join_faction", ["Ask to Join Faction", "请求加入阵营"]),
+    ("negotiate_license", ["Negotiate Licenses", "谈判许可"]),
+    ("lend_lease", ["Lend Lease", "起草租借法案"]),
+    ("request_lend_lease", ["Request Lend Lease", "请求租借"]),
+    ("trade_embargo", ["Trade Embargo", "发布贸易禁运"]),
+    ("send_volunteers", ["Send Volunteers", "派遣志愿军"]),
+    ("expeditionary_force", ["Expeditionary Force", "远征军"]),
+    ("withdraw_expeditionary_force", ["Withdraw Expeditionary Force", "撤回远征军"]),
+    ("market_access", ["Market Access", "协商市场准入"]),
+    ("naval_blockade", ["Naval Blockade", "实施海上封锁"]),
     // ─── J.2 Province InfoCard ────────────────────────────────
     ("province_info", ["Province Info", "省份信息"]),
     ("state_province_info", ["Province / State Details", "省份 / 州详情"]),

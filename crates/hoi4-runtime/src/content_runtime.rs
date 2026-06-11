@@ -215,8 +215,13 @@ impl ContentRuntimeState {
             );
             if triggered {
                 out.cascaded_triggers.push(trigger.event_id.clone());
-                out.effect_report.merge(cascade_report);
+            } else {
+                out.effect_report.warnings.push(format!(
+                    "Pending TriggerEvent skipped: event id={} source={} effect_country={:?} display_country={:?}",
+                    trigger.event_id, trigger.source, trigger.effect_country, trigger.display_country
+                ));
             }
+            out.effect_report.merge(cascade_report);
         }
         out.pause_for_country_event = self
             .event_scheduler
@@ -241,4 +246,65 @@ pub struct ContentTickEvents {
     pub peace_resolution: PeaceResolutionOutcome,
     /// P1.3：效果执行报告（包含 warnings、errors）
     pub effect_report: hoi4_content::eval::EffectReport,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Arc;
+
+    fn minimal_world() -> World {
+        let map = Arc::new(hoi4_map::GameMap {
+            definitions: Vec::new(),
+            rgb_to_id: HashMap::new(),
+            province_map: hoi4_map::ProvinceMap {
+                width: 0,
+                height: 0,
+                pixels: Vec::new(),
+            },
+            adjacencies: Vec::new(),
+            special_adjacencies: Vec::new(),
+            heightmap: hoi4_map::Heightmap {
+                width: 0,
+                height: 0,
+                pixels: Vec::new(),
+            },
+            terrain_bmp: hoi4_map::TerrainBitmap {
+                width: 0,
+                height: 0,
+                pixels: Vec::new(),
+                palette: [[0; 3]; 256],
+            },
+            terrain_catalog: hoi4_map::TerrainCatalog::default(),
+            tree_definition_bmp: None,
+            tree_indices: HashSet::new(),
+        });
+        World::new(map, Arc::new(hoi4_data::GameData::default()))
+    }
+
+    #[test]
+    fn pending_trigger_failure_reports_warning() {
+        let mut runtime = ContentRuntimeState::empty_for_test(CountryId::NONE, 0);
+        runtime
+            .global_flags
+            .pending_triggers
+            .push_back(hoi4_content::eval::PendingTrigger {
+                event_id: "missing.event".to_owned(),
+                effect_country: CountryId::NONE,
+                display_country: CountryId::NONE,
+                source: "unit-test".to_owned(),
+            });
+
+        let mut world = minimal_world();
+        let out = runtime.process_pending_triggers(&mut world);
+
+        assert!(out.cascaded_triggers.is_empty());
+        assert!(out.effect_report.has_warnings());
+        assert!(out
+            .effect_report
+            .warnings
+            .iter()
+            .any(|warning| { warning.contains("missing.event") && warning.contains("unit-test") }));
+    }
 }

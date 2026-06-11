@@ -9,8 +9,8 @@ use super::diagnostics::GfxHitReport;
 use super::error::VanillaGuiIssueKind;
 use super::{
     collect_gfx_references, focus_spacing_marker, link_begin_marker, link_end_marker,
-    link_spacing_marker, national_focus_center_marker, parse_gui_file, GfxIndex, GuiDocument,
-    GuiNode, VanillaProfileDescriptor,
+    link_spacing_marker, national_focus_center_marker, parse_gui_file, GfxIndex, GuiBinding,
+    GuiBindingMap, GuiDocument, GuiNode, GuiNodePath, VanillaProfileDescriptor,
 };
 
 pub const COUNTRY_POLITICS_PROFILE_ID: &str = "country_politics";
@@ -24,6 +24,16 @@ pub const COUNTRY_DECISION_ROOT: &str = "countrydecisionview";
 pub const NATIONAL_FOCUS_PROFILE_ID: &str = "national_focus";
 pub const NATIONAL_FOCUS_GUI_FILE: &str = "interface/nationalfocusview.gui";
 pub const NATIONAL_FOCUS_ROOT: &str = "nationalfocusview";
+
+pub const COUNTRY_LOGISTICS_PROFILE_ID: &str = "country_logistics";
+pub const COUNTRY_LOGISTICS_GUI_FILE: &str = "interface/countrylogisticsview.gui";
+pub const COUNTRY_LOGISTICS_GFX_FILE: &str = "interface/countrylogisticsview.gfx";
+pub const COUNTRY_LOGISTICS_ROOT: &str = "countrylogisticsview";
+
+pub const COUNTRY_DIPLOMACY_PROFILE_ID: &str = "country_diplomacy";
+pub const COUNTRY_DIPLOMACY_GUI_FILE: &str = "interface/countrydiplomacyview.gui";
+pub const COUNTRY_DIPLOMACY_GFX_FILE: &str = "interface/countrydiplomacyview.gfx";
+pub const COUNTRY_DIPLOMACY_ROOT: &str = "countrydiplomacyview";
 
 pub const POLITICS_REQUIRED_SPRITES: &[&str] = &[
     "GFX_tiled_plain_bg",
@@ -69,6 +79,84 @@ pub const FOCUS_REQUIRED_SPRITES: &[&str] = &[
     "GFX_focus_link_exclusive",
     "GFX_focus_exclusive_line1",
     "GFX_focus_exclusive_line2",
+];
+
+pub const LOGISTICS_REQUIRED_SPRITES: &[&str] = &[
+    "GFX_logistics_progressbar",
+    "GFX_logistics_fuelbar",
+    "GFX_logistics_equipment_entry_bg",
+    "GFX_logistics_naval_equipment_entry_bg",
+    "GFX_logistics_air_equipment_entry_bg",
+    "GFX_in_stock_icon",
+    "GFX_balance_icon",
+    "GFX_need_icon",
+    "GFX_producing_icon",
+];
+
+pub const DIPLOMACY_REQUIRED_SPRITES: &[&str] = &[
+    "GFX_tiled_bg",
+    "GFX_tiled_window_1b_thin_border",
+    "GFX_tiled_window_transparent",
+    "GFX_diplo_upper_win_bg",
+    "GFX_diplo_upper_diplo_bg",
+    "GFX_diplo_flag_frame",
+    "GFX_diplo_leader_frame",
+    "GFX_tab_diplomacy_bg",
+    "GFX_tab_intel_ledger",
+    "GFX_diplo_opinion_bg",
+    "GFX_diplo_unity_bg",
+    "GFX_stability_icon",
+    "GFX_war_support_icon",
+    "GFX_ideology_neutrality_group",
+    "GFX_ideology_communism_group",
+    "GFX_ideology_fascism_group",
+    "GFX_ideology_democratic_group",
+    "GFX_ideology_unknown",
+    "GFX_political_chart_big",
+    "GFX_political_chart",
+    "GFX_pol_piechart_overlay",
+    "GFX_diplo_nat_spirits_bg",
+    "GFX_diplo_goal_button",
+    "GFX_goal_unknown",
+    "GFX_activegoal_progress",
+    "GFX_pol_goal_progress_frame",
+    "GFX_diplo_actions_bg",
+    "GFX_win_header_short",
+    "GFX_diplo_relations_bg",
+    "GFX_relation_war_relation",
+    "GFX_relation_faction",
+    "GFX_relation_wargoal",
+    "GFX_relation_military_access",
+    "GFX_relation_puppet",
+    "GFX_relation_master",
+    "GFX_diplo_countrylist_entry",
+    "GFX_diplo_countrylist_flag_frame",
+    "GFX_opinion_bg",
+    "GFX_opinion_arrow_left",
+    "GFX_opinion_arrow_right",
+    "GFX_accept_decline_icon",
+    "GFX_closebutton",
+];
+
+pub const DIPLOMACY_KEY_TEMPLATES: &[&str] = &[
+    "diplomacy_action_entry",
+    "relation_strip_view",
+    "subject_relation_strip_view",
+    "diplomacy_country_list_country_entry",
+    "diplomacy_wargoal_entry",
+];
+
+pub const DIPLOMACY_INTEL_HIDDEN_NODES: &[&str] = &[
+    "intel_ledger_container",
+    "info_tab_button",
+    "ideas_info",
+    "trade_info",
+    "estimated_enemy_force_info",
+];
+
+pub const DIPLOMACY_EXCLUDED_TEMPLATES: &[&str] = &[
+    "diplomacy_espionage_mission_ideologygroup_item",
+    "diplomacy_espionage_state_entry",
 ];
 
 pub const COUNTRY_POLITICS_DESCRIPTOR: VanillaProfileDescriptor = VanillaProfileDescriptor {
@@ -124,6 +212,30 @@ pub const NATIONAL_FOCUS_DESCRIPTOR: VanillaProfileDescriptor = VanillaProfileDe
         "national_focus_exclusive_item",
         "national_focus_detail_view",
     ],
+};
+
+pub const COUNTRY_LOGISTICS_DESCRIPTOR: VanillaProfileDescriptor = VanillaProfileDescriptor {
+    profile_id: COUNTRY_LOGISTICS_PROFILE_ID,
+    root_template: COUNTRY_LOGISTICS_ROOT,
+    required_gui_files: &[COUNTRY_LOGISTICS_GUI_FILE],
+    template_instances: &[],
+    required_sprites: LOGISTICS_REQUIRED_SPRITES,
+    key_templates: &[
+        "logistics_overview_land_equipment_entry",
+        "logistics_overview_naval_equipment_entry",
+        "logistics_overview_air_equipment_entry",
+        "logistics_overview_resource_item",
+        "logistics_entry_resource_item",
+    ],
+};
+
+pub const COUNTRY_DIPLOMACY_DESCRIPTOR: VanillaProfileDescriptor = VanillaProfileDescriptor {
+    profile_id: COUNTRY_DIPLOMACY_PROFILE_ID,
+    root_template: COUNTRY_DIPLOMACY_ROOT,
+    required_gui_files: &[COUNTRY_DIPLOMACY_GUI_FILE],
+    template_instances: &[],
+    required_sprites: DIPLOMACY_REQUIRED_SPRITES,
+    key_templates: DIPLOMACY_KEY_TEMPLATES,
 };
 
 #[derive(Debug)]
@@ -570,11 +682,31 @@ pub fn country_politics_runtime_context() -> Option<&'static VanillaGuiRuntimeCo
         .as_ref()
 }
 
+pub fn country_logistics_runtime_context() -> Option<&'static VanillaGuiRuntimeContext> {
+    static CACHE: OnceLock<Option<VanillaGuiRuntimeContext>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            VanillaGuiRuntimeContext::load(COUNTRY_LOGISTICS_DESCRIPTOR.required_gui_files)
+        })
+        .as_ref()
+}
+
+pub fn country_diplomacy_runtime_context() -> Option<&'static VanillaGuiRuntimeContext> {
+    static CACHE: OnceLock<Option<VanillaGuiRuntimeContext>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            VanillaGuiRuntimeContext::load(COUNTRY_DIPLOMACY_DESCRIPTOR.required_gui_files)
+        })
+        .as_ref()
+}
+
 pub fn vanilla_builtin_profile_descriptors() -> &'static [VanillaProfileDescriptor] {
     &[
         COUNTRY_POLITICS_DESCRIPTOR,
         COUNTRY_DECISION_DESCRIPTOR,
         NATIONAL_FOCUS_DESCRIPTOR,
+        COUNTRY_LOGISTICS_DESCRIPTOR,
+        COUNTRY_DIPLOMACY_DESCRIPTOR,
     ]
 }
 
@@ -600,6 +732,42 @@ pub fn collect_profile_gfx_references(
     refs.sort();
     refs.dedup();
     refs
+}
+
+pub fn country_diplomacy_no_intel_bindings(root: &GuiNode) -> GuiBindingMap {
+    let mut bindings = GuiBindingMap::default();
+    collect_country_diplomacy_no_intel_bindings(
+        root,
+        GuiNodePath::root(root.path_label(0)),
+        &mut bindings,
+    );
+    bindings
+}
+
+pub fn country_diplomacy_is_excluded_template(template_name: &str) -> bool {
+    DIPLOMACY_EXCLUDED_TEMPLATES.contains(&template_name)
+}
+
+fn collect_country_diplomacy_no_intel_bindings(
+    node: &GuiNode,
+    path: GuiNodePath,
+    bindings: &mut GuiBindingMap,
+) {
+    if node
+        .name
+        .as_deref()
+        .is_some_and(|name| DIPLOMACY_INTEL_HIDDEN_NODES.contains(&name))
+    {
+        bindings.insert_path(path.clone(), GuiBinding::default().visible(false));
+    }
+
+    for (index, child) in node.children.iter().enumerate() {
+        collect_country_diplomacy_no_intel_bindings(
+            child,
+            path.child(child.path_label(index)),
+            bindings,
+        );
+    }
 }
 
 pub fn required_focus_marker_report(root: &GuiNode) -> BTreeMap<&'static str, (f32, f32)> {
@@ -703,11 +871,15 @@ mod tests {
         registry.register_descriptor(COUNTRY_POLITICS_DESCRIPTOR);
         registry.register_descriptor(COUNTRY_DECISION_DESCRIPTOR);
         registry.register_descriptor(NATIONAL_FOCUS_DESCRIPTOR);
+        registry.register_descriptor(COUNTRY_LOGISTICS_DESCRIPTOR);
+        registry.register_descriptor(COUNTRY_DIPLOMACY_DESCRIPTOR);
 
-        assert_eq!(registry.len(), 3);
+        assert_eq!(registry.len(), 5);
         assert!(registry.get(COUNTRY_POLITICS_PROFILE_ID).is_some());
         assert!(registry.get(COUNTRY_DECISION_PROFILE_ID).is_some());
         assert!(registry.get(NATIONAL_FOCUS_PROFILE_ID).is_some());
+        assert!(registry.get(COUNTRY_LOGISTICS_PROFILE_ID).is_some());
+        assert!(registry.get(COUNTRY_DIPLOMACY_PROFILE_ID).is_some());
         assert_eq!(
             registry
                 .get(COUNTRY_DECISION_PROFILE_ID)
@@ -743,6 +915,8 @@ mod tests {
         assert!(report.contains("country_politics"));
         assert!(report.contains("country_decisions"));
         assert!(report.contains("national_focus"));
+        assert!(report.contains("country_logistics"));
+        assert!(report.contains("country_diplomacy"));
         assert!(report.contains("gui_loaded:"));
         assert!(report.contains("gfx_hits:") || report.contains("runtime_available: false"));
         assert!(report.contains("missing_sprites:") || report.contains("reason:"));

@@ -45,6 +45,15 @@ pub trait VanillaPanelProfile {
 
     fn bind_node(&self, node_path: &GuiNodePath, data: &Self::Data) -> GuiBinding;
 
+    fn bind_node_with_context(
+        &self,
+        node_path: &GuiNodePath,
+        data: &Self::Data,
+        _instance: Option<&GuiInstanceContext>,
+    ) -> GuiBinding {
+        self.bind_node(node_path, data)
+    }
+
     fn handle_action(&self, action: GuiAction, data: &Self::Data) -> Option<Self::Command>;
 
     fn uses_slide_animation(&self) -> bool {
@@ -60,6 +69,37 @@ pub trait VanillaPanelProfile {
             required_sprites: self.required_sprites(),
             key_templates: self.key_templates(),
         }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuiInstanceContext {
+    pub template_name: String,
+    pub index: usize,
+    pub parent_path: GuiNodePath,
+    pub semantic_role: Option<String>,
+    pub model_key: Option<String>,
+}
+
+impl GuiInstanceContext {
+    pub fn new(template_name: impl Into<String>, index: usize, parent_path: GuiNodePath) -> Self {
+        Self {
+            template_name: template_name.into(),
+            index,
+            parent_path,
+            semantic_role: None,
+            model_key: None,
+        }
+    }
+
+    pub fn with_semantic_role(mut self, role: impl Into<String>) -> Self {
+        self.semantic_role = Some(role.into());
+        self
+    }
+
+    pub fn with_model_key(mut self, model_key: impl Into<String>) -> Self {
+        self.model_key = Some(model_key.into());
+        self
     }
 }
 
@@ -117,6 +157,18 @@ pub fn bind_profile_tree_with_path<P: VanillaPanelProfile>(
     bindings
 }
 
+pub fn bind_profile_tree_with_path_and_context<P: VanillaPanelProfile>(
+    profile: &P,
+    root: &GuiNode,
+    data: &P::Data,
+    root_path: GuiNodePath,
+    instance: Option<&GuiInstanceContext>,
+) -> GuiBindingMap {
+    let mut bindings = GuiBindingMap::default();
+    bind_profile_node_with_context(profile, root, data, root_path, instance, &mut bindings);
+    bindings
+}
+
 fn bind_profile_node<P: VanillaPanelProfile>(
     profile: &P,
     node: &GuiNode,
@@ -131,6 +183,30 @@ fn bind_profile_node<P: VanillaPanelProfile>(
             child,
             data,
             path.child(child.path_label(index)),
+            bindings,
+        );
+    }
+}
+
+fn bind_profile_node_with_context<P: VanillaPanelProfile>(
+    profile: &P,
+    node: &GuiNode,
+    data: &P::Data,
+    path: GuiNodePath,
+    instance: Option<&GuiInstanceContext>,
+    bindings: &mut GuiBindingMap,
+) {
+    bindings.insert_path(
+        path.clone(),
+        profile.bind_node_with_context(&path, data, instance),
+    );
+    for (index, child) in node.children.iter().enumerate() {
+        bind_profile_node_with_context(
+            profile,
+            child,
+            data,
+            path.child(child.path_label(index)),
+            instance,
             bindings,
         );
     }

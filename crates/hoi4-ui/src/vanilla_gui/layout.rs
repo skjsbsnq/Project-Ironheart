@@ -4,6 +4,9 @@ use clausewitz_parser::{Block, Value};
 
 use super::ast::{GuiNode, GuiNodeKind, GuiNodePath, GuiValueExt};
 use super::error::{VanillaGuiIssue, VanillaGuiIssueKind};
+use super::intrinsic::{
+    GuiControlRects, GuiIntrinsicAnchor, GuiIntrinsicSize, GuiLayoutIntrinsics,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GuiDim {
@@ -121,7 +124,12 @@ pub struct LayoutOptions {
     pub viewport: GuiRect,
     pub use_show_position: bool,
     pub visibility_overrides: HashMap<GuiNodePath, bool>,
+    pub position_overrides: HashMap<GuiNodePath, GuiPoint>,
+    pub size_overrides: HashMap<GuiNodePath, GuiSize>,
     pub instance_overrides: HashMap<GuiNodePath, usize>,
+    pub scroll_offsets: HashMap<GuiNodePath, GuiPoint>,
+    pub intrinsics: GuiLayoutIntrinsics,
+    pub pixels_per_point: f32,
 }
 
 impl LayoutOptions {
@@ -130,12 +138,47 @@ impl LayoutOptions {
             viewport,
             use_show_position: false,
             visibility_overrides: HashMap::new(),
+            position_overrides: HashMap::new(),
+            size_overrides: HashMap::new(),
             instance_overrides: HashMap::new(),
+            scroll_offsets: HashMap::new(),
+            intrinsics: GuiLayoutIntrinsics::empty(),
+            pixels_per_point: 1.0,
         }
     }
 
     pub fn shown_position(mut self, value: bool) -> Self {
         self.use_show_position = value;
+        self
+    }
+
+    pub fn with_scroll_offsets(mut self, offsets: HashMap<GuiNodePath, GuiPoint>) -> Self {
+        self.scroll_offsets = offsets;
+        self
+    }
+
+    pub fn with_visibility_overrides(mut self, overrides: HashMap<GuiNodePath, bool>) -> Self {
+        self.visibility_overrides = overrides;
+        self
+    }
+
+    pub fn with_position_overrides(mut self, overrides: HashMap<GuiNodePath, GuiPoint>) -> Self {
+        self.position_overrides = overrides;
+        self
+    }
+
+    pub fn with_size_overrides(mut self, overrides: HashMap<GuiNodePath, GuiSize>) -> Self {
+        self.size_overrides = overrides;
+        self
+    }
+
+    pub fn with_intrinsics(mut self, intrinsics: GuiLayoutIntrinsics) -> Self {
+        self.intrinsics = intrinsics;
+        self
+    }
+
+    pub fn with_pixels_per_point(mut self, pixels_per_point: f32) -> Self {
+        self.pixels_per_point = pixels_per_point.max(0.001);
         self
     }
 }
@@ -147,9 +190,12 @@ pub struct LayoutNode {
     pub kind: GuiNodeKind,
     pub rect: GuiRect,
     pub clip_rect: GuiRect,
+    pub rects: GuiControlRects,
+    pub intrinsic_size: Option<GuiIntrinsicSize>,
     pub visible: bool,
     pub scale: f32,
     pub scroll: Option<ScrollSpec>,
+    pub scroll_offset: GuiPoint,
     pub children: Vec<LayoutNode>,
     pub issues: Vec<VanillaGuiIssue>,
 }
@@ -288,8 +334,26 @@ fn layout_node(
     } else {
         "position"
     };
-    let local = parse_point_block(node.block(position_key), &mut issues);
-    let size = resolve_size(node, parent, scale, &mut issues);
+    let local = options
+        .position_overrides
+        .get(&path)
+        .copied()
+        .unwrap_or_else(|| parse_point_block(node.block(position_key), &mut issues));
+    let intrinsic_size = options.intrinsics.intrinsic_for_node(node);
+    let mut size = resolve_size(
+        node,
+        parent,
+        scale,
+        local,
+        intrinsic_size.as_ref(),
+        &mut issues,
+    );
+    if let Some(override_size) = options.size_overrides.get(&path).copied() {
+        size = GuiSize {
+            width: (override_size.width * scale).max(0.0),
+            height: (override_size.height * scale).max(0.0),
+        };
+    }
     let orientation = GuiOrientation::parse(node.string("orientation"));
     let centerposition = node.bool("centerposition").unwrap_or(false);
     let hidden = node.bool("hide").unwrap_or(false);
@@ -321,20 +385,54 @@ fn layout_node(
     if centerposition {
         x -= size.width * 0.5;
         y -= size.height * 0.5;
+    } else if intrinsic_size
+        .as_ref()
+        .is_some_and(|intrinsic| intrinsic.anchor == GuiIntrinsicAnchor::PieChartCenterXTop)
+    {
+        x -= size.width * 0.5;
     }
 
     let rect = GuiRect::new(parent.x + x, parent.y + y, size.width, size.height);
-    let clip_rect = if node.bool("clipping").unwrap_or(false) {
-        parent_clip.intersect(rect)
+    let scroll = scroll_spec(node);
+    let content_clip_rect = if scroll.is_some() {
+        apply_scroll_margin(rect, scroll.unwrap().margin)
+    } else {
+        rect
+    };
+    let clip_rect = if node.bool("clipping").unwrap_or(false) || scroll.is_some() {
+        parent_clip.intersect(content_clip_rect)
     } else {
         parent_clip
     };
+    let mut rects = GuiControlRects::resolve(
+        node,
+        rect,
+        intrinsic_size.as_ref(),
+        scale,
+        options.pixels_per_point,
+    );
+    rects.hit_rect = rects.hit_rect.intersect(clip_rect);
 
     let mut children = Vec::new();
+    let child_scroll = options
+        .scroll_offsets
+        .get(&path)
+        .copied()
+        .unwrap_or_default();
+    let child_parent = if scroll.is_some() {
+        GuiRect::new(
+            content_clip_rect.x - child_scroll.x,
+            content_clip_rect.y - child_scroll.y,
+            content_clip_rect.width,
+            content_clip_rect.height,
+        )
+    } else {
+        rect
+    };
     for (index, child) in node.children.iter().enumerate() {
         let child_label = child.path_label(index);
         let child_path = path.child(child_label);
-        let child_layout = layout_node(child, child_path, rect, clip_rect, options);
+        let child_layout = layout_node(child, child_path, child_parent, clip_rect, options);
         children.push(child_layout);
     }
 
@@ -344,9 +442,12 @@ fn layout_node(
         kind: node.kind.clone(),
         rect,
         clip_rect,
+        rects,
+        intrinsic_size,
         visible,
         scale,
-        scroll: scroll_spec(node),
+        scroll,
+        scroll_offset: child_scroll,
         children,
         issues,
     }
@@ -364,9 +465,17 @@ fn resolve_size(
     node: &GuiNode,
     parent: GuiRect,
     scale: f32,
+    local_position: GuiPoint,
+    intrinsic_size: Option<&GuiIntrinsicSize>,
     issues: &mut Vec<VanillaGuiIssue>,
 ) -> GuiSize {
     let Some(block) = node.block("size") else {
+        if let Some(intrinsic) = intrinsic_size.filter(|intrinsic| intrinsic.is_positive()) {
+            return GuiSize {
+                width: intrinsic.size.width * scale,
+                height: intrinsic.size.height * scale,
+            };
+        }
         if matches!(
             node.kind,
             GuiNodeKind::Background | GuiNodeKind::GridBox | GuiNodeKind::OverlappingElementsBox
@@ -383,9 +492,19 @@ fn resolve_size(
     let width_dim = dim_from_block_any(block, &["width", "x"], issues);
     let height_dim = dim_from_block_any(block, &["height", "y"], issues);
     GuiSize {
-        width: resolve_size_extent(width_dim, parent.width, 0.0).max(0.0) * scale,
-        height: resolve_size_extent(height_dim, parent.height, 0.0).max(0.0) * scale,
+        width: resolve_size_extent(width_dim, parent.width, local_position.x, 0.0).max(0.0) * scale,
+        height: resolve_size_extent(height_dim, parent.height, local_position.y, 0.0).max(0.0)
+            * scale,
     }
+}
+
+fn apply_scroll_margin(rect: GuiRect, margin: GuiMargin) -> GuiRect {
+    GuiRect::new(
+        rect.x + margin.left,
+        rect.y + margin.top,
+        (rect.width - margin.left - margin.right).max(0.0),
+        (rect.height - margin.top - margin.bottom).max(0.0),
+    )
 }
 
 fn parse_point_block(block: Option<&Block>, issues: &mut Vec<VanillaGuiIssue>) -> GuiPoint {
@@ -455,9 +574,9 @@ fn dim_from_value(value: &Value, key: &str, issues: &mut Vec<VanillaGuiIssue>) -
     }
 }
 
-fn resolve_size_extent(dim: GuiDim, parent_extent: f32, fallback: f32) -> f32 {
+fn resolve_size_extent(dim: GuiDim, parent_extent: f32, local_offset: f32, fallback: f32) -> f32 {
     match dim {
-        GuiDim::Px(value) if value < 0.0 => parent_extent + value,
+        GuiDim::Px(value) if value < 0.0 => parent_extent - local_offset + value,
         _ => dim.resolve(parent_extent, fallback),
     }
 }
@@ -714,6 +833,36 @@ guiTypes = {
     }
 
     #[test]
+    fn negative_size_extends_from_local_position_to_parent_edge_margin() {
+        let doc = parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    containerWindowType = {
+        name = "root"
+        size = { width=550 height=400 }
+        containerWindowType = {
+            name = "fill"
+            position = { x=20 y=100 }
+            size = { width=-20 height=-50 }
+        }
+    }
+}
+"#,
+        );
+        let root = doc.template_index().get("root").unwrap();
+        let layout = compute_layout_tree(
+            root,
+            &LayoutOptions::new(GuiRect::new(0.0, 0.0, 800.0, 600.0)),
+        );
+        let fill = layout.find_by_name("fill").unwrap();
+        assert_eq!(fill.rect.x, 20.0);
+        assert_eq!(fill.rect.y, 100.0);
+        assert_eq!(fill.rect.width, 510.0);
+        assert_eq!(fill.rect.height, 250.0);
+    }
+
+    #[test]
     fn center_orientation_offsets_from_parent_center() {
         let doc = parse_gui_str(
             None,
@@ -924,6 +1073,45 @@ guiTypes = {
                 right: 25.0,
             }
         );
+    }
+
+    #[test]
+    fn scroll_margin_offsets_child_content_origin() {
+        let doc = parse_gui_str(
+            None,
+            r#"
+guiTypes = {
+    containerWindowType = {
+        name = "root"
+        size = { width = 300 height = 200 }
+        containerWindowType = {
+            name = "scroll"
+            position = { x = 10 y = 20 }
+            size = { width = 200 height = 100 }
+            margin = { top = 20 left = 5 bottom = 10 right = 5 }
+            verticalScrollbar = "right_vertical_slider"
+            gridBoxType = {
+                name = "rows"
+                position = { x = 0 y = 0 }
+                size = { width = 100%% height = 100%% }
+                slotsize = { width = 100% height = 25 }
+                max_slots_horizontal = 1
+            }
+        }
+    }
+}
+"#,
+        );
+        let root = doc.template_index().get("root").unwrap();
+        let layout = compute_layout_tree(
+            root,
+            &LayoutOptions::new(GuiRect::new(0.0, 0.0, 300.0, 200.0)),
+        );
+        let scroll = layout.find_by_name("scroll").unwrap();
+        let rows = layout.find_by_name("rows").unwrap();
+
+        assert_eq!(scroll.clip_rect, GuiRect::new(15.0, 40.0, 190.0, 70.0));
+        assert_eq!(rows.rect, GuiRect::new(15.0, 40.0, 190.0, 70.0));
     }
 
     #[test]

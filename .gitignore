@@ -11,6 +11,10 @@
 *.trace
 *.jsonl
 
+# Local vanilla GUI scratch assets. Runtime profiles must read vanilla files from
+# the user's HOI4 install path instead of this repository.
+/crates/hoi4-ui/assets/vanilla_gui/
+
 # Local-only Markdown docs
 *.md
 !README.md
@@ -18,6 +22,7 @@
 *roadmap*.md
 *Roadmap*.md
 *路线图*.md
+!doc/ROADMAP_DIPLOMACY_HOI4_VANILLA_PANEL_REPLACEMENT_GATES_ZH.md
 
 # Local environment and editor state
 .env

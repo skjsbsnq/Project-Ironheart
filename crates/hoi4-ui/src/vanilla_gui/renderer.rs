@@ -3,6 +3,7 @@ use egui::{Color32, FontId, Id, Pos2, Rect, Sense, Stroke, Vec2};
 use super::ast::{GuiNode, GuiNodeKind};
 use super::binding::{GuiBinding, GuiBindingMap};
 use super::gfx_index::{GfxIndex, GfxResource, GfxResourceKind, GfxSize};
+use super::intrinsic::{GuiTextHorizontalAlign, GuiTextVerticalAlign};
 use super::layout::{GuiRect, LayoutNode};
 use crate::icons::IconBank;
 use crate::vanilla_iron::VanillaIron;
@@ -198,7 +199,7 @@ impl<'a> VanillaGuiRenderer<'a> {
                         paint_editbox_background(&painter, rect);
                     }
                 }
-                self.paint_textbox(ui, rect, node, layout.scale, &binding, stats);
+                self.paint_textbox(ui, layout, node, &binding, stats);
             }
             GuiNodeKind::ContainerWindow
             | GuiNodeKind::GridBox
@@ -522,7 +523,15 @@ impl<'a> VanillaGuiRenderer<'a> {
                         stats.sprites_painted += 1;
                         true
                     } else {
-                        paint_fallback(painter, rect, gfx_name);
+                        paint_resource_fallback(
+                            painter,
+                            rect,
+                            gfx_name,
+                            Some(resource),
+                            centerposition,
+                            scale,
+                            icon_bank,
+                        );
                         stats.record_fallback(gfx_name);
                         false
                     }
@@ -541,7 +550,15 @@ impl<'a> VanillaGuiRenderer<'a> {
                     stats.sprites_painted += 1;
                     true
                 } else {
-                    paint_fallback(painter, rect, gfx_name);
+                    paint_resource_fallback(
+                        painter,
+                        rect,
+                        gfx_name,
+                        resource,
+                        centerposition,
+                        scale,
+                        icon_bank,
+                    );
                     stats.record_fallback(gfx_name);
                     false
                 }
@@ -562,7 +579,15 @@ impl<'a> VanillaGuiRenderer<'a> {
                     stats.sprites_painted += 1;
                     true
                 } else {
-                    paint_fallback(painter, rect, gfx_name);
+                    paint_resource_fallback(
+                        painter,
+                        rect,
+                        gfx_name,
+                        resource,
+                        centerposition,
+                        scale,
+                        icon_bank,
+                    );
                     stats.record_fallback(gfx_name);
                     false
                 }
@@ -687,9 +712,8 @@ impl<'a> VanillaGuiRenderer<'a> {
     fn paint_textbox(
         &self,
         ui: &mut egui::Ui,
-        rect: Rect,
+        layout: &LayoutNode,
         node: &GuiNode,
-        scale: f32,
         binding: &GuiBinding,
         stats: &mut RenderStats,
     ) {
@@ -705,22 +729,27 @@ impl<'a> VanillaGuiRenderer<'a> {
             return;
         };
         let text = vanilla_display_text(text);
-        let scale = scale.max(0.01);
-        let max_w = node
-            .f32("maxWidth")
-            .map(|width| width * scale)
-            .unwrap_or(rect.width());
-        let max_h = node
-            .f32("maxHeight")
-            .map(|height| height * scale)
-            .unwrap_or(rect.height());
-        let text_rect = Rect::from_min_size(rect.min, Vec2::new(max_w, max_h));
-        let painter = ui.painter().with_clip_rect(text_rect);
-        let align = align_from_format(node.string("format").as_deref());
+        let text_layout = layout.rects.text_layout.clone().unwrap_or_else(|| {
+            super::intrinsic::resolve_text_layout(node, layout.rects.paint_rect, layout.scale)
+        });
+        let text_rect: Rect = text_layout.box_rect.into();
+        if !text_rect.is_positive() {
+            return;
+        }
+        let clip = text_rect.intersect(layout.clip_rect.into());
+        if !clip.is_positive() {
+            return;
+        }
+        let painter = ui.painter().with_clip_rect(clip);
+        let align = if node.string("vertical_alignment").is_some() {
+            align_from_text_layout(&text_layout)
+        } else {
+            align_from_format(node.string("format").as_deref())
+        };
         let node_font = node.string("font");
         let base_font = scaled_font_id(
             FontToken::from_vanilla(node_font.as_deref()).font_id(),
-            scale,
+            layout.scale.max(0.01),
         );
         let color = binding
             .text_color
@@ -735,9 +764,15 @@ impl<'a> VanillaGuiRenderer<'a> {
         }
         let font_id = fit_font_to_rect(text, base_font, text_rect);
         let pos = match align {
-            egui::Align2::LEFT_TOP | egui::Align2::LEFT_CENTER => text_rect.left_center(),
-            egui::Align2::RIGHT_TOP | egui::Align2::RIGHT_CENTER => text_rect.right_center(),
-            _ => text_rect.center(),
+            egui::Align2::LEFT_TOP => text_rect.left_top(),
+            egui::Align2::LEFT_CENTER => text_rect.left_center(),
+            egui::Align2::LEFT_BOTTOM => text_rect.left_bottom(),
+            egui::Align2::CENTER_TOP => Pos2::new(text_rect.center().x, text_rect.top()),
+            egui::Align2::CENTER_CENTER => text_rect.center(),
+            egui::Align2::CENTER_BOTTOM => Pos2::new(text_rect.center().x, text_rect.bottom()),
+            egui::Align2::RIGHT_TOP => text_rect.right_top(),
+            egui::Align2::RIGHT_CENTER => text_rect.right_center(),
+            egui::Align2::RIGHT_BOTTOM => text_rect.right_bottom(),
         };
         painter.text(pos, align, text, font_id, color);
         stats.text_painted += 1;
@@ -1581,11 +1616,42 @@ fn paint_fallback(painter: &egui::Painter, rect: Rect, label: &str) {
     }
 }
 
+fn paint_resource_fallback(
+    painter: &egui::Painter,
+    rect: Rect,
+    label: &str,
+    resource: Option<&GfxResource>,
+    centerposition: bool,
+    scale: f32,
+    icon_bank: &mut IconBank,
+) {
+    let rect = rect_for_resource_hit(rect, label, resource, centerposition, scale, icon_bank);
+    paint_fallback(painter, rect, label);
+}
+
 fn align_from_format(format: Option<&str>) -> egui::Align2 {
     match format.unwrap_or_default().to_ascii_lowercase().as_str() {
         "right" => egui::Align2::RIGHT_CENTER,
         "center" | "centre" => egui::Align2::CENTER_CENTER,
         _ => egui::Align2::LEFT_CENTER,
+    }
+}
+
+fn align_from_text_layout(layout: &super::intrinsic::GuiTextLayout) -> egui::Align2 {
+    match (layout.horizontal, layout.vertical) {
+        (GuiTextHorizontalAlign::Left, GuiTextVerticalAlign::Top) => egui::Align2::LEFT_TOP,
+        (GuiTextHorizontalAlign::Left, GuiTextVerticalAlign::Center) => egui::Align2::LEFT_CENTER,
+        (GuiTextHorizontalAlign::Left, GuiTextVerticalAlign::Bottom) => egui::Align2::LEFT_BOTTOM,
+        (GuiTextHorizontalAlign::Center, GuiTextVerticalAlign::Top) => egui::Align2::CENTER_TOP,
+        (GuiTextHorizontalAlign::Center, GuiTextVerticalAlign::Center) => {
+            egui::Align2::CENTER_CENTER
+        }
+        (GuiTextHorizontalAlign::Center, GuiTextVerticalAlign::Bottom) => {
+            egui::Align2::CENTER_BOTTOM
+        }
+        (GuiTextHorizontalAlign::Right, GuiTextVerticalAlign::Top) => egui::Align2::RIGHT_TOP,
+        (GuiTextHorizontalAlign::Right, GuiTextVerticalAlign::Center) => egui::Align2::RIGHT_CENTER,
+        (GuiTextHorizontalAlign::Right, GuiTextVerticalAlign::Bottom) => egui::Align2::RIGHT_BOTTOM,
     }
 }
 

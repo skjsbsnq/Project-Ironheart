@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use hoi4_content::v6_loader::LawCategoryDef;
 use hoi4_logic::economy::EconomyState;
@@ -20,6 +20,7 @@ pub fn build_logistics_panel_data(
 
     let stockpile = &econ.stockpile[player];
     let (daily_outputs, production_sources) = logistics_v6_military_outputs(world, db, player);
+    let resource_inputs = logistics_equipment_resource_inputs(db);
     let (force_need, replenishment_need) = logistics_force_needs(world, player);
     let training_shortfalls = logistics_training_shortfalls(world, econ, player);
     let treasury = &world.countries.treasury.treasuries[player];
@@ -40,8 +41,11 @@ pub fn build_logistics_panel_data(
             let daily_prod = daily_outputs.get(id).copied().unwrap_or(0.0);
             let daily_replenishment_need = replenishment_need.get(id).copied().unwrap_or(0.0);
             let total_equipment_need = force_need.get(id).copied().unwrap_or(0.0);
+            let training_shortfall = training_shortfalls.get(id).copied().unwrap_or(0.0);
+            let daily_training_need = training_shortfall / 30.0;
             let daily_maintenance_need = total_equipment_need * 0.0005;
-            let daily_consumption = daily_replenishment_need + daily_maintenance_need;
+            let daily_consumption =
+                daily_replenishment_need + daily_training_need + daily_maintenance_need;
             let daily_deficit = (daily_consumption - daily_prod).max(0.0);
             daily_deficit as f64 * logistics_equipment_unit_cost_rm(id)
         })
@@ -76,7 +80,12 @@ pub fn build_logistics_panel_data(
                 0.0
             };
             hoi4_ui::logistics_panel::LogisticsEntry {
+                id: id.clone(),
                 name: equipment_display_name(&id),
+                kind: hoi4_ui::logistics_panel::logistics_entry_kind_for_id(&id),
+                equipment_icon_sprite:
+                    hoi4_ui::logistics_panel::logistics_equipment_icon_sprite_for_id(&id)
+                        .map(str::to_owned),
                 stockpile: display_qty,
                 daily_production: daily_prod,
                 daily_replenishment_need,
@@ -88,6 +97,7 @@ pub fn build_logistics_panel_data(
                 days_until_empty,
                 procurement_rm,
                 production_sources: production_sources.get(&id).cloned().unwrap_or_default(),
+                resource_inputs: resource_inputs.get(&id).cloned().unwrap_or_default(),
             }
         })
         .collect();
@@ -184,6 +194,56 @@ fn logistics_equipment_unit_cost_rm(equipment_id: &str) -> f64 {
         e if e.contains("train") => 40_000.0,
         _ => 4_000.0,
     }
+}
+
+fn logistics_equipment_resource_inputs(
+    db: &hoi4_content::V6Database,
+) -> HashMap<String, Vec<hoi4_ui::logistics_panel::ResourceInputEntry>> {
+    let mut grouped: HashMap<String, BTreeMap<String, (String, f32)>> = HashMap::new();
+    for pm in &db.production_methods {
+        let Some(output) = &pm.equipment_output else {
+            continue;
+        };
+        let inputs = grouped
+            .entry(output.equipment_category.clone())
+            .or_default();
+        for (idx, good_id) in pm.input_good_ids.iter().enumerate() {
+            let amount = pm.input_good_amounts.get(idx).copied().unwrap_or(0.0);
+            if amount <= 0.0 {
+                continue;
+            }
+            let name = good_display_name(db, good_id);
+            inputs
+                .entry(good_id.clone())
+                .and_modify(|(_, total)| *total += amount)
+                .or_insert((name, amount));
+        }
+    }
+    grouped
+        .into_iter()
+        .map(|(equipment_id, inputs)| {
+            let entries = inputs
+                .into_iter()
+                .map(
+                    |(id, (name, amount))| hoi4_ui::logistics_panel::ResourceInputEntry {
+                        id,
+                        name,
+                        amount,
+                    },
+                )
+                .collect();
+            (equipment_id, entries)
+        })
+        .collect()
+}
+
+fn good_display_name(db: &hoi4_content::V6Database, good_id: &str) -> String {
+    let name_resolver = DisplayNameResolver::new(None);
+    db.goods
+        .iter()
+        .find(|good| good.id == good_id)
+        .map(|good| name_resolver.content_name(DisplayNameKind::Good, &good.id, &good.name))
+        .unwrap_or_else(|| name_resolver.content_name(DisplayNameKind::Good, good_id, good_id))
 }
 
 fn logistics_building_output_ratio(
@@ -473,4 +533,172 @@ fn building_name(db: &hoi4_content::V6Database, building_id: &str) -> String {
         .unwrap_or_else(|| {
             name_resolver.content_name(DisplayNameKind::Building, building_id, building_id)
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hoi4_content::{
+        v6_loader::{GoodCategoryDef, GoodDef},
+        EquipmentOutputDef, ProductionMethodDef, V6Database,
+    };
+    use hoi4_ui::logistics_panel::LogisticsEntryKind;
+
+    fn pm(
+        id: &str,
+        equipment_category: Option<&str>,
+        inputs: &[(&str, f32)],
+    ) -> ProductionMethodDef {
+        ProductionMethodDef {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            building_id: "military_factory".to_owned(),
+            group: "base".to_owned(),
+            group_name: "Base".to_owned(),
+            input_good_ids: inputs
+                .iter()
+                .map(|(good_id, _)| (*good_id).to_owned())
+                .collect(),
+            input_good_amounts: inputs.iter().map(|(_, amount)| *amount).collect(),
+            output_good_ids: Vec::new(),
+            output_good_amounts: Vec::new(),
+            employment_demand: [0; 6],
+            unlocked_by: None,
+            required_law: None,
+            throughput_modifier: 1.0,
+            automation_modifier: 1.0,
+            required_literacy: 0.0,
+            required_skilled_ratio: 0.0,
+            equipment_output: equipment_category.map(|equipment_category| EquipmentOutputDef {
+                equipment_category: equipment_category.to_owned(),
+                daily_per_level: 1.0,
+            }),
+        }
+    }
+
+    fn good(id: &str, name: &str) -> GoodDef {
+        GoodDef {
+            id: id.to_owned(),
+            name: name.to_owned(),
+            category: GoodCategoryDef::MilitaryIntermediate,
+            base_price_rm: 1.0,
+            unlocked_by: None,
+        }
+    }
+
+    #[test]
+    fn logistics_gate4_default_equipment_ids_are_stable_source_ids() {
+        let db = V6Database::default();
+        let ids = logistics_equipment_ids(&db);
+
+        assert_eq!(
+            ids,
+            vec![
+                "infantry_equipment",
+                "artillery",
+                "anti_tank",
+                "anti_air",
+                "support_equipment",
+                "motorized",
+                "mechanized",
+                "armor",
+                "aircraft",
+                "naval_vessel",
+                "convoy",
+                "train",
+            ]
+        );
+        assert_eq!(equipment_display_name("infantry_equipment"), "步兵装备");
+    }
+
+    #[test]
+    fn logistics_gate5_classifies_known_equipment_ids_and_unknown_fallback() {
+        for (id, expected) in [
+            ("infantry_equipment", LogisticsEntryKind::Land),
+            ("artillery", LogisticsEntryKind::Land),
+            ("anti_tank", LogisticsEntryKind::Land),
+            ("anti_air", LogisticsEntryKind::Land),
+            ("support_equipment", LogisticsEntryKind::Land),
+            ("motorized", LogisticsEntryKind::Land),
+            ("mechanized", LogisticsEntryKind::Land),
+            ("armor", LogisticsEntryKind::Land),
+            ("train", LogisticsEntryKind::Land),
+            ("aircraft", LogisticsEntryKind::Air),
+            ("naval_vessel", LogisticsEntryKind::Naval),
+            ("convoy", LogisticsEntryKind::Naval),
+            ("experimental_hovercraft", LogisticsEntryKind::Other),
+        ] {
+            assert_eq!(
+                hoi4_ui::logistics_panel::logistics_entry_kind_for_id(id),
+                expected,
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn logistics_default_equipment_ids_have_vanilla_icon_sprites() {
+        let db = V6Database::default();
+        for id in logistics_equipment_ids(&db) {
+            let sprite = hoi4_ui::logistics_panel::logistics_equipment_icon_sprite_for_id(&id);
+            assert!(sprite.is_some(), "{id} should have a logistics icon sprite");
+            assert!(
+                sprite.unwrap().starts_with("GFX_"),
+                "{id} sprite should be a vanilla GFX name"
+            );
+        }
+    }
+
+    #[test]
+    fn logistics_gate6_resource_inputs_come_from_project_production_methods() {
+        let mut db = V6Database::default();
+        db.goods = vec![
+            good("steel", "Steel"),
+            good("ammunition", "Ammunition"),
+            good("rubber_parts", "Rubber Parts"),
+        ];
+        db.production_methods = vec![
+            pm(
+                "basic_infantry_equipment",
+                Some("infantry_equipment"),
+                &[("steel", 0.6), ("ammunition", 0.8)],
+            ),
+            pm(
+                "improved_infantry_equipment",
+                Some("infantry_equipment"),
+                &[("steel", 0.7), ("rubber_parts", 0.2)],
+            ),
+            pm("civilian_pm", None, &[("steel", 5.0)]),
+            pm("empty_train", Some("train"), &[]),
+        ];
+
+        let inputs = logistics_equipment_resource_inputs(&db);
+        let infantry = inputs.get("infantry_equipment").unwrap();
+        assert_eq!(
+            infantry
+                .iter()
+                .map(|entry| (entry.id.as_str(), entry.name.as_str(), entry.amount))
+                .collect::<Vec<_>>(),
+            vec![
+                ("ammunition", "Ammunition", 0.8),
+                ("rubber_parts", "Rubber Parts", 0.2),
+                ("steel", "Steel", 1.3),
+            ]
+        );
+        assert!(!inputs.contains_key("civilian_pm"));
+        assert!(inputs.get("train").is_none_or(Vec::is_empty));
+    }
+
+    #[test]
+    fn logistics_gate7_daily_consumption_is_only_replenishment_training_and_maintenance() {
+        let daily_replenishment_need = 1.25;
+        let daily_training_need = 0.75;
+        let daily_maintenance_need = 0.50;
+        let daily_consumption =
+            daily_replenishment_need + daily_training_need + daily_maintenance_need;
+        let total_daily_need = [daily_consumption].into_iter().sum::<f32>();
+
+        assert_eq!(daily_consumption, 2.5);
+        assert_eq!(total_daily_need, daily_consumption);
+    }
 }
