@@ -354,38 +354,41 @@ fn paint_decision_template_instances(
         .sum::<f32>()
         .max(grid_layout.rect.height);
     let mut total = crate::vanilla_gui::RenderStats::default();
+    let grid_rect: Rect = grid_layout.rect.into();
     let clip: Rect = grid_layout.rect.into();
-    egui::ScrollArea::vertical()
-        .id_salt(DECISION_SCROLL_ID)
-        .auto_shrink([false, false])
-        .max_height(grid_layout.rect.height.max(1.0))
-        .show_viewport(ui, |ui, viewport| {
-            ui.set_clip_rect(clip);
-            let _ = ui.allocate_exact_size(
-                Vec2::new(grid_layout.rect.width.max(1.0), content_height),
-                Sense::hover(),
-            );
-            let mut y = grid_layout.rect.y - viewport.min.y;
-            for entry in &entries {
-                let rect = crate::vanilla_gui::GuiRect::new(
-                    grid_layout.rect.x,
-                    y,
-                    grid_layout.rect.width,
-                    entry.height(),
+    ui.allocate_ui_at_rect(grid_rect, |ui| {
+        egui::ScrollArea::vertical()
+            .id_salt(DECISION_SCROLL_ID)
+            .auto_shrink([false, false])
+            .max_height(grid_rect.height().max(1.0))
+            .show_viewport(ui, |ui, viewport| {
+                ui.set_clip_rect(clip);
+                let _ = ui.allocate_exact_size(
+                    Vec2::new(grid_rect.width().max(1.0), content_height),
+                    Sense::hover(),
                 );
-                y += entry.height();
-                total.merge(paint_decision_vanilla_entry(
-                    ui,
-                    renderer,
-                    context,
-                    grid_node,
-                    grid_layout,
-                    entry,
-                    rect,
-                    icon_bank,
-                ));
-            }
-        });
+                let mut y = grid_layout.rect.y - viewport.min.y;
+                for entry in &entries {
+                    let rect = crate::vanilla_gui::GuiRect::new(
+                        grid_layout.rect.x,
+                        y,
+                        grid_layout.rect.width,
+                        entry.height(),
+                    );
+                    y += entry.height();
+                    total.merge(paint_decision_vanilla_entry(
+                        ui,
+                        renderer,
+                        context,
+                        grid_node,
+                        grid_layout,
+                        entry,
+                        rect,
+                        icon_bank,
+                    ));
+                }
+            });
+    });
     total
 }
 

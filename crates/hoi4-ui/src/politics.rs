@@ -1018,6 +1018,16 @@ fn vanilla_show_politics(
         return (false, Vec::new());
     }
 
+    let offset = crate::vanilla_gui::GuiPoint {
+        x: update.position.x - spec.shown_position.x,
+        y: update.position.y - spec.shown_position.y,
+    };
+    let root_layout = if offset.x.abs() > f32::EPSILON || offset.y.abs() > f32::EPSILON {
+        offset_politics_layout_tree(&root_layout, offset)
+    } else {
+        root_layout
+    };
+
     let mut close = false;
     let mut output = Vec::new();
     egui::Area::new(egui::Id::new("politics_panel_vanilla_1936"))
@@ -1061,6 +1071,29 @@ fn vanilla_show_politics(
     }
 
     (false, output)
+}
+
+fn offset_politics_layout_tree(
+    layout: &crate::vanilla_gui::LayoutNode,
+    offset: crate::vanilla_gui::GuiPoint,
+) -> crate::vanilla_gui::LayoutNode {
+    let mut next = layout.clone();
+    offset_politics_layout_tree_in_place(&mut next, offset);
+    next
+}
+
+fn offset_politics_layout_tree_in_place(
+    layout: &mut crate::vanilla_gui::LayoutNode,
+    offset: crate::vanilla_gui::GuiPoint,
+) {
+    layout.rect.x += offset.x;
+    layout.rect.y += offset.y;
+    layout.clip_rect.x += offset.x;
+    layout.clip_rect.y += offset.y;
+    layout.rects.translate(offset);
+    for child in &mut layout.children {
+        offset_politics_layout_tree_in_place(child, offset);
+    }
 }
 
 fn vanilla_politics_runtime_unavailable_panel(ctx: &egui::Context) -> (bool, Vec<DecisionCommand>) {
