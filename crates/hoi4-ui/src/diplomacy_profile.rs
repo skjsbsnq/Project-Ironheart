@@ -80,7 +80,7 @@ impl VanillaPanelProfile for CountryDiplomacyProfile {
                 .layout_size(82.0, 52.0)
                 .tooltip(country_title(data)),
             "ideology_icon" => ideology_icon_binding(&data.ruling_party, &data.ruling_party_label)
-                .layout_size(32.0, 32.0),
+                .layout_size(66.0, 68.0),
             "country_name" => GuiBinding::default().text(country_title(data)),
             "faction_name" => GuiBinding::default().text(
                 data.faction_name
@@ -286,7 +286,7 @@ impl VanillaPanelProfile for DiplomacyPanelProfile {
             "ideology_icon" => selected_country
                 .map(|country| {
                     ideology_icon_binding(&country.ruling_party, &country.ruling_party_label)
-                        .layout_size(32.0, 32.0)
+                        .layout_size(66.0, 68.0)
                 })
                 .unwrap_or_else(|| GuiBinding::default().visible(false)),
             "country_name" => selected_country
@@ -954,7 +954,7 @@ fn bind_action_node(name: &str, action: Option<&DiplomacyActionEntry>) -> GuiBin
         "cost" => GuiBinding::default().text(action.cost_text.clone().unwrap_or_default()),
         "accept_icon" => GuiBinding::default()
             .sprite("GFX_accept_decline_icon")
-            .frame(if action.enabled { 1 } else { 2 })
+            .frame(if action.enabled { 2 } else { 1 })
             .tooltip(action_tooltip(action)),
         "diplomacy_action_entry" => GuiBinding::default().tooltip(action_tooltip(action)),
         _ => GuiBinding::default(),

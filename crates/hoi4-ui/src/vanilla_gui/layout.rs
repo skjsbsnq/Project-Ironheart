@@ -470,17 +470,17 @@ fn resolve_size(
     issues: &mut Vec<VanillaGuiIssue>,
 ) -> GuiSize {
     let Some(block) = node.block("size") else {
-        if let Some(intrinsic) = intrinsic_size.filter(|intrinsic| intrinsic.is_positive()) {
-            return GuiSize {
-                width: intrinsic.size.width * scale,
-                height: intrinsic.size.height * scale,
-            };
-        }
         if matches!(
             node.kind,
             GuiNodeKind::Background | GuiNodeKind::GridBox | GuiNodeKind::OverlappingElementsBox
         ) {
             return parent.size();
+        }
+        if let Some(intrinsic) = intrinsic_size.filter(|intrinsic| intrinsic.is_positive()) {
+            return GuiSize {
+                width: intrinsic.size.width * scale,
+                height: intrinsic.size.height * scale,
+            };
         }
         let width = node.f32("maxWidth").unwrap_or(0.0);
         let height = node.f32("maxHeight").unwrap_or(0.0);

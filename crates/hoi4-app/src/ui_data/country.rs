@@ -844,7 +844,6 @@ fn diplomacy_action_entries(
                 target_tag: target_tag.to_owned(),
             },
         ),
-        unavailable_diplomacy_action_entry("guarantee_independence", "guarantee_independence"),
         diplomacy_action_entry(
             "request_military_access",
             hoi4_ui::i18n::tr("request_access"),
@@ -855,14 +854,6 @@ fn diplomacy_action_entries(
                 target_tag: target_tag.to_owned(),
             },
         ),
-        unavailable_diplomacy_action_entry("offer_military_access", "offer_military_access"),
-        unavailable_diplomacy_action_entry("request_docking_rights", "request_docking_rights"),
-        unavailable_diplomacy_action_entry("offer_docking_rights", "offer_docking_rights"),
-        unavailable_diplomacy_action_entry("request_airbase_access", "request_airbase_access"),
-        unavailable_diplomacy_action_entry("offer_airbase_access", "offer_airbase_access"),
-        unavailable_diplomacy_action_entry("improve_relations", "improve_relations"),
-        unavailable_diplomacy_action_entry("send_attache", "send_attache"),
-        unavailable_diplomacy_action_entry("non_aggression_pact", "non_aggression_pact"),
         diplomacy_action_entry(
             "invite_to_faction",
             hoi4_ui::i18n::tr("invite_to_faction"),
@@ -873,19 +864,6 @@ fn diplomacy_action_entries(
                 target_tag: target_tag.to_owned(),
             },
         ),
-        unavailable_diplomacy_action_entry("ask_to_join_faction", "ask_to_join_faction"),
-        unavailable_diplomacy_action_entry("negotiate_license", "negotiate_license"),
-        unavailable_diplomacy_action_entry("lend_lease", "lend_lease"),
-        unavailable_diplomacy_action_entry("request_lend_lease", "request_lend_lease"),
-        unavailable_diplomacy_action_entry("trade_embargo", "trade_embargo"),
-        unavailable_diplomacy_action_entry("send_volunteers", "send_volunteers"),
-        unavailable_diplomacy_action_entry("expeditionary_force", "expeditionary_force"),
-        unavailable_diplomacy_action_entry(
-            "withdraw_expeditionary_force",
-            "withdraw_expeditionary_force",
-        ),
-        unavailable_diplomacy_action_entry("market_access", "market_access"),
-        unavailable_diplomacy_action_entry("naval_blockade", "naval_blockade"),
     ]
 }
 
@@ -906,25 +884,6 @@ fn diplomacy_action_entry(
         cost_text,
         sprite: sprite.to_owned(),
         command,
-    }
-}
-
-fn unavailable_diplomacy_action_entry(
-    id: &str,
-    label_key: &str,
-) -> hoi4_ui::diplomacy::DiplomacyActionEntry {
-    let reason = hoi4_ui::i18n::tr("diplomacy_action_unavailable").to_owned();
-    hoi4_ui::diplomacy::DiplomacyActionEntry {
-        id: id.to_owned(),
-        label: hoi4_ui::i18n::tr(label_key).to_owned(),
-        enabled: false,
-        preview: reason.clone(),
-        reason: Some(reason),
-        cost_text: None,
-        sprite: "GFX_diplo_actions_bg".to_owned(),
-        command: hoi4_ui::diplomacy::DiplomacyActionCommand::Unavailable {
-            action_id: id.to_owned(),
-        },
     }
 }
 
@@ -1271,7 +1230,6 @@ mod tests {
 
         let actions = diplomacy_action_entries("ENG", &justify, &declare, &invite, &access);
 
-        assert!(actions.len() > 4);
         let justify = actions
             .iter()
             .find(|action| action.id == "justify_wargoal")
@@ -1292,33 +1250,13 @@ mod tests {
             vec![
                 "declare_war",
                 "justify_wargoal",
-                "guarantee_independence",
                 "request_military_access",
-                "offer_military_access",
-                "request_docking_rights",
-                "offer_docking_rights",
-                "request_airbase_access",
-                "offer_airbase_access",
-                "improve_relations",
-                "send_attache",
-                "non_aggression_pact",
                 "invite_to_faction",
-                "ask_to_join_faction",
-                "negotiate_license",
-                "lend_lease",
-                "request_lend_lease",
-                "trade_embargo",
-                "send_volunteers",
-                "expeditionary_force",
-                "withdraw_expeditionary_force",
-                "market_access",
-                "naval_blockade",
             ]
         );
         assert!(actions
             .iter()
-            .filter(|action| matches!(action.command, DiplomacyActionCommand::Unavailable { .. }))
-            .all(|action| !action.enabled));
+            .all(|action| !matches!(action.command, DiplomacyActionCommand::Unavailable { .. })));
     }
 
     fn assert_relation(
