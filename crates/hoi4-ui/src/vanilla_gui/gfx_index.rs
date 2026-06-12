@@ -169,6 +169,7 @@ pub enum GfxResourceKind {
     TextSprite,
     MaskedShield,
     PieChart,
+    Hemicycle,
     Unknown(String),
 }
 
@@ -195,6 +196,7 @@ impl GfxResourceKind {
             Self::TextSprite => "textSpriteType",
             Self::MaskedShield => "maskedShieldType",
             Self::PieChart => "pieChartType",
+            Self::Hemicycle => "hemicycleType",
             Self::Unknown(value) => value.as_str(),
         }
     }

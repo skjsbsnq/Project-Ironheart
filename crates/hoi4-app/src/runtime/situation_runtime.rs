@@ -43,6 +43,154 @@ fn normalize_spanish_civil_war_colors(
     }
 }
 
+const SCW_CORE_REBEL_STATES: &[u16] = &[166, 171, 172, 173, 174, 290, 788, 789, 791];
+const SCW_BASELINE_EXTRA_REBEL_STATES: &[u16] = &[169, 176, 177, 178];
+const SCW_STRONG_EXTRA_REBEL_STATES: &[u16] = &[167, 168, 175];
+
+fn country_variable(world: &hoi4_state::World, tag: &str, name: &str) -> Option<f32> {
+    let country = world.country(tag)?;
+    world
+        .countries
+        .variables
+        .get(country.0 as usize)?
+        .get(name)
+        .copied()
+}
+
+fn resolve_f32_var(
+    world: &hoi4_state::World,
+    primary_tag: &str,
+    fallback_tag: Option<&str>,
+    var: Option<&str>,
+    literal: f32,
+) -> f32 {
+    let Some(var) = var else {
+        return literal;
+    };
+    country_variable(world, primary_tag, var)
+        .or_else(|| fallback_tag.and_then(|tag| country_variable(world, tag, var)))
+        .unwrap_or(literal)
+}
+
+fn resolve_u32_var(
+    world: &hoi4_state::World,
+    primary_tag: &str,
+    fallback_tag: Option<&str>,
+    var: Option<&str>,
+    literal: u32,
+) -> u32 {
+    resolve_f32_var(world, primary_tag, fallback_tag, var, literal as f32)
+        .round()
+        .clamp(1.0, u32::MAX as f32) as u32
+}
+
+fn scw_rebel_states_for_tier(tier: f32, fallback: &[u16]) -> Vec<u16> {
+    if tier <= -0.5 {
+        return SCW_CORE_REBEL_STATES.to_vec();
+    }
+    if tier >= 0.5 {
+        let mut states = SCW_CORE_REBEL_STATES.to_vec();
+        states.extend_from_slice(SCW_BASELINE_EXTRA_REBEL_STATES);
+        states.extend_from_slice(SCW_STRONG_EXTRA_REBEL_STATES);
+        states.sort_unstable();
+        states.dedup();
+        return states;
+    }
+    fallback.to_vec()
+}
+
+fn resolve_rebel_states_var(
+    world: &hoi4_state::World,
+    source_tag: &str,
+    rebel_tag: &str,
+    var: Option<&str>,
+    literal: Vec<u16>,
+) -> Vec<u16> {
+    let Some(var) = var else {
+        return literal;
+    };
+    let Some(tier) = country_variable(world, source_tag, var) else {
+        return literal;
+    };
+    if source_tag == "SPR" && rebel_tag == "SPA" {
+        return scw_rebel_states_for_tier(tier, &literal);
+    }
+    literal
+}
+
+fn set_country_flag(world: &mut hoi4_state::World, country: hoi4_state::CountryId, flag: &str) {
+    let ci = country.0 as usize;
+    if ci >= world.countries.count {
+        return;
+    }
+    let flag_str = format!("FLAG:{flag}");
+    if !world.countries.ideas[ci].contains(&flag_str) {
+        world.countries.ideas[ci].push(flag_str);
+    }
+}
+
+fn clear_country_flag(world: &mut hoi4_state::World, country: hoi4_state::CountryId, flag: &str) {
+    let ci = country.0 as usize;
+    if ci >= world.countries.count {
+        return;
+    }
+    let flag_str = format!("FLAG:{flag}");
+    world.countries.ideas[ci].retain(|idea| idea != &flag_str);
+}
+
+fn copy_scw_settlement_vars_to_rebel(
+    world: &mut hoi4_state::World,
+    source: hoi4_state::CountryId,
+    rebel: hoi4_state::CountryId,
+) {
+    const VARS: &[&str] = &[
+        "scw_rebellion_strength",
+        "scw_republic_readiness",
+        "scw_rebel_manpower_fraction",
+        "scw_rebel_division_fraction",
+        "scw_rebel_states_tier",
+        "scw_spr_frontline_density",
+        "scw_spa_frontline_density",
+        "scw_sanjurjo_survives",
+        "scw_spr_stability_delta",
+        "scw_spr_militia_autonomy",
+    ];
+    let src_i = source.0 as usize;
+    let rbl_i = rebel.0 as usize;
+    if src_i >= world.countries.count || rbl_i >= world.countries.count {
+        return;
+    }
+    for var in VARS {
+        let Some(value) = world.countries.variables[src_i].get(*var).copied() else {
+            continue;
+        };
+        world.countries.variables[rbl_i].insert((*var).to_owned(), value);
+    }
+}
+
+fn apply_spanish_prewar_post_split_effects(
+    world: &mut hoi4_state::World,
+    source_tag: &str,
+    rebel_tag: &str,
+    source: hoi4_state::CountryId,
+    rebel: hoi4_state::CountryId,
+) {
+    if source_tag != "SPR" || rebel_tag != "SPA" {
+        return;
+    }
+    copy_scw_settlement_vars_to_rebel(world, source, rebel);
+    let sanjurjo_survives =
+        country_variable(world, source_tag, "scw_sanjurjo_survives").unwrap_or(0.0) >= 0.5;
+    if sanjurjo_survives {
+        clear_country_flag(world, rebel, "spa_sanjurjo_dead");
+    } else {
+        set_country_flag(world, rebel, "spa_sanjurjo_dead");
+    }
+    if country_variable(world, source_tag, "scw_spr_militia_autonomy").unwrap_or(0.0) >= 0.5 {
+        set_country_flag(world, source, "spr_militia_autonomy");
+    }
+}
+
 pub fn apply_situation_effects(app: &mut crate::App) -> bool {
     let drained = drain_situation_effects(&mut app.runtime.content.situation_state);
     let had_ownership_change = !drained.is_empty();
@@ -164,11 +312,28 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                 rebel_color,
                 rebel_party,
                 rebel_states,
+                rebel_states_var,
                 manpower_fraction,
+                manpower_fraction_var,
             } => {
                 let Some(source) = app.world.country(&source_tag) else {
                     continue;
                 };
+                let manpower_fraction = resolve_f32_var(
+                    &app.world,
+                    &source_tag,
+                    Some(&rebel_tag),
+                    manpower_fraction_var.as_deref(),
+                    manpower_fraction,
+                )
+                .clamp(0.0, 1.0);
+                let rebel_states = resolve_rebel_states_var(
+                    &app.world,
+                    &source_tag,
+                    &rebel_tag,
+                    rebel_states_var.as_deref(),
+                    rebel_states,
+                );
                 let rebel = app
                     .world
                     .spawn_country(&rebel_tag, rebel_color, &rebel_party);
@@ -261,6 +426,13 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                 );
                 app.world.countries.at_war[rebel.0 as usize] = true;
                 app.world.countries.at_war[source.0 as usize] = true;
+                apply_spanish_prewar_post_split_effects(
+                    &mut app.world,
+                    &source_tag,
+                    &rebel_tag,
+                    source,
+                    rebel,
+                );
                 app.world.recalc_country_caches();
                 println!(
                     "[situation] {} split from {} ({} specified states), war started",
@@ -273,6 +445,7 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                 source_tag,
                 rebel_tag,
                 fraction,
+                fraction_var,
             } => {
                 // Split air, navy, and equipment; divisions are spawned separately.
                 let (Some(src), Some(rbl)) = (
@@ -284,6 +457,14 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                                 );
                     continue;
                 };
+                let fraction = resolve_f32_var(
+                    &app.world,
+                    &source_tag,
+                    Some(&rebel_tag),
+                    fraction_var.as_deref(),
+                    fraction,
+                )
+                .clamp(0.0, 1.0);
 
                 // Split air wings by fraction.
                 let mut air_count = 0u32;
@@ -362,6 +543,7 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                 tag,
                 enemy_tag,
                 density,
+                density_var,
             } => {
                 let (Some(tgt), Some(enm)) =
                     (app.world.country(&tag), app.world.country(&enemy_tag))
@@ -371,6 +553,13 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                                 );
                     continue;
                 };
+                let density = resolve_u32_var(
+                    &app.world,
+                    &tag,
+                    Some(&enemy_tag),
+                    density_var.as_deref(),
+                    density,
+                );
 
                 let tag_str = tag.clone();
                 let Some(templates) = app.world.data.division_templates.get(&tag_str) else {
@@ -651,6 +840,35 @@ pub fn apply_situation_effects(app: &mut crate::App) -> bool {
                     hoi4_logic::scripted_effects::apply_diplomatic_effect(&mut app.world, &effect);
             }
             SituationEffect::TriggerEvent(event_id) => {
+                if event_id == "hidden.scw_prewar_settlement" {
+                    let effect_country = situation_effect_country_from_event_id(
+                        &event_id,
+                        &app.world,
+                        app.runtime.content.player,
+                    );
+                    let player = app.runtime.content.player;
+                    let (triggered, report) = {
+                        let content = &mut app.runtime.content;
+                        content.event_scheduler.trigger_scoped_for_player(
+                            &event_id,
+                            &mut app.world,
+                            effect_country,
+                            effect_country,
+                            player,
+                            &mut content.global_flags,
+                        )
+                    };
+                    if !triggered {
+                        println!("[situation] skipped synchronous event: {}", event_id);
+                    }
+                    for warning in report.warnings {
+                        println!("[situation][event] warning: {warning}");
+                    }
+                    for error in report.errors {
+                        println!("[situation][event] error: {error}");
+                    }
+                    continue;
+                }
                 if !should_trigger_situation_event_for_player(
                     &event_id,
                     &app.world,
@@ -970,6 +1188,11 @@ fn situation_effect_country_from_event_id(
     world: &hoi4_state::World,
     player: hoi4_state::CountryId,
 ) -> hoi4_state::CountryId {
+    if event_id == "hidden.scw_prewar_settlement" {
+        if let Some(cid) = world.country("SPR") {
+            return cid;
+        }
+    }
     if event_id == "spain.scw_choose_side" {
         return player;
     }
@@ -1030,4 +1253,30 @@ fn should_trigger_situation_event_for_player(
         return true;
     }
     matches!(world.country_tag(player), Some("SPR" | "SPA"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scw_rebel_state_tiers_change_opening_split() {
+        let baseline = vec![
+            166, 169, 171, 172, 173, 174, 176, 177, 178, 290, 788, 789, 791,
+        ];
+
+        let suppressed = scw_rebel_states_for_tier(-1.0, &baseline);
+        assert_eq!(suppressed, SCW_CORE_REBEL_STATES);
+        assert!(!suppressed.contains(&176));
+        assert!(!suppressed.contains(&177));
+
+        let historical = scw_rebel_states_for_tier(0.0, &baseline);
+        assert_eq!(historical, baseline);
+
+        let strong = scw_rebel_states_for_tier(1.0, &baseline);
+        assert!(strong.contains(&167));
+        assert!(strong.contains(&168));
+        assert!(strong.contains(&175));
+        assert!(strong.len() > baseline.len());
+    }
 }

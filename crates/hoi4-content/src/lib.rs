@@ -24,7 +24,10 @@ pub use decision::{
 pub use decision_tick::{
     daily_decision_tick, ActivateError, DecisionState, DecisionTickEvent, MissionInstance,
 };
-pub use eval::{eval_trigger, run_effects, EffectReport, GlobalFlags, PendingTrigger};
+pub use eval::{
+    eval_trigger, run_effects, spanish_prewar_settlement, EffectReport, GlobalFlags,
+    PendingTrigger, SpanishPrewarSettlement,
+};
 pub use event::{Event, EventDb, EventOption, EventScope, EventValidationError};
 pub use event_tick::{daily_event_tick, EventScheduler, HiddenEventLogEntry, PendingEvent};
 pub use focus::{Effect, Focus, FocusTree, Trigger};

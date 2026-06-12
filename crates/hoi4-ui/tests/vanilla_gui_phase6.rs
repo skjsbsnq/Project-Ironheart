@@ -127,6 +127,7 @@ fn sample_decisions_data() -> DecisionsData {
             },
         ],
         country_flags: Vec::new(),
+        prewar: None,
     }
 }
 

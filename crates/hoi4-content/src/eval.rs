@@ -57,9 +57,30 @@ impl EffectReport {
 #[derive(Debug, Default, Clone)]
 pub struct GlobalFlags {
     pub flags: std::collections::HashSet<String>,
+    pub timed_country_flags: std::collections::HashMap<(u16, String), i64>,
     /// P1.2：级联触发队列改为 VecDeque<PendingTrigger>，FIFO 顺序处理。
     /// 效果执行完毕后 drain，逐个调用 `EventScheduler::trigger_scoped` 入队 modal。
     pub pending_triggers: std::collections::VecDeque<PendingTrigger>,
+}
+
+impl GlobalFlags {
+    pub fn expire_country_flags(&mut self, world: &mut World) {
+        let today = world.date.days_since_epoch();
+        let expired: Vec<(u16, String)> = self
+            .timed_country_flags
+            .iter()
+            .filter_map(|(key, &until_day)| (today >= until_day).then(|| key.clone()))
+            .collect();
+        for (country_raw, flag) in expired {
+            self.timed_country_flags
+                .remove(&(country_raw, flag.clone()));
+            let ci = country_raw as usize;
+            if ci < world.countries.count {
+                let key = format!("FLAG:{flag}");
+                world.countries.ideas[ci].retain(|idea| idea != &key);
+            }
+        }
+    }
 }
 
 /// Evaluate a RON Trigger against World state for a given country.
@@ -239,6 +260,260 @@ fn country_variable(world: &World, country: CountryId, name: &str) -> f32 {
         .unwrap_or(0.0)
 }
 
+fn country_variable_by_tag(world: &World, tag: &str, name: &str) -> f32 {
+    world
+        .country(tag)
+        .map(|country| country_variable(world, country, name))
+        .unwrap_or(0.0)
+}
+
+fn add_to_country_variable_by_tag(
+    world: &mut World,
+    tag: &str,
+    name: &str,
+    value: f32,
+) -> Option<f32> {
+    let country = world.country(tag)?;
+    let map = world.countries.variables.get_mut(country.0 as usize)?;
+    let entry = map.entry(name.to_owned()).or_insert(0.0);
+    *entry += value;
+    Some(*entry)
+}
+
+fn set_country_variable_by_tag(world: &mut World, tag: &str, name: &str, value: f32) -> bool {
+    let Some(country) = world.country(tag) else {
+        return false;
+    };
+    let Some(map) = world.countries.variables.get_mut(country.0 as usize) else {
+        return false;
+    };
+    map.insert(name.to_owned(), value);
+    true
+}
+
+fn clamp_country_variable_by_tag(
+    world: &mut World,
+    tag: &str,
+    name: &str,
+    min: f32,
+    max: f32,
+) -> Option<f32> {
+    let country = world.country(tag)?;
+    let map = world.countries.variables.get_mut(country.0 as usize)?;
+    let value = map.get_mut(name)?;
+    *value = value.clamp(min, max);
+    Some(*value)
+}
+
+fn set_country_flag_by_tag(world: &mut World, tag: &str, flag: &str) -> bool {
+    let Some(country) = world.country(tag) else {
+        return false;
+    };
+    set_country_flag(world, country, flag)
+}
+
+fn set_country_flag(world: &mut World, country: CountryId, flag: &str) -> bool {
+    if country.is_none() {
+        return false;
+    }
+    let ci = country.0 as usize;
+    if ci >= world.countries.count {
+        return false;
+    }
+    let key = format!("FLAG:{flag}");
+    if !world.countries.ideas[ci].contains(&key) {
+        world.countries.ideas[ci].push(key);
+    }
+    true
+}
+
+fn clear_country_flag_by_tag(world: &mut World, tag: &str, flag: &str) -> bool {
+    let Some(country) = world.country(tag) else {
+        return false;
+    };
+    if country.is_none() {
+        return false;
+    }
+    let ci = country.0 as usize;
+    if ci >= world.countries.count {
+        return false;
+    }
+    let key = format!("FLAG:{flag}");
+    world.countries.ideas[ci].retain(|idea| idea != &key);
+    true
+}
+
+/// 战前小游戏结算结果：把双侧 10 个计量器轴聚合成开战 payoff 参数。
+///
+/// 这是 §3.1 公式的**唯一真相源**——`compute_spanish_prewar_settlement`（写入 world）
+/// 与决议面板拔河块（只读展示）共用它，避免公式漂移。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpanishPrewarSettlement {
+    // ─ SPR 侧 5 轴（clamp 到 [-10, 10]）
+    pub spr_authority: f32,
+    pub spr_street: f32,
+    pub spr_conspiracy: f32,
+    pub spr_church_alarm: f32,
+    pub spr_armory: f32,
+    // ─ SPA 侧 5 轴（clamp 到 [-10, 10]）
+    pub spa_conspiracy: f32,
+    pub spa_garrison: f32,
+    pub spa_carlist: f32,
+    pub spa_falange: f32,
+    pub spa_foreign: f32,
+    // ─ 聚合量（clamp 到 [-20, 20]）
+    pub rebellion_strength: f32,
+    pub republic_readiness: f32,
+    // ─ 派生 payoff 参数
+    pub manpower_fraction: f32,
+    pub rebel_states_tier: f32,
+    pub spr_density: f32,
+    pub spa_density: f32,
+    pub sanjurjo_survives: bool,
+    pub stability_delta: f32,
+    pub militia_autonomy: bool,
+}
+
+/// 只读计算战前结算量（不写 world）。决议面板与开战 `on_start` 共用。
+pub fn spanish_prewar_settlement(
+    world: &World,
+    republic_tag: &str,
+    nationalist_tag: &str,
+) -> SpanishPrewarSettlement {
+    let spr_authority =
+        country_variable_by_tag(world, republic_tag, "spr_government_authority").clamp(-10.0, 10.0);
+    let spr_street =
+        country_variable_by_tag(world, republic_tag, "spr_street_mobilization").clamp(-10.0, 10.0);
+    let spr_conspiracy =
+        country_variable_by_tag(world, republic_tag, "spr_officer_conspiracy").clamp(-10.0, 10.0);
+    let spr_church_alarm =
+        country_variable_by_tag(world, republic_tag, "spr_church_right_alarm").clamp(-10.0, 10.0);
+    let spr_armory =
+        country_variable_by_tag(world, republic_tag, "spr_armory_control").clamp(-10.0, 10.0);
+    let spa_conspiracy = country_variable_by_tag(world, nationalist_tag, "spa_conspiracy_network")
+        .clamp(-10.0, 10.0);
+    let spa_garrison =
+        country_variable_by_tag(world, nationalist_tag, "spa_garrison_loyalty").clamp(-10.0, 10.0);
+    let spa_carlist =
+        country_variable_by_tag(world, nationalist_tag, "spa_carlist_support").clamp(-10.0, 10.0);
+    let spa_falange = country_variable_by_tag(world, nationalist_tag, "spa_falange_mobilization")
+        .clamp(-10.0, 10.0);
+    let spa_foreign =
+        country_variable_by_tag(world, nationalist_tag, "spa_foreign_precommit").clamp(-10.0, 10.0);
+
+    let rebellion_strength = (spa_conspiracy + spa_garrison + spr_conspiracy - spr_authority
+        + 0.5 * spa_carlist)
+        .clamp(-20.0, 20.0);
+    let republic_readiness =
+        (spr_armory + spr_street + spr_authority - spa_falange).clamp(-20.0, 20.0);
+
+    let manpower_fraction = (0.45 + rebellion_strength * 0.0025).clamp(0.40, 0.50);
+    let rebel_states_tier = if rebellion_strength <= -12.0 {
+        -1.0
+    } else if rebellion_strength >= 12.0 {
+        1.0
+    } else {
+        0.0
+    };
+    let spr_density = if republic_readiness >= 12.0 {
+        3.0
+    } else if republic_readiness <= -12.0 {
+        1.0
+    } else {
+        2.0
+    };
+    let spa_density = if rebellion_strength >= 12.0 { 2.0 } else { 1.0 };
+    let sanjurjo_survives = spa_foreign >= 8.0 && spa_conspiracy >= 8.0;
+    let stability_delta = spr_authority * 0.0025;
+    let militia_autonomy = spr_street - spr_authority >= 6.0;
+
+    SpanishPrewarSettlement {
+        spr_authority,
+        spr_street,
+        spr_conspiracy,
+        spr_church_alarm,
+        spr_armory,
+        spa_conspiracy,
+        spa_garrison,
+        spa_carlist,
+        spa_falange,
+        spa_foreign,
+        rebellion_strength,
+        republic_readiness,
+        manpower_fraction,
+        rebel_states_tier,
+        spr_density,
+        spa_density,
+        sanjurjo_survives,
+        stability_delta,
+        militia_autonomy,
+    }
+}
+
+fn compute_spanish_prewar_settlement(
+    world: &mut World,
+    republic_tag: &str,
+    nationalist_tag: &str,
+) -> Vec<String> {
+    let s = spanish_prewar_settlement(world, republic_tag, nationalist_tag);
+    let stability_delta = s.stability_delta;
+    let militia_autonomy = s.militia_autonomy;
+    let sanjurjo_survives = s.sanjurjo_survives;
+
+    let outputs = [
+        ("scw_rebellion_strength", s.rebellion_strength),
+        ("scw_republic_readiness", s.republic_readiness),
+        ("scw_rebel_manpower_fraction", s.manpower_fraction),
+        ("scw_rebel_division_fraction", s.manpower_fraction),
+        ("scw_rebel_states_tier", s.rebel_states_tier),
+        ("scw_spr_frontline_density", s.spr_density),
+        ("scw_spa_frontline_density", s.spa_density),
+        (
+            "scw_sanjurjo_survives",
+            if sanjurjo_survives { 1.0 } else { 0.0 },
+        ),
+        ("scw_spr_stability_delta", stability_delta),
+        (
+            "scw_spr_militia_autonomy",
+            if militia_autonomy { 1.0 } else { 0.0 },
+        ),
+    ];
+
+    let mut applied = Vec::new();
+    for (name, value) in outputs {
+        if set_country_variable_by_tag(world, republic_tag, name, value) {
+            applied.push(format!("{republic_tag}.{name}={value:.3}"));
+        }
+        if set_country_variable_by_tag(world, nationalist_tag, name, value) {
+            applied.push(format!("{nationalist_tag}.{name}={value:.3}"));
+        }
+    }
+
+    if let Some(republic) = world.country(republic_tag) {
+        let ci = republic.0 as usize;
+        if ci < world.countries.count {
+            world.countries.stability[ci] =
+                (world.countries.stability[ci] + stability_delta).clamp(0.0, 1.0);
+            applied.push(format!("{republic_tag}.stability {stability_delta:+.4}"));
+        }
+    }
+    if militia_autonomy {
+        if set_country_flag_by_tag(world, republic_tag, "spr_militia_autonomy") {
+            applied.push(format!("{republic_tag}.flag spr_militia_autonomy"));
+        }
+    } else {
+        clear_country_flag_by_tag(world, republic_tag, "spr_militia_autonomy");
+    }
+
+    if sanjurjo_survives {
+        clear_country_flag_by_tag(world, nationalist_tag, "spa_sanjurjo_dead");
+    } else if set_country_flag_by_tag(world, nationalist_tag, "spa_sanjurjo_dead") {
+        applied.push(format!("{nationalist_tag}.flag spa_sanjurjo_dead"));
+    }
+
+    applied
+}
+
 /// P2.6：读取国家级人物状态。人物未注册视为 None。
 fn character_status(
     world: &World,
@@ -344,14 +619,20 @@ fn run_one(
         }
 
         Effect::SetCountryFlag(f) => {
-            let key = format!("FLAG:{f}");
-            if !world.countries.ideas[i].contains(&key) {
-                world.countries.ideas[i].push(key);
+            set_country_flag(world, country, f);
+        }
+        Effect::SetCountryFlagForDays { flag, days } => {
+            if set_country_flag(world, country, flag) {
+                flags.timed_country_flags.insert(
+                    (country.0, flag.clone()),
+                    world.date.days_since_epoch() + *days as i64,
+                );
             }
         }
         Effect::ClearCountryFlag(f) => {
             let key = format!("FLAG:{f}");
             world.countries.ideas[i].retain(|x| x != &key);
+            flags.timed_country_flags.remove(&(country.0, f.clone()));
         }
         Effect::SetGlobalFlag(f) => {
             flags.flags.insert(f.clone());
@@ -803,6 +1084,18 @@ fn run_one(
                     .push(format!("variable {} {:+.3} -> {:.3}", name, value, entry));
             }
         }
+        Effect::AddToCountryVariable { tag, name, value } => {
+            if let Some(next) = add_to_country_variable_by_tag(world, tag, name, *value) {
+                report.applied.push(format!(
+                    "variable {tag}.{} {:+.3} -> {:.3}",
+                    name, value, next
+                ));
+            } else {
+                report
+                    .warnings
+                    .push(format!("AddToCountryVariable target not found: {tag}"));
+            }
+        }
         Effect::ClampVariable { name, min, max } => {
             if let Some(map) = world.countries.variables.get_mut(i) {
                 if let Some(v) = map.get_mut(name) {
@@ -812,6 +1105,26 @@ fn run_one(
         }
 
         // ── P2.6 人物效果 ──
+        Effect::ClampCountryVariable {
+            tag,
+            name,
+            min,
+            max,
+        } => {
+            if clamp_country_variable_by_tag(world, tag, name, *min, *max).is_none() {
+                report.warnings.push(format!(
+                    "ClampCountryVariable target/value not found: {tag}.{name}"
+                ));
+            }
+        }
+        Effect::ComputeSpanishPrewarSettlement {
+            republic_tag,
+            nationalist_tag,
+        } => {
+            for item in compute_spanish_prewar_settlement(world, republic_tag, nationalist_tag) {
+                report.applied.push(item);
+            }
+        }
         Effect::KillCharacter(key) => {
             apply_character_status(
                 world,
@@ -1531,6 +1844,137 @@ mod tests {
         let report = run_effects(&[Effect::AddPoliticalPower(50.0)], &mut w, ger, &mut f);
         assert!(!report.has_errors());
         assert!(!report.has_warnings());
+    }
+
+    #[test]
+    fn timed_country_flag_expires() {
+        let mut w = test_world();
+        let mut f = GlobalFlags::default();
+        let ger = CountryId(0);
+        run_effects(
+            &[Effect::SetCountryFlagForDays {
+                flag: "weekly_lock".into(),
+                days: 2,
+            }],
+            &mut w,
+            ger,
+            &mut f,
+        );
+        assert!(w.countries.ideas[0].contains(&"FLAG:weekly_lock".to_owned()));
+
+        w.date.day += 2;
+        f.expire_country_flags(&mut w);
+
+        assert!(!w.countries.ideas[0].contains(&"FLAG:weekly_lock".to_owned()));
+        assert!(f.timed_country_flags.is_empty());
+    }
+
+    #[test]
+    fn spanish_prewar_settlement_writes_payoff_variables() {
+        let mut w = test_world();
+        w.countries.tags[0] = "SPR".to_owned();
+        w.countries.tags[1] = "SPA".to_owned();
+        w.tag_to_country.clear();
+        w.tag_to_country.insert("SPR".to_owned(), CountryId(0));
+        w.tag_to_country.insert("SPA".to_owned(), CountryId(1));
+        w.countries.stability[0] = 0.50;
+
+        w.countries.variables[0].insert("spr_government_authority".into(), -2.0);
+        w.countries.variables[0].insert("spr_street_mobilization".into(), 6.0);
+        w.countries.variables[0].insert("spr_officer_conspiracy".into(), 8.0);
+        w.countries.variables[0].insert("spr_armory_control".into(), 5.0);
+        w.countries.variables[1].insert("spa_conspiracy_network".into(), 9.0);
+        w.countries.variables[1].insert("spa_garrison_loyalty".into(), 8.0);
+        w.countries.variables[1].insert("spa_carlist_support".into(), 4.0);
+        w.countries.variables[1].insert("spa_foreign_precommit".into(), 8.0);
+
+        let mut f = GlobalFlags::default();
+        let report = run_effects(
+            &[Effect::ComputeSpanishPrewarSettlement {
+                republic_tag: "SPR".into(),
+                nationalist_tag: "SPA".into(),
+            }],
+            &mut w,
+            CountryId(0),
+            &mut f,
+        );
+
+        assert!(!report.has_errors());
+        assert_eq!(w.countries.variables[0]["scw_rebel_states_tier"], 1.0);
+        assert!(w.countries.variables[0]["scw_rebel_manpower_fraction"] > 0.45);
+        assert_eq!(w.countries.variables[0]["scw_spa_frontline_density"], 2.0);
+        assert_eq!(w.countries.variables[0]["scw_sanjurjo_survives"], 1.0);
+        assert!(w.countries.stability[0] < 0.50);
+        assert!(!w.countries.ideas[1].contains(&"FLAG:spa_sanjurjo_dead".to_owned()));
+    }
+
+    /// 纯函数 `spanish_prewar_settlement`（只读）与写入路径
+    /// `compute_spanish_prewar_settlement` 必须给出一致的聚合量与派生量——
+    /// 决议面板拔河块只读展示用纯函数，绝不能与开战 payoff 漂移（阶段 B）。
+    #[test]
+    fn spanish_prewar_settlement_pure_matches_write_path() {
+        let mut w = test_world();
+        w.countries.tags[0] = "SPR".to_owned();
+        w.countries.tags[1] = "SPA".to_owned();
+        w.tag_to_country.clear();
+        w.tag_to_country.insert("SPR".to_owned(), CountryId(0));
+        w.tag_to_country.insert("SPA".to_owned(), CountryId(1));
+        w.countries.stability[0] = 0.50;
+
+        w.countries.variables[0].insert("spr_government_authority".into(), -2.0);
+        w.countries.variables[0].insert("spr_street_mobilization".into(), 6.0);
+        w.countries.variables[0].insert("spr_officer_conspiracy".into(), 8.0);
+        w.countries.variables[0].insert("spr_armory_control".into(), 5.0);
+        w.countries.variables[1].insert("spa_conspiracy_network".into(), 9.0);
+        w.countries.variables[1].insert("spa_garrison_loyalty".into(), 8.0);
+        w.countries.variables[1].insert("spa_carlist_support".into(), 4.0);
+        w.countries.variables[1].insert("spa_foreign_precommit".into(), 8.0);
+
+        // 先读纯函数（不写 world）。
+        let pure = spanish_prewar_settlement(&w, "SPR", "SPA");
+
+        // 原始轴值正确取出并 clamp。
+        assert_eq!(pure.spr_authority, -2.0);
+        assert_eq!(pure.spr_street, 6.0);
+        assert_eq!(pure.spa_conspiracy, 9.0);
+
+        // 再跑写入路径，断言落地变量与纯函数一致。
+        let mut f = GlobalFlags::default();
+        let report = run_effects(
+            &[Effect::ComputeSpanishPrewarSettlement {
+                republic_tag: "SPR".into(),
+                nationalist_tag: "SPA".into(),
+            }],
+            &mut w,
+            CountryId(0),
+            &mut f,
+        );
+        assert!(!report.has_errors());
+
+        assert_eq!(
+            w.countries.variables[0]["scw_rebellion_strength"],
+            pure.rebellion_strength
+        );
+        assert_eq!(
+            w.countries.variables[0]["scw_republic_readiness"],
+            pure.republic_readiness
+        );
+        assert_eq!(
+            w.countries.variables[0]["scw_rebel_states_tier"],
+            pure.rebel_states_tier
+        );
+        assert_eq!(
+            w.countries.variables[0]["scw_rebel_manpower_fraction"],
+            pure.manpower_fraction
+        );
+        assert_eq!(
+            w.countries.variables[0]["scw_spa_frontline_density"],
+            pure.spa_density
+        );
+        assert_eq!(
+            w.countries.variables[0]["scw_sanjurjo_survives"],
+            if pure.sanjurjo_survives { 1.0 } else { 0.0 }
+        );
     }
 
     /// P1.3 验收：PP 不足切法律返回中文错误

@@ -34,6 +34,47 @@ pub struct DecisionsData {
     /// 当前玩家国家已设置的 country flag 集合（不含 "FLAG:" 前缀）。
     /// SPA 派系小游戏用它判断佛朗哥/莫拉/赫迪利亚等人物的当前阶段。
     pub country_flags: Vec<String>,
+    /// 西班牙内战前双层小游戏的拔河态势。仅当玩家是 SPR/SPA 且尚未开战时为 `Some`，
+    /// 渲染在 Crisis 分类内（见 §2 / 阶段 B）。
+    pub prewar: Option<PrewarStandoff>,
+}
+
+/// 玩家在战前拔河里扮演的一侧。决定镜像轴哪一侧高亮、净值箭头朝向。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrewarSide {
+    /// 共和国（SPR）视角。
+    Republic,
+    /// 国民军 / 军官集团（SPA）视角。
+    Nationalist,
+}
+
+/// 战前拔河态势快照：聚合量 + 5 条镜像轴 + 距开战天数。
+///
+/// 全部数值来自 `hoi4_content::spanish_prewar_settlement`（§3.1 公式的唯一真相源），
+/// 这里只做展示，不重算公式。
+#[derive(Debug, Clone)]
+pub struct PrewarStandoff {
+    /// 玩家扮演的一侧。
+    pub perspective: PrewarSide,
+    /// 距 1936-07-17 开战的天数（已过则 0）。
+    pub days_to_war: i64,
+    /// 叛乱强度聚合量，clamp 到 [-20, 20]。高=叛军强势。
+    pub rebellion_strength: f32,
+    /// 共和准备度聚合量，clamp 到 [-20, 20]。高=共和国开战准备充分。
+    pub republic_readiness: f32,
+    /// 5 条镜像轴（SPR 左侧值 / SPA 右侧值，各 [-10, 10]）。
+    pub axes: Vec<PrewarAxisRow>,
+}
+
+/// 一条镜像轴：左半为 SPR 侧某轴，右半为对应 SPA 侧轴。
+#[derive(Debug, Clone)]
+pub struct PrewarAxisRow {
+    /// 行标签（如 "政府权威 / 驻军忠诚"）。
+    pub label: String,
+    /// SPR 侧轴值，[-10, 10]。
+    pub spr_value: f32,
+    /// SPA 侧轴值，[-10, 10]。
+    pub spa_value: f32,
 }
 
 #[derive(Debug, Clone)]
@@ -356,6 +397,8 @@ fn paint_decision_template_instances(
     let mut total = crate::vanilla_gui::RenderStats::default();
     let grid_rect: Rect = grid_layout.rect.into();
     let clip: Rect = grid_layout.rect.into();
+    // Confine the ScrollArea to the grid rect, else its scrollbar/interaction region
+    // lands at the screen origin and swallows the header's close button.
     ui.allocate_ui_at_rect(grid_rect, |ui| {
         egui::ScrollArea::vertical()
             .id_salt(DECISION_SCROLL_ID)
@@ -426,6 +469,10 @@ fn paint_decision_vanilla_entry(
     rect: crate::vanilla_gui::GuiRect,
     icon_bank: &mut IconBank,
 ) -> crate::vanilla_gui::RenderStats {
+    // 战前拔河块是自绘块，没有 vanilla 模板——在模板查找前分流。
+    if let DecisionVanillaEntry::Prewar { standoff } = entry {
+        return paint_prewar_standoff_block(ui, standoff, rect);
+    }
     let Some(template) = context
         .document(COUNTRY_DECISION_GUI_FILE)
         .and_then(|document| document.template_index().get(entry.template_name()))
@@ -446,6 +493,269 @@ fn paint_decision_vanilla_entry(
         |instance| decision_vanilla_entry_bindings(instance, entry, grid_name),
         icon_bank,
     )
+}
+
+// ─────────────────────────────────────────────────────────────
+// 战前双层小游戏 — 拔河块（自绘，挂在 Crisis 分类内）
+// ─────────────────────────────────────────────────────────────
+
+const PREWAR_PAD: f32 = 12.0;
+const PREWAR_HEADER_H: f32 = 22.0;
+const PREWAR_AGG_LABEL_H: f32 = 16.0;
+const PREWAR_AGG_BAR_H: f32 = 22.0;
+const PREWAR_DIVIDER_H: f32 = 10.0;
+const PREWAR_AXIS_ROW_H: f32 = 22.0;
+const PREWAR_FOOTER_H: f32 = 16.0;
+
+/// 共和侧（SPR）填充色——红。
+const PREWAR_SPR: Color32 = Color32::from_rgb(0xc0, 0x52, 0x46);
+/// 国民军侧（SPA）填充色——蓝灰。
+const PREWAR_SPA: Color32 = Color32::from_rgb(0x6e, 0x86, 0xb4);
+
+fn prewar_block_height(standoff: &PrewarStandoff) -> f32 {
+    PREWAR_PAD * 2.0
+        + PREWAR_HEADER_H
+        + PREWAR_AGG_LABEL_H
+        + PREWAR_AGG_BAR_H
+        + PREWAR_DIVIDER_H
+        + standoff.axes.len() as f32 * PREWAR_AXIS_ROW_H
+        + PREWAR_FOOTER_H
+}
+
+/// 自绘战前拔河块。聚合拔河条（叛乱强度 ◀─┼─▶ 共和准备度）+ 镜像轴行。
+fn paint_prewar_standoff_block(
+    ui: &mut egui::Ui,
+    standoff: &PrewarStandoff,
+    rect: crate::vanilla_gui::GuiRect,
+) -> crate::vanilla_gui::RenderStats {
+    let outer: Rect = rect.into();
+    let mut stats = crate::vanilla_gui::RenderStats {
+        nodes_seen: 1,
+        nodes_painted: 1,
+        ..Default::default()
+    };
+
+    // 卡片底板 + 边框，沿用决议面板配色。
+    paint_decision_card_frame(ui, outer.shrink(2.0));
+    let inner = outer.shrink2(Vec2::new(PREWAR_PAD, PREWAR_PAD));
+    let painter = ui.painter().with_clip_rect(outer);
+
+    // ── 标题行：左 "战前对峙 · 日期"，右 "还剩 N 天"。
+    let mut y = inner.top();
+    let player_side = match standoff.perspective {
+        PrewarSide::Republic => "共和国视角",
+        PrewarSide::Nationalist => "国民军视角",
+    };
+    painter.text(
+        Pos2::new(inner.left(), y),
+        egui::Align2::LEFT_TOP,
+        format!("战前对峙 · {player_side}"),
+        crate::v9::TextRole::Subheading.font_id(),
+        decision_gold_hot(),
+    );
+    painter.text(
+        Pos2::new(inner.right(), y),
+        egui::Align2::RIGHT_TOP,
+        format!("距开战 {} 天", standoff.days_to_war.max(0)),
+        crate::v9::TextRole::Caption.font_id(),
+        decision_warn(),
+    );
+    stats.text_painted += 2;
+    y += PREWAR_HEADER_H;
+
+    // ── 聚合拔河：叛乱强度（左/SPA 蓝）vs 共和准备度（右/SPR 红），中点净值箭头。
+    // net > 0 → 叛军占优；net < 0 → 共和占优。
+    let net = standoff.rebellion_strength - standoff.republic_readiness;
+    let (net_label, net_color) = if net > 0.5 {
+        ("叛军占优", PREWAR_SPA)
+    } else if net < -0.5 {
+        ("共和占优", PREWAR_SPR)
+    } else {
+        ("势均力敌", decision_muted())
+    };
+    painter.text(
+        Pos2::new(inner.left(), y),
+        egui::Align2::LEFT_TOP,
+        "叛乱强度  ◀─┼─▶  共和准备度",
+        crate::v9::TextRole::Caption.font_id(),
+        decision_text_dim(),
+    );
+    painter.text(
+        Pos2::new(inner.right(), y),
+        egui::Align2::RIGHT_TOP,
+        format!("净值 {net:+.0} · {net_label}"),
+        crate::v9::TextRole::Caption.font_id(),
+        net_color,
+    );
+    stats.text_painted += 2;
+    y += PREWAR_AGG_LABEL_H;
+
+    let agg_rect = Rect::from_min_size(
+        Pos2::new(inner.left(), y),
+        Vec2::new(inner.width(), PREWAR_AGG_BAR_H - 4.0),
+    );
+    paint_prewar_mirror_bar(
+        &painter,
+        agg_rect,
+        // 聚合量范围 [-20,20]；左半=叛乱强度(SPA 蓝)，右半=共和准备度(SPR 红)。
+        standoff.rebellion_strength,
+        standoff.republic_readiness,
+        20.0,
+        PREWAR_SPA,
+        PREWAR_SPR,
+        true,
+    );
+    stats.progress_bars += 1;
+    y += PREWAR_AGG_BAR_H;
+
+    // ── 分隔线
+    painter.hline(
+        inner.left()..=inner.right(),
+        y + PREWAR_DIVIDER_H * 0.5,
+        egui::Stroke::new(1.0, decision_edge()),
+    );
+    y += PREWAR_DIVIDER_H;
+
+    // ── 5 条镜像轴：左半 SPR（红，向中线），右半 SPA（蓝，向中线）。
+    let label_w = 132.0_f32.min(inner.width() * 0.34);
+    let spr_bright = standoff.perspective == PrewarSide::Republic;
+    for axis in &standoff.axes {
+        let row = Rect::from_min_size(
+            Pos2::new(inner.left(), y),
+            Vec2::new(inner.width(), PREWAR_AXIS_ROW_H),
+        );
+        painter.text(
+            Pos2::new(row.left(), row.center().y),
+            egui::Align2::LEFT_CENTER,
+            &axis.label,
+            crate::v9::TextRole::Caption.font_id(),
+            decision_text(),
+        );
+        let bar = Rect::from_min_max(
+            Pos2::new(row.left() + label_w, row.top() + 4.0),
+            Pos2::new(row.right(), row.bottom() - 4.0),
+        );
+        paint_prewar_mirror_bar(
+            &painter,
+            bar,
+            axis.spr_value,
+            axis.spa_value,
+            10.0,
+            if spr_bright {
+                PREWAR_SPR
+            } else {
+                dim_color(PREWAR_SPR)
+            },
+            if spr_bright {
+                dim_color(PREWAR_SPA)
+            } else {
+                PREWAR_SPA
+            },
+            false,
+        );
+        // 悬停：显示两侧轴值与本次净差。
+        let hover = ui.interact(
+            row,
+            ui.id().with(("prewar_axis", axis.label.as_str())),
+            Sense::hover(),
+        );
+        hover.on_hover_text(format!(
+            "{}\nSPR {:+.1}  ·  SPA {:+.1}",
+            axis.label, axis.spr_value, axis.spa_value
+        ));
+        stats.text_painted += 1;
+        stats.progress_bars += 1;
+        y += PREWAR_AXIS_ROW_H;
+    }
+
+    // ── 页脚：两侧标注。
+    painter.text(
+        Pos2::new(inner.left() + label_w, y),
+        egui::Align2::LEFT_TOP,
+        "◀ 共和国（SPR）",
+        crate::v9::TextRole::Caption.font_id(),
+        PREWAR_SPR,
+    );
+    painter.text(
+        Pos2::new(inner.right(), y),
+        egui::Align2::RIGHT_TOP,
+        "国民军（SPA） ▶",
+        crate::v9::TextRole::Caption.font_id(),
+        PREWAR_SPA,
+    );
+    stats.text_painted += 2;
+
+    stats
+}
+
+/// 镜像拔河条：从中线向两侧填充。`left_value` 填左半（向中线），`right_value` 填右半。
+/// `span` 是数值满量程（聚合量 20、轴 10）。`labeled` 时在两端写数值。
+fn paint_prewar_mirror_bar(
+    painter: &egui::Painter,
+    rect: Rect,
+    left_value: f32,
+    right_value: f32,
+    span: f32,
+    left_color: Color32,
+    right_color: Color32,
+    labeled: bool,
+) {
+    // 底轨
+    painter.rect_filled(rect, 1.0, RAIL_INK);
+    let cx = rect.center().x;
+    let half = (rect.width() * 0.5 - 1.0).max(1.0);
+    let span = span.max(0.001);
+
+    let left_ratio = (left_value.clamp(-span, span) / span).abs().min(1.0);
+    let right_ratio = (right_value.clamp(-span, span) / span).abs().min(1.0);
+
+    // 左半：从中线向左填充。
+    let left_fill = Rect::from_min_max(
+        Pos2::new(cx - half * left_ratio, rect.top()),
+        Pos2::new(cx, rect.bottom()),
+    );
+    painter.rect_filled(left_fill, 0.0, left_color);
+    // 右半：从中线向右填充。
+    let right_fill = Rect::from_min_max(
+        Pos2::new(cx, rect.top()),
+        Pos2::new(cx + half * right_ratio, rect.bottom()),
+    );
+    painter.rect_filled(right_fill, 0.0, right_color);
+
+    // 中线
+    painter.vline(
+        cx,
+        rect.top()..=rect.bottom(),
+        egui::Stroke::new(1.0, decision_gold_hot()),
+    );
+    painter.rect_stroke(
+        rect,
+        egui::epaint::CornerRadius::same(1),
+        egui::Stroke::new(1.0, decision_edge()),
+        egui::epaint::StrokeKind::Inside,
+    );
+
+    if labeled {
+        painter.text(
+            Pos2::new(rect.left() + 4.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            format!("{left_value:.0}"),
+            crate::v9::TextRole::Caption.font_id(),
+            decision_gold_hot(),
+        );
+        painter.text(
+            Pos2::new(rect.right() - 4.0, rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            format!("{right_value:.0}"),
+            crate::v9::TextRole::Caption.font_id(),
+            decision_gold_hot(),
+        );
+    }
+}
+
+/// 把颜色压暗（非玩家侧轴用），保留色相。
+fn dim_color(c: Color32) -> Color32 {
+    Color32::from_rgb(c.r() / 2, c.g() / 2, c.b() / 2)
 }
 
 fn decision_close_requested_from_render_stats(stats: &crate::vanilla_gui::RenderStats) -> bool {
@@ -536,6 +846,10 @@ enum DecisionVanillaEntry<'a> {
     Description {
         text: String,
     },
+    /// 战前拔河块（自绘，非模板）。仅 Crisis 分类内、SPR/SPA 视角出现。
+    Prewar {
+        standoff: &'a PrewarStandoff,
+    },
     Item {
         entry: &'a DecisionEntry,
         timed: bool,
@@ -544,10 +858,13 @@ enum DecisionVanillaEntry<'a> {
 }
 
 impl DecisionVanillaEntry<'_> {
+    /// 模板名。`Prewar` 是自绘块，没有对应 vanilla 模板——返回空串，
+    /// 渲染时在 `paint_decision_vanilla_entry` 里先行分流，永不走模板查找。
     fn template_name(&self) -> &'static str {
         match self {
             Self::Header { .. } => DECISION_CATEGORY_HEADER_TEMPLATE,
             Self::Description { .. } => DECISION_CATEGORY_DESC_TEMPLATE,
+            Self::Prewar { .. } => "",
             Self::Item { timed, .. } if *timed => TIMED_DECISION_ITEM_TEMPLATE,
             Self::Item { .. } => DECISION_ITEM_TEMPLATE,
             Self::End => DECISION_CATEGORY_END_TEMPLATE,
@@ -564,6 +881,7 @@ impl DecisionVanillaEntry<'_> {
                     38.0
                 }
             }
+            Self::Prewar { standoff } => prewar_block_height(standoff),
             Self::Item { timed, .. } if *timed => 40.0,
             Self::Item { .. } => 41.0,
             Self::End => 20.0,
@@ -583,8 +901,18 @@ fn decision_vanilla_entries(data: &DecisionsData) -> Vec<DecisionVanillaEntry<'_
             continue;
         }
         out.push(DecisionVanillaEntry::Header { category });
-        if let Some(description) = decision_category_description(category, &visible) {
-            out.push(DecisionVanillaEntry::Description { text: description });
+        // 战前拔河块本身已足够醒目，无需加"X available, Y active"统计描述行。
+        let has_prewar = category == hoi4_content::DecisionCategory::Crisis && data.prewar.is_some();
+        if !has_prewar {
+            if let Some(description) = decision_category_description(category, &visible) {
+                out.push(DecisionVanillaEntry::Description { text: description });
+            }
+        }
+        // 战前拔河块挂在 Crisis 分类内、紧随分类描述之后（§2 / 阶段 B）。
+        if category == hoi4_content::DecisionCategory::Crisis {
+            if let Some(standoff) = data.prewar.as_ref() {
+                out.push(DecisionVanillaEntry::Prewar { standoff });
+            }
         }
         for entry in visible {
             out.push(DecisionVanillaEntry::Item {
@@ -722,6 +1050,8 @@ fn decision_vanilla_entry_bindings(
                 crate::vanilla_gui::GuiBinding::default().visible(false),
             );
         }
+        // 自绘块在 paint_decision_vanilla_entry 里已分流，永不走模板绑定。
+        DecisionVanillaEntry::Prewar { .. } => {}
     }
     bindings
 }
@@ -3174,7 +3504,7 @@ fn category_label_zh(c: hoi4_content::DecisionCategory) -> &'static str {
         hoi4_content::DecisionCategory::Diplomacy => "外交 · 阵营",
         hoi4_content::DecisionCategory::Military => "军事 · 动员",
         hoi4_content::DecisionCategory::Internal => "内政 · 宣传",
-        hoi4_content::DecisionCategory::Crisis => "危机 · 一次性",
+        hoi4_content::DecisionCategory::Crisis => "危机",
     }
 }
 
@@ -3352,4 +3682,104 @@ fn render_mission_progress(ui: &mut egui::Ui, done: u32, total: u32) {
         egui::Stroke::new(1.0, components::BRONZE),
         egui::StrokeKind::Inside,
     );
+}
+
+#[cfg(test)]
+mod prewar_tests {
+    use super::*;
+    use crate::politics::DecisionEntry;
+    use hoi4_content::{DecisionCategory, DecisionMechanicKind};
+
+    fn crisis_decision(id: &str) -> DecisionEntry {
+        DecisionEntry {
+            id: id.to_owned(),
+            name: id.to_owned(),
+            description: String::new(),
+            icon: String::new(),
+            effect_preview: String::new(),
+            category: DecisionCategory::Crisis,
+            mechanic_kind: DecisionMechanicKind::Standard,
+            cost_political_power: 15.0,
+            visible: true,
+            clickable: true,
+            mission_remaining: None,
+            mission_total: None,
+            cooldown_remaining: None,
+            already_fired: false,
+        }
+    }
+
+    fn standoff() -> PrewarStandoff {
+        PrewarStandoff {
+            perspective: PrewarSide::Republic,
+            days_to_war: 96,
+            rebellion_strength: 11.0,
+            republic_readiness: 14.0,
+            axes: vec![
+                PrewarAxisRow {
+                    label: "政府权威 / 驻军忠诚".to_owned(),
+                    spr_value: 6.0,
+                    spa_value: 3.0,
+                },
+                PrewarAxisRow {
+                    label: "武器库 / 外援预置".to_owned(),
+                    spr_value: 7.0,
+                    spa_value: 3.0,
+                },
+            ],
+        }
+    }
+
+    fn base_data(prewar: Option<PrewarStandoff>) -> DecisionsData {
+        DecisionsData {
+            country_tag: "SPR".to_owned(),
+            political_power: 100.0,
+            mechanics: Vec::new(),
+            decisions: vec![crisis_decision("spr.prewar_rebalance_civil_governors")],
+            country_flags: Vec::new(),
+            prewar,
+        }
+    }
+
+    #[test]
+    fn prewar_block_inserted_inside_crisis_category() {
+        let data = base_data(Some(standoff()));
+        let entries = decision_vanilla_entries(&data);
+        let prewar_idx = entries
+            .iter()
+            .position(|e| matches!(e, DecisionVanillaEntry::Prewar { .. }))
+            .expect("prewar block should be present");
+        let header_idx = entries
+            .iter()
+            .position(|e| matches!(e, DecisionVanillaEntry::Header { .. }))
+            .expect("crisis header should be present");
+        let item_idx = entries
+            .iter()
+            .position(|e| matches!(e, DecisionVanillaEntry::Item { .. }))
+            .expect("crisis item should be present");
+        // 拔河块在分类标题之后、决议项之前。
+        assert!(header_idx < prewar_idx, "{entries:?}");
+        assert!(prewar_idx < item_idx, "{entries:?}");
+    }
+
+    #[test]
+    fn prewar_block_absent_without_standoff() {
+        let data = base_data(None);
+        let entries = decision_vanilla_entries(&data);
+        assert!(
+            !entries
+                .iter()
+                .any(|e| matches!(e, DecisionVanillaEntry::Prewar { .. })),
+            "no prewar block when standoff is None: {entries:?}"
+        );
+    }
+
+    #[test]
+    fn prewar_block_height_scales_with_axis_count() {
+        let mut two = standoff();
+        two.axes.truncate(1);
+        let one_row = prewar_block_height(&two);
+        let two_rows = prewar_block_height(&standoff());
+        assert!((two_rows - one_row - PREWAR_AXIS_ROW_H).abs() < f32::EPSILON);
+    }
 }

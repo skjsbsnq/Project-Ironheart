@@ -242,6 +242,9 @@ impl App {
                     DecisionCommand::OpenFocusTree => {
                         self.ui_state.focus_panel.open = true;
                     }
+                    DecisionCommand::ToggleElectionPanel => {
+                        self.ui_state.show_election_panel = !self.ui_state.show_election_panel;
+                    }
                     DecisionCommand::Panel(panel_cmd) => {
                         panel_commands.push(panel_cmd);
                     }

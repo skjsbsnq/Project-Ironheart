@@ -179,6 +179,10 @@ pub enum Effect {
 
     // ── Flag ──
     SetCountryFlag(String),
+    SetCountryFlagForDays {
+        flag: String,
+        days: u32,
+    },
     ClearCountryFlag(String),
     SetGlobalFlag(String),
     ClearGlobalFlag(String),
@@ -362,11 +366,26 @@ pub enum Effect {
         name: String,
         value: f32,
     },
+    AddToCountryVariable {
+        tag: String,
+        name: String,
+        value: f32,
+    },
     /// P2.5：限制变量在 [min, max] 区间内（已存在的变量被钳制；不存在则不创建）。
     ClampVariable {
         name: String,
         min: f32,
         max: f32,
+    },
+    ClampCountryVariable {
+        tag: String,
+        name: String,
+        min: f32,
+        max: f32,
+    },
+    ComputeSpanishPrewarSettlement {
+        republic_tag: String,
+        nationalist_tag: String,
     },
 
     // ── P2.6 人物效果 ──
@@ -452,6 +471,7 @@ impl Effect {
 
             // ── Flags (internal, don't show) ──
             Self::SetCountryFlag(_)
+            | Self::SetCountryFlagForDays { .. }
             | Self::ClearCountryFlag(_)
             | Self::SetGlobalFlag(_)
             | Self::ClearGlobalFlag(_) => None,
@@ -627,12 +647,31 @@ impl Effect {
             Self::AddToVariable { name, value } => {
                 Some(format!("{} {:+.1}", variable_display_name(name), value))
             }
+            Self::AddToCountryVariable { tag, name, value } => Some(format!(
+                "{} {} {:+.1}",
+                tag,
+                variable_display_name(name),
+                value
+            )),
             Self::ClampVariable { name, min, max } => Some(format!(
                 "{} 限制在 [{:.1}, {:.1}]",
                 variable_display_name(name),
                 min,
                 max
             )),
+            Self::ClampCountryVariable {
+                tag,
+                name,
+                min,
+                max,
+            } => Some(format!(
+                "{} {} 限制在 [{:.1}, {:.1}]",
+                tag,
+                variable_display_name(name),
+                min,
+                max
+            )),
+            Self::ComputeSpanishPrewarSettlement { .. } => None,
 
             // ── 人物 (P2.7：第一轮事件后果预览) ──
             Self::KillCharacter(key) => Some(format!("人物死亡：{key}")),

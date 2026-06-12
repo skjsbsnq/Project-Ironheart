@@ -18,11 +18,26 @@ pub struct GuiBinding {
     pub frame: Option<u32>,
     pub progress: Option<f32>,
     pub pie_segments: Vec<(f32, Color32)>,
+    pub hemicycle_seats: Vec<HemicycleSeat>,
     pub tooltip: Option<String>,
     pub click: Option<GuiClickCommand>,
     pub instance_count: Option<usize>,
     pub layout_position: Option<GuiPoint>,
     pub layout_size: Option<GuiSize>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct HemicycleSeat {
+    pub angle_index: u32,
+    pub ring: u32,
+    pub color: Color32,
+    pub party_id: String,
+}
+
+impl HemicycleSeat {
+    pub fn color_from_rgb(r: u8, g: u8, b: u8) -> Color32 {
+        Color32::from_rgb(r, g, b)
+    }
 }
 
 impl Default for GuiBinding {
@@ -39,6 +54,7 @@ impl Default for GuiBinding {
             frame: None,
             progress: None,
             pie_segments: Vec::new(),
+            hemicycle_seats: Vec::new(),
             tooltip: None,
             click: None,
             instance_count: None,

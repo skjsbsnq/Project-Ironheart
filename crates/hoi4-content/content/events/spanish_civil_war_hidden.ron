@@ -1,6 +1,25 @@
 EventDb(
     events: [
         Event(
+            id: "hidden.scw_prewar_settlement",
+            title: "结算西班牙内战前计量器",
+            description: "",
+            picture: "",
+            is_triggered_only: true,
+            hidden: true,
+            trigger: AlwaysTrue,
+            mean_time_to_happen_days: 1,
+            options: [
+                EventOption(
+                    name: "结算战前态势。",
+                    effects: [
+                        ComputeSpanishPrewarSettlement(republic_tag: "SPR", nationalist_tag: "SPA"),
+                    ],
+                    ai_chance: 1.0,
+                ),
+            ],
+        ),
+        Event(
             id: "hidden.scw_initialize_rebel_state",
             title: "初始化国民军状态",
             description: "",

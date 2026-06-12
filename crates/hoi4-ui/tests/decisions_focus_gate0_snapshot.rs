@@ -107,6 +107,7 @@ fn sample_decisions_data() -> DecisionsData {
             },
         ],
         country_flags: vec!["gate0_baseline".to_owned()],
+        prewar: None,
     }
 }
 

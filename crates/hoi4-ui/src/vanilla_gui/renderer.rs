@@ -489,6 +489,17 @@ impl<'a> VanillaGuiRenderer<'a> {
                 stats.pie_charts += 1;
                 true
             }
+            GfxResourceKind::Hemicycle => {
+                paint_hemicycle(
+                    painter,
+                    rect,
+                    &binding.hemicycle_seats,
+                    resource,
+                    icon_bank,
+                    stats,
+                );
+                true
+            }
             GfxResourceKind::MaskedShield => {
                 if paint_masked_shield(painter, rect, gfx_name, resource, icon_bank) {
                     stats.sprites_painted += 1;
@@ -1557,6 +1568,93 @@ fn pie_chart_rect(rect: Rect, resource: Option<&GfxResource>) -> Rect {
         Pos2::new(rect.left() - radius, rect.top()),
         Vec2::splat(radius * 2.0),
     )
+}
+
+fn paint_hemicycle(
+    painter: &egui::Painter,
+    rect: Rect,
+    seats: &[super::binding::HemicycleSeat],
+    _resource: Option<&GfxResource>,
+    _icon_bank: &mut IconBank,
+    _stats: &mut RenderStats,
+) {
+    if seats.is_empty() {
+        return;
+    }
+
+    let center = Pos2::new(rect.center().x, rect.bottom());
+    let outer_radius = rect.width().min(rect.height() * 2.0) * 0.48;
+    let inner_radius = outer_radius * 0.25;
+
+    painter.rect_filled(rect, 0.0, Color32::from_rgb(0x12, 0x13, 0x10));
+
+    let total_seats = seats.len();
+    let rings = ((total_seats as f32).sqrt() * 1.2).ceil().max(8.0).min(16.0) as u32;
+    let seat_radius = (outer_radius - inner_radius) / (rings as f32 * 2.5);
+
+    let seat_layout = compute_hemicycle_layout(total_seats, rings, inner_radius, outer_radius);
+
+    for (idx, seat) in seats.iter().enumerate() {
+        if let Some(pos) = seat_layout.get(idx) {
+            let world_pos = Pos2::new(
+                center.x + pos.0 * outer_radius,
+                center.y - pos.1 * outer_radius,
+            );
+            painter.circle_filled(world_pos, seat_radius, seat.color);
+            painter.circle_stroke(
+                world_pos,
+                seat_radius,
+                Stroke::new(0.5, Color32::from_black_alpha(120)),
+            );
+        }
+    }
+
+    painter.circle_stroke(
+        center,
+        outer_radius,
+        Stroke::new(1.5, Color32::from_black_alpha(200)),
+    );
+    painter.circle_stroke(
+        center,
+        inner_radius,
+        Stroke::new(1.0, Color32::from_black_alpha(160)),
+    );
+}
+
+fn compute_hemicycle_layout(
+    total_seats: usize,
+    rings: u32,
+    inner_radius: f32,
+    outer_radius: f32,
+) -> Vec<(f32, f32)> {
+    let mut positions = Vec::with_capacity(total_seats);
+    let mut assigned = 0;
+
+    for ring_idx in 0..rings {
+        if assigned >= total_seats {
+            break;
+        }
+
+        let ring_fraction = (ring_idx as f32 + 1.0) / rings as f32;
+        let ring_radius = inner_radius + ring_fraction * (outer_radius - inner_radius);
+        let ring_arc = std::f32::consts::PI * ring_radius;
+        let seats_this_ring = ((ring_arc / (outer_radius / rings as f32)) as usize)
+            .max(3)
+            .min(total_seats - assigned);
+
+        for seat_idx in 0..seats_this_ring {
+            let angle = std::f32::consts::PI * (1.0 - (seat_idx as f32 / (seats_this_ring - 1).max(1) as f32));
+            let x = angle.cos() * (ring_radius / outer_radius);
+            let y = angle.sin() * (ring_radius / outer_radius);
+            positions.push((x, y));
+            assigned += 1;
+            if assigned >= total_seats {
+                break;
+            }
+        }
+    }
+
+    positions
 }
 
 fn texture_file_by_key<'a>(resource: &'a GfxResource, key: &str) -> Option<&'a str> {

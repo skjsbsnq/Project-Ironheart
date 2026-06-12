@@ -16,6 +16,7 @@ pub(crate) fn politics_close_required_before_switch(
 
 pub(crate) struct UiStateBundle {
     pub(crate) open_panel: Option<InGamePanel>,
+    pub(crate) show_election_panel: bool,
     pub(crate) active_detail_panel: Option<hoi4_ui::ActiveDetailPanel>,
     pub(crate) active_popup: Option<hoi4_ui::ActivePopup>,
     pub(crate) diplomacy_sort_by_opinion: bool,
@@ -52,6 +53,7 @@ impl UiStateBundle {
     ) -> Self {
         Self {
             open_panel: None,
+            show_election_panel: false,
             active_detail_panel: None,
             active_popup: None,
             diplomacy_sort_by_opinion: false,

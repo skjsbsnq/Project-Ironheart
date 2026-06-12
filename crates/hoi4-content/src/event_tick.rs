@@ -117,6 +117,7 @@ impl EventScheduler {
         country: CountryId,
         flags: &mut GlobalFlags,
     ) -> (Vec<String>, crate::eval::EffectReport) {
+        flags.expire_country_flags(world);
         let mut fired = Vec::new();
         let mut report = crate::eval::EffectReport::default();
         let key = day_key(world);

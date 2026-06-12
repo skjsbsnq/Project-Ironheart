@@ -103,6 +103,7 @@ fn sample_data() -> DecisionsData {
             },
         ],
         country_flags: Vec::new(),
+        prewar: None,
     }
 }
 

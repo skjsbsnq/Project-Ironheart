@@ -118,6 +118,7 @@ impl DecisionState {
         country: CountryId,
         flags: &mut GlobalFlags,
     ) -> Result<(), ActivateError> {
+        flags.expire_country_flags(world);
         let Some(decision) = db.find(decision_id) else {
             return Err(ActivateError::NotFound);
         };
@@ -204,6 +205,7 @@ pub fn daily_decision_tick(
     world: &mut World,
     flags: &mut GlobalFlags,
 ) -> Vec<DecisionTickEvent> {
+    flags.expire_country_flags(world);
     let key = day_key(world);
     if key == state.last_tick_key {
         return Vec::new();

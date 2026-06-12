@@ -243,6 +243,16 @@ const COUNTRY_POLITICS_BINDING_SPECS: &[CountryPoliticsBindingSpec] = &[
         values: &[CountryPoliticsBindingValue::Tooltip, CountryPoliticsBindingValue::Command],
         reason: "vanilla close button requests animated panel close",
     },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.election_button",
+        values: &[CountryPoliticsBindingValue::Visibility, CountryPoliticsBindingValue::Command],
+        reason: "SPR 1936 election button opens hemicycle panel",
+    },
+    CountryPoliticsBindingSpec {
+        path_pattern: "countrypoliticsview.election_hemicycle",
+        values: &[CountryPoliticsBindingValue::Visibility],
+        reason: "SPR 1936 election hemicycle seats visualization",
+    },
 ];
 
 impl crate::vanilla_gui::VanillaPanelProfile for CountryPoliticsProfile {
@@ -297,6 +307,9 @@ impl crate::vanilla_gui::VanillaPanelProfile for CountryPoliticsProfile {
         let path = action.node_path.to_string();
         if path.contains("active_goal") {
             return Some(DecisionCommand::OpenFocusTree);
+        }
+        if path.contains("election_button") {
+            return Some(DecisionCommand::ToggleElectionPanel);
         }
         data.law_slots.iter().find_map(|slot| {
             let key = law_panel::law_category_key(slot.category);
@@ -361,6 +374,27 @@ fn bind_country_politics_header_node(
                 data.leader_name.clone()
             },
         )),
+        "election_button" => {
+            if data.election_hemicycle_seats.is_empty() {
+                Some(crate::vanilla_gui::GuiBinding::default().visible(false))
+            } else {
+                Some(
+                    crate::vanilla_gui::GuiBinding::default()
+                        .visible(true)
+                        .tooltip("查看1936选举议会")
+                        .click("open_election_panel"),
+                )
+            }
+        }
+        "election_hemicycle" => {
+            if !data.show_election_panel || data.election_hemicycle_seats.is_empty() {
+                Some(crate::vanilla_gui::GuiBinding::default().visible(false))
+            } else {
+                let mut binding = crate::vanilla_gui::GuiBinding::default().visible(true);
+                binding.hemicycle_seats = data.election_hemicycle_seats.clone();
+                Some(binding)
+            }
+        }
         _ => None,
     }
 }
@@ -846,6 +880,8 @@ pub struct PoliticsData {
     pub party_names: Vec<(String, String)>,
     pub government_posts: Vec<GovernmentPostEntry>,
     pub law_slots: Vec<PoliticsLawEntry>,
+    pub election_hemicycle_seats: Vec<crate::vanilla_gui::binding::HemicycleSeat>,
+    pub show_election_panel: bool,
 }
 
 impl PoliticsData {
@@ -873,6 +909,8 @@ impl PoliticsData {
             party_names: Vec::new(),
             government_posts: Vec::new(),
             law_slots: Vec::new(),
+            election_hemicycle_seats: Vec::new(),
+            show_election_panel: false,
         }
     }
 }
@@ -910,6 +948,7 @@ pub enum DecisionCommand {
     /// 玩家点了某个决议的执行按钮。
     Activate(String),
     OpenFocusTree,
+    ToggleElectionPanel,
     Panel(PanelCommand),
 }
 

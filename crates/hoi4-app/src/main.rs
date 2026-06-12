@@ -1713,6 +1713,87 @@ impl App {
         ]
     }
 
+    /// 阶段 B：构造西班牙内战前拔河态势（决议面板 Crisis 块）。
+    /// 仅当玩家是 SPR/SPA 且尚未开战时返回 `Some`，数值全部来自
+    /// `hoi4_content::spanish_prewar_settlement`（§3.1 公式唯一真相源）。
+    fn build_prewar_standoff(
+        &self,
+        player: usize,
+    ) -> Option<hoi4_ui::decisions_panel::PrewarStandoff> {
+        use hoi4_ui::decisions_panel::{PrewarAxisRow, PrewarSide, PrewarStandoff};
+
+        let tag = self.world.countries.tags.get(player)?;
+        let perspective = match tag.as_str() {
+            "SPR" => PrewarSide::Republic,
+            "SPA" => PrewarSide::Nationalist,
+            _ => return None,
+        };
+        // 已开战则不再展示战前块。
+        let started = self
+            .world
+            .countries
+            .ideas
+            .get(player)
+            .map(|ideas| {
+                ideas
+                    .iter()
+                    .any(|idea| idea == "FLAG:spanish_civil_war_started")
+            })
+            .unwrap_or(false);
+        if started {
+            return None;
+        }
+
+        let s = hoi4_content::spanish_prewar_settlement(&self.world, "SPR", "SPA");
+
+        // 1936-07-17 开战。
+        const WAR_DATE: hoi4_state::GameDate = hoi4_state::GameDate {
+            year: 1936,
+            month: 7,
+            day: 17,
+            hour: 0,
+        };
+        let days_to_war =
+            (WAR_DATE.days_since_epoch() - self.world.date.days_since_epoch()).max(0);
+
+        // 镜像轴行（SPR 侧 / SPA 侧），顺序与 §2.3 拔河对冲表一致。
+        let axes = vec![
+            PrewarAxisRow {
+                label: "政府权威 / 驻军忠诚".to_owned(),
+                spr_value: s.spr_authority,
+                spa_value: s.spa_garrison,
+            },
+            PrewarAxisRow {
+                label: "阴谋压制 / 阴谋网络".to_owned(),
+                spr_value: s.spr_conspiracy,
+                spa_value: s.spa_conspiracy,
+            },
+            PrewarAxisRow {
+                label: "街头动员 / 长枪党".to_owned(),
+                spr_value: s.spr_street,
+                spa_value: s.spa_falange,
+            },
+            PrewarAxisRow {
+                label: "教会恐慌 / 卡洛斯派".to_owned(),
+                spr_value: s.spr_church_alarm,
+                spa_value: s.spa_carlist,
+            },
+            PrewarAxisRow {
+                label: "武器库 / 外援预置".to_owned(),
+                spr_value: s.spr_armory,
+                spa_value: s.spa_foreign,
+            },
+        ];
+
+        Some(PrewarStandoff {
+            perspective,
+            days_to_war,
+            rebellion_strength: s.rebellion_strength,
+            republic_readiness: s.republic_readiness,
+            axes,
+        })
+    }
+
     /// Reset menu hover and cached layout state when changing game phase.
     fn reset_menu_state(&mut self) {
         self.view.menu_kind = match self.view.game_phase {

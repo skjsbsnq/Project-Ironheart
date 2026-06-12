@@ -36,6 +36,7 @@ pub struct ContentRuntimeState {
     pub last_tick_events: ContentTickEvents,
     /// P1.1：diplomacy_daily 写入的和平结算结果（供 content_daily 读取并合并到 last_tick_events）
     pub pending_peace_resolution: PeaceResolutionOutcome,
+    pub elections: std::collections::HashMap<String, hoi4_content::Election1936>,
 }
 
 impl ContentRuntimeState {
@@ -71,6 +72,7 @@ impl ContentRuntimeState {
             player,
             last_tick_events: ContentTickEvents::default(),
             pending_peace_resolution: PeaceResolutionOutcome::default(),
+            elections: scenario_content.elections.clone(),
         }
     }
 
@@ -95,6 +97,7 @@ impl ContentRuntimeState {
             player,
             last_tick_events: ContentTickEvents::default(),
             pending_peace_resolution: PeaceResolutionOutcome::default(),
+            elections: std::collections::HashMap::new(),
         }
     }
 

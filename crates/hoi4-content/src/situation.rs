@@ -81,7 +81,11 @@ pub enum SituationEffect {
         rebel_color: [u8; 3],
         rebel_party: String,
         rebel_states: Vec<u16>,
+        #[serde(default)]
+        rebel_states_var: Option<String>,
         manpower_fraction: f32,
+        #[serde(default)]
+        manpower_fraction_var: Option<String>,
     },
     /// Phase 1: 把 source 在 rebel 已得到的州里的师团 / 空军 / 舰队转给 rebel；
     /// 同时把 source 的装备储备按 fraction 切给 rebel。
@@ -90,6 +94,8 @@ pub enum SituationEffect {
         source_tag: String,
         rebel_tag: String,
         fraction: f32,
+        #[serde(default)]
+        fraction_var: Option<String>,
     },
     /// Create a war between two tags.
     CreateWar {
@@ -209,6 +215,8 @@ pub enum SituationEffect {
         tag: String,
         enemy_tag: String,
         density: u32,
+        #[serde(default)]
+        density_var: Option<String>,
     },
     SpawnDivisionsInStates {
         tag: String,
@@ -862,10 +870,12 @@ fn substitute_caller_tag(effect: &SituationEffect, caller: &str) -> SituationEff
             tag,
             enemy_tag,
             density,
+            density_var,
         } => SituationEffect::SpawnFrontlineDivisions {
             tag: sub(tag),
             enemy_tag: sub(enemy_tag),
             density: *density,
+            density_var: density_var.clone(),
         },
         other => other.clone(),
     }
