@@ -282,4 +282,40 @@ mod tests {
         );
         assert_eq!(ignored, None);
     }
+
+    #[test]
+    fn finance_gui_root() {
+        let gui = include_str!("../assets/interface/countryfinanceview.gui");
+        let doc = crate::vanilla_gui::parse_gui_str(None, gui);
+
+        let root = doc
+            .template_index()
+            .get(COUNTRY_FINANCE_ROOT)
+            .expect("root template present");
+
+        for name in [
+            "finance_title",
+            "close_button",
+            "kpi_strip",
+            "kpi_cash",
+            "kpi_net",
+            "kpi_reserve",
+            "kpi_debt",
+            "kpi_mefo",
+            "kpi_rating",
+            "tab_bar",
+            "tab_overview",
+            "tab_budget",
+            "tab_debt",
+            "tab_exchange",
+            "tab_economy",
+            "tab_funding",
+            "finance_footer",
+        ] {
+            assert!(
+                root.find_node_by_name(name).is_some(),
+                "missing shell node `{name}`"
+            );
+        }
+    }
 }

@@ -134,13 +134,6 @@ impl fmt::Display for RegistryError {
                     path.display()
                 )
             }
-            Self::ParseElections { path, source } => {
-                write!(
-                    f,
-                    "failed to parse election {}: {source}",
-                    path.display()
-                )
-            }
             Self::EmptyFocusTrees => write!(f, "scenario contains no focus trees"),
             Self::MissingFile(path) => {
                 write!(f, "manifest references missing file {}", path.display())
@@ -316,23 +309,6 @@ pub fn load_scenario_content_from_manifest(
         }
     }
 
-    let mut elections = HashMap::new();
-    for rel in &manifest.elections {
-        let path = content_root.join(rel);
-        let text = read_to_string(&path)?;
-        let election = ron::from_str::<crate::Election1936>(&text)
-            .map_err(|source| RegistryError::ParseElections {
-                path: path.clone(),
-                source,
-            })?;
-        let key = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .to_owned();
-        elections.insert(key, election);
-    }
-
     Ok(ScenarioContent {
         manifest,
         events,
@@ -340,7 +316,6 @@ pub fn load_scenario_content_from_manifest(
         decisions,
         situations,
         surrenders,
-        elections,
     })
 }
 

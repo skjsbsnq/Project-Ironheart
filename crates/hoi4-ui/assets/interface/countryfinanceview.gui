@@ -6,7 +6,154 @@ guiTypes = {
         show_animation_type = decelerated
         hide_animation_type = accelerated
         animation_time = 300
-        size = { width = 550 height = 600 }
+        size = { width = 550 height = 100%% }
         clipping = yes
+
+        background = {
+            name = "panel_bg"
+            quadTextureSprite = "GFX_tiled_paper_bg2"
+            position = { x = 0 y = 0 }
+            size = { width = 550 height = 100%% }
+        }
+        background = {
+            name = "panel_frame"
+            corneredTileSpriteType = "GFX_tiled_window_1b_thin_border"
+            position = { x = 0 y = 0 }
+            size = { width = 550 height = 100%% }
+        }
+
+        instantTextboxType = {
+            name = "finance_title"
+            position = { x = 14 y = 8 }
+            size = { width = 400 height = 24 }
+            font = "hoi_20b"
+            text = "FINANCE"
+        }
+
+        buttonType = {
+            name = "close_button"
+            position = { x = -43 y = 10 }
+            size = { width = 32 height = 32 }
+            Orientation = "UPPER_RIGHT"
+            quadTextureSprite = "GFX_closebutton"
+            shortcut = "ESCAPE"
+        }
+
+        containerWindowType = {
+            name = "kpi_strip"
+            position = { x = 18 y = 42 }
+            size = { width = 508 height = 80 }
+            background = {
+                name = "kpi_bg"
+                quadTextureSprite = "GFX_win_header_short"
+                position = { x = 0 y = 0 }
+                size = { width = 508 height = 80 }
+            }
+            containerWindowType = {
+                name = "kpi_cash"
+                position = { x = 2 y = 2 }
+                size = { width = 164 height = 36 }
+                instantTextboxType = { name = "kpi_label" position = { x = 4 y = 2 } size = { width = 156 height = 14 } font = "hoi_14" text = "" }
+                instantTextboxType = { name = "kpi_value" position = { x = 4 y = 17 } size = { width = 156 height = 18 } font = "hoi_16b" text = "" }
+            }
+            containerWindowType = {
+                name = "kpi_net"
+                position = { x = 172 y = 2 }
+                size = { width = 164 height = 36 }
+                instantTextboxType = { name = "kpi_label" position = { x = 4 y = 2 } size = { width = 156 height = 14 } font = "hoi_14" text = "" }
+                instantTextboxType = { name = "kpi_value" position = { x = 4 y = 17 } size = { width = 156 height = 18 } font = "hoi_16b" text = "" }
+            }
+            containerWindowType = {
+                name = "kpi_reserve"
+                position = { x = 342 y = 2 }
+                size = { width = 164 height = 36 }
+                instantTextboxType = { name = "kpi_label" position = { x = 4 y = 2 } size = { width = 156 height = 14 } font = "hoi_14" text = "" }
+                instantTextboxType = { name = "kpi_value" position = { x = 4 y = 17 } size = { width = 156 height = 18 } font = "hoi_16b" text = "" }
+            }
+            containerWindowType = {
+                name = "kpi_debt"
+                position = { x = 2 y = 42 }
+                size = { width = 164 height = 36 }
+                instantTextboxType = { name = "kpi_label" position = { x = 4 y = 2 } size = { width = 156 height = 14 } font = "hoi_14" text = "" }
+                instantTextboxType = { name = "kpi_value" position = { x = 4 y = 17 } size = { width = 156 height = 18 } font = "hoi_16b" text = "" }
+            }
+            containerWindowType = {
+                name = "kpi_mefo"
+                position = { x = 172 y = 42 }
+                size = { width = 164 height = 36 }
+                instantTextboxType = { name = "kpi_label" position = { x = 4 y = 2 } size = { width = 156 height = 14 } font = "hoi_14" text = "" }
+                instantTextboxType = { name = "kpi_value" position = { x = 4 y = 17 } size = { width = 156 height = 18 } font = "hoi_16b" text = "" }
+            }
+            containerWindowType = {
+                name = "kpi_rating"
+                position = { x = 342 y = 42 }
+                size = { width = 164 height = 36 }
+                instantTextboxType = { name = "kpi_label" position = { x = 4 y = 2 } size = { width = 156 height = 14 } font = "hoi_14" text = "" }
+                instantTextboxType = { name = "kpi_value" position = { x = 4 y = 17 } size = { width = 156 height = 18 } font = "hoi_16b" text = "" }
+            }
+        }
+
+        containerWindowType = {
+            name = "tab_bar"
+            position = { x = 18 y = 126 }
+            size = { width = 508 height = 26 }
+            containerWindowType = {
+                name = "tab_overview"
+                position = { x = 0 y = 0 }
+                size = { width = 84 height = 26 }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
+                instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "总览" }
+            }
+            containerWindowType = {
+                name = "tab_budget"
+                position = { x = 84 y = 0 }
+                size = { width = 84 height = 26 }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
+                instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "预算" }
+            }
+            containerWindowType = {
+                name = "tab_debt"
+                position = { x = 168 y = 0 }
+                size = { width = 84 height = 26 }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
+                instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "债务" }
+            }
+            containerWindowType = {
+                name = "tab_exchange"
+                position = { x = 252 y = 0 }
+                size = { width = 84 height = 26 }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
+                instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "外汇" }
+            }
+            containerWindowType = {
+                name = "tab_economy"
+                position = { x = 336 y = 0 }
+                size = { width = 84 height = 26 }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
+                instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "经济" }
+            }
+            containerWindowType = {
+                name = "tab_funding"
+                position = { x = 420 y = 0 }
+                size = { width = 84 height = 26 }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
+                instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "资金" }
+            }
+        }
+
+        instantTextboxType = {
+            name = "finance_footer"
+            position = { x = 18 y = -32 }
+            Orientation = LOWER_LEFT
+            size = { width = 508 height = 20 }
+            font = "hoi_14"
+            text = "Q 关闭 | 点击行查看详情"
+        }
     }
 }
