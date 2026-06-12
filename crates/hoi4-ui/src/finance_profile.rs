@@ -318,4 +318,97 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn finance_gui_bodies() {
+        let gui = include_str!("../assets/interface/countryfinanceview.gui");
+        let doc = crate::vanilla_gui::parse_gui_str(None, gui);
+
+        let root = doc
+            .template_index()
+            .get(COUNTRY_FINANCE_ROOT)
+            .expect("root template present");
+
+        for name in [
+            // six co-located tab bodies
+            "tab_body_overview",
+            "tab_body_budget",
+            "tab_body_debt",
+            "tab_body_exchange",
+            "tab_body_economy",
+            "tab_body_funding",
+            // overview blocks
+            "treasury_block",
+            "debt_bar",
+            "mefo_bar",
+            "pressure_row",
+            "risk_banner",
+            "diagnostics_box",
+            "diagnostics_grid",
+            // budget blocks
+            "budget_headers",
+            "budget_income_scroll",
+            "budget_income_grid",
+            "budget_expense_scroll",
+            "budget_expense_grid",
+            "budget_totals",
+            // debt blocks
+            "debt_metrics",
+            "financing_block",
+            "debt_actions",
+            // exchange blocks
+            "forex_metrics",
+            "trade_impact",
+            "exchange_actions",
+            // economy blocks
+            "economy_scroll",
+            "gdp_totals",
+            "gdp_box",
+            "gdp_grid",
+            "sector_selector",
+            "sector_box",
+            "sector_grid",
+            "employment_box",
+            "employment_grid",
+            // funding blocks
+            "construction_block",
+            "investment_block",
+        ] {
+            assert!(
+                root.find_node_by_name(name).is_some(),
+                "missing body node `{name}`"
+            );
+        }
+    }
+
+    #[test]
+    fn finance_gui_templates() {
+        let gui = include_str!("../assets/interface/countryfinanceview.gui");
+        let doc = crate::vanilla_gui::parse_gui_str(None, gui);
+        let index = doc.template_index();
+
+        for (template, cells) in [
+            ("finance_budget_row", &["row_hit", "dir_icon", "label", "amount"][..]),
+            ("finance_gdp_row", &["label", "amount", "percent"][..]),
+            (
+                "finance_sector_row",
+                &["building", "level", "employ", "fill_bar", "value"][..],
+            ),
+            (
+                "finance_employment_row",
+                &["label", "employed", "demand", "rate", "value"][..],
+            ),
+            ("finance_diagnostic_row", &["source", "status", "detail"][..]),
+        ] {
+            let node = index
+                .get(template)
+                .unwrap_or_else(|| panic!("missing row template `{template}`"));
+            for cell in cells {
+                assert!(
+                    node.find_node_by_name(cell).is_some(),
+                    "template `{template}` missing cell `{cell}`"
+                );
+            }
+        }
+    }
 }
