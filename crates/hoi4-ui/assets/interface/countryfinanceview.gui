@@ -155,13 +155,64 @@ guiTypes = {
                 name = "treasury_block"
                 position = { x = 0 y = 0 }
                 size = { width = 508 height = 150 }
+                background = { name = "treasury_bg" quadTextureSprite = "GFX_diplo_actions_bg" position = { x = 0 y = 0 } size = { width = 508 height = 150 } }
+                containerWindowType = {
+                    name = "kv_cash"
+                    position = { x = 8 y = 6 }
+                    size = { width = 246 height = 44 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "现金" }
+                    instantTextboxType = { name = "tv_cash" position = { x = 2 y = 20 } size = { width = 242 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "kv_reserve"
+                    position = { x = 256 y = 6 }
+                    size = { width = 246 height = 44 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "外汇储备" }
+                    instantTextboxType = { name = "tv_reserve" position = { x = 2 y = 20 } size = { width = 242 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "kv_gold"
+                    position = { x = 8 y = 54 }
+                    size = { width = 246 height = 44 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "黄金储备" }
+                    instantTextboxType = { name = "tv_gold" position = { x = 2 y = 20 } size = { width = 242 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "kv_cover"
+                    position = { x = 256 y = 54 }
+                    size = { width = 246 height = 44 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "现金覆盖" }
+                    instantTextboxType = { name = "tv_cover" position = { x = 2 y = 20 } size = { width = 242 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "kv_oper"
+                    position = { x = 8 y = 102 }
+                    size = { width = 246 height = 44 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "经营结余" }
+                    instantTextboxType = { name = "tv_oper" position = { x = 2 y = 20 } size = { width = 242 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "kv_postfin"
+                    position = { x = 256 y = 102 }
+                    size = { width = 246 height = 44 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "融资后现金变动" }
+                    instantTextboxType = { name = "tv_postfin" position = { x = 2 y = 20 } size = { width = 242 height = 18 } font = "hoi_16b" text = "" }
+                }
             }
             instantTextboxType = {
                 name = "debt_bar_label"
                 position = { x = 0 y = 154 }
-                size = { width = 508 height = 14 }
+                size = { width = 420 height = 14 }
                 font = "hoi_14"
                 text = "债务/GDP"
+            }
+            instantTextboxType = {
+                name = "tv_debt_ratio"
+                position = { x = 420 y = 154 }
+                size = { width = 88 height = 14 }
+                font = "hoi_14"
+                format = right
+                text = ""
             }
             progressbarType = {
                 name = "debt_bar"
@@ -169,27 +220,66 @@ guiTypes = {
                 size = { width = 508 height = 12 }
                 quadTextureSprite = "GFX_prod_progress_bar3"
             }
+            instantTextboxType = {
+                name = "mefo_bar_label"
+                position = { x = 0 y = 186 }
+                size = { width = 420 height = 14 }
+                font = "hoi_14"
+                text = "MEFO/GDP"
+            }
+            instantTextboxType = {
+                name = "tv_mefo_ratio"
+                position = { x = 420 y = 186 }
+                size = { width = 88 height = 14 }
+                font = "hoi_14"
+                format = right
+                text = ""
+            }
             progressbarType = {
                 name = "mefo_bar"
-                position = { x = 0 y = 190 }
+                position = { x = 0 y = 202 }
                 size = { width = 508 height = 12 }
                 quadTextureSprite = "GFX_prod_progress_bar3"
             }
             containerWindowType = {
                 name = "pressure_row"
-                position = { x = 0 y = 210 }
+                position = { x = 0 y = 220 }
                 size = { width = 508 height = 56 }
+                containerWindowType = {
+                    name = "pressure_military"
+                    position = { x = 0 y = 0 }
+                    size = { width = 166 height = 56 }
+                    background = { name = "pm_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 166 height = 56 } }
+                    instantTextboxType = { name = "kv_label" position = { x = 4 y = 4 } size = { width = 158 height = 14 } font = "hoi_14" text = "军费" }
+                    instantTextboxType = { name = "tv_pressure_military" position = { x = 4 y = 22 } size = { width = 158 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "pressure_construction"
+                    position = { x = 171 y = 0 }
+                    size = { width = 166 height = 56 }
+                    background = { name = "pc_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 166 height = 56 } }
+                    instantTextboxType = { name = "kv_label" position = { x = 4 y = 4 } size = { width = 158 height = 14 } font = "hoi_14" text = "建造" }
+                    instantTextboxType = { name = "tv_pressure_construction" position = { x = 4 y = 22 } size = { width = 158 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "pressure_debt"
+                    position = { x = 342 y = 0 }
+                    size = { width = 166 height = 56 }
+                    background = { name = "pd_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 166 height = 56 } }
+                    instantTextboxType = { name = "kv_label" position = { x = 4 y = 4 } size = { width = 158 height = 14 } font = "hoi_14" text = "债务利息" }
+                    instantTextboxType = { name = "tv_pressure_debt" position = { x = 4 y = 22 } size = { width = 158 height = 18 } font = "hoi_16b" text = "" }
+                }
             }
             instantTextboxType = {
                 name = "risk_banner"
-                position = { x = 0 y = 272 }
-                size = { width = 508 height = 40 }
+                position = { x = 0 y = 282 }
+                size = { width = 508 height = 36 }
                 font = "hoi_14"
                 text = ""
             }
             containerWindowType = {
                 name = "diagnostics_box"
-                position = { x = 0 y = 316 }
+                position = { x = 0 y = 322 }
                 size = { width = 508 height = -4 }
                 gridBoxType = {
                     name = "diagnostics_grid"
@@ -209,6 +299,8 @@ guiTypes = {
                 name = "budget_headers"
                 position = { x = 0 y = 0 }
                 size = { width = 508 height = 22 }
+                instantTextboxType = { name = "bh_income" position = { x = 2 y = 3 } size = { width = 248 height = 16 } font = "hoi_14mbs" text = "收入" }
+                instantTextboxType = { name = "bh_expense" position = { x = 258 y = 3 } size = { width = 248 height = 16 } font = "hoi_14mbs" text = "支出" }
             }
             containerWindowType = {
                 name = "budget_income_scroll"
@@ -247,6 +339,29 @@ guiTypes = {
                 position = { x = 0 y = -74 }
                 Orientation = LOWER_LEFT
                 size = { width = 508 height = 72 }
+                background = { name = "bt_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 508 height = 72 } }
+                containerWindowType = {
+                    name = "bt_income"
+                    position = { x = 8 y = 4 }
+                    size = { width = 244 height = 20 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 120 height = 16 } font = "hoi_14" text = "收入合计" }
+                    instantTextboxType = { name = "tv_income_total" position = { x = 122 y = 2 } size = { width = 118 height = 16 } font = "hoi_14mbs" format = right text = "" }
+                }
+                containerWindowType = {
+                    name = "bt_expense"
+                    position = { x = 256 y = 4 }
+                    size = { width = 244 height = 20 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 120 height = 16 } font = "hoi_14" text = "支出合计" }
+                    instantTextboxType = { name = "tv_expense_total" position = { x = 122 y = 2 } size = { width = 118 height = 16 } font = "hoi_14mbs" format = right text = "" }
+                }
+                containerWindowType = {
+                    name = "bt_net"
+                    position = { x = 8 y = 26 }
+                    size = { width = 492 height = 20 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 120 height = 16 } font = "hoi_14mbs" text = "日结余" }
+                    instantTextboxType = { name = "tv_net_total" position = { x = 122 y = 2 } size = { width = 366 height = 16 } font = "hoi_16b" format = right text = "" }
+                }
+                instantTextboxType = { name = "tv_mefo_note" position = { x = 10 y = 50 } size = { width = 490 height = 16 } font = "hoi_14" text = "" }
             }
         }
 
@@ -258,11 +373,91 @@ guiTypes = {
                 name = "debt_metrics"
                 position = { x = 0 y = 0 }
                 size = { width = 508 height = 152 }
+                background = { name = "dm_bg" quadTextureSprite = "GFX_diplo_actions_bg" position = { x = 0 y = 0 } size = { width = 508 height = 152 } }
+                containerWindowType = {
+                    name = "dm_public_debt"
+                    position = { x = 8 y = 6 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "公共债务" }
+                    instantTextboxType = { name = "tv_public_debt" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "dm_public_debt_gbp"
+                    position = { x = 256 y = 6 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "公共债务（£）" }
+                    instantTextboxType = { name = "tv_public_debt_gbp" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "dm_mefo_debt"
+                    position = { x = 8 y = 42 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "MEFO 债务" }
+                    instantTextboxType = { name = "tv_mefo_debt" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "dm_rating"
+                    position = { x = 256 y = 42 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "信用评级" }
+                    instantTextboxType = { name = "tv_debt_rating" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "dm_interest"
+                    position = { x = 8 y = 78 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "债券利率" }
+                    instantTextboxType = { name = "tv_interest" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "dm_mefo_budget"
+                    position = { x = 256 y = 78 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "MEFO 军费预算" }
+                    instantTextboxType = { name = "tv_mefo_budget" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "dm_mefo_spent"
+                    position = { x = 8 y = 114 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "MEFO 军费已用" }
+                    instantTextboxType = { name = "tv_mefo_spent" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
             }
             containerWindowType = {
                 name = "financing_block"
                 position = { x = 0 y = 158 }
                 size = { width = 508 height = 96 }
+                background = { name = "fb_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 508 height = 96 } }
+                instantTextboxType = { name = "fb_header" position = { x = 8 y = 4 } size = { width = 492 height = 16 } font = "hoi_14mbs" text = "融资记录" }
+                containerWindowType = {
+                    name = "fb_mefo_issued"
+                    position = { x = 8 y = 22 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "MEFO 发行" }
+                    instantTextboxType = { name = "tv_mefo_issued" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "fb_mefo_cap"
+                    position = { x = 256 y = 22 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "MEFO 利息资本化" }
+                    instantTextboxType = { name = "tv_mefo_cap" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "fb_bond_issued"
+                    position = { x = 8 y = 58 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "国内债券发行" }
+                    instantTextboxType = { name = "tv_bond_issued" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "fb_coverage"
+                    position = { x = 256 y = 58 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "MEFO 覆盖赤字" }
+                    instantTextboxType = { name = "tv_coverage" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
             }
             containerWindowType = {
                 name = "debt_actions"
@@ -274,18 +469,24 @@ guiTypes = {
                     position = { x = 0 y = 0 }
                     size = { width = 165 height = 34 }
                     quadTextureSprite = "GFX_button_123x34"
+                    buttonText = "发行国债"
+                    buttonFont = "hoi_14mbs"
                 }
                 buttonType = {
                     name = "act_issue_foreign"
                     position = { x = 172 y = 0 }
                     size = { width = 165 height = 34 }
                     quadTextureSprite = "GFX_button_123x34"
+                    buttonText = "发行外债"
+                    buttonFont = "hoi_14mbs"
                 }
                 buttonType = {
                     name = "act_print_mefo"
                     position = { x = 344 y = 0 }
                     size = { width = 164 height = 34 }
                     quadTextureSprite = "GFX_button_123x34"
+                    buttonText = "发行 MEFO"
+                    buttonFont = "hoi_14mbs"
                 }
             }
         }
@@ -298,11 +499,63 @@ guiTypes = {
                 name = "forex_metrics"
                 position = { x = 0 y = 0 }
                 size = { width = 508 height = 110 }
+                background = { name = "fx_bg" quadTextureSprite = "GFX_diplo_actions_bg" position = { x = 0 y = 0 } size = { width = 508 height = 110 } }
+                containerWindowType = {
+                    name = "fx_reserve"
+                    position = { x = 8 y = 6 }
+                    size = { width = 246 height = 44 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "外汇储备" }
+                    instantTextboxType = { name = "tv_forex_reserve" position = { x = 2 y = 20 } size = { width = 242 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "fx_gold"
+                    position = { x = 256 y = 6 }
+                    size = { width = 246 height = 44 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "黄金储备" }
+                    instantTextboxType = { name = "tv_forex_gold" position = { x = 2 y = 20 } size = { width = 242 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "fx_rate"
+                    position = { x = 8 y = 54 }
+                    size = { width = 246 height = 44 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "汇率 RM/£" }
+                    instantTextboxType = { name = "tv_forex_rate" position = { x = 2 y = 20 } size = { width = 242 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "fx_control"
+                    position = { x = 256 y = 54 }
+                    size = { width = 246 height = 44 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "外汇管制" }
+                    instantTextboxType = { name = "tv_forex_control" position = { x = 2 y = 20 } size = { width = 242 height = 18 } font = "hoi_16b" text = "" }
+                }
             }
             containerWindowType = {
                 name = "trade_impact"
                 position = { x = 0 y = 116 }
                 size = { width = 508 height = 96 }
+                background = { name = "ti_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 508 height = 96 } }
+                instantTextboxType = { name = "ti_header" position = { x = 8 y = 4 } size = { width = 492 height = 16 } font = "hoi_14mbs" text = "贸易影响" }
+                containerWindowType = {
+                    name = "ti_net_exports"
+                    position = { x = 8 y = 22 }
+                    size = { width = 162 height = 60 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 158 height = 14 } font = "hoi_14" text = "净出口" }
+                    instantTextboxType = { name = "tv_net_exports" position = { x = 2 y = 20 } size = { width = 158 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "ti_tariffs"
+                    position = { x = 174 y = 22 }
+                    size = { width = 162 height = 60 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 158 height = 14 } font = "hoi_14" text = "关税收入" }
+                    instantTextboxType = { name = "tv_trade_tariffs" position = { x = 2 y = 20 } size = { width = 158 height = 18 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "ti_forex_spend"
+                    position = { x = 338 y = 22 }
+                    size = { width = 162 height = 60 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 158 height = 14 } font = "hoi_14" text = "购汇支出" }
+                    instantTextboxType = { name = "tv_forex_expense" position = { x = 2 y = 20 } size = { width = 158 height = 18 } font = "hoi_16b" text = "" }
+                }
             }
             containerWindowType = {
                 name = "exchange_actions"
@@ -314,12 +567,16 @@ guiTypes = {
                     position = { x = 0 y = 0 }
                     size = { width = 250 height = 34 }
                     quadTextureSprite = "GFX_button_123x34"
+                    buttonText = "出售黄金"
+                    buttonFont = "hoi_14mbs"
                 }
                 buttonType = {
                     name = "act_buy_forex"
                     position = { x = 258 y = 0 }
                     size = { width = 250 height = 34 }
                     quadTextureSprite = "GFX_button_123x34"
+                    buttonText = "购入外汇"
+                    buttonFont = "hoi_14mbs"
                 }
             }
         }
@@ -340,6 +597,35 @@ guiTypes = {
                     name = "gdp_totals"
                     position = { x = 0 y = 0 }
                     size = { width = 508 height = 96 }
+                    background = { name = "gt_bg" quadTextureSprite = "GFX_diplo_actions_bg" position = { x = 0 y = 0 } size = { width = 508 height = 96 } }
+                    containerWindowType = {
+                        name = "gt_total"
+                        position = { x = 8 y = 6 }
+                        size = { width = 246 height = 40 }
+                        instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "总 GDP" }
+                        instantTextboxType = { name = "tv_gt_total" position = { x = 2 y = 18 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                    }
+                    containerWindowType = {
+                        name = "gt_domestic"
+                        position = { x = 256 y = 6 }
+                        size = { width = 246 height = 40 }
+                        instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "本土 GDP" }
+                        instantTextboxType = { name = "tv_gt_domestic" position = { x = 2 y = 18 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                    }
+                    containerWindowType = {
+                        name = "gt_colonial"
+                        position = { x = 8 y = 50 }
+                        size = { width = 246 height = 40 }
+                        instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "殖民 GDP" }
+                        instantTextboxType = { name = "tv_gt_colonial" position = { x = 2 y = 18 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                    }
+                    containerWindowType = {
+                        name = "gt_extracted"
+                        position = { x = 256 y = 50 }
+                        size = { width = 246 height = 40 }
+                        instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "殖民抽取值" }
+                        instantTextboxType = { name = "tv_gt_extracted" position = { x = 2 y = 18 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                    }
                 }
                 containerWindowType = {
                     name = "gdp_box"
@@ -362,18 +648,24 @@ guiTypes = {
                         position = { x = 0 y = 0 }
                         size = { width = 168 height = 26 }
                         quadTextureSprite = "GFX_tab_diplomacy_bg"
+                        buttonText = "一产"
+                        buttonFont = "hoi_14mbs"
                     }
                     buttonType = {
                         name = "sector_secondary"
                         position = { x = 170 y = 0 }
                         size = { width = 168 height = 26 }
                         quadTextureSprite = "GFX_tab_diplomacy_bg"
+                        buttonText = "二产"
+                        buttonFont = "hoi_14mbs"
                     }
                     buttonType = {
                         name = "sector_tertiary"
                         position = { x = 340 y = 0 }
                         size = { width = 168 height = 26 }
                         quadTextureSprite = "GFX_tab_diplomacy_bg"
+                        buttonText = "三产"
+                        buttonFont = "hoi_14mbs"
                     }
                 }
                 containerWindowType = {
@@ -411,11 +703,141 @@ guiTypes = {
                 name = "construction_block"
                 position = { x = 0 y = 0 }
                 size = { width = 508 height = 232 }
+                background = { name = "cb_bg" quadTextureSprite = "GFX_diplo_actions_bg" position = { x = 0 y = 0 } size = { width = 508 height = 232 } }
+                instantTextboxType = { name = "cb_header" position = { x = 8 y = 4 } size = { width = 492 height = 16 } font = "hoi_14mbs" text = "建造资金路径" }
+                containerWindowType = {
+                    name = "cf_government"
+                    position = { x = 8 y = 22 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "政府拨款" }
+                    instantTextboxType = { name = "tv_cf_government" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "cf_mefo"
+                    position = { x = 256 y = 22 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "MEFO 资金" }
+                    instantTextboxType = { name = "tv_cf_mefo" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "cf_private"
+                    position = { x = 8 y = 58 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "私人资本池" }
+                    instantTextboxType = { name = "tv_cf_private" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "cf_cartel"
+                    position = { x = 256 y = 58 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "卡特尔池" }
+                    instantTextboxType = { name = "tv_cf_cartel" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "cf_overlord"
+                    position = { x = 8 y = 94 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "宗主投资" }
+                    instantTextboxType = { name = "tv_cf_overlord" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "cf_foreign"
+                    position = { x = 256 y = 94 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "外国投资" }
+                    instantTextboxType = { name = "tv_cf_foreign" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "cf_paid"
+                    position = { x = 8 y = 130 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "已支付" }
+                    instantTextboxType = { name = "tv_cf_paid" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "cf_remaining"
+                    position = { x = 256 y = 130 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "剩余需求" }
+                    instantTextboxType = { name = "tv_cf_remaining" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "cf_projects"
+                    position = { x = 8 y = 166 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "在建项目" }
+                    instantTextboxType = { name = "tv_cf_projects" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "cf_total"
+                    position = { x = 256 y = 166 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "预算合计" }
+                    instantTextboxType = { name = "tv_cf_total" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
             }
             containerWindowType = {
                 name = "investment_block"
                 position = { x = 0 y = 238 }
                 size = { width = 508 height = -4 }
+                background = { name = "ib_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 508 height = 192 } }
+                instantTextboxType = { name = "ib_header" position = { x = 8 y = 4 } size = { width = 492 height = 16 } font = "hoi_14mbs" text = "投资池" }
+                containerWindowType = {
+                    name = "ip_private"
+                    position = { x = 8 y = 22 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "私人" }
+                    instantTextboxType = { name = "tv_ip_private" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "ip_cartel"
+                    position = { x = 256 y = 22 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "卡特尔" }
+                    instantTextboxType = { name = "tv_ip_cartel" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "ip_sdb"
+                    position = { x = 8 y = 58 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "国家开发银行" }
+                    instantTextboxType = { name = "tv_ip_sdb" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "ip_colonial"
+                    position = { x = 256 y = 58 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "殖民榨取" }
+                    instantTextboxType = { name = "tv_ip_colonial" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "ip_foreign"
+                    position = { x = 8 y = 94 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "外国资本" }
+                    instantTextboxType = { name = "tv_ip_foreign" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "ip_income"
+                    position = { x = 256 y = 94 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "投资收入" }
+                    instantTextboxType = { name = "tv_ip_income" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "ip_spent"
+                    position = { x = 8 y = 130 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "已投资" }
+                    instantTextboxType = { name = "tv_ip_spent" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
+                containerWindowType = {
+                    name = "ip_total"
+                    position = { x = 256 y = 130 }
+                    size = { width = 246 height = 34 }
+                    instantTextboxType = { name = "kv_label" position = { x = 2 y = 2 } size = { width = 242 height = 14 } font = "hoi_14" text = "投资池合计" }
+                    instantTextboxType = { name = "tv_ip_total" position = { x = 2 y = 16 } size = { width = 242 height = 16 } font = "hoi_16b" text = "" }
+                }
             }
         }
 

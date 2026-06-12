@@ -1753,8 +1753,7 @@ impl App {
             day: 17,
             hour: 0,
         };
-        let days_to_war =
-            (WAR_DATE.days_since_epoch() - self.world.date.days_since_epoch()).max(0);
+        let days_to_war = (WAR_DATE.days_since_epoch() - self.world.date.days_since_epoch()).max(0);
 
         // 镜像轴行（SPR 侧 / SPA 侧），顺序与 §2.3 拔河对冲表一致。
         let axes = vec![

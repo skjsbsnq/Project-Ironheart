@@ -3,28 +3,6 @@ use std::collections::HashSet;
 use crate::combat_overlay::CombatBubbleSnapshot;
 use crate::*;
 
-fn build_election_hemicycle_seats_from(election: &hoi4_content::Election1936) -> Vec<hoi4_ui::vanilla_gui::binding::HemicycleSeat> {
-    let mut seats = Vec::new();
-    let mut seat_index = 0u32;
-
-    for bloc in &election.blocs {
-        let color = hoi4_ui::vanilla_gui::binding::HemicycleSeat::color_from_rgb(bloc.color.0, bloc.color.1, bloc.color.2);
-        for party in &bloc.parties {
-            for _ in 0..party.seats {
-                seats.push(hoi4_ui::vanilla_gui::binding::HemicycleSeat {
-                    angle_index: seat_index,
-                    ring: 0,
-                    color,
-                    party_id: party.id.clone(),
-                });
-                seat_index += 1;
-            }
-        }
-    }
-
-    seats
-}
-
 pub(crate) struct UiBuildOutput {
     pub(crate) elapsed_secs: f32,
     pub(crate) game_phase: GamePhase,
@@ -317,12 +295,7 @@ pub(crate) fn build_ui_data(app: &mut App, app_ui_enabled: bool) -> UiBuildOutpu
             &app.v6_db,
         );
 
-        let player_tag_for_election = app.world.countries.tags.get(player).cloned().unwrap_or_default();
-        let election_hemicycle_seats = if player_tag_for_election == "SPR" && !app.world.countries.ideas.get(player).map(|ideas| ideas.iter().any(|s| s == "FLAG:spanish_civil_war_started")).unwrap_or(false) {
-            app.runtime.content.elections.get("spr_election_1936").map(|e| build_election_hemicycle_seats_from(e)).unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        let election_hemicycle_seats = Vec::new();
 
         Some(hoi4_ui::politics::PoliticsData {
             ruling_party: ruling,

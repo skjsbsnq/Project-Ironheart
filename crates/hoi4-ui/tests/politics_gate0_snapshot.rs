@@ -80,6 +80,8 @@ fn gate0_politics_data() -> PoliticsData {
                 detail: "Diplomatic pressure".to_owned(),
             },
         ],
+        election_hemicycle_seats: Vec::new(),
+        show_election_panel: false,
         law_slots: vec![
             PoliticsLawEntry {
                 category: LawCategory::Conscription,

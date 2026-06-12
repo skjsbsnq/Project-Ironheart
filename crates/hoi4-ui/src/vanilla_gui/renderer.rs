@@ -156,7 +156,7 @@ impl<'a> VanillaGuiRenderer<'a> {
         let painter = ui.painter().with_clip_rect(clip);
 
         match node.kind {
-            GuiNodeKind::Background | GuiNodeKind::Icon => {
+            GuiNodeKind::Background | GuiNodeKind::Icon | GuiNodeKind::ProgressBar => {
                 if let Some(sprite) = sprite_for(node, &binding) {
                     self.paint_resource(
                         &painter,
@@ -1589,7 +1589,10 @@ fn paint_hemicycle(
     painter.rect_filled(rect, 0.0, Color32::from_rgb(0x12, 0x13, 0x10));
 
     let total_seats = seats.len();
-    let rings = ((total_seats as f32).sqrt() * 1.2).ceil().max(8.0).min(16.0) as u32;
+    let rings = ((total_seats as f32).sqrt() * 1.2)
+        .ceil()
+        .max(8.0)
+        .min(16.0) as u32;
     let seat_radius = (outer_radius - inner_radius) / (rings as f32 * 2.5);
 
     let seat_layout = compute_hemicycle_layout(total_seats, rings, inner_radius, outer_radius);
@@ -1643,7 +1646,8 @@ fn compute_hemicycle_layout(
             .min(total_seats - assigned);
 
         for seat_idx in 0..seats_this_ring {
-            let angle = std::f32::consts::PI * (1.0 - (seat_idx as f32 / (seats_this_ring - 1).max(1) as f32));
+            let angle = std::f32::consts::PI
+                * (1.0 - (seat_idx as f32 / (seats_this_ring - 1).max(1) as f32));
             let x = angle.cos() * (ring_radius / outer_radius);
             let y = angle.sin() * (ring_radius / outer_radius);
             positions.push((x, y));

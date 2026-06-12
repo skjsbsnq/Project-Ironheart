@@ -523,7 +523,7 @@ fn collect_draw_commands_from_node(
     }
 
     match node.kind {
-        GuiNodeKind::Background | GuiNodeKind::Icon => {
+        GuiNodeKind::Background | GuiNodeKind::Icon | GuiNodeKind::ProgressBar => {
             push_resource_command(node, layout, &binding, gfx_index, time_secs, None, out);
         }
         GuiNodeKind::Button | GuiNodeKind::CheckBox => {

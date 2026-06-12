@@ -902,7 +902,8 @@ fn decision_vanilla_entries(data: &DecisionsData) -> Vec<DecisionVanillaEntry<'_
         }
         out.push(DecisionVanillaEntry::Header { category });
         // 战前拔河块本身已足够醒目，无需加"X available, Y active"统计描述行。
-        let has_prewar = category == hoi4_content::DecisionCategory::Crisis && data.prewar.is_some();
+        let has_prewar =
+            category == hoi4_content::DecisionCategory::Crisis && data.prewar.is_some();
         if !has_prewar {
             if let Some(description) = decision_category_description(category, &visible) {
                 out.push(DecisionVanillaEntry::Description { text: description });

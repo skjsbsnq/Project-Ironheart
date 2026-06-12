@@ -124,6 +124,7 @@ pub enum GuiNodeKind {
     CheckBox,
     EditBox,
     InstantTextbox,
+    ProgressBar,
     GridBox,
     OverlappingElementsBox,
     Position,
@@ -141,6 +142,7 @@ impl GuiNodeKind {
             "checkboxtype" => Some(Self::CheckBox),
             "editboxtype" => Some(Self::EditBox),
             "instanttextboxtype" => Some(Self::InstantTextbox),
+            "progressbartype" => Some(Self::ProgressBar),
             "gridboxtype" => Some(Self::GridBox),
             "overlappingelementsboxtype" => Some(Self::OverlappingElementsBox),
             "positiontype" => Some(Self::Position),
@@ -158,6 +160,7 @@ impl GuiNodeKind {
             Self::CheckBox => "checkBoxType",
             Self::EditBox => "editBoxType",
             Self::InstantTextbox => "instantTextboxType",
+            Self::ProgressBar => "progressbarType",
             Self::GridBox => "gridBoxType",
             Self::OverlappingElementsBox => "OverlappingElementsBoxType",
             Self::Position => "positionType",
@@ -580,6 +583,7 @@ guiTypes = {
         editBoxType = { name = "search" }
         OverlappingElementsBoxType = { name = "overlap" }
         positionType = { name = "focus_spacing" position = { x = 96 y = 130 } }
+        progressbarType = { name = "progress" quadTextureSprite = "GFX_progress" }
     }
 }
 "#,
@@ -602,6 +606,10 @@ guiTypes = {
             root.find_node_by_name("focus_spacing")
                 .map(|node| &node.kind),
             Some(&GuiNodeKind::Position)
+        );
+        assert_eq!(
+            root.find_node_by_name("progress").map(|node| &node.kind),
+            Some(&GuiNodeKind::ProgressBar)
         );
     }
 

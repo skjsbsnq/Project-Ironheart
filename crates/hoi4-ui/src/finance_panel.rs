@@ -19,6 +19,23 @@ use components::{
     PANEL_CARD_SOFT, PARCHMENT, STROKE_TILE, WARN,
 };
 
+// 财政 vanilla runtime frame：照 logistics 多趟模式，仅对当前可见 tab 的 grid 生成 instance。
+use crate::finance_profile::{
+    finance_budget_expense_models, finance_budget_income_models, finance_gdp_row_models,
+    finance_sector_indices, persisted_finance_sector, persisted_finance_tab,
+    set_persisted_finance_sector, set_persisted_finance_tab, FinanceSector, FinanceTab,
+    FinanceVanillaInput, FinanceVanillaProfile,
+};
+use crate::icons::IconBank;
+use crate::vanilla_gui::{
+    bind_profile_tree, bind_profile_tree_with_path_and_context, grid_slots, template_instance_path,
+    GfxIndex, GuiAction, GuiActionKind, GuiBindingMap, GuiInstanceContext, GuiNode, GuiNodePath,
+    GuiRect, GuiRuntimeFrame, GuiRuntimeFrameInput, GuiRuntimeInstanceSource,
+    GuiRuntimeInstanceSpec, GuiRuntimeRootPosition, GuiRuntimeState, GuiScrollState,
+    GuiTemplateRegistry, LayoutNode, RenderStats, TemplateInstanceOptions, VanillaPanelProfile,
+    COUNTRY_FINANCE_GUI_FILE, COUNTRY_FINANCE_PROFILE_ID,
+};
+
 // ─── 数据类型（保持原 API 不变） ─────────────────────────────────
 
 #[derive(Debug, Clone, Default)]
@@ -273,6 +290,9 @@ pub const ECONOMY_V9_SECONDARY_TABS: [(&str, &str); 9] = [
 
 const FINANCE_V9_FOOTER: &str = "Q 关闭 | 预算表 / 融资操作";
 
+pub const FINANCE_VANILLA_SNAPSHOT_1080P: &str =
+    "crates/hoi4-ui/tests/snapshots/finance_vanilla_1080p.png";
+
 pub fn economy_v9_secondary_tabs() -> &'static [(&'static str, &'static str)] {
     &ECONOMY_V9_SECONDARY_TABS
 }
@@ -307,8 +327,567 @@ pub struct FinancePanel;
 
 impl FinancePanel {
     pub fn show(ctx: &egui::Context, data: &FinancePanelData) -> (bool, Vec<FinanceCommand>) {
-        ledger_show_finance(ctx, data)
+        let Some(context) = crate::vanilla_gui::country_finance_runtime_context() else {
+            return ledger_show_finance(ctx, data);
+        };
+        let mut icon_bank = IconBank::new(ctx.clone(), context.path_cfg.clone());
+        Self::show_with_icon_bank(ctx, data, &mut icon_bank)
     }
+
+    pub fn show_with_icon_bank(
+        ctx: &egui::Context,
+        data: &FinancePanelData,
+        icon_bank: &mut IconBank,
+    ) -> (bool, Vec<FinanceCommand>) {
+        vanilla_show_finance(ctx, data, icon_bank)
+    }
+}
+
+fn vanilla_show_finance(
+    ctx: &egui::Context,
+    data: &FinancePanelData,
+    icon_bank: &mut IconBank,
+) -> (bool, Vec<FinanceCommand>) {
+    let profile = FinanceVanillaProfile;
+    icon_bank.add_profile_search_dirs(profile.profile_id());
+
+    let Some(context) = crate::vanilla_gui::country_finance_runtime_context() else {
+        return ledger_show_finance(ctx, data);
+    };
+    let Some(root) = context.root_template(COUNTRY_FINANCE_GUI_FILE, profile.root_template())
+    else {
+        return ledger_show_finance(ctx, data);
+    };
+
+    let screen = ctx.screen_rect();
+    let viewport = GuiRect::new(screen.left(), screen.top(), screen.width(), screen.height());
+    let spec = crate::vanilla_gui::AnimationSpec::from_node(root);
+    let update = crate::vanilla_gui::update_panel_animation(ctx, profile.profile_id(), spec);
+    if update.close_finished {
+        crate::vanilla_gui::clear_panel_close_request(ctx, profile.profile_id());
+        clear_finance_scroll_offsets(ctx);
+        return (true, Vec::new());
+    }
+    if !update.visible {
+        return (false, Vec::new());
+    }
+
+    let input = FinanceVanillaInput::new(
+        data.clone(),
+        persisted_finance_tab(ctx),
+        persisted_finance_sector(ctx),
+    );
+    let registry = GuiTemplateRegistry::from_documents(context.documents());
+    let mut runtime_state =
+        GuiRuntimeState::shown(viewport).with_pixels_per_point(ctx.pixels_per_point());
+    runtime_state.root_position = GuiRuntimeRootPosition::Current(update.position);
+    runtime_state.phase = Some(update.phase);
+    runtime_state.visible = update.visible;
+    runtime_state =
+        apply_finance_scroll_input(ctx, root, &input, viewport, runtime_state, registry.clone());
+
+    let parts = finance_vanilla_runtime_frame_parts(
+        root,
+        &input,
+        viewport,
+        runtime_state,
+        registry.clone(),
+        Some(&context.gfx_index),
+        Some(&mut *icon_bank),
+    );
+
+    let mut close_requested = ctx.input(|input| input.key_pressed(egui::Key::Escape));
+    let mut stats = RenderStats::default();
+    egui::Area::new(egui::Id::new("countryfinanceview_vanilla_runtime"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(screen.min)
+        .show(ctx, |ui| {
+            let outer: egui::Rect = parts.frame.root_layout.rect.into();
+            let visible_outer = outer.intersect(screen);
+            let _ = ui.allocate_rect(visible_outer, Sense::hover());
+            ui.interact(
+                visible_outer,
+                ui.id().with("countryfinanceview_drag_region"),
+                Sense::click_and_drag(),
+            );
+            crate::v9::paint::paint_shadow(ui.painter(), outer, crate::v9::Elevation::E2, 1.0);
+            let renderer = crate::vanilla_gui::VanillaGuiRenderer::new(&context.gfx_index);
+            stats.merge(renderer.paint_tree(
+                ui,
+                root,
+                &parts.frame.root_layout,
+                &parts.bindings,
+                icon_bank,
+            ));
+            for instance in &parts.frame.generated_instances {
+                let Some(template) = registry.get(instance.template_name) else {
+                    continue;
+                };
+                stats.merge(renderer.paint_tree(
+                    ui,
+                    template.node,
+                    &instance.layout,
+                    &parts.bindings,
+                    icon_bank,
+                ));
+            }
+        });
+
+    if finance_close_requested_from_render_stats(&stats) {
+        close_requested = true;
+    }
+    let commands = finance_commands_from_render_stats(ctx, &profile, &input, &stats);
+    log_finance_render_stats(ctx, &stats, icon_bank);
+
+    if close_requested {
+        crate::vanilla_gui::request_panel_close(ctx, profile.profile_id());
+    }
+
+    (false, commands)
+}
+
+// ─── 财政 vanilla runtime frame（动态列表 instance 多趟生成） ─────────────
+//
+// 照 `logistics_vanilla_runtime_frame_parts` 的多趟模式：base layout → 仅对
+// 当前可见 tab 的 grid 生成 `GuiRuntimeInstanceSpec`（absolute_rects + semantic_role
+// + model_keys）→ 合并 instance bindings → 终帧。财政各 grid 是扁平列表（无嵌套
+// grid），所以只需一趟实例生成，比 logistics 简单。tab/sector 切换是纯 UI 状态，
+// 不进 `FinanceCommand`（在 show 函数拦截，Stage 5）。
+
+#[derive(Debug, Clone)]
+pub struct FinanceVanillaRuntimeFrameParts {
+    pub frame: GuiRuntimeFrame,
+    pub bindings: GuiBindingMap,
+}
+
+/// 仅返回终帧（无需 bindings 时的便捷入口）。
+pub fn finance_vanilla_runtime_frame(
+    root: &GuiNode,
+    input: &FinanceVanillaInput,
+    viewport: GuiRect,
+    runtime_state: GuiRuntimeState,
+    registry: GuiTemplateRegistry<'_>,
+) -> GuiRuntimeFrame {
+    finance_vanilla_runtime_frame_parts(root, input, viewport, runtime_state, registry, None, None)
+        .frame
+}
+
+/// 多趟生成财政 runtime frame：只对 `input.tab` 当前可见 tab 的 grid 生成 instance spec。
+pub fn finance_vanilla_runtime_frame_parts(
+    root: &GuiNode,
+    input: &FinanceVanillaInput,
+    viewport: GuiRect,
+    runtime_state: GuiRuntimeState,
+    registry: GuiTemplateRegistry<'_>,
+    gfx_index: Option<&GfxIndex>,
+    icon_bank: Option<&mut IconBank>,
+) -> FinanceVanillaRuntimeFrameParts {
+    let profile = FinanceVanillaProfile;
+    let mut bindings = bind_profile_tree(&profile, root, input);
+
+    // 第一趟：用基础绑定求 root layout，定位当前 tab 的 grid 节点 + rect。
+    let base = GuiRuntimeFrame::build(
+        GuiRuntimeFrameInput::new(root, viewport, COUNTRY_FINANCE_PROFILE_ID, &bindings)
+            .with_runtime_state(runtime_state.clone()),
+    );
+
+    let mut specs = Vec::new();
+    for plan in finance_visible_tab_grids(input) {
+        if let Some(spec) = finance_grid_instance_spec(&base, root, plan) {
+            specs.push(spec);
+        }
+    }
+
+    // 行 instance 绑定（按 semantic_role + model_key 分流到行单元绑定）。
+    bindings.extend(finance_vanilla_instance_bindings(input, &specs, &registry));
+
+    // 终帧：带 instance spec + registry（+ 可选 gfx/icon）。
+    let mut frame_input =
+        GuiRuntimeFrameInput::new(root, viewport, COUNTRY_FINANCE_PROFILE_ID, &bindings)
+            .with_runtime_state(runtime_state)
+            .with_template_registry(registry)
+            .with_instance_specs(specs);
+    if let Some(gfx_index) = gfx_index {
+        frame_input = frame_input.with_gfx_index(gfx_index);
+    }
+    if let Some(icon_bank) = icon_bank {
+        frame_input = frame_input.with_icon_bank(icon_bank);
+    }
+    FinanceVanillaRuntimeFrameParts {
+        frame: GuiRuntimeFrame::build(frame_input),
+        bindings,
+    }
+}
+
+/// 一个待生成的 grid：节点名、行模板名、按模型派生的 model_keys。
+struct FinanceGridPlan {
+    grid_name: &'static str,
+    template_name: &'static str,
+    model_keys: Vec<String>,
+}
+
+/// 当前可见 tab 需要生成 instance 的 grid 列表。
+/// 总览=诊断；预算=收入/支出双栏；经济=GDP/产业/就业；债务/外汇/资金=无（纯固定 KV）。
+fn finance_visible_tab_grids(input: &FinanceVanillaInput) -> Vec<FinanceGridPlan> {
+    let data = &input.data;
+    match input.tab {
+        FinanceTab::Overview => vec![FinanceGridPlan {
+            grid_name: "diagnostics_grid",
+            template_name: "finance_diagnostic_row",
+            model_keys: (0..data.diagnostics.len()).map(|i| i.to_string()).collect(),
+        }],
+        FinanceTab::Budget => vec![
+            FinanceGridPlan {
+                grid_name: "budget_income_grid",
+                template_name: "finance_budget_row",
+                model_keys: finance_budget_income_models(data)
+                    .iter()
+                    .map(|row| row.key.to_owned())
+                    .collect(),
+            },
+            FinanceGridPlan {
+                grid_name: "budget_expense_grid",
+                template_name: "finance_budget_row",
+                model_keys: finance_budget_expense_models(data)
+                    .iter()
+                    .map(|row| row.key.to_owned())
+                    .collect(),
+            },
+        ],
+        FinanceTab::Economy => vec![
+            FinanceGridPlan {
+                grid_name: "gdp_grid",
+                template_name: "finance_gdp_row",
+                model_keys: finance_gdp_row_models(data)
+                    .iter()
+                    .map(|row| row.key.to_owned())
+                    .collect(),
+            },
+            FinanceGridPlan {
+                grid_name: "sector_grid",
+                template_name: "finance_sector_row",
+                model_keys: finance_sector_indices(data, input.sector)
+                    .iter()
+                    .map(|index| index.to_string())
+                    .collect(),
+            },
+            FinanceGridPlan {
+                grid_name: "employment_grid",
+                template_name: "finance_employment_row",
+                model_keys: (0..data.employment_rows.len())
+                    .map(|i| i.to_string())
+                    .collect(),
+            },
+        ],
+        FinanceTab::Debt | FinanceTab::Exchange | FinanceTab::Funding => Vec::new(),
+    }
+}
+
+/// 把一个 grid plan 转成 instance spec：从 base layout 取 grid rect、从原始树取 grid 节点，
+/// 按内容条数展开 slot rects。空列表返回 None（不生成 spec）。
+fn finance_grid_instance_spec(
+    base: &GuiRuntimeFrame,
+    root: &GuiNode,
+    plan: FinanceGridPlan,
+) -> Option<GuiRuntimeInstanceSpec> {
+    if plan.model_keys.is_empty() {
+        return None;
+    }
+    let grid_layout = base.root_layout.find_by_name(plan.grid_name)?;
+    let grid_node = root.find_node_by_name(plan.grid_name)?;
+    let rects = finance_grid_slots(grid_node, grid_layout.rect, plan.model_keys.len());
+    if rects.is_empty() {
+        return None;
+    }
+    Some(
+        GuiRuntimeInstanceSpec::absolute_rects(plan.template_name, grid_layout.path.clone(), rects)
+            .with_options(TemplateInstanceOptions::default().template_size(true))
+            .with_semantic_role(plan.template_name)
+            .with_model_keys(plan.model_keys),
+    )
+}
+
+/// 按 grid 的 slotsize 展开 `count` 个 slot rect。
+/// 滚动体内容可超出 clip，因此先取单 slot 高度，再把 rect 高度撑到 `slot_h * count`，
+/// 保证容量 >= count（与 `logistics_scroll_content_grid_slots` 同构）。
+fn finance_grid_slots(grid_node: &GuiNode, grid_rect: GuiRect, count: usize) -> Vec<GuiRect> {
+    if count == 0 {
+        return Vec::new();
+    }
+    let Some(first_slot) = grid_slots(grid_node, grid_rect, 1).into_iter().next() else {
+        return Vec::new();
+    };
+    let expanded = GuiRect::new(
+        grid_rect.x,
+        grid_rect.y,
+        grid_rect.width,
+        grid_rect
+            .height
+            .max(first_slot.height.max(1.0) * count as f32),
+    );
+    grid_slots(grid_node, expanded, count)
+}
+
+/// 为每个 instance spec 的每一行生成绑定：建 context（semantic_role + model_key），
+/// 用 `bind_node_with_context` 分流到对应行单元绑定。
+fn finance_vanilla_instance_bindings(
+    input: &FinanceVanillaInput,
+    specs: &[GuiRuntimeInstanceSpec],
+    registry: &GuiTemplateRegistry<'_>,
+) -> GuiBindingMap {
+    let profile = FinanceVanillaProfile;
+    let mut bindings = GuiBindingMap::default();
+    for spec in specs {
+        let Some(template) = registry.get(spec.template_name) else {
+            continue;
+        };
+        let count = match &spec.source {
+            GuiRuntimeInstanceSource::Descriptor { count }
+            | GuiRuntimeInstanceSource::Grid { count } => *count,
+            GuiRuntimeInstanceSource::Absolute { rects } => rects.len(),
+        };
+        for index in 0..count {
+            let path = template_instance_path(&spec.parent_path, spec.template_name, index);
+            let mut context =
+                GuiInstanceContext::new(spec.template_name, index, spec.parent_path.clone());
+            if let Some(role) = spec.semantic_role.clone() {
+                context = context.with_semantic_role(role);
+            }
+            if let Some(model_key) = spec.model_keys.get(index).cloned() {
+                context = context.with_model_key(model_key);
+            }
+            bindings.extend(bind_profile_tree_with_path_and_context(
+                &profile,
+                template.node,
+                input,
+                path,
+                Some(&context),
+            ));
+        }
+    }
+    bindings
+}
+
+const FINANCE_SCROLL_NODE_NAMES: [&str; 3] = [
+    "budget_income_scroll",
+    "budget_expense_scroll",
+    "economy_scroll",
+];
+
+fn apply_finance_scroll_input(
+    ctx: &egui::Context,
+    root: &GuiNode,
+    input: &FinanceVanillaInput,
+    viewport: GuiRect,
+    mut runtime_state: GuiRuntimeState,
+    registry: GuiTemplateRegistry<'_>,
+) -> GuiRuntimeState {
+    let probe = finance_vanilla_runtime_frame_parts(
+        root,
+        input,
+        viewport,
+        runtime_state.clone(),
+        registry,
+        None,
+        None,
+    )
+    .frame;
+    let pointer = ctx.input(|input| input.pointer.latest_pos());
+    let wheel = ctx.input(|input| {
+        if input.smooth_scroll_delta.y.abs() > f32::EPSILON {
+            input.smooth_scroll_delta.y
+        } else {
+            input.raw_scroll_delta.y
+        }
+    });
+    let mut consumed_wheel = false;
+
+    for scroll_state in probe
+        .scroll_states
+        .iter()
+        .filter(|state| finance_is_managed_scroll_state(state))
+    {
+        let max_scroll = finance_scroll_max_offset(&probe, scroll_state);
+        let scroll_id = finance_scroll_offset_id(scroll_state.node_name.as_deref().unwrap_or(""));
+        let mut offset = ctx
+            .data_mut(|data| data.get_persisted::<f32>(scroll_id))
+            .unwrap_or(0.0)
+            .clamp(0.0, max_scroll);
+        let clip: egui::Rect = scroll_state.content_clip_rect.into();
+
+        if !consumed_wheel
+            && pointer.is_some_and(|pos| clip.contains(pos))
+            && wheel.abs() > f32::EPSILON
+        {
+            let delta = if scroll_state.spec.smooth_scrolling {
+                -wheel
+            } else {
+                -wheel.signum() * scroll_state.spec.scroll_wheel_factor
+            };
+            let next = (offset + delta).clamp(0.0, max_scroll);
+            if (next - offset).abs() > f32::EPSILON {
+                offset = next;
+                consumed_wheel = true;
+                ctx.data_mut(|data| data.insert_persisted(scroll_id, offset));
+                ctx.request_repaint();
+            }
+        } else {
+            ctx.data_mut(|data| data.insert_persisted(scroll_id, offset));
+        }
+
+        runtime_state = runtime_state.with_scroll_offset(
+            scroll_state.path.clone(),
+            crate::vanilla_gui::GuiPoint { x: 0.0, y: offset },
+        );
+    }
+
+    if consumed_wheel {
+        ctx.input_mut(|input| {
+            input.smooth_scroll_delta = Vec2::ZERO;
+            input.raw_scroll_delta = Vec2::ZERO;
+        });
+    }
+
+    runtime_state
+}
+
+fn finance_is_managed_scroll_state(state: &GuiScrollState) -> bool {
+    state
+        .node_name
+        .as_deref()
+        .is_some_and(|name| FINANCE_SCROLL_NODE_NAMES.contains(&name))
+}
+
+fn finance_scroll_max_offset(frame: &GuiRuntimeFrame, scroll_state: &GuiScrollState) -> f32 {
+    let clip = scroll_state.content_clip_rect;
+    let mut bottom = finance_scroll_layout_bottom(&frame.root_layout, &scroll_state.path)
+        .unwrap_or(clip.y + clip.height);
+    for instance in &frame.generated_instances {
+        if finance_path_starts_with(&instance.parent_path, &scroll_state.path)
+            || finance_path_starts_with(&instance.path, &scroll_state.path)
+        {
+            bottom = bottom.max(instance.layout.rect.y + instance.layout.rect.height);
+        }
+    }
+    (bottom - clip.y - clip.height).max(0.0)
+}
+
+fn finance_scroll_layout_bottom(layout: &LayoutNode, scroll_path: &GuiNodePath) -> Option<f32> {
+    if &layout.path == scroll_path {
+        return Some(
+            layout
+                .children
+                .iter()
+                .map(finance_layout_subtree_bottom)
+                .fold(layout.rect.y + layout.rect.height, f32::max),
+        );
+    }
+    layout
+        .children
+        .iter()
+        .find_map(|child| finance_scroll_layout_bottom(child, scroll_path))
+}
+
+fn finance_layout_subtree_bottom(layout: &LayoutNode) -> f32 {
+    layout
+        .children
+        .iter()
+        .map(finance_layout_subtree_bottom)
+        .fold(layout.rect.y + layout.rect.height, f32::max)
+}
+
+fn finance_path_starts_with(path: &GuiNodePath, prefix: &GuiNodePath) -> bool {
+    path.0.len() >= prefix.0.len()
+        && path
+            .0
+            .iter()
+            .zip(prefix.0.iter())
+            .all(|(segment, prefix_segment)| segment == prefix_segment)
+}
+
+fn finance_scroll_offset_id(node_name: &str) -> egui::Id {
+    egui::Id::new(("countryfinanceview_scroll_offset", node_name.to_owned()))
+}
+
+fn clear_finance_scroll_offsets(ctx: &egui::Context) {
+    for node_name in FINANCE_SCROLL_NODE_NAMES {
+        ctx.data_mut(|data| data.insert_persisted(finance_scroll_offset_id(node_name), 0.0));
+    }
+}
+
+fn finance_close_requested_from_render_stats(stats: &RenderStats) -> bool {
+    stats
+        .clicked_commands
+        .iter()
+        .any(|command| command == "close")
+}
+
+fn finance_commands_from_render_stats(
+    ctx: &egui::Context,
+    profile: &FinanceVanillaProfile,
+    input: &FinanceVanillaInput,
+    stats: &RenderStats,
+) -> Vec<FinanceCommand> {
+    stats
+        .clicked_commands
+        .iter()
+        .filter(|command| command.as_str() != "close")
+        .filter_map(|command| {
+            if intercept_finance_ui_state_command(ctx, command) {
+                return None;
+            }
+            profile.handle_action(
+                GuiAction {
+                    node_path: GuiNodePath::root(command.clone()),
+                    kind: GuiActionKind::Click,
+                },
+                input,
+            )
+        })
+        .collect()
+}
+
+fn intercept_finance_ui_state_command(ctx: &egui::Context, command: &str) -> bool {
+    if let Some(tab) = command
+        .strip_prefix("finance:tab:")
+        .and_then(FinanceTab::from_id)
+    {
+        set_persisted_finance_tab(ctx, tab);
+        ctx.request_repaint();
+        return true;
+    }
+    if let Some(sector) = command
+        .strip_prefix("finance:sector:")
+        .and_then(FinanceSector::from_id)
+    {
+        set_persisted_finance_sector(ctx, sector);
+        ctx.request_repaint();
+        return true;
+    }
+    false
+}
+
+fn log_finance_render_stats(ctx: &egui::Context, stats: &RenderStats, icon_bank: &IconBank) {
+    let id = egui::Id::new("countryfinanceview_render_stats_logged");
+    let already_logged = ctx
+        .data_mut(|data| data.get_persisted::<bool>(id))
+        .unwrap_or(false);
+    if already_logged {
+        return;
+    }
+    println!(
+        "[ui][finance] render nodes={}/{} sprites={} fallback={} text={} buttons={} progress={} icon_missing_cache={} fallback_labels={:?}",
+        stats.nodes_painted,
+        stats.nodes_seen,
+        stats.sprites_painted,
+        stats.fallback_painted,
+        stats.text_painted,
+        stats.buttons,
+        stats.progress_bars,
+        icon_bank.missing_count(),
+        stats.fallback_labels
+    );
+    ctx.data_mut(|data| data.insert_persisted(id, true));
 }
 
 fn ledger_show_finance(
@@ -3023,12 +3602,12 @@ fn cover_color(days: f64) -> Color32 {
     }
 }
 
-fn signed_million(v: f64) -> String {
+pub(crate) fn signed_million(v: f64) -> String {
     let sign = if v >= 0.0 { "+" } else { "" };
     format!("{}{}", sign, format_million(v))
 }
 
-fn format_million(v: f64) -> String {
+pub(crate) fn format_million(v: f64) -> String {
     if v.abs() >= 1_000_000_000.0 {
         format!("{:.1}B", v / 1_000_000_000.0)
     } else if v.abs() >= 1_000_000.0 {
@@ -3043,6 +3622,495 @@ fn format_million(v: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::finance_profile::{FinanceSector, FinanceVanillaInput};
+    use crate::vanilla_gui::{
+        parse_gui_str, GuiBinding, GuiGeneratedInstance, GuiNodePath, GuiRuntimeState,
+        GuiTemplateRegistry, VanillaPanelProfile, COUNTRY_FINANCE_GUI_FILE, COUNTRY_FINANCE_ROOT,
+    };
+
+    fn finance_stage4_sample_data() -> FinancePanelData {
+        let mut data = FinancePanelData::default();
+        data.daily_income_rm = 50_000_000.0;
+        data.daily_expense_rm = 45_000_000.0;
+        data.operating_income_rm = 42_000_000.0;
+        data.operating_expense_rm = 41_000_000.0;
+        data.mefo_coverage_rm = 3_000_000.0;
+
+        data.fiscal_revenue.pop_income_taxes_rm = 9_000_000.0;
+        data.fiscal_revenue.trade_tariffs_rm = 2_000_000.0;
+        data.fiscal_revenue.financing_rm = 8_000_000.0;
+        data.fiscal_expense.military_rm = 18_000_000.0;
+        data.fiscal_expense.construction_rm = 12_000_000.0;
+        data.fiscal_expense.welfare_rm = 4_000_000.0;
+        data.fiscal_expense.interest_rm = 2_000_000.0;
+
+        data.gdp_rm = 100_000_000.0;
+        data.gdp_gbp = 8_000_000.0;
+        data.domestic_gdp_rm = 75_000_000.0;
+        data.domestic_gdp_gbp = 6_000_000.0;
+        data.colonial_gdp_rm = 25_000_000.0;
+        data.colonial_gdp_gbp = 2_000_000.0;
+        data.gdp_breakdown.building_primary_rm = 10_000_000.0;
+        data.gdp_breakdown.building_secondary_rm = 20_000_000.0;
+        data.gdp_breakdown.building_tertiary_rm = 15_000_000.0;
+        data.gdp_breakdown.pop_income_rm = 30_000_000.0;
+        data.gdp_breakdown.pop_consumption_rm = 12_000_000.0;
+        data.gdp_breakdown.government_services_rm = 5_000_000.0;
+        data.gdp_breakdown.military_procurement_rm = 7_000_000.0;
+        data.gdp_breakdown.net_exports_rm = -4_000_000.0;
+        data.gdp_breakdown.colonial_value_added_rm = 5_000_000.0;
+
+        data.sector_buildings = vec![
+            EconomySectorBuildingEntry {
+                sector_id: "primary".into(),
+                sector_name: "一产".into(),
+                building_name: "煤矿".into(),
+                level: 3,
+                employed: 900,
+                demand: 1_000,
+                employment_rate: 0.9,
+                value_added_rm: 8_000_000.0,
+            },
+            EconomySectorBuildingEntry {
+                sector_id: "primary".into(),
+                sector_name: "一产".into(),
+                building_name: "油田".into(),
+                level: 2,
+                employed: 550,
+                demand: 600,
+                employment_rate: 0.916,
+                value_added_rm: 2_000_000.0,
+            },
+            EconomySectorBuildingEntry {
+                sector_id: "secondary".into(),
+                sector_name: "二产".into(),
+                building_name: "钢铁厂".into(),
+                level: 5,
+                employed: 1_700,
+                demand: 2_000,
+                employment_rate: 0.85,
+                value_added_rm: 20_000_000.0,
+            },
+            EconomySectorBuildingEntry {
+                sector_id: "tertiary".into(),
+                sector_name: "三产".into(),
+                building_name: "商业区".into(),
+                level: 4,
+                employed: 1_200,
+                demand: 1_500,
+                employment_rate: 0.8,
+                value_added_rm: 15_000_000.0,
+            },
+        ];
+        data.employment_rows = vec![
+            EconomyEmploymentEntry {
+                label: "一产".into(),
+                employed: 1_450,
+                demand: 1_600,
+                employment_rate: 0.90625,
+                value_added_rm: 10_000_000.0,
+            },
+            EconomyEmploymentEntry {
+                label: "二产".into(),
+                employed: 1_700,
+                demand: 2_000,
+                employment_rate: 0.85,
+                value_added_rm: 20_000_000.0,
+            },
+        ];
+        data.diagnostics = vec![
+            EconomyDiagnosticEntry {
+                source: "财政现金流".into(),
+                status: "正常".into(),
+                detail: "日净额 +5.0M".into(),
+            },
+            EconomyDiagnosticEntry {
+                source: "建造资金".into(),
+                status: "关注".into(),
+                detail: "剩余需求偏高".into(),
+            },
+            EconomyDiagnosticEntry {
+                source: "外汇".into(),
+                status: "阻塞".into(),
+                detail: "外汇管制限制购买".into(),
+            },
+        ];
+        data
+    }
+
+    fn finance_stage4_parts(
+        data: FinancePanelData,
+        tab: FinanceTab,
+        sector: FinanceSector,
+    ) -> FinanceVanillaRuntimeFrameParts {
+        let gui = include_str!("../assets/interface/countryfinanceview.gui");
+        let doc = parse_gui_str(None, gui);
+        let root = doc
+            .template_index()
+            .get(COUNTRY_FINANCE_ROOT)
+            .expect("finance root template present");
+        let registry = GuiTemplateRegistry::from_documents([(COUNTRY_FINANCE_GUI_FILE, &doc)]);
+        let viewport = GuiRect::new(0.0, 0.0, 1920.0, 1080.0);
+        let input = FinanceVanillaInput::new(data, tab, sector);
+        finance_vanilla_runtime_frame_parts(
+            root,
+            &input,
+            viewport,
+            GuiRuntimeState::shown(viewport),
+            registry,
+            None,
+            None,
+        )
+    }
+
+    fn instances_with_role<'a>(
+        parts: &'a FinanceVanillaRuntimeFrameParts,
+        role: &str,
+    ) -> Vec<&'a GuiGeneratedInstance> {
+        parts
+            .frame
+            .generated_instances
+            .iter()
+            .filter(|instance| instance.context.semantic_role.as_deref() == Some(role))
+            .collect()
+    }
+
+    fn instance_binding(
+        parts: &FinanceVanillaRuntimeFrameParts,
+        instance: &GuiGeneratedInstance,
+        leaf: &str,
+    ) -> GuiBinding {
+        parts
+            .bindings
+            .for_node(&instance.path.child(leaf), Some(leaf))
+    }
+
+    fn instance_by_key<'a>(
+        parts: &'a FinanceVanillaRuntimeFrameParts,
+        role: &str,
+        key: &str,
+    ) -> &'a GuiGeneratedInstance {
+        parts
+            .frame
+            .generated_instances
+            .iter()
+            .find(|instance| {
+                instance.context.semantic_role.as_deref() == Some(role)
+                    && instance.context.model_key.as_deref() == Some(key)
+            })
+            .unwrap_or_else(|| panic!("missing {role} instance with key {key}"))
+    }
+
+    #[test]
+    fn finance_runtime_frame() {
+        let overview = finance_stage4_parts(
+            finance_stage4_sample_data(),
+            FinanceTab::Overview,
+            FinanceSector::Primary,
+        );
+        assert_eq!(
+            instances_with_role(&overview, "finance_diagnostic_row").len(),
+            3
+        );
+        assert!(
+            overview
+                .frame
+                .generated_instances
+                .iter()
+                .all(|instance| instance
+                    .parent_path
+                    .to_string()
+                    .contains("diagnostics_grid")),
+            "overview should only generate diagnostics_grid instances"
+        );
+
+        let budget = finance_stage4_parts(
+            finance_stage4_sample_data(),
+            FinanceTab::Budget,
+            FinanceSector::Primary,
+        );
+        assert_eq!(instances_with_role(&budget, "finance_budget_row").len(), 7);
+        assert!(
+            budget.frame.generated_instances.iter().all(|instance| {
+                let parent = instance.parent_path.to_string();
+                parent.contains("budget_income_grid") || parent.contains("budget_expense_grid")
+            }),
+            "budget should only generate the two budget grids"
+        );
+        assert!(instances_with_role(&budget, "finance_diagnostic_row").is_empty());
+    }
+
+    #[test]
+    fn finance_budget_rows() {
+        let data = finance_stage4_sample_data();
+        let input =
+            FinanceVanillaInput::new(data.clone(), FinanceTab::Budget, FinanceSector::Primary);
+        let parts = finance_stage4_parts(data, FinanceTab::Budget, FinanceSector::Primary);
+
+        let income_rows: Vec<_> = parts
+            .frame
+            .generated_instances
+            .iter()
+            .filter(|instance| {
+                instance.context.semantic_role.as_deref() == Some("finance_budget_row")
+                    && instance
+                        .parent_path
+                        .to_string()
+                        .contains("budget_income_grid")
+            })
+            .collect();
+        let expense_rows: Vec<_> = parts
+            .frame
+            .generated_instances
+            .iter()
+            .filter(|instance| {
+                instance.context.semantic_role.as_deref() == Some("finance_budget_row")
+                    && instance
+                        .parent_path
+                        .to_string()
+                        .contains("budget_expense_grid")
+            })
+            .collect();
+        assert_eq!(
+            income_rows.len(),
+            finance_budget_income_models(&input.data).len()
+        );
+        assert_eq!(
+            expense_rows.len(),
+            finance_budget_expense_models(&input.data).len()
+        );
+
+        let tariff = instance_by_key(&parts, "finance_budget_row", "budget:inc:tariffs");
+        assert_eq!(
+            instance_binding(&parts, tariff, "label").text.as_deref(),
+            Some("贸易关税")
+        );
+        let tariff_amount = instance_binding(&parts, tariff, "amount");
+        assert_eq!(tariff_amount.text.as_deref(), Some("2.0M"));
+        assert_eq!(
+            tariff_amount.text_color,
+            Some(Color32::from_rgb(0x60, 0xc0, 0x60))
+        );
+        assert_eq!(
+            instance_binding(&parts, tariff, "row_hit")
+                .click
+                .as_ref()
+                .map(|click| click.command.as_str()),
+            Some("finance:goto:trade")
+        );
+
+        let military = instance_by_key(&parts, "finance_budget_row", "budget:exp:military");
+        let military_amount = instance_binding(&parts, military, "amount");
+        assert_eq!(military_amount.text.as_deref(), Some("18.0M"));
+        assert_eq!(
+            military_amount.text_color,
+            Some(Color32::from_rgb(0xc0, 0x40, 0x40))
+        );
+
+        let profile = FinanceVanillaProfile;
+        let totals = |leaf: &str| {
+            profile.bind_node(
+                &GuiNodePath::root(COUNTRY_FINANCE_ROOT)
+                    .child("tab_body_budget")
+                    .child("budget_totals")
+                    .child(leaf),
+                &input,
+            )
+        };
+        assert_eq!(totals("tv_income_total").text.as_deref(), Some("50.0M"));
+        assert_eq!(totals("tv_expense_total").text.as_deref(), Some("45.0M"));
+        assert_eq!(totals("tv_net_total").text.as_deref(), Some("+5.0M"));
+    }
+
+    #[test]
+    fn finance_economy_rows() {
+        let primary = finance_stage4_parts(
+            finance_stage4_sample_data(),
+            FinanceTab::Economy,
+            FinanceSector::Primary,
+        );
+        assert_eq!(instances_with_role(&primary, "finance_gdp_row").len(), 9);
+        assert_eq!(instances_with_role(&primary, "finance_sector_row").len(), 2);
+        assert_eq!(
+            instances_with_role(&primary, "finance_employment_row").len(),
+            2
+        );
+        let primary_sector_keys: Vec<_> = instances_with_role(&primary, "finance_sector_row")
+            .into_iter()
+            .filter_map(|instance| instance.context.model_key.clone())
+            .collect();
+        assert_eq!(primary_sector_keys, vec!["0".to_owned(), "1".to_owned()]);
+
+        let secondary = finance_stage4_parts(
+            finance_stage4_sample_data(),
+            FinanceTab::Economy,
+            FinanceSector::Secondary,
+        );
+        let secondary_sector_keys: Vec<_> = instances_with_role(&secondary, "finance_sector_row")
+            .into_iter()
+            .filter_map(|instance| instance.context.model_key.clone())
+            .collect();
+        assert_eq!(secondary_sector_keys, vec!["2".to_owned()]);
+
+        let gdp_secondary = instance_by_key(&primary, "finance_gdp_row", "gdp:secondary");
+        assert_eq!(
+            instance_binding(&primary, gdp_secondary, "label")
+                .text
+                .as_deref(),
+            Some("二产增加值")
+        );
+        assert_eq!(
+            instance_binding(&primary, gdp_secondary, "amount")
+                .text
+                .as_deref(),
+            Some("20.0M")
+        );
+        assert_eq!(
+            instance_binding(&primary, gdp_secondary, "percent")
+                .text
+                .as_deref(),
+            Some("20.0%")
+        );
+
+        let sector = instance_by_key(&primary, "finance_sector_row", "0");
+        assert_eq!(
+            instance_binding(&primary, sector, "building")
+                .text
+                .as_deref(),
+            Some("煤矿")
+        );
+        assert_eq!(
+            instance_binding(&primary, sector, "fill_bar").progress,
+            Some(0.9)
+        );
+    }
+
+    #[test]
+    fn finance_diagnostics_rows() {
+        let parts = finance_stage4_parts(
+            finance_stage4_sample_data(),
+            FinanceTab::Overview,
+            FinanceSector::Primary,
+        );
+        let rows = instances_with_role(&parts, "finance_diagnostic_row");
+        assert_eq!(rows.len(), 3);
+
+        let ok = instance_by_key(&parts, "finance_diagnostic_row", "0");
+        assert_eq!(
+            instance_binding(&parts, ok, "source").text.as_deref(),
+            Some("财政现金流")
+        );
+        let ok_status = instance_binding(&parts, ok, "status");
+        assert_eq!(ok_status.text.as_deref(), Some("正常"));
+        assert_eq!(
+            ok_status.text_color,
+            Some(Color32::from_rgb(0x60, 0xc0, 0x60))
+        );
+
+        let warn = instance_by_key(&parts, "finance_diagnostic_row", "1");
+        assert_eq!(
+            instance_binding(&parts, warn, "status").text_color,
+            Some(Color32::from_rgb(0xc0, 0xc0, 0x30))
+        );
+
+        let bad = instance_by_key(&parts, "finance_diagnostic_row", "2");
+        assert_eq!(
+            instance_binding(&parts, bad, "status").text_color,
+            Some(Color32::from_rgb(0xc0, 0x40, 0x40))
+        );
+    }
+
+    #[test]
+    fn finance_render_stats_close_detection() {
+        let stats = RenderStats {
+            clicked_commands: vec!["close".to_owned()],
+            ..Default::default()
+        };
+
+        assert!(finance_close_requested_from_render_stats(&stats));
+    }
+
+    #[test]
+    fn finance_tab_click_intercept() {
+        let ctx = egui::Context::default();
+        let profile = FinanceVanillaProfile;
+        let input = FinanceVanillaInput::new(
+            FinancePanelData::default(),
+            FinanceTab::Overview,
+            FinanceSector::Primary,
+        );
+        let stats = RenderStats {
+            clicked_commands: vec![
+                "finance:tab:budget".to_owned(),
+                "finance:sector:secondary".to_owned(),
+                "finance:action:print_mefo".to_owned(),
+            ],
+            ..Default::default()
+        };
+
+        let commands = finance_commands_from_render_stats(&ctx, &profile, &input, &stats);
+
+        assert_eq!(persisted_finance_tab(&ctx), FinanceTab::Budget);
+        assert_eq!(persisted_finance_sector(&ctx), FinanceSector::Secondary);
+        assert_eq!(commands, vec![FinanceCommand::PrintMefo]);
+    }
+
+    #[test]
+    fn finance_scroll() {
+        let gui = include_str!("../assets/interface/countryfinanceview.gui");
+        let doc = parse_gui_str(None, gui);
+        let root = doc
+            .template_index()
+            .get(COUNTRY_FINANCE_ROOT)
+            .expect("finance root template present");
+        let registry = GuiTemplateRegistry::from_documents([(COUNTRY_FINANCE_GUI_FILE, &doc)]);
+        let viewport = GuiRect::new(0.0, 0.0, 1920.0, 420.0);
+        let mut data = finance_stage4_sample_data();
+        data.fiscal_revenue.consumption_taxes_rm = 1_000_000.0;
+        data.fiscal_revenue.corporate_taxes_rm = 1_000_000.0;
+        data.fiscal_revenue.state_profit_rm = 1_000_000.0;
+        data.fiscal_revenue.other_rm = 1_000_000.0;
+        data.fiscal_expense.administration_rm = 1_000_000.0;
+        data.fiscal_expense.foreign_exchange_rm = 1_000_000.0;
+        data.fiscal_expense.research_rm = 1_000_000.0;
+        data.fiscal_expense.other_rm = 1_000_000.0;
+        let input = FinanceVanillaInput::new(data, FinanceTab::Budget, FinanceSector::Primary);
+        let runtime_state = GuiRuntimeState::shown(viewport);
+        let probe = finance_vanilla_runtime_frame_parts(
+            root,
+            &input,
+            viewport,
+            runtime_state.clone(),
+            registry.clone(),
+            None,
+            None,
+        )
+        .frame;
+        let income_scroll = probe
+            .scroll_states
+            .iter()
+            .find(|state| state.node_name.as_deref() == Some("budget_income_scroll"))
+            .expect("budget income scroll state");
+        let max_scroll = finance_scroll_max_offset(&probe, income_scroll);
+        assert!(max_scroll > 0.0, "budget income should overflow");
+
+        let ctx = egui::Context::default();
+        ctx.data_mut(|data| {
+            data.insert_persisted(
+                finance_scroll_offset_id("budget_income_scroll"),
+                max_scroll + 500.0,
+            )
+        });
+
+        let scrolled =
+            apply_finance_scroll_input(&ctx, root, &input, viewport, runtime_state, registry);
+        let actual = scrolled
+            .scroll_offsets
+            .get(&income_scroll.path)
+            .expect("persisted budget income scroll")
+            .y;
+        assert!((actual - max_scroll).abs() < 0.01);
+    }
 
     #[test]
     fn finance_panel_data_constructs() {

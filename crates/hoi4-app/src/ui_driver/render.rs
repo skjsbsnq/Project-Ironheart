@@ -257,7 +257,8 @@ pub(crate) fn render_ui(app: &mut App, input: UiBuildOutput) -> UiRenderOutput {
         }
 
         if let Some(ref data) = finance_panel_data {
-            let (close, cmds) = hoi4_ui::finance_panel::FinancePanel::show(ctx, data);
+            let (close, cmds) =
+                hoi4_ui::finance_panel::FinancePanel::show_with_icon_bank(ctx, data, icon_bank);
             if close {
                 finance_close = true;
             }
