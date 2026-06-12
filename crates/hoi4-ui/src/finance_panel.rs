@@ -216,7 +216,7 @@ pub struct EconomyDiagnosticEntry {
     pub detail: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct FinancePanelData {
     pub cash_rm: f64,
     pub reserve_gbp: f64,

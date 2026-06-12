@@ -9,8 +9,8 @@ use super::diagnostics::GfxHitReport;
 use super::error::VanillaGuiIssueKind;
 use super::{
     collect_gfx_references, focus_spacing_marker, link_begin_marker, link_end_marker,
-    link_spacing_marker, national_focus_center_marker, parse_gui_file, GfxIndex, GuiBinding,
-    GuiBindingMap, GuiDocument, GuiNode, GuiNodePath, VanillaProfileDescriptor,
+    link_spacing_marker, national_focus_center_marker, parse_gui_file, parse_gui_str, GfxIndex,
+    GuiBinding, GuiBindingMap, GuiDocument, GuiNode, GuiNodePath, VanillaProfileDescriptor,
 };
 
 pub const COUNTRY_POLITICS_PROFILE_ID: &str = "country_politics";
@@ -29,6 +29,10 @@ pub const COUNTRY_LOGISTICS_PROFILE_ID: &str = "country_logistics";
 pub const COUNTRY_LOGISTICS_GUI_FILE: &str = "interface/countrylogisticsview.gui";
 pub const COUNTRY_LOGISTICS_GFX_FILE: &str = "interface/countrylogisticsview.gfx";
 pub const COUNTRY_LOGISTICS_ROOT: &str = "countrylogisticsview";
+
+pub const COUNTRY_FINANCE_PROFILE_ID: &str = "country_finance";
+pub const COUNTRY_FINANCE_GUI_FILE: &str = "interface/countryfinanceview.gui";
+pub const COUNTRY_FINANCE_ROOT: &str = "countryfinanceview";
 
 pub const COUNTRY_DIPLOMACY_PROFILE_ID: &str = "country_diplomacy";
 pub const COUNTRY_DIPLOMACY_GUI_FILE: &str = "interface/countrydiplomacyview.gui";
@@ -91,6 +95,34 @@ pub const LOGISTICS_REQUIRED_SPRITES: &[&str] = &[
     "GFX_balance_icon",
     "GFX_need_icon",
     "GFX_producing_icon",
+];
+
+pub const FINANCE_REQUIRED_SPRITES: &[&str] = &[
+    "GFX_tiled_window_1b_thin_border",
+    "GFX_tiled_paper_bg2",
+    "GFX_tiled_plain_bg",
+    "GFX_win_header_short",
+    "GFX_header_bg",
+    "GFX_tab_diplomacy_bg",
+    "GFX_tab_intel_ledger",
+    "GFX_diplo_actions_bg",
+    "GFX_diplo_relations_bg",
+    "GFX_decision_category_header_bg",
+    "GFX_diplo_countrylist_entry",
+    "GFX_decision_item_bg",
+    "GFX_prod_progress_bar3",
+    "GFX_production_progressbar_frame2",
+    "GFX_button_123x34",
+    "GFX_closebutton",
+    "GFX_resources_strip",
+];
+
+pub const FINANCE_KEY_TEMPLATES: &[&str] = &[
+    "finance_budget_row",
+    "finance_gdp_row",
+    "finance_sector_row",
+    "finance_employment_row",
+    "finance_diagnostic_row",
 ];
 
 pub const DIPLOMACY_REQUIRED_SPRITES: &[&str] = &[
@@ -229,6 +261,15 @@ pub const COUNTRY_LOGISTICS_DESCRIPTOR: VanillaProfileDescriptor = VanillaProfil
     ],
 };
 
+pub const COUNTRY_FINANCE_DESCRIPTOR: VanillaProfileDescriptor = VanillaProfileDescriptor {
+    profile_id: COUNTRY_FINANCE_PROFILE_ID,
+    root_template: COUNTRY_FINANCE_ROOT,
+    required_gui_files: &[COUNTRY_FINANCE_GUI_FILE],
+    template_instances: &[],
+    required_sprites: FINANCE_REQUIRED_SPRITES,
+    key_templates: FINANCE_KEY_TEMPLATES,
+};
+
 pub const COUNTRY_DIPLOMACY_DESCRIPTOR: VanillaProfileDescriptor = VanillaProfileDescriptor {
     profile_id: COUNTRY_DIPLOMACY_PROFILE_ID,
     root_template: COUNTRY_DIPLOMACY_ROOT,
@@ -292,6 +333,23 @@ impl VanillaGuiRuntimeContext {
             gfx_index,
             documents,
         })
+    }
+
+    pub fn load_with_embedded(
+        path_cfg: PathConfig,
+        embedded_gui_files: &[(&'static str, &'static str)],
+    ) -> Self {
+        let gfx_index = GfxIndex::from_path_config(&path_cfg);
+        let mut documents = BTreeMap::new();
+        for (rel_path, gui_text) in embedded_gui_files.iter().copied() {
+            let document = parse_gui_str(Some(PathBuf::from(rel_path)), gui_text);
+            documents.insert(rel_path, document);
+        }
+        Self {
+            path_cfg,
+            gfx_index,
+            documents,
+        }
     }
 
     pub fn load_all_profiles(profiles: &[VanillaProfileDescriptor]) -> Option<Self> {
@@ -691,6 +749,22 @@ pub fn country_logistics_runtime_context() -> Option<&'static VanillaGuiRuntimeC
         .as_ref()
 }
 
+pub fn country_finance_runtime_context() -> Option<&'static VanillaGuiRuntimeContext> {
+    static CACHE: OnceLock<Option<VanillaGuiRuntimeContext>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            let path_cfg = PathConfig::resolve(Default::default()).ok()?;
+            Some(VanillaGuiRuntimeContext::load_with_embedded(
+                path_cfg,
+                &[(
+                    COUNTRY_FINANCE_GUI_FILE,
+                    include_str!("../../assets/interface/countryfinanceview.gui"),
+                )],
+            ))
+        })
+        .as_ref()
+}
+
 pub fn country_diplomacy_runtime_context() -> Option<&'static VanillaGuiRuntimeContext> {
     static CACHE: OnceLock<Option<VanillaGuiRuntimeContext>> = OnceLock::new();
     CACHE
@@ -903,6 +977,62 @@ mod tests {
             .root_template(COUNTRY_POLITICS_GUI_FILE, COUNTRY_POLITICS_ROOT)
             .is_some());
         assert!(!context.gfx_index.is_empty());
+        assert_eq!(context.loaded_gui_files(), 1);
+    }
+
+    #[test]
+    fn load_with_embedded_parses_minimal_gui_root() {
+        let path_cfg = PathConfig::with_game_path(
+            std::env::temp_dir().join("ironheart-load-with-embedded-test"),
+        );
+        let context = VanillaGuiRuntimeContext::load_with_embedded(
+            path_cfg,
+            &[(
+                "interface/embedded_test.gui",
+                r#"
+guiTypes = {
+    containerWindowType = {
+        name = "embedded_test_root"
+        size = { width = 10 height = 10 }
+    }
+}
+"#,
+            )],
+        );
+
+        assert_eq!(context.loaded_gui_files(), 1);
+        assert!(context
+            .root_template("interface/embedded_test.gui", "embedded_test_root")
+            .is_some());
+    }
+
+    #[test]
+    fn country_finance_descriptor_uses_embedded_gui_key() {
+        assert_eq!(COUNTRY_FINANCE_PROFILE_ID, "country_finance");
+        assert_eq!(COUNTRY_FINANCE_GUI_FILE, "interface/countryfinanceview.gui");
+        assert_eq!(COUNTRY_FINANCE_ROOT, "countryfinanceview");
+        assert_eq!(
+            COUNTRY_FINANCE_DESCRIPTOR.profile_id,
+            COUNTRY_FINANCE_PROFILE_ID
+        );
+        assert_eq!(
+            COUNTRY_FINANCE_DESCRIPTOR.required_gui_files,
+            &[COUNTRY_FINANCE_GUI_FILE]
+        );
+        assert!(!vanilla_builtin_profile_descriptors()
+            .iter()
+            .any(|profile| profile.profile_id == COUNTRY_FINANCE_PROFILE_ID));
+    }
+
+    #[test]
+    fn finance_runtime_context_loads_embedded_root_when_vanilla_available() {
+        let Some(context) = country_finance_runtime_context() else {
+            return;
+        };
+
+        assert!(context
+            .root_template(COUNTRY_FINANCE_GUI_FILE, COUNTRY_FINANCE_ROOT)
+            .is_some());
         assert_eq!(context.loaded_gui_files(), 1);
     }
 

@@ -344,6 +344,7 @@ impl IconBank {
             crate::vanilla_gui::COUNTRY_DECISION_PROFILE_ID => self.add_decision_search_dirs(),
             crate::vanilla_gui::NATIONAL_FOCUS_PROFILE_ID => self.add_focus_search_dirs(),
             crate::vanilla_gui::COUNTRY_LOGISTICS_PROFILE_ID => self.add_logistics_search_dirs(),
+            crate::vanilla_gui::COUNTRY_FINANCE_PROFILE_ID => self.add_logistics_search_dirs(),
             crate::vanilla_gui::COUNTRY_DIPLOMACY_PROFILE_ID => self.add_diplomacy_search_dirs(),
             _ => {}
         }
@@ -1476,8 +1477,10 @@ spriteTypes = {
         bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_DECISION_PROFILE_ID);
         bank.add_profile_search_dirs(crate::vanilla_gui::NATIONAL_FOCUS_PROFILE_ID);
         bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_LOGISTICS_PROFILE_ID);
+        bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_FINANCE_PROFILE_ID);
         bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_DIPLOMACY_PROFILE_ID);
         bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_DECISION_PROFILE_ID);
+        bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_FINANCE_PROFILE_ID);
         bank.add_profile_search_dirs(crate::vanilla_gui::COUNTRY_DIPLOMACY_PROFILE_ID);
 
         let dirs = bank.search_dirs();
@@ -1489,6 +1492,7 @@ spriteTypes = {
         assert!(dirs.iter().any(|dir| dir == "gfx/interface/techtree"));
         assert!(dirs.iter().any(|dir| dir == "gfx/interface/goals"));
         assert!(dirs.iter().any(|dir| dir == "gfx/interface/archetypes"));
+        assert!(dirs.iter().any(|dir| dir == "gfx/interface/production"));
         assert!(dirs.iter().any(|dir| dir == "gfx/interface/technologies"));
         assert!(dirs.iter().any(|dir| dir == "gfx/interface/diplomacy"));
         assert_eq!(
@@ -1500,6 +1504,12 @@ spriteTypes = {
         assert_eq!(
             dirs.iter()
                 .filter(|dir| dir.as_str() == "gfx/interface/diplomacy")
+                .count(),
+            1
+        );
+        assert_eq!(
+            dirs.iter()
+                .filter(|dir| dir.as_str() == "gfx/interface/production")
                 .count(),
             1
         );

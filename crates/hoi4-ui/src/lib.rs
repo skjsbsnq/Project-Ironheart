@@ -62,6 +62,7 @@ pub mod diplomacy_profile;
 pub mod end_screen;
 pub mod event_panel;
 pub mod finance_panel;
+pub mod finance_profile;
 pub mod focus_tree_panel;
 pub mod frame_model;
 pub mod i18n;
