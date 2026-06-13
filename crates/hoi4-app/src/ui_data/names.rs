@@ -3,6 +3,7 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DisplayNameKind {
@@ -210,9 +211,13 @@ impl<'a> DisplayNameResolver<'a> {
         victory_point_name: Option<&str>,
         state_name: Option<&str>,
     ) -> String {
+        if let Some(name) = curated_province_place_name(province_id) {
+            return normalize_visible_place_name(name);
+        }
+
         if let Some(name) = clean_visible_name(victory_point_name) {
-            if !name.starts_with("VICTORY_POINTS_") {
-                return name.to_owned();
+            if !name.starts_with("VICTORY_POINTS_") && visible_in_current_language(name) {
+                return normalize_visible_place_name(name);
             }
         }
 
@@ -221,7 +226,12 @@ impl<'a> DisplayNameResolver<'a> {
             format!("internal_province_{}", province_id),
             state_name.unwrap_or_default(),
         );
-        format!("省份 #{}", province_id)
+        if let Some(name) =
+            clean_visible_name(state_name).filter(|name| visible_in_current_language(name))
+        {
+            return format!("{name}地块");
+        }
+        generic_missing_name(DisplayNameKind::Province)
     }
 
     pub fn pop_class_name(&self, class: hoi4_state::PopClass) -> String {
@@ -251,6 +261,84 @@ pub fn localized_state_name(
 
 fn clean_visible_name(name: Option<&str>) -> Option<&str> {
     name.map(str::trim).filter(|name| !name.is_empty())
+}
+
+fn normalize_visible_place_name(name: &str) -> String {
+    let trimmed = name.trim();
+    if matches!(
+        hoi4_ui::i18n::current_language(),
+        hoi4_ui::i18n::Language::Chinese
+    ) {
+        if let Some(base) = trimmed.strip_suffix('市') {
+            if base.chars().count() > 1 {
+                return base.to_owned();
+            }
+        }
+    }
+    trimmed.to_owned()
+}
+
+fn visible_in_current_language(name: &str) -> bool {
+    match hoi4_ui::i18n::current_language() {
+        hoi4_ui::i18n::Language::Chinese => contains_cjk(name),
+        hoi4_ui::i18n::Language::English => true,
+    }
+}
+
+fn contains_cjk(name: &str) -> bool {
+    name.chars().any(|ch| {
+        ('\u{3400}'..='\u{4dbf}').contains(&ch)
+            || ('\u{4e00}'..='\u{9fff}').contains(&ch)
+            || ('\u{f900}'..='\u{faff}').contains(&ch)
+    })
+}
+
+#[derive(Clone, Copy)]
+struct ProvincePlaceName {
+    zh: &'static str,
+    en: &'static str,
+}
+
+fn curated_province_place_name(province_id: u32) -> Option<&'static str> {
+    static CATALOG: OnceLock<HashMap<u32, ProvincePlaceName>> = OnceLock::new();
+    CATALOG
+        .get_or_init(|| {
+            parse_place_name_table(include_str!(
+                "../../assets/province_place_name_overrides.tsv"
+            ))
+        })
+        .get(&province_id)
+        .and_then(select_localized_place_name)
+}
+
+fn select_localized_place_name(name: &ProvincePlaceName) -> Option<&'static str> {
+    match hoi4_ui::i18n::current_language() {
+        hoi4_ui::i18n::Language::Chinese => (!name.zh.is_empty()).then_some(name.zh),
+        hoi4_ui::i18n::Language::English => (!name.en.is_empty())
+            .then_some(name.en)
+            .or_else(|| (!name.zh.is_empty()).then_some(name.zh)),
+    }
+}
+
+fn parse_place_name_table(raw: &'static str) -> HashMap<u32, ProvincePlaceName> {
+    let mut out = HashMap::new();
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut parts = line.split('\t');
+        let Some(id) = parts.next().and_then(|raw| raw.parse::<u32>().ok()) else {
+            continue;
+        };
+        let zh = parts.next().map(str::trim).unwrap_or("");
+        let en = parts.next().map(str::trim).unwrap_or("");
+        if zh.is_empty() && en.is_empty() {
+            continue;
+        }
+        out.insert(id, ProvincePlaceName { zh, en });
+    }
+    out
 }
 
 fn generic_missing_name(kind: DisplayNameKind) -> String {
@@ -306,22 +394,83 @@ mod tests {
     }
 
     #[test]
-    fn province_resolver_uses_stable_id_label_when_no_place_name_exists() {
+    fn province_resolver_uses_curated_historical_override_before_victory_point() {
+        let _guard = language_test_lock();
+        let resolver = DisplayNameResolver::new(None);
+        let previous = hoi4_ui::i18n::current_language();
+        hoi4_ui::i18n::set_language(hoi4_ui::i18n::Language::Chinese);
+
+        let name = resolver.province_name(7108, Some("深圳市"), Some("广东"));
+
+        assert_eq!(name, "宝安");
+        assert!(resolver.missing_report().is_empty());
+        hoi4_ui::i18n::set_language(previous);
+    }
+
+    #[test]
+    fn province_resolver_uses_english_curated_historical_override_in_english() {
+        let _guard = language_test_lock();
+        let resolver = DisplayNameResolver::new(None);
+        let previous = hoi4_ui::i18n::current_language();
+        hoi4_ui::i18n::set_language(hoi4_ui::i18n::Language::English);
+
+        let name = resolver.province_name(7108, Some("Shenzhen"), Some("Guangdong"));
+
+        assert_eq!(name, "Bao'an");
+        hoi4_ui::i18n::set_language(previous);
+    }
+
+    #[test]
+    fn province_resolver_rejects_english_victory_point_in_chinese() {
+        let _guard = language_test_lock();
+        let resolver = DisplayNameResolver::new(None);
+        let previous = hoi4_ui::i18n::current_language();
+        hoi4_ui::i18n::set_language(hoi4_ui::i18n::Language::Chinese);
+
+        let name = resolver.province_name(42, Some("Guangzhou"), Some("广东"));
+
+        assert_eq!(name, "广东地块");
+        assert_eq!(resolver.missing_report().entries().len(), 1);
+        hoi4_ui::i18n::set_language(previous);
+    }
+
+    #[test]
+    fn province_resolver_normalizes_city_suffix_in_chinese() {
+        let _guard = language_test_lock();
+        let resolver = DisplayNameResolver::new(None);
+        let previous = hoi4_ui::i18n::current_language();
+        hoi4_ui::i18n::set_language(hoi4_ui::i18n::Language::Chinese);
+
+        let name = resolver.province_name(1047, Some("广州市"), Some("广州"));
+
+        assert_eq!(name, "广州");
+        assert!(resolver.missing_report().is_empty());
+        hoi4_ui::i18n::set_language(previous);
+    }
+
+    fn language_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<std::sync::Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap()
+    }
+
+    #[test]
+    fn province_resolver_uses_generic_label_when_no_place_or_state_name_exists() {
         let resolver = DisplayNameResolver::new(None);
 
         let name = resolver.province_name(42, None, None);
 
-        assert_eq!(name, "省份 #42");
+        assert_eq!(name, "省份");
         assert_eq!(resolver.missing_report().entries().len(), 1);
     }
 
     #[test]
-    fn province_resolver_does_not_reuse_state_name_as_province_name() {
+    fn province_resolver_uses_state_tile_label_when_no_place_name_exists() {
         let resolver = DisplayNameResolver::new(None);
 
         let name = resolver.province_name(42, None, Some("黑森"));
 
-        assert_eq!(name, "省份 #42");
-        assert_ne!(name, "黑森");
+        assert_eq!(name, "黑森地块");
     }
 }

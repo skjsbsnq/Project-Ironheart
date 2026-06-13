@@ -132,6 +132,33 @@ fn terrain_wgsl_disables_city_and_point_light_glow_by_default() {
 }
 
 #[test]
+fn terrain_wgsl_phase3_atmosphere_and_detail_gates_are_explicit() {
+    let source = include_str!("../src/passes/terrain.wgsl");
+    assert!(source.contains("apply_map_horizon_bend(world_pos, frame.cam_pos, world_size)"));
+    assert!(source.contains("apply_map_horizon_bend_clip("));
+    assert!(source.contains("fn terrain_detail_noise_enabled()"));
+    assert!(source.contains("fn terrain_cloud_shadow_enabled()"));
+    assert!(source.contains("fn terrain_coast_band_enabled()"));
+    assert!(source.contains("let cloud_shadow = smoothstep(0.55, 0.75, cloud_n) * 0.020"));
+    assert!(source.contains("const NOISE_AMOUNT: f32 = 0.014"));
+    assert!(source.contains("const CLOSE_DETAIL_AMOUNT: f32 = 0.030"));
+    assert!(source.contains("const TERRAIN_ID_JITTER_PIXELS: f32 = 0.20"));
+    assert!(
+        !source.contains("terrain_vignette_enabled"),
+        "phase 3 far-view darkening must come from bend/sky, not a screen vignette"
+    );
+}
+
+#[test]
+fn terrain_wgsl_uses_authoritative_water_mask_for_water_material() {
+    let source = include_str!("../src/passes/terrain.wgsl");
+    assert!(source.contains("@group(2) @binding(13) var water_mask_tex: texture_2d<u32>;"));
+    assert!(source.contains("fn water_mask_at(uv: vec2<f32>) -> bool"));
+    assert!(source.contains("let is_water = water_mask_at(in.map_uv);"));
+    assert!(source.contains("build_terrain_material(in, real_h, is_water, pid)"));
+}
+
+#[test]
 fn terrain_wgsl_uses_map_mode_blend_in_final_material() {
     let source = include_str!("../src/passes/terrain.wgsl");
     let material_start = source
@@ -188,10 +215,15 @@ fn terrain_wgsl_final_path_gates_semantic_overlay_inputs() {
         source.contains("secondary.a * stripe * occupation_overlay_opacity()"),
         "occupation stripe alpha must be controlled by the semantic overlay opacity"
     );
+    let gb_gate = material_body
+        .find("if (terrain_owns_sdf_borders())")
+        .expect("terrain final path should gate GradientBorder application");
+    let gb_apply = material_body
+        .find("apply_gradient_border_channels(color, frag.map_uv)")
+        .expect("political terrain final path should apply GradientBorderChannel1/2");
     assert!(
-        !material_body.contains("apply_gradient_border_channels(color, frag.map_uv)")
-            && !source.contains("if (terrain_owns_sdf_borders() && !is_water)"),
-        "GradientBorderChannel1/2 must stay out of the final terrain material path"
+        gb_apply > gb_gate,
+        "GradientBorderChannel1/2 must enter the final terrain material only through the ownership gate"
     );
     assert!(
         !material_body.contains("gradient_border_ch3_dist_px("),
@@ -207,6 +239,21 @@ fn terrain_wgsl_final_path_gates_semantic_overlay_inputs() {
             && source.contains("gradient_border_page_uv(uv, 0.0)")
             && source.contains("gradient_border_page_uv(uv, 1.0)"),
         "GradientBorderChannel1/2 must be sampled through the vanilla two-page UV layout"
+    );
+    assert!(
+        source.contains("textureSample(gradient_border_ch1_tex, generic_sampler, gradient_border_page_uv(uv, 0.0)).a")
+            && source.contains("let country_gate = clamp(ch2.g, 0.0, 1.0)")
+            && source.contains("let fx_alpha = clamp(ch2.b, 0.0, 1.0)"),
+        "GradientBorder apply should consume ch1 alpha distance plus ch2 gate/fx semantics"
+    );
+    assert!(
+        source.contains("GB_LIGHTING_RESTORE_TERRAIN * (1.0 - material.border_bloom_alpha)")
+            && source.contains(
+                "BORDER_FOW_REMOVAL_FACTOR_TERRAIN * (1.0 - material.border_bloom_alpha)"
+            )
+            && source
+                .contains("mix(GB_NIGHT_DESAT_BLEND_TERRAIN, 1.0, material.border_bloom_alpha)"),
+        "GradientBorder bloomAlpha should protect lighting, FOW, and day-night color"
     );
     assert!(
         source.contains("if (view == TERRAIN_DEBUG_PROVINCE_SECONDARY)"),

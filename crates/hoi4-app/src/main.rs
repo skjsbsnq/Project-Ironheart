@@ -1966,19 +1966,31 @@ fn load_loc_catalog_for_language(
     path_cfg: &PathConfig,
     lang: hoi4_ui::i18n::Language,
 ) -> hoi4_ui::loc::LocCatalog {
-    let loc_dir = match lang {
-        hoi4_ui::i18n::Language::Chinese => "simp_chinese",
-        hoi4_ui::i18n::Language::English => "english",
-    };
-    let mut loc_catalog = hoi4_ui::loc::LocCatalog::load_from_dir(
-        &path_cfg.game_path().join("localisation").join(loc_dir),
-    );
-    if loc_catalog.is_empty() && loc_dir != "english" {
-        loc_catalog = hoi4_ui::loc::LocCatalog::load_from_dir(
-            &path_cfg.game_path().join("localisation").join("english"),
-        );
+    let loc_dir = loc_dir_for_language(lang);
+    let mut loc_catalog = load_loc_catalog_from_path_chain(path_cfg, loc_dir);
+    if loc_dir != "english" {
+        let english = load_loc_catalog_from_path_chain(path_cfg, "english");
+        loc_catalog.fill_missing_from(&english);
     }
     loc_catalog
+}
+
+fn load_loc_catalog_from_path_chain(
+    path_cfg: &PathConfig,
+    loc_dir: &str,
+) -> hoi4_ui::loc::LocCatalog {
+    let mut dirs = path_cfg.find_all(format!("localisation/{loc_dir}"));
+    // `find_all` returns high-priority-first paths. Load low priority first so
+    // mod localization overrides DLC and vanilla keys.
+    dirs.reverse();
+    hoi4_ui::loc::LocCatalog::load_from_dirs(dirs)
+}
+
+fn loc_dir_for_language(lang: hoi4_ui::i18n::Language) -> &'static str {
+    match lang {
+        hoi4_ui::i18n::Language::Chinese => "simp_chinese",
+        hoi4_ui::i18n::Language::English => "english",
+    }
 }
 
 /// Build the country selection list.
@@ -2150,14 +2162,61 @@ mod v6_app_tests {
     }
 
     #[test]
+    fn loc_catalog_loads_mod_chain_and_english_fallback() {
+        let root =
+            std::env::temp_dir().join(format!("ironheart_app_loc_{}_fallback", std::process::id()));
+        let vanilla = root.join("vanilla");
+        let mod_root = root.join("mod");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(vanilla.join("localisation/simp_chinese")).unwrap();
+        std::fs::create_dir_all(vanilla.join("localisation/english")).unwrap();
+        std::fs::create_dir_all(mod_root.join("localisation/simp_chinese")).unwrap();
+        std::fs::write(
+            vanilla
+                .join("localisation/simp_chinese")
+                .join("state_names_l_simp_chinese.yml"),
+            "l_simp_chinese:\n STATE_1:0 \"Vanilla Selected\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            vanilla
+                .join("localisation/english")
+                .join("state_names_l_english.yml"),
+            "l_english:\n STATE_1:0 \"English One\"\n STATE_2:0 \"English Fallback\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            mod_root
+                .join("localisation/simp_chinese")
+                .join("state_names_l_simp_chinese.yml"),
+            "l_simp_chinese:\n STATE_1:0 \"Mod Selected\"\n",
+        )
+        .unwrap();
+        let path_cfg =
+            hoi4_paths::PathConfig::with_game_path(&vanilla).with_mods([hoi4_paths::ModEntry {
+                name: "test_mod".into(),
+                root: mod_root,
+                replace_paths: Vec::new(),
+            }]);
+
+        let cat = super::load_loc_catalog_for_language(&path_cfg, hoi4_ui::i18n::Language::Chinese);
+
+        assert_eq!(cat.tr("STATE_1"), "Mod Selected");
+        assert_eq!(cat.tr("STATE_2"), "English Fallback");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn political_mode_keeps_country_color_in_final_terrain_path() {
         let political = super::map_mode_terrain_blend_for(super::MapMode::Political);
         let terrain = super::map_mode_terrain_blend_for(super::MapMode::Terrain);
         let infrastructure = super::map_mode_terrain_blend_for(super::MapMode::Infrastructure);
 
-        assert!(political < infrastructure);
+        assert_eq!(
+            political, 1.0,
+            "political mode should keep full terrain detail; GB supplies country color"
+        );
         assert!(infrastructure < terrain);
-        assert!(political <= 0.35, "political mode must not be terrain-led");
         assert!(terrain >= 0.80, "terrain mode should stay terrain-led");
     }
 

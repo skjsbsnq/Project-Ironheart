@@ -467,7 +467,9 @@ impl App {
                                 Err(reason) => {
                                     println!(
                                         "[construction] could not queue {} in {}: {:?}",
-                                        building_key, self.world.states.names[si], reason
+                                        building_key,
+                                        self.state_display_name(si),
+                                        reason
                                     );
                                     self.ui_state
                                         .ui_sounds
@@ -477,7 +479,9 @@ impl App {
                         } else {
                             println!(
                                 "[construction] state {} is full ({}/{})",
-                                self.world.states.names[si], used, max
+                                self.state_display_name(si),
+                                used,
+                                max
                             );
                             self.ui_state
                                 .ui_sounds

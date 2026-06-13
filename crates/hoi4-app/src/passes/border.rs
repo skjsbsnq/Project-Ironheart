@@ -119,7 +119,11 @@ impl BorderParams {
         | Self::SEA_MASK
         | Self::SEA_REGION_MASK
         | Self::IMPASSABLE_MASK;
-    pub const DEFAULT_VISIBLE_MASK: u32 = 0;
+    pub const DEFAULT_VISIBLE_MASK: u32 = Self::COUNTRY_MASK
+        | Self::STATE_MASK
+        | Self::PROVINCE_MASK
+        | Self::SEA_MASK
+        | Self::IMPASSABLE_MASK;
 }
 
 const _: () = assert!(std::mem::size_of::<BorderParams>() == 48);
@@ -808,7 +812,7 @@ fn debug_allows_kind(kind: u32, is_selected: bool) -> bool {
 }
 
 fn suppressed_in_final_view(kind: u32) -> bool {
-    return bparams.debug_view == BORDER_DEBUG_OFF && (kind == KIND_SEA || kind == KIND_SEA_REGION);
+    return bparams.debug_view == BORDER_DEBUG_OFF && kind == KIND_SEA_REGION;
 }
 
 fn false_color(kind: u32) -> vec3<f32> {
@@ -833,23 +837,23 @@ fn false_color(kind: u32) -> vec3<f32> {
 fn hierarchy_alpha(kind: u32, zoom: f32, distance_norm: f32, camera_distance_world: f32, is_selected: bool) -> f32 {
     var alpha = 0.0;
     if (kind == KIND_COUNTRY) {
-        alpha = mix(0.70, 0.42, distance_norm);
+        alpha = mix(0.74, 0.46, distance_norm);
     } else if (kind == KIND_STATE) {
         let state_fade = 1.0 - smoothstep(
             95.0,
             175.0,
             camera_distance_world
         );
-        alpha = 0.14 * state_fade * mix(0.82, 0.32, distance_norm);
+        alpha = 0.18 * state_fade * mix(0.82, 0.34, distance_norm);
     } else if (kind == KIND_PROVINCE) {
         let province_fade = 1.0 - smoothstep(
             38.0,
             78.0,
             camera_distance_world
         );
-        alpha = 0.014 * province_fade * smoothstep(0.92, 0.99, zoom);
+        alpha = 0.050 * province_fade * smoothstep(0.88, 0.98, zoom);
     } else if (kind == KIND_SEA) {
-        alpha = 0.10 * smoothstep(0.56, 0.80, zoom);
+        alpha = 0.075 * smoothstep(0.42, 0.74, zoom) * (1.0 - smoothstep(0.62, 0.92, distance_norm));
     } else if (kind == KIND_SEA_REGION) {
         alpha = 0.045 * smoothstep(0.62, 0.82, zoom) * (1.0 - smoothstep(0.70, 0.90, distance_norm));
     } else {
@@ -865,13 +869,13 @@ fn hierarchy_alpha(kind: u32, zoom: f32, distance_norm: f32, camera_distance_wor
 fn target_half_width_px(kind: u32, zoom: f32, is_selected: bool) -> f32 {
     var px = 0.75;
     if (kind == KIND_COUNTRY) {
-        px = mix(0.82, 1.55, zoom);
+        px = mix(0.92, 1.70, zoom);
     } else if (kind == KIND_STATE) {
         px = mix(0.32, 0.74, zoom);
     } else if (kind == KIND_PROVINCE) {
-        px = mix(0.08, 0.26, zoom);
+        px = mix(0.10, 0.30, zoom);
     } else if (kind == KIND_SEA) {
-        px = mix(0.22, 0.50, zoom);
+        px = mix(0.18, 0.42, zoom);
     } else if (kind == KIND_SEA_REGION) {
         px = mix(0.16, 0.38, zoom);
     } else {
@@ -885,13 +889,16 @@ fn target_half_width_px(kind: u32, zoom: f32, is_selected: bool) -> f32 {
 
 fn display_line_color(kind: u32, sampled_rgb: vec3<f32>) -> vec3<f32> {
     if (kind == KIND_COUNTRY) {
-        return mix(sampled_rgb, vec3<f32>(0.18, 0.18, 0.15), 0.55);
+        return mix(sampled_rgb, vec3<f32>(0.12, 0.11, 0.09), 0.68);
     }
     if (kind == KIND_STATE) {
-        return mix(sampled_rgb, vec3<f32>(0.28, 0.29, 0.24), 0.72);
+        return mix(sampled_rgb, vec3<f32>(0.28, 0.27, 0.22), 0.76);
     }
     if (kind == KIND_PROVINCE) {
-        return mix(sampled_rgb, vec3<f32>(0.39, 0.40, 0.34), 0.86);
+        return mix(sampled_rgb, vec3<f32>(0.46, 0.45, 0.37), 0.88);
+    }
+    if (kind == KIND_SEA) {
+        return mix(sampled_rgb, vec3<f32>(0.25, 0.31, 0.32), 0.74);
     }
     return mix(sampled_rgb, vec3<f32>(0.30, 0.34, 0.34), 0.68);
 }
@@ -999,6 +1006,14 @@ mod tests {
         let p = BorderParams::default();
         assert_eq!(p.enabled_mask, BorderParams::DEFAULT_VISIBLE_MASK);
         assert_eq!(BorderParams::ALL_VISIBLE_MASK, 0x3F);
+        assert_eq!(
+            BorderParams::DEFAULT_VISIBLE_MASK,
+            BorderParams::COUNTRY_MASK
+                | BorderParams::STATE_MASK
+                | BorderParams::PROVINCE_MASK
+                | BorderParams::SEA_MASK
+                | BorderParams::IMPASSABLE_MASK
+        );
         assert_eq!(p.map_size_px, [MAP_SIZE_X, MAP_SIZE_Y]);
     }
 
@@ -1015,11 +1030,11 @@ mod tests {
             "175.0",
             "38.0",
             "78.0",
-            "0.014 * province_fade",
+            "0.050 * province_fade",
             "display_line_color",
             "camera_distance_world",
             "fn suppressed_in_final_view",
-            "kind == KIND_SEA || kind == KIND_SEA_REGION",
+            "kind == KIND_SEA_REGION",
         ] {
             assert!(
                 BORDER_STRIP_WGSL.contains(needle),

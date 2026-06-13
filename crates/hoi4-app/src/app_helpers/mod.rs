@@ -18,20 +18,13 @@ pub(crate) fn estimate_construction_days_remaining(progress: f32, cost: f32) -> 
 }
 
 pub(crate) fn postprocess_lut_selection_for(
-    _camera: &Camera,
+    camera: &Camera,
     _world: &hoi4_state::World,
-    _map_space: &VanillaMapSpace,
+    map_space: &VanillaMapSpace,
 ) -> PostProcessLutSelection {
-    // Stable Phase B default: keep the restore LUT on the source-backed
-    // close-land day path until posteffect volume classification is mirrored.
-    // Camera distance, screen-sampled water ratio, and camera-longitude night
-    // factors made the entire frame switch LUTs while panning/zooming.
-    PostProcessLutSelection {
-        camera_distance_t: 0.0,
-        night_factor: 0.0,
-        water_factor: 0.0,
-        winter_factor: 0.0,
-    }
+    let world_to_map_px = (map_space.world_to_map_px[0] + map_space.world_to_map_px[1]) * 0.5;
+    let camera_height_px = camera.eye().y.max(0.0) * world_to_map_px;
+    PostProcessLutSelection::from_camera_height_px(camera_height_px)
 }
 
 pub(crate) fn intervention_expected_impact(
@@ -100,7 +93,7 @@ pub(crate) fn map_mode_from_capture_name(name: &str) -> MapMode {
 
 pub(crate) fn map_mode_terrain_blend_for(map_mode: MapMode) -> f32 {
     match map_mode {
-        MapMode::Political => 0.30,
+        MapMode::Political => 1.0,
         MapMode::Terrain => 0.92,
         _ => 0.58,
     }

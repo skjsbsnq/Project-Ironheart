@@ -520,7 +520,7 @@ impl ProvinceNamePass {
             return;
         }
 
-        if zoom_factor < 0.78 {
+        if zoom_factor < 0.92 {
             return;
         }
 

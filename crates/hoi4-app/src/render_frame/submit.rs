@@ -26,6 +26,7 @@ pub(crate) struct FrameSubmitInput<'a> {
     pub(crate) profile_hud_build_ms: f32,
     pub(crate) egui_current_stats: hoi4_ui::UiFrameStats,
     pub(crate) map_phase0_active: bool,
+    pub(crate) ui_enabled: bool,
 }
 
 impl App {
@@ -60,6 +61,7 @@ impl App {
             profile_hud_build_ms,
             egui_current_stats,
             map_phase0_active,
+            ui_enabled,
         } = input;
         let mut profile_mark = profile_mark;
         let ui_started = Instant::now();
@@ -100,65 +102,71 @@ impl App {
                 .write_buffer(&s.flag_vertex_buffer, 0, bytemuck::cast_slice(&v));
         }
 
-        let ui_gpu_token = s
-            .gpu_profiler
-            .as_mut()
-            .and_then(|profiler| profiler.begin_encoder_span(&mut enc, "ui"));
-        {
-            let mut ui_rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("ui_pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: output_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load, // preserve 3D content
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-            s.panel_pass.render(&mut ui_rp);
+        let ui_cbufs = if ui_enabled {
+            let ui_gpu_token = s
+                .gpu_profiler
+                .as_mut()
+                .and_then(|profiler| profiler.begin_encoder_span(&mut enc, "ui"));
+            {
+                let mut ui_rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("ui_pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: output_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load, // preserve 3D content
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                s.panel_pass.render(&mut ui_rp);
 
-            // 4.1.bis.10 fix-fix (2026-05-16): the country flag draws AFTER
-            // ui_pass ???vanilla's `GFX_shield_medium` is the metallic shield
-            // frame and our renderer blits it as a single opaque quad, so
-            // drawing the flag underneath would just be hidden. The correct
-            // approximation (until we wire up `maskedflag.lua` masked composite)
-            // is: paint the flag on top, sized to fill the shield frame.
-            if let Some((tag, ideology, _)) = &flag_to_draw {
-                let flag_bg = s.flag_bank.get_or_load(
-                    &s.device,
-                    &s.queue,
-                    &self.path_cfg,
-                    &s.flag_bgl,
-                    &s.flag_uniform_buffer,
-                    tag,
-                    ideology,
-                );
-                ui_rp.set_pipeline(&s.flag_pipeline);
-                ui_rp.set_bind_group(0, flag_bg, &[]);
-                ui_rp.set_vertex_buffer(0, s.flag_vertex_buffer.slice(..));
-                ui_rp.draw(0..6, 0..1);
+                // 4.1.bis.10 fix-fix (2026-05-16): the country flag draws AFTER
+                // ui_pass ???vanilla's `GFX_shield_medium` is the metallic shield
+                // frame and our renderer blits it as a single opaque quad, so
+                // drawing the flag underneath would just be hidden. The correct
+                // approximation (until we wire up `maskedflag.lua` masked composite)
+                // is: paint the flag on top, sized to fill the shield frame.
+                if let Some((tag, ideology, _)) = &flag_to_draw {
+                    let flag_bg = s.flag_bank.get_or_load(
+                        &s.device,
+                        &s.queue,
+                        &self.path_cfg,
+                        &s.flag_bgl,
+                        &s.flag_uniform_buffer,
+                        tag,
+                        ideology,
+                    );
+                    ui_rp.set_pipeline(&s.flag_pipeline);
+                    ui_rp.set_bind_group(0, flag_bg, &[]);
+                    ui_rp.set_vertex_buffer(0, s.flag_vertex_buffer.slice(..));
+                    ui_rp.draw(0..6, 0..1);
+                }
+
+                s.text_pass.render(&mut ui_rp);
             }
 
-            s.text_pass.render(&mut ui_rp);
-        }
-
-        let ui_cbufs = s.ui.paint(
-            &s.device,
-            &s.queue,
-            &mut enc,
-            &s.window,
-            output_view,
-            [s.config.width, s.config.height],
-        );
-        if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), ui_gpu_token) {
-            profiler.end_encoder_span(&mut enc, token);
-        }
+            let ui_cbufs = s.ui.paint(
+                &s.device,
+                &s.queue,
+                &mut enc,
+                &s.window,
+                output_view,
+                [s.config.width, s.config.height],
+            );
+            if let (Some(profiler), Some(token)) = (s.gpu_profiler.as_mut(), ui_gpu_token) {
+                profiler.end_encoder_span(&mut enc, token);
+            }
+            s.pass_registry.record_draw_calls("ui", 3);
+            ui_cbufs
+        } else {
+            s.pass_registry.record_draw_calls("ui", 0);
+            Vec::new()
+        };
         s.pass_registry
             .record_cpu_ms("ui", ui_started.elapsed().as_secs_f32() * 1000.0);
-        s.pass_registry.record_draw_calls("ui", 3);
         let profile_ui_render_ms = profile_mark.elapsed().as_secs_f32() * 1000.0;
         profile_mark = Instant::now();
 

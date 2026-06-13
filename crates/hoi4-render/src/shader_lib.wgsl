@@ -48,10 +48,17 @@
 const LUMINANCE_VECTOR: vec3<f32> = vec3<f32>(0.2125, 0.7154, 0.0721);
 
 const FOG_COLOR: vec3<f32> = vec3<f32>(0.12, 0.28, 0.60);
-const WORLD_EXTENT: f32 = 119.5;
-const FOG_BEGIN: f32 = WORLD_EXTENT * 2.2;
-const FOG_END: f32 = WORLD_EXTENT * 8.0;
-const FOG_MAX: f32 = 0.12;
+const FOG_BEGIN: f32 = 1.0;
+const FOG_END: f32 = 150.0;
+const FOG_MAX: f32 = 0.35;
+const HORIZON_BEND_HEIGHT_START_SCALE: f32 = 0.28;
+const HORIZON_BEND_HEIGHT_END_SCALE: f32 = 0.82;
+const HORIZON_BEND_EDGE_START: f32 = 0.30;
+const HORIZON_BEND_EDGE_END: f32 = 0.06;
+const HORIZON_BEND_DROP_SCALE: f32 = 0.080;
+const HORIZON_BEND_SCREEN_DROP: f32 = 0.120;
+const HORIZON_BEND_SCREEN_PINCH: f32 = 0.080;
+const HORIZON_BEND_SCREEN_VERTICAL_PINCH: f32 = 0.180;
 
 const FOW_CAMERA_MIN: f32 = 200.0;
 const FOW_CAMERA_MAX: f32 = 500.0;
@@ -117,6 +124,54 @@ fn map_uv_to_px(map_uv: vec2<f32>) -> vec2<f32> {
 
 fn world_xz_to_map_px(world_xz: vec2<f32>, world_size: vec2<f32>) -> vec2<f32> {
     return map_uv_to_px(world_xz_to_map_uv(world_xz, world_size));
+}
+
+fn calculate_map_horizon_bend_factor(
+    world_xz: vec2<f32>,
+    cam_pos: vec3<f32>,
+    world_size: vec2<f32>,
+) -> f32 {
+    let extent = max(max(world_size.x, world_size.y), 0.0001);
+    let height_t = smoothstep(
+        extent * HORIZON_BEND_HEIGHT_START_SCALE,
+        extent * HORIZON_BEND_HEIGHT_END_SCALE,
+        cam_pos.y
+    );
+    let uv = world_xz_to_map_uv(world_xz, world_size);
+    let edge_dist = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+    let edge_t = 1.0 - smoothstep(HORIZON_BEND_EDGE_END, HORIZON_BEND_EDGE_START, edge_dist);
+    let corner_t = smoothstep(0.72, 1.16, length(abs(uv * 2.0 - vec2<f32>(1.0))));
+    return clamp(height_t * max(edge_t, corner_t * 0.82), 0.0, 1.0);
+}
+
+fn apply_map_horizon_bend(
+    world_pos: vec3<f32>,
+    cam_pos: vec3<f32>,
+    world_size: vec2<f32>,
+) -> vec3<f32> {
+    let extent = max(max(world_size.x, world_size.y), 0.0001);
+    let bend = calculate_map_horizon_bend_factor(world_pos.xz, cam_pos, world_size);
+    return vec3<f32>(
+        world_pos.x,
+        world_pos.y - extent * HORIZON_BEND_DROP_SCALE * bend * bend,
+        world_pos.z
+    );
+}
+
+fn apply_map_horizon_bend_clip(
+    clip_pos: vec4<f32>,
+    world_pos: vec3<f32>,
+    cam_pos: vec3<f32>,
+    world_size: vec2<f32>,
+) -> vec4<f32> {
+    let bend = calculate_map_horizon_bend_factor(world_pos.xz, cam_pos, world_size);
+    return vec4<f32>(
+        clip_pos.x * (1.0 - bend * HORIZON_BEND_SCREEN_PINCH),
+        clip_pos.y * (1.0 - bend * HORIZON_BEND_SCREEN_VERTICAL_PINCH)
+            - clip_pos.w * bend * HORIZON_BEND_SCREEN_DROP,
+        clip_pos.z,
+        clip_pos.w
+    );
 }
 
 fn map_px_to_uv(map_px: vec2<f32>) -> vec2<f32> {

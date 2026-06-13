@@ -239,6 +239,7 @@ pub fn estimate_frame_texture_memory_bytes(width: u32, height: u32, postprocess_
             lw = (lw / 4).max(1);
             lh = (lh / 4).max(1);
         }
+        total += 2 * 2; // adapted luminance current/previous, 1x1 R16Float each
 
         // Vanilla ColorCube is a 1024x32 flattened 32x32x32 RGBA8 LUT.
         // The identity fallback keeps the same shape so missing assets do not

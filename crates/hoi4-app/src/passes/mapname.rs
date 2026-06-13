@@ -43,20 +43,26 @@ pub struct MapnameParams {
     pub scale: f32,
     pub height_scale: f32,
     pub height_lift: f32,
-    pub _pad1: [f32; 3],
+    /// Curves the label baseline along the country minor axis.
+    pub baseline_curve: f32,
+    /// Keeps country names pressed into the map rather than poster-white.
+    pub ground_alpha: f32,
+    pub _pad1: f32,
 }
 
 impl Default for MapnameParams {
     fn default() -> Self {
         Self {
-            text_color: [0.96, 0.93, 0.85, 1.0],
-            outline_color: [0.05, 0.04, 0.03, 1.0],
+            text_color: [0.92, 0.88, 0.76, 1.0],
+            outline_color: [0.045, 0.035, 0.025, 1.0],
             distortion_amount: 0.5,
             fade: 1.0,
             scale: 1.0,
             height_scale: 1.45,
             height_lift: 0.05,
-            _pad1: [0.0; 3],
+            baseline_curve: 0.22,
+            ground_alpha: 0.90,
+            _pad1: 0.0,
         }
     }
 }
@@ -80,9 +86,9 @@ struct MapnameParams {
     scale: f32,
     height_scale: f32,
     height_lift: f32,
-    _pad1_0: f32,
-    _pad1_1: f32,
-    _pad1_2: f32,
+    baseline_curve: f32,
+    ground_alpha: f32,
+    _pad1: f32,
 };
 
 @group(0) @binding(0) var<uniform> frame: GlobalFrameUniform;
@@ -91,6 +97,8 @@ struct MapnameParams {
 @group(1) @binding(0) var name_atlas: texture_2d<f32>;
 @group(1) @binding(1) var name_sampler: sampler;
 @group(1) @binding(2) var heightmap_tex: texture_2d<f32>;
+
+const MAPNAME_ARC_SEGMENTS: u32 = 24u;
 
 // Per-instance data (48 bytes, matches CountryNameInstance).
 struct InstanceData {
@@ -134,11 +142,17 @@ fn sample_height_for_world_xz(world_xz: vec2<f32>) -> f32 {
 
 @vertex
 fn vs_main(@builtin(vertex_index) vid: u32, inst: InstanceData) -> VsOut {
-    // 6 verts → two triangles for a quad in [-1, +1] × [-1, +1].
-    var local_x: f32 = -1.0;
+    // 24 segments, each emitted as two triangles. This lets the long label
+    // baseline bend gently over the country instead of staying as one rigid
+    // rectangle.
+    let segment = min(vid / 6u, MAPNAME_ARC_SEGMENTS - 1u);
+    let corner = vid % 6u;
+    let x0 = mix(-1.0, 1.0, f32(segment) / f32(MAPNAME_ARC_SEGMENTS));
+    let x1 = mix(-1.0, 1.0, f32(segment + 1u) / f32(MAPNAME_ARC_SEGMENTS));
+    var local_x: f32 = x0;
     var local_y: f32 = -1.0;
-    if (vid == 1u || vid == 2u || vid == 4u) { local_x = 1.0; }
-    if (vid == 2u || vid == 4u || vid == 5u) { local_y = 1.0; }
+    if (corner == 1u || corner == 2u || corner == 4u) { local_x = x1; }
+    if (corner == 2u || corner == 4u || corner == 5u) { local_y = 1.0; }
 
     // axis1_world: country major axis in XZ plane.
     let axis1_world = vec3<f32>(inst.axis1.x, 0.0, inst.axis1.y);
@@ -148,13 +162,25 @@ fn vs_main(@builtin(vertex_index) vid: u32, inst: InstanceData) -> VsOut {
     var world_pos = inst.center
         + axis1_world * (local_x * inst.width_world * mn_params.scale)
         + axis2_world * (local_y * inst.height_world * mn_params.scale);
+    let baseline_arc = (1.0 - local_x * local_x) * inst.height_world * mn_params.baseline_curve;
+    world_pos = world_pos + axis2_world * baseline_arc;
     world_pos.y = sample_height_for_world_xz(world_pos.xz);
 
     // Vanilla vDistortedPos: push toward camera to prevent z-fighting.
     let to_cam = normalize(frame.cam_pos - world_pos);
     let distorted = world_pos + to_cam * mn_params.distortion_amount;
+    let visual_distorted = apply_map_horizon_bend(
+        distorted,
+        frame.cam_pos,
+        frame.vanilla_map_size_world_size.zw
+    );
 
-    var clip = frame.view_proj * vec4<f32>(distorted, 1.0);
+    var clip = apply_map_horizon_bend_clip(
+        frame.view_proj * vec4<f32>(visual_distorted, 1.0),
+        world_pos,
+        frame.cam_pos,
+        frame.vanilla_map_size_world_size.zw
+    );
     // Additional NDC z-bias toward camera (~1/1000).
     clip.z = clip.z - 0.001 * clip.w;
 
@@ -192,12 +218,15 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     // Near (cam_dist < 20): fully transparent; far (cam_dist > 60): fully opaque.
     // Eliminates hard cut of labels popping in/out at zoom thresholds.
     let cam_dist = length(frame.cam_pos - in.world_pos);
-    let zoom_alpha = smoothstep(20.0, 60.0, cam_dist);
+    let zoom_alpha = smoothstep(12.0, 36.0, cam_dist);
     alpha *= zoom_alpha;
+    alpha *= mn_params.ground_alpha;
 
     return vec4<f32>(color, alpha);
 }
 "#;
+
+const MAPNAME_VERTICES_PER_INSTANCE: u32 = 24 * 6;
 
 // ─── Public inputs ─────────────────────────────────────────────────────────
 
@@ -588,7 +617,7 @@ impl MapnamePass {
     /// Render visible country-name labels with smooth zoom fade-out.
     ///
     /// LOD culling by pixel count is relaxed — the shader handles smooth alpha
-    /// fade via `smoothstep(20, 60, cam_dist)` so labels no longer pop in/out.
+    /// fade via `smoothstep(12, 36, cam_dist)` so labels no longer pop in/out.
     /// We still cull the tiniest countries (pixel_count < 50) to avoid
     /// thousands of invisible draw calls.
     pub fn render(&self, pass: &mut wgpu::RenderPass, _zoom_factor: f32) {
@@ -622,10 +651,10 @@ impl MapnamePass {
         }
 
         if visible.len() as u32 == self.instance_count {
-            pass.draw(0..6, 0..self.instance_count);
+            pass.draw(0..MAPNAME_VERTICES_PER_INSTANCE, 0..self.instance_count);
         } else {
             for inst_idx in visible {
-                pass.draw(0..6, inst_idx..inst_idx + 1);
+                pass.draw(0..MAPNAME_VERTICES_PER_INSTANCE, inst_idx..inst_idx + 1);
             }
         }
     }
@@ -700,5 +729,19 @@ mod tests {
             "mapname_vanilla WGSL failed naga validation: {:?}",
             module.err()
         );
+    }
+
+    #[test]
+    fn mapname_wgsl_uses_visual_horizon_bend_without_moving_label_state() {
+        assert!(MAPNAME_VANILLA_WGSL.contains("let visual_distorted = apply_map_horizon_bend"));
+        assert!(MAPNAME_VANILLA_WGSL.contains("var clip = apply_map_horizon_bend_clip("));
+        assert!(MAPNAME_VANILLA_WGSL.contains("out.world_pos = world_pos"));
+    }
+
+    #[test]
+    fn mapname_wgsl_uses_segmented_arc_baseline() {
+        assert!(MAPNAME_VANILLA_WGSL.contains("const MAPNAME_ARC_SEGMENTS: u32 = 24u;"));
+        assert!(MAPNAME_VANILLA_WGSL.contains("baseline_arc"));
+        assert_eq!(MAPNAME_VERTICES_PER_INSTANCE, 144);
     }
 }

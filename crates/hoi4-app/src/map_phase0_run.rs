@@ -220,6 +220,7 @@ impl App {
         };
         if let Some(s) = self.state.as_mut() {
             s.post_process.debug_view = self.render_toggles.postprocess_debug_view;
+            s.post_process.reset_luminance_adaptation();
         }
         self.upload_camera();
     }

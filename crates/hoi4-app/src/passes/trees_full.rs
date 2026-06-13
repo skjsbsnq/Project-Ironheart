@@ -1501,6 +1501,9 @@ mod tests {
             "apply_tree_snow",
             "calculate_point_lights_tree",
             "calculate_point_lights(",
+            "apply_map_horizon_bend(world, frame.cam_pos, world_size)",
+            "apply_map_horizon_bend_clip(",
+            "out.world_pos = world",
         ] {
             assert!(
                 SHADER_WGSL.contains(token),

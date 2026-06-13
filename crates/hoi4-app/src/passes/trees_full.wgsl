@@ -110,14 +110,21 @@ fn vs_main(in: VsIn) -> VsOut {
     let scaled = in.pos * in.inst_scale * tparams.scale;
     var world = scaled + in.inst_pos;
     world.y += scaled.x * in.inst_slope.x + scaled.z * in.inst_slope.y;
+    let world_size = vec2<f32>(tparams.world_w, tparams.world_d);
+    let visual_world = apply_map_horizon_bend(world, frame.cam_pos, world_size);
 
-    out.clip_pos = frame.view_proj * vec4<f32>(world, 1.0);
+    out.clip_pos = apply_map_horizon_bend_clip(
+        frame.view_proj * vec4<f32>(visual_world, 1.0),
+        world,
+        frame.cam_pos,
+        world_size
+    );
     out.world_pos = world;
     out.normal = in.normal;
     out.uv = in.uv;
     out.tint_uv = in.inst_tint_uv;
     out.season_row = in.inst_season_row;
-    out.map_px = world_xz_to_map_px(world.xz, vec2<f32>(tparams.world_w, tparams.world_d));
+    out.map_px = world_xz_to_map_px(world.xz, world_size);
 
     let d = length(world - frame.cam_pos);
     out.tree_fade = 1.0 - clamp((d - tparams.fade_start) / max(tparams.fade_end - tparams.fade_start, 0.01), 0.0, 1.0);

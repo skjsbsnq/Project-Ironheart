@@ -1,8 +1,9 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
+use hoi4_map::ProvinceType;
 use hoi4_render::sdf::compute_country_sdf;
-use hoi4_state::World;
+use hoi4_state::{CountryId, World};
 
 use super::VanillaRuntimeTargetInputs;
 
@@ -24,13 +25,17 @@ pub fn generate(inputs: VanillaRuntimeTargetInputs<'_>) -> GradientBorderCpuTarg
     let height = inputs.world.map.province_map.height;
     let plan = active_producer_plan(map_mode_code_for_gradient(inputs.default_map_mode_code));
     let bank = GradientBorderLayerBank {
+        province_pixels: &inputs.world.map.province_map.pixels,
+        province_definitions: &inputs.world.map.definitions,
+        controllers: &inputs.world.provinces.controllers,
+        country_colors: &inputs.world.countries.colors,
         country_sdf: inputs.country_sdf,
         province_sdf: inputs.province_sdf,
         coast_sdf: inputs.coast_sdf,
     };
     GradientBorderCpuTargets {
-        ch1: pack_two_page_logical_bank(bank, width, height, plan.anchors),
-        ch2: pack_two_page_logical_bank(bank, width, height, plan.anchors),
+        ch1: pack_channel1_country_color_distance(bank, width, height, plan.anchors),
+        ch2: pack_channel2_gate_and_fx(bank, width, height),
         ch3: neutral_channel3(),
     }
 }
@@ -40,33 +45,44 @@ pub fn generate_runtime_channels(world: &World, map_mode_code: u8) -> GradientBo
     let province_sdf = hoi4_render::sdf::compute_province_sdf(&world.map.province_map);
     let plan = active_producer_plan(map_mode_code_for_gradient(map_mode_code));
     let bank = GradientBorderLayerBank {
+        province_pixels: &world.map.province_map.pixels,
+        province_definitions: &world.map.definitions,
+        controllers: &world.provinces.controllers,
+        country_colors: &world.countries.colors,
         country_sdf: &country_sdf,
         province_sdf: &province_sdf,
         coast_sdf: &[],
     };
     GradientBorderCpuTargets {
-        ch1: pack_two_page_logical_bank(
+        ch1: pack_channel1_country_color_distance(
             bank,
             world.map.province_map.width,
             world.map.province_map.height,
             plan.anchors,
         ),
-        ch2: pack_two_page_logical_bank(
+        ch2: pack_channel2_gate_and_fx(
             bank,
             world.map.province_map.width,
             world.map.province_map.height,
-            plan.anchors,
         ),
         ch3: neutral_channel3(),
     }
 }
 
-pub fn producer_signature(_world: &World, map_mode_code: u8) -> u64 {
+pub fn producer_signature(world: &World, map_mode_code: u8) -> u64 {
     let mut h = DefaultHasher::new();
     map_mode_code.hash(&mut h);
     let anchors = active_anchor_pages(map_mode_code_for_gradient(map_mode_code));
     anchors.page0.hash(&mut h);
     anchors.page1.hash(&mut h);
+    world.map.province_map.width.hash(&mut h);
+    world.map.province_map.height.hash(&mut h);
+    for controller in &world.provinces.controllers {
+        controller.raw().hash(&mut h);
+    }
+    for color in &world.countries.colors {
+        color.hash(&mut h);
+    }
     h.finish()
 }
 
@@ -286,20 +302,24 @@ fn map_mode_code_for_gradient(code: u8) -> i16 {
 
 #[derive(Clone, Copy)]
 struct GradientBorderLayerBank<'a> {
+    province_pixels: &'a [u16],
+    province_definitions: &'a [Option<hoi4_map::ProvinceDefinition>],
+    controllers: &'a [CountryId],
+    country_colors: &'a [[u8; 3]],
     country_sdf: &'a [u8],
     province_sdf: &'a [u8],
     coast_sdf: &'a [u8],
 }
 
-fn pack_two_page_logical_bank(
+fn pack_channel1_country_color_distance(
     bank: GradientBorderLayerBank<'_>,
     source_width: u32,
     source_height: u32,
     anchors: GradientBorderAnchors,
 ) -> Vec<u8> {
     let mut out =
-        vec![255u8; (VANILLA_GRADIENT_BORDER_WIDTH * VANILLA_GRADIENT_BORDER_HEIGHT * 4) as usize];
-    write_page(
+        vec![0u8; (VANILLA_GRADIENT_BORDER_WIDTH * VANILLA_GRADIENT_BORDER_HEIGHT * 4) as usize];
+    write_channel1_page(
         &mut out,
         0,
         bank,
@@ -307,7 +327,7 @@ fn pack_two_page_logical_bank(
         source_height,
         anchors.page0,
     );
-    write_page(
+    write_channel1_page(
         &mut out,
         VANILLA_GRADIENT_BORDER_PAGE_HEIGHT,
         bank,
@@ -318,7 +338,25 @@ fn pack_two_page_logical_bank(
     out
 }
 
-fn write_page(
+fn pack_channel2_gate_and_fx(
+    bank: GradientBorderLayerBank<'_>,
+    source_width: u32,
+    source_height: u32,
+) -> Vec<u8> {
+    let mut out =
+        vec![0u8; (VANILLA_GRADIENT_BORDER_WIDTH * VANILLA_GRADIENT_BORDER_HEIGHT * 4) as usize];
+    write_channel2_page(&mut out, 0, bank, source_width, source_height);
+    write_channel2_page(
+        &mut out,
+        VANILLA_GRADIENT_BORDER_PAGE_HEIGHT,
+        bank,
+        source_width,
+        source_height,
+    );
+    out
+}
+
+fn write_channel1_page(
     out: &mut [u8],
     dst_y_base: u32,
     bank: GradientBorderLayerBank<'_>,
@@ -330,27 +368,48 @@ fn write_page(
     let source = layer.and_then(|layer| source_for_layer(bank, layer.source));
     for y in 0..VANILLA_GRADIENT_BORDER_PAGE_HEIGHT {
         for x in 0..VANILLA_GRADIENT_BORDER_WIDTH {
-            let value = source
-                .map(|source| sample_scaled_sdf(source, source_width, source_height, x, y))
-                .unwrap_or(255);
-            let stored = encode_linear_unorm_for_srgb_texture(value);
+            let (src_x, src_y) = scaled_source_xy(source_width, source_height, x, y);
+            let country_color =
+                country_color_at_source(bank, source_width, source_height, src_x, src_y);
+            let alpha = match (country_color, source) {
+                (Some(_), Some(source)) => {
+                    let sdf =
+                        sample_sdf_at_source(source, source_width, source_height, src_x, src_y);
+                    255u8.saturating_sub(sdf)
+                }
+                _ => 0,
+            };
+            let color = if source.is_some() {
+                country_color.unwrap_or([0, 0, 0])
+            } else {
+                [0, 0, 0]
+            };
             let o = (((dst_y_base + y) * VANILLA_GRADIENT_BORDER_WIDTH + x) * 4) as usize;
-            out[o] = stored;
-            out[o + 1] = stored;
-            out[o + 2] = stored;
-            out[o + 3] = 255;
+            write_bgra_pixel(out, o, color[0], color[1], color[2], alpha);
         }
     }
 }
 
-fn encode_linear_unorm_for_srgb_texture(value: u8) -> u8 {
-    let linear = value as f32 / 255.0;
-    let encoded = if linear <= 0.003_130_8 {
-        linear * 12.92
-    } else {
-        1.055 * linear.powf(1.0 / 2.4) - 0.055
-    };
-    (encoded.clamp(0.0, 1.0) * 255.0).round() as u8
+fn write_channel2_page(
+    out: &mut [u8],
+    dst_y_base: u32,
+    bank: GradientBorderLayerBank<'_>,
+    source_width: u32,
+    source_height: u32,
+) {
+    for y in 0..VANILLA_GRADIENT_BORDER_PAGE_HEIGHT {
+        for x in 0..VANILLA_GRADIENT_BORDER_WIDTH {
+            let (src_x, src_y) = scaled_source_xy(source_width, source_height, x, y);
+            let gate = if has_owned_land_controller(bank, source_width, source_height, src_x, src_y)
+            {
+                255
+            } else {
+                0
+            };
+            let o = (((dst_y_base + y) * VANILLA_GRADIENT_BORDER_WIDTH + x) * 4) as usize;
+            write_bgra_pixel(out, o, 0, gate, 0, gate);
+        }
+    }
 }
 
 fn source_for_layer(
@@ -366,12 +425,25 @@ fn source_for_layer(
     .filter(|source| !source.is_empty())
 }
 
-fn sample_scaled_sdf(
+fn scaled_source_xy(source_width: u32, source_height: u32, x: u32, page_y: u32) -> (u32, u32) {
+    if source_width == 0 || source_height == 0 {
+        return (0, 0);
+    }
+    let src_x = ((x as u64 * source_width as u64) / VANILLA_GRADIENT_BORDER_WIDTH as u64)
+        .min(source_width.saturating_sub(1) as u64) as u32;
+    let content_y = page_y.min(VANILLA_GRADIENT_BORDER_CONTENT_HEIGHT - 1);
+    let src_y = ((content_y as u64 * source_height as u64)
+        / VANILLA_GRADIENT_BORDER_CONTENT_HEIGHT as u64)
+        .min(source_height.saturating_sub(1) as u64) as u32;
+    (src_x, src_y)
+}
+
+fn sample_sdf_at_source(
     source: &[u8],
     source_width: u32,
     source_height: u32,
-    x: u32,
-    page_y: u32,
+    src_x: u32,
+    src_y: u32,
 ) -> u8 {
     if source_width == 0 || source_height == 0 {
         return 255;
@@ -380,13 +452,69 @@ fn sample_scaled_sdf(
     if source.len() != expected {
         return 255;
     }
-    let src_x = ((x as u64 * source_width as u64) / VANILLA_GRADIENT_BORDER_WIDTH as u64)
-        .min(source_width.saturating_sub(1) as u64) as u32;
-    let content_y = page_y.min(VANILLA_GRADIENT_BORDER_CONTENT_HEIGHT - 1);
-    let src_y = ((content_y as u64 * source_height as u64)
-        / VANILLA_GRADIENT_BORDER_CONTENT_HEIGHT as u64)
-        .min(source_height.saturating_sub(1) as u64) as u32;
     source[(src_y * source_width + src_x) as usize]
+}
+
+fn country_color_at_source(
+    bank: GradientBorderLayerBank<'_>,
+    source_width: u32,
+    source_height: u32,
+    src_x: u32,
+    src_y: u32,
+) -> Option<[u8; 3]> {
+    let controller = controller_at_source(bank, source_width, source_height, src_x, src_y)?;
+    if controller.is_none() {
+        return None;
+    }
+    bank.country_colors.get(controller.raw() as usize).copied()
+}
+
+fn has_owned_land_controller(
+    bank: GradientBorderLayerBank<'_>,
+    source_width: u32,
+    source_height: u32,
+    src_x: u32,
+    src_y: u32,
+) -> bool {
+    controller_at_source(bank, source_width, source_height, src_x, src_y).is_some()
+}
+
+fn controller_at_source(
+    bank: GradientBorderLayerBank<'_>,
+    source_width: u32,
+    source_height: u32,
+    src_x: u32,
+    src_y: u32,
+) -> Option<CountryId> {
+    if source_width == 0 || source_height == 0 {
+        return None;
+    }
+    let expected = source_width as usize * source_height as usize;
+    if bank.province_pixels.len() != expected {
+        return None;
+    }
+    let idx = (src_y * source_width + src_x) as usize;
+    let province_id = *bank.province_pixels.get(idx)?;
+    let def = bank
+        .province_definitions
+        .get(province_id as usize)
+        .and_then(|def| def.as_ref())?;
+    if def.province_type != ProvinceType::Land {
+        return None;
+    }
+    let controller = bank.controllers.get(province_id as usize).copied()?;
+    if controller.is_none() {
+        None
+    } else {
+        Some(controller)
+    }
+}
+
+fn write_bgra_pixel(out: &mut [u8], offset: usize, r: u8, g: u8, b: u8, a: u8) {
+    out[offset] = b;
+    out[offset + 1] = g;
+    out[offset + 2] = r;
+    out[offset + 3] = a;
 }
 
 fn neutral_channel3() -> Vec<u8> {
@@ -396,32 +524,34 @@ fn neutral_channel3() -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hoi4_map::ProvinceDefinition;
 
     #[test]
-    fn packed_gradient_channel_matches_vanilla_dimensions() {
-        let bank = GradientBorderLayerBank {
-            country_sdf: &[0, 64, 128, 255],
-            province_sdf: &[255, 128, 64, 0],
-            coast_sdf: &[],
-        };
-        let data =
-            pack_two_page_logical_bank(bank, 2, 2, GradientBorderAnchors { page0: 5, page1: 0 });
+    fn packed_gradient_channel_matches_vanilla_dimensions_and_country_color() {
+        let definitions = test_definitions();
+        let bank = test_bank(&definitions);
+        let data = pack_channel1_country_color_distance(
+            bank,
+            2,
+            2,
+            GradientBorderAnchors { page0: 5, page1: 0 },
+        );
         assert_eq!(
             data.len(),
             (VANILLA_GRADIENT_BORDER_WIDTH * VANILLA_GRADIENT_BORDER_HEIGHT * 4) as usize
         );
-        assert_eq!(data[3], 255);
-        assert_eq!(data[7], 255);
+        assert_eq!(logical_rgba_at(&data, 0, 0), [20, 80, 160, 255]);
+        assert_eq!(
+            logical_rgba_at(&data, VANILLA_GRADIENT_BORDER_WIDTH - 1, 0),
+            [180, 40, 20, 191]
+        );
     }
 
     #[test]
-    fn disabled_anchor_writes_flat_far_page() {
-        let bank = GradientBorderLayerBank {
-            country_sdf: &[0, 64, 128, 255],
-            province_sdf: &[255, 128, 64, 0],
-            coast_sdf: &[],
-        };
-        let data = pack_two_page_logical_bank(
+    fn disabled_anchor_writes_transparent_page() {
+        let definitions = test_definitions();
+        let bank = test_bank(&definitions);
+        let data = pack_channel1_country_color_distance(
             bank,
             2,
             2,
@@ -430,15 +560,19 @@ mod tests {
                 page1: -1,
             },
         );
-        assert!(data.iter().all(|&v| v == 255));
+        assert!(data.iter().all(|&v| v == 0));
     }
 
     #[test]
-    fn packed_gradient_values_are_srgb_encoded_for_linear_sampling() {
-        assert_eq!(encode_linear_unorm_for_srgb_texture(0), 0);
-        assert_eq!(encode_linear_unorm_for_srgb_texture(255), 255);
-        assert!(encode_linear_unorm_for_srgb_texture(64) > 64);
-        assert!(encode_linear_unorm_for_srgb_texture(128) > 128);
+    fn channel2_gate_is_land_owned_only_and_fx_defaults_zero() {
+        let definitions = test_definitions();
+        let bank = test_bank(&definitions);
+        let data = pack_channel2_gate_and_fx(bank, 2, 2);
+        assert_eq!(logical_rgba_at(&data, 0, 0), [0, 255, 0, 255]);
+        assert_eq!(
+            logical_rgba_at(&data, 0, VANILLA_GRADIENT_BORDER_PAGE_HEIGHT - 1),
+            [0, 0, 0, 0]
+        );
     }
 
     #[test]
@@ -505,5 +639,59 @@ mod tests {
     #[test]
     fn producer_signature_tracks_map_mode_anchor_changes() {
         assert_ne!(active_anchor_pages(0), active_anchor_pages(1));
+    }
+
+    fn test_definitions() -> Vec<Option<ProvinceDefinition>> {
+        let mut definitions = vec![None; 4];
+        definitions[1] = Some(ProvinceDefinition {
+            id: 1,
+            r: 1,
+            g: 0,
+            b: 0,
+            province_type: ProvinceType::Land,
+            coastal: false,
+            terrain: "plains".to_owned(),
+            continent: 1,
+        });
+        definitions[2] = Some(ProvinceDefinition {
+            id: 2,
+            r: 2,
+            g: 0,
+            b: 0,
+            province_type: ProvinceType::Land,
+            coastal: false,
+            terrain: "plains".to_owned(),
+            continent: 1,
+        });
+        definitions[3] = Some(ProvinceDefinition {
+            id: 3,
+            r: 3,
+            g: 0,
+            b: 0,
+            province_type: ProvinceType::Sea,
+            coastal: false,
+            terrain: "ocean".to_owned(),
+            continent: 0,
+        });
+        definitions
+    }
+
+    fn test_bank<'a>(
+        province_definitions: &'a [Option<ProvinceDefinition>],
+    ) -> GradientBorderLayerBank<'a> {
+        GradientBorderLayerBank {
+            province_pixels: &[1, 2, 3, 1],
+            province_definitions,
+            controllers: &[CountryId::NONE, CountryId(0), CountryId(1), CountryId::NONE],
+            country_colors: &[[20, 80, 160], [180, 40, 20]],
+            country_sdf: &[0, 64, 128, 255],
+            province_sdf: &[255, 128, 64, 0],
+            coast_sdf: &[],
+        }
+    }
+
+    fn logical_rgba_at(data: &[u8], x: u32, y: u32) -> [u8; 4] {
+        let o = ((y * VANILLA_GRADIENT_BORDER_WIDTH + x) * 4) as usize;
+        [data[o + 2], data[o + 1], data[o], data[o + 3]]
     }
 }

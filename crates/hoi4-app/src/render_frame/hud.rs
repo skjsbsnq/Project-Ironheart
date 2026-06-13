@@ -1,6 +1,7 @@
 use crate::*;
 
 pub(crate) struct FrameHudInput<'a> {
+    pub(crate) hud_enabled: bool,
     pub(crate) map_phase0_debug_lines: &'a [String],
     pub(crate) render_quality_preset: MapQualityPreset,
     pub(crate) chain_label: &'static str,
@@ -27,6 +28,7 @@ impl App {
         input: FrameHudInput<'_>,
     ) -> FrameHudOutput {
         let FrameHudInput {
+            hud_enabled,
             map_phase0_debug_lines,
             render_quality_preset,
             chain_label,
@@ -137,6 +139,12 @@ impl App {
                     size,
                 );
             }
+        }
+        if !hud_enabled {
+            return FrameHudOutput {
+                quality_label,
+                profile_hud_build_ms: started_at.elapsed().as_secs_f32() * 1000.0,
+            };
         }
         // Phase 4.2 (redesign): Switch between menu rendering and topbar rendering.
         if self.view.game_phase != GamePhase::Playing {

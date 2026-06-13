@@ -496,7 +496,11 @@ fn bind_tab_node(name: &str, tab: FinanceTab, active: FinanceTab) -> GuiBinding 
     match name {
         "tab_bg" => GuiBinding::default()
             .sprite("GFX_tiled_button")
-            .tint(if selected { FIN_TAB_SELECTED } else { FIN_TAB_IDLE }),
+            .tint(if selected {
+                FIN_TAB_SELECTED
+            } else {
+                FIN_TAB_IDLE
+            }),
         "hit" => GuiBinding::default()
             .click(tab.tab_click_command())
             .tooltip(tab.label()),
@@ -1025,7 +1029,11 @@ fn bind_sector_button(sector: FinanceSector, active: FinanceSector) -> GuiBindin
     let selected = sector == active;
     GuiBinding::default()
         .sprite("GFX_tiled_button")
-        .tint(if selected { FIN_TAB_SELECTED } else { FIN_TAB_IDLE })
+        .tint(if selected {
+            FIN_TAB_SELECTED
+        } else {
+            FIN_TAB_IDLE
+        })
         .click(sector.sector_click_command())
         .tooltip(sector.label())
 }

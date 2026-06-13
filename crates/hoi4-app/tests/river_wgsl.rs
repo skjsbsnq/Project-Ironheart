@@ -49,9 +49,17 @@ fn river_wgsl_contains_phase7_material_and_flow_terms() {
         "river_sample.gb",
         "level_alpha",
         "clip.z = clip.z - rparams.z_bias * clip.w",
+        "fn apply_river_gradient_border",
+        "gradient_border_page_uv(uv, 0.0)",
+        "let country_gate = clamp(ch2.g, 0.0, 1.0)",
+        "color = apply_river_gradient_border(color, in.map_uv)",
     ] {
         assert!(source.contains(token), "missing Phase 7 token: {token}");
     }
+    assert!(
+        !source.contains("let border_hint = 1.0 - smoothstep"),
+        "river should use semantic GradientBorder colors instead of old grayscale hint"
+    );
 }
 
 #[test]

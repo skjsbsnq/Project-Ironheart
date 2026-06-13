@@ -1,3 +1,4 @@
 # name|description|center_u|center_v|distance_factor|pitch_degrees|yaw_degrees|date|map_mode|reserved|enabled_layers
 world|World political baseline, centered for full-map visual parity|0.500|0.500|1.080|65.0|0.0|1936.1.1.12|political|-|final,terrain,borders,water,lut_after,gradient_border_ch1_rgb,gradient_border_ch1_alpha,gradient_border_ch2_rgb,gradient_border_ch2_alpha,gradient_border_ch3
+europe|Europe mid-zoom political parity view|0.515|0.345|0.360|65.0|0.0|1936.1.1.12|political|-|final,terrain,borders,water,lut_after,gradient_border_ch1_rgb,gradient_border_ch1_alpha,gradient_border_ch2_rgb,gradient_border_ch2_alpha,gradient_border_ch3
 germany|Germany close baseline, Rhineland and western Germany in view|0.505|0.340|0.160|65.0|0.0|1936.1.1.12|political|-|final,terrain,borders,water,lut_after,gradient_border_ch1_rgb,gradient_border_ch1_alpha,gradient_border_ch2_rgb,gradient_border_ch2_alpha,gradient_border_ch3

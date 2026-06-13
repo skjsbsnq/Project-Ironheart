@@ -53,9 +53,11 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var color = textureSample(sky_cube, sky_sampler, dir).rgb;
 
     let horizon = 1.0 - smoothstep(0.02, 0.38, abs(dir.y));
-    let fog_color = vec3<f32>(0.58, 0.66, 0.70);
-    color = mix(color, fog_color, horizon * 0.20);
-    color *= 1.12;
+    let fog_color = vec3<f32>(0.30, 0.39, 0.52);
+    color = mix(color, fog_color, horizon * 0.28);
+    let below_horizon = smoothstep(0.00, 0.42, -dir.y);
+    color = mix(color, vec3<f32>(0.012, 0.022, 0.050), below_horizon * 0.72);
+    color *= 0.98;
 
     let sun_dir = normalize(frame.day_night_hour_sun_dir.yzw);
     let sun_above = smoothstep(-0.04, 0.16, sun_dir.y);
@@ -525,9 +527,9 @@ fn procedural_sky_rgba(dir: [f32; 3]) -> [u8; 4] {
     let horizon = 1.0 - smoothstep(0.02, 0.52, dir[1].abs());
     let below_horizon = smoothstep(0.02, 0.70, -dir[1]);
 
-    let mut color = mix3([0.100, 0.160, 0.205], [0.310, 0.500, 0.720], up.powf(0.70));
-    color = mix3(color, [0.720, 0.770, 0.790], horizon * 0.54);
-    color = mix3(color, [0.060, 0.090, 0.110], below_horizon * 0.80);
+    let mut color = mix3([0.080, 0.125, 0.185], [0.270, 0.430, 0.640], up.powf(0.70));
+    color = mix3(color, [0.420, 0.500, 0.590], horizon * 0.38);
+    color = mix3(color, [0.014, 0.026, 0.056], below_horizon * 0.92);
 
     let azimuth = dir[2].atan2(dir[0]);
     let mid_sky = smoothstep(-0.08, 0.24, dir[1]) * (1.0 - smoothstep(0.62, 0.98, dir[1]));
@@ -581,4 +583,17 @@ fn saturate(x: f32) -> f32 {
 
 fn to_u8(x: f32) -> u8 {
     (saturate(x) * 255.0).round() as u8
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sky_shader_keeps_low_horizon_dark_for_phase3_bend() {
+        assert!(SKY_WGSL.contains("let below_horizon = smoothstep(0.00, 0.42, -dir.y)"));
+        assert!(SKY_WGSL.contains("vec3<f32>(0.012, 0.022, 0.050)"));
+        let below = procedural_sky_rgba([0.0, -1.0, 0.0]);
+        assert!(below[0] < 32 && below[1] < 40 && below[2] < 70);
+    }
 }

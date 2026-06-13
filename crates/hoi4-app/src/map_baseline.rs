@@ -241,7 +241,7 @@ pub struct MapLayerMask {
 impl MapLayerMask {
     pub fn for_layer(layer: MapBaselineLayer) -> Self {
         match layer {
-            MapBaselineLayer::FinalFull => Self::all(),
+            MapBaselineLayer::FinalFull => Self::map_body_final(),
             MapBaselineLayer::PostprocessOff => Self {
                 postprocess: false,
                 ..Self::all()
@@ -316,6 +316,16 @@ impl MapLayerMask {
             ui: false,
             postprocess: true,
             asset_fallback_debug: false,
+        }
+    }
+
+    pub const fn map_body_final() -> Self {
+        Self {
+            objects: false,
+            overlays: false,
+            particles: false,
+            ui: false,
+            ..Self::all()
         }
     }
 
@@ -982,8 +992,8 @@ const P0_MAPPING_ENTRIES: &[P0MappingEntry] = &[
         reverse_fact: "pdxwater binds HeightTexture, LEAN, ProvinceSecondary, Specular/FOW, refraction, ice, reflection cube, snow/mud, lights, gradients, shadow",
         evidence: "reverse_out/08_water_river_pipeline.md; reverse_out/exports/pdxwater_bindings.tsv",
         target_files: "crates/hoi4-app/src/passes/water.rs; crates/hoi4-render/src/translations/pdxwater.wgsl",
-        current_status: "partial",
-        acceptance: "water audit binds ShadowMap and flags WaterRefraction/ReflectionCubeMap as explicit degraded fallbacks",
+        current_status: "implemented",
+        acceptance: "water audit binds ShadowMap, WaterRefraction, and SkyPass ReflectionCubeMap runtime targets",
     },
     P0MappingEntry {
         b1i_id: "B1I-019",
@@ -2090,14 +2100,15 @@ mod tests {
     #[test]
     fn fixed_scene_matrix_matches_phase0_scope() {
         let scenes = fixed_scenes();
-        assert_eq!(scenes.len(), 2);
+        assert_eq!(scenes.len(), 3);
         assert_eq!(MapBaselineLayer::ALL.len(), 25);
         assert_eq!(
             scenes[0].screenshot_name(MapBaselineLayer::FinalFull, MapBaselinePreset::High),
             "project/world/final.high.png"
         );
         assert_eq!(scenes[0].name, "world");
-        assert_eq!(scenes[1].name, "germany");
+        assert_eq!(scenes[1].name, "europe");
+        assert_eq!(scenes[2].name, "germany");
         assert!(scenes[0]
             .enabled_layers
             .contains(&MapBaselineLayer::TerrainOnly));
@@ -2206,6 +2217,10 @@ mod tests {
         assert!(full.water);
         assert!(full.river);
         assert!(full.postprocess);
+        assert!(full.labels);
+        assert!(!full.objects);
+        assert!(!full.overlays);
+        assert!(!full.particles);
 
         let river = MapLayerMask::for_layer(MapBaselineLayer::RiverMask);
         assert!(river.river);

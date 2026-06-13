@@ -829,6 +829,33 @@ struct VsOut {
 const SEA_LEVEL: f32 = 95.0;
 const RIVER_TILE_PX: f32 = 96.0;
 const RIVER_POINT_LIGHTS_ENABLED: bool = false;
+const GB_TEXTURE_HEIGHT_RIVER: f32 = 1024.0;
+
+fn gradient_border_page_uv(uv: vec2<f32>, page: f32) -> vec2<f32> {
+    let half_pix = 0.5 / GB_TEXTURE_HEIGHT_RIVER;
+    return vec2<f32>(
+        uv.x,
+        uv.y * (0.5 - half_pix) + page * 0.5
+    );
+}
+
+fn gradient_border_ch1_sample(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(gradient_border_ch1, river_sampler, gradient_border_page_uv(uv, 0.0));
+}
+
+fn gradient_border_ch2_sample(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(gradient_border_ch2, river_sampler, gradient_border_page_uv(uv, 0.0));
+}
+
+fn apply_river_gradient_border(base_color: vec3<f32>, uv: vec2<f32>) -> vec3<f32> {
+    let ch1 = gradient_border_ch1_sample(uv);
+    let ch2 = gradient_border_ch2_sample(uv);
+    let country_gate = clamp(ch2.g, 0.0, 1.0);
+    let outline_alpha = smoothstep(0.74, 1.0, ch1.a) * country_gate;
+    let country_bleed = clamp(ch1.a * country_gate, 0.0, 1.0) * 0.06;
+    let outline_color = min(base_color, ch1.rgb * 0.52 + vec3<f32>(0.006, 0.012, 0.018));
+    return mix(base_color, outline_color, clamp(outline_alpha * 0.18 + country_bleed, 0.0, 0.22));
+}
 
 @vertex
 fn vs_main(in: VsIn) -> VsOut {
@@ -953,11 +980,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let snow = get_snow(mud_snow, clamp(frame.fow_opacity_time_snow_max_speed.z, 0.0, 1.0));
     color = mix(color, vec3<f32>(0.58, 0.68, 0.78), snow * 0.16);
 
-    let ch1 = textureSample(gradient_border_ch1, river_sampler, in.map_uv).r;
-    let ch2 = textureSample(gradient_border_ch2, river_sampler, in.map_uv).r;
-    let ch3 = textureSample(gradient_border_ch3, river_sampler, in.map_uv).r;
-    let border_hint = 1.0 - smoothstep(0.0, 0.016, min(min(ch1, ch2), ch3));
-    color = mix(color, vec3<f32>(0.09, 0.16, 0.21), border_hint * 0.035);
+    color = apply_river_gradient_border(color, in.map_uv);
 
     let reflection = textureSample(reflection_tex, river_sampler, in.map_uv).rgb;
     color = mix(color, reflection, 0.020 + spec * 0.016);

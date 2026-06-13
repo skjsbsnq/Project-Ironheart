@@ -41,6 +41,7 @@ use crate::passes::HDR_FORMAT;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::Write as _;
 use std::path::Path;
+use std::time::Instant;
 
 use hoi4_assets::{AssetDb, FsAssetDb, PostEffectValues, PostEffectVolumeIndex, TgaImage};
 use hoi4_paths::PathConfig;
@@ -48,9 +49,11 @@ use hoi4_paths::PathConfig;
 const POST_PROCESS_LUT_KEY_COUNT: usize = 10;
 const STANDARD_TONEMAP_MIDDLE_GREY: f32 = 0.55;
 const WATER_LUT_FRAME_THRESHOLD: f32 = 0.55;
-const CAMERA_FAR_LUT_THRESHOLD: f32 = 0.72;
-const CAMERA_MID_LUT_THRESHOLD: f32 = 0.36;
 const WINTER_LUT_THRESHOLD: f32 = 0.55;
+pub const CAMERA_MID_LUT_HEIGHT_PX: f32 = 900.0;
+pub const CAMERA_FAR_LUT_HEIGHT_PX: f32 = 1600.0;
+pub const CAMERA_LUT_FADE_DISTANCE_PX: f32 = 450.0;
+const EXPOSURE_ADAPTATION_SECONDS: f32 = 0.40;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PostProcessDebugView {
@@ -130,6 +133,8 @@ pub struct PostProcessCalibration {
     pub hsv_saturation: f32,
     pub hsv_value: f32,
     pub color_balance: [f32; 3],
+    pub levels_min: f32,
+    pub levels_max: f32,
     pub bloom_debug_gain: f32,
 }
 
@@ -141,15 +146,17 @@ impl PostProcessCalibration {
             middle_grey: STANDARD_TONEMAP_MIDDLE_GREY,
             exposure_min: 0.125,
             exposure_max: 8.0,
-            exposure_bias: 1.10,
+            exposure_bias: 1.0,
             uncharted_white_point: 11.2,
             final_bloom_strength: 0.14,
-            lut_strength: 0.28,
-            saturation: 1.02,
+            lut_strength: 1.0,
+            saturation: 1.0,
             hsv_hue_shift: 0.0,
-            hsv_saturation: 0.98,
-            hsv_value: 1.07,
-            color_balance: [0.010, 0.008, 0.000],
+            hsv_saturation: 1.0,
+            hsv_value: 1.0,
+            color_balance: [0.0, 0.0, 0.0],
+            levels_min: 0.0,
+            levels_max: 0.80,
             bloom_debug_gain: 4.0,
         }
     }
@@ -160,7 +167,7 @@ impl PostProcessCalibration {
 
     pub fn summary(self) -> String {
         format!(
-            "restore=uncharted aces=off exposure=[{:.3},{:.1}] middle_grey={:.2} bias={:.2} white={:.1} bloom={:.2}/{:.2} lut={:.2} sat={:.2} hsv={:.2}/{:.2}/{:.2} balance={:.2},{:.2},{:.2}",
+            "restore=uncharted aces=off exposure=[{:.3},{:.1}] middle_grey={:.2} bias={:.2} white={:.1} bloom={:.2}/{:.2} lut={:.2} sat={:.2} hsv={:.2}/{:.2}/{:.2} balance={:.2},{:.2},{:.2} levels={:.2},{:.2}",
             self.exposure_min,
             self.exposure_max,
             self.middle_grey,
@@ -176,6 +183,8 @@ impl PostProcessCalibration {
             self.color_balance[0],
             self.color_balance[1],
             self.color_balance[2],
+            self.levels_min,
+            self.levels_max,
         )
     }
 }
@@ -249,16 +258,18 @@ impl PostProcessLutKey {
 
     pub const fn selection_rule(self) -> &'static str {
         match self {
-            Self::DefaultDay => "day, land, close camera, winter_factor <= 0.55",
+            Self::DefaultDay => "day, land, camera height below mid_distance volume",
             Self::DefaultNight => {
-                "night blend target for land, close camera, winter_factor <= 0.55"
+                "night blend target for land, camera height below mid_distance volume"
             }
-            Self::MidDistanceDay => "day, land, 0.36 < camera_distance_t <= 0.72",
+            Self::MidDistanceDay => "day, land, camera height fades through mid_distance volume",
             Self::MidDistanceNight => {
-                "night blend target for land, 0.36 < camera_distance_t <= 0.72"
+                "night blend target for land, camera height fades through mid_distance volume"
             }
-            Self::FarDistanceDay => "day, land, camera_distance_t > 0.72",
-            Self::FarDistanceNight => "night blend target for land, camera_distance_t > 0.72",
+            Self::FarDistanceDay => "day, land, camera height fades through max_distance volume",
+            Self::FarDistanceNight => {
+                "night blend target for land, camera height fades through max_distance volume"
+            }
             Self::WaterDay => "day, water_factor > 0.55",
             Self::WaterNight => "night blend target for water_factor > 0.55",
             Self::WinterDay => "day, land, close camera, winter_factor > 0.55",
@@ -543,7 +554,8 @@ pub fn build_posteffect_values_report_json_from_db(db: &impl AssetDb) -> String 
     out.push_str("    \"manual pow(1/2.2) only on non-sRGB target path\",\n");
     out.push_str("    \"ColorCube\",\n");
     out.push_str("    \"HSV\",\n");
-    out.push_str("    \"ColorBalance\"\n");
+    out.push_str("    \"ColorBalance\",\n");
+    out.push_str("    \"Levels(0.04,0.80)\"\n");
     out.push_str("  ],\n");
     out.push_str("  \"restore_scene_bindings\": [\n");
     out.push_str("    { \"vanilla\": \"MainScene\", \"vanilla_slot\": \"t0/s0\", \"project\": \"hdr_tex/hdr_sampler\", \"project_binding\": \"@group(0) @binding(0/1)\" },\n");
@@ -559,13 +571,15 @@ pub fn build_posteffect_values_report_json_from_db(db: &impl AssetDb) -> String 
     );
     let _ = writeln!(
         out,
-        "    \"far_distance\": \"camera_distance_t > {:.2} selects max_distance day/night\",",
-        CAMERA_FAR_LUT_THRESHOLD
+        "    \"mid_distance\": \"camera height >= {:.0}px fades toward mid_distance day/night over +/-{:.0}px\",",
+        CAMERA_MID_LUT_HEIGHT_PX,
+        CAMERA_LUT_FADE_DISTANCE_PX
     );
     let _ = writeln!(
         out,
-        "    \"mid_distance\": \"camera_distance_t > {:.2} selects mid_distance day/night\",",
-        CAMERA_MID_LUT_THRESHOLD
+        "    \"far_distance\": \"camera height >= {:.0}px fades toward max_distance day/night over +/-{:.0}px\",",
+        CAMERA_FAR_LUT_HEIGHT_PX,
+        CAMERA_LUT_FADE_DISTANCE_PX
     );
     let _ = writeln!(
         out,
@@ -575,9 +589,11 @@ pub fn build_posteffect_values_report_json_from_db(db: &impl AssetDb) -> String 
     out.push_str("    \"night\": \"night_factor blends day layer to night layer\"\n");
     out.push_str("  },\n");
     out.push_str("  \"phase_b_runtime_policy\": {\n");
-    out.push_str("    \"selection_priority\": [\"water\", \"far_distance\", \"mid_distance\", \"winter\", \"default\"],\n");
+    out.push_str(
+        "    \"selection_priority\": [\"water\", \"height_distance\", \"winter\", \"default\"],\n",
+    );
     out.push_str("    \"water_factor_source\": \"project screen-sample of province type; explicit non-parity classifier until posteffect_volume water bounds are reconstructed\",\n");
-    out.push_str("    \"camera_distance_source\": \"project camera normalized distance using R17/colorcube_lut_selection thresholds\",\n");
+    out.push_str("    \"camera_distance_source\": \"project camera eye.y converted back to vanilla map pixels and faded through 900/1600 height volumes\",\n");
     out.push_str("    \"winter_factor_source\": \"disabled/0.0 in default runtime path until gfx/posteffect_volumes.txt posteffect_volume winter classification or trace-backed formula is implemented\",\n");
     out.push_str("    \"winter_lut_values_preserved\": true,\n");
     out.push_str("    \"manual_lut_strength_adjustment\": false,\n");
@@ -607,6 +623,11 @@ pub fn build_posteffect_values_report_json_from_db(db: &impl AssetDb) -> String 
         out,
         "    \"color_balance\": [{:.3}, {:.3}, {:.3}],",
         calibration.color_balance[0], calibration.color_balance[1], calibration.color_balance[2]
+    );
+    let _ = writeln!(
+        out,
+        "    \"levels\": [{:.3}, {:.3}],",
+        calibration.levels_min, calibration.levels_max
     );
     let _ = writeln!(
         out,
@@ -834,53 +855,101 @@ pub struct PostProcessLutSelection {
 }
 
 impl PostProcessLutSelection {
+    pub fn from_camera_height_px(camera_height_px: f32) -> Self {
+        let mid = smoothstep(
+            CAMERA_MID_LUT_HEIGHT_PX - CAMERA_LUT_FADE_DISTANCE_PX,
+            CAMERA_MID_LUT_HEIGHT_PX + CAMERA_LUT_FADE_DISTANCE_PX,
+            camera_height_px,
+        );
+        let far = smoothstep(
+            CAMERA_FAR_LUT_HEIGHT_PX - CAMERA_LUT_FADE_DISTANCE_PX,
+            CAMERA_FAR_LUT_HEIGHT_PX + CAMERA_LUT_FADE_DISTANCE_PX,
+            camera_height_px,
+        );
+        let camera_distance_t = (mid * (1.0 - far) * 0.5 + far).clamp(0.0, 1.0);
+        Self {
+            camera_distance_t,
+            night_factor: 0.0,
+            water_factor: 0.0,
+            winter_factor: 0.0,
+        }
+    }
+
     pub fn key(self, night: bool) -> PostProcessLutKey {
+        let (lo, hi, weight) = self.height_lut_pair(night);
+        if weight >= 0.5 {
+            hi
+        } else {
+            lo
+        }
+    }
+
+    pub fn height_lut_pair(self, night: bool) -> (PostProcessLutKey, PostProcessLutKey, f32) {
         if self.water_factor > WATER_LUT_FRAME_THRESHOLD {
-            return if night {
+            let key = if night {
                 PostProcessLutKey::WaterNight
             } else {
                 PostProcessLutKey::WaterDay
             };
+            return (key, key, 0.0);
         }
-        if self.camera_distance_t > CAMERA_FAR_LUT_THRESHOLD {
-            return if night {
-                PostProcessLutKey::FarDistanceNight
-            } else {
-                PostProcessLutKey::FarDistanceDay
-            };
-        }
-        if self.camera_distance_t > CAMERA_MID_LUT_THRESHOLD {
-            return if night {
-                PostProcessLutKey::MidDistanceNight
-            } else {
-                PostProcessLutKey::MidDistanceDay
-            };
+        let default_key = if night {
+            PostProcessLutKey::DefaultNight
+        } else {
+            PostProcessLutKey::DefaultDay
+        };
+        let mid_key = if night {
+            PostProcessLutKey::MidDistanceNight
+        } else {
+            PostProcessLutKey::MidDistanceDay
+        };
+        let far_key = if night {
+            PostProcessLutKey::FarDistanceNight
+        } else {
+            PostProcessLutKey::FarDistanceDay
+        };
+
+        let distance_t = self.camera_distance_t.clamp(0.0, 1.0);
+        if distance_t >= 0.5 {
+            let weight = ((distance_t - 0.5) * 2.0).clamp(0.0, 1.0);
+            return (mid_key, far_key, weight);
         }
         if self.winter_factor > WINTER_LUT_THRESHOLD {
-            return if night {
+            let key = if night {
                 PostProcessLutKey::WinterNight
             } else {
                 PostProcessLutKey::WinterDay
             };
+            return (key, key, 0.0);
         }
-        if night {
-            PostProcessLutKey::DefaultNight
-        } else {
-            PostProcessLutKey::DefaultDay
+        if distance_t > 0.0 {
+            let weight = (distance_t * 2.0).clamp(0.0, 1.0);
+            return (default_key, mid_key, weight);
         }
+        (default_key, default_key, 0.0)
     }
 
     pub fn tonemap_middle_grey(self) -> f32 {
-        let day = self.key(false).tonemap_middle_grey();
-        let night = self.key(true).tonemap_middle_grey();
+        let (day_lo, day_hi, day_weight) = self.height_lut_pair(false);
+        let (night_lo, night_hi, night_weight) = self.height_lut_pair(true);
+        let day = day_lo.tonemap_middle_grey()
+            + (day_hi.tonemap_middle_grey() - day_lo.tonemap_middle_grey()) * day_weight;
+        let night = night_lo.tonemap_middle_grey()
+            + (night_hi.tonemap_middle_grey() - night_lo.tonemap_middle_grey()) * night_weight;
         day + (night - day) * self.night_factor.clamp(0.0, 1.0)
     }
 
     pub fn audit_summary(self) -> String {
+        let (day_lo, day_hi, day_weight) = self.height_lut_pair(false);
+        let (night_lo, night_hi, night_weight) = self.height_lut_pair(true);
         format!(
-            "lut_day={} lut_night={} night={:.2} middle_grey={:.2} factors(camera={:.2},water={:.2},winter={:.2})",
-            self.key(false).as_str(),
-            self.key(true).as_str(),
+            "lut_day={}→{}:{:.2} lut_night={}→{}:{:.2} night={:.2} middle_grey={:.2} factors(camera={:.2},water={:.2},winter={:.2})",
+            day_lo.as_str(),
+            day_hi.as_str(),
+            day_weight,
+            night_lo.as_str(),
+            night_hi.as_str(),
+            night_weight,
             self.night_factor.clamp(0.0, 1.0),
             self.tonemap_middle_grey(),
             self.camera_distance_t,
@@ -888,6 +957,11 @@ impl PostProcessLutSelection {
             self.winter_factor,
         )
     }
+}
+
+fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0).max(1e-4)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -956,6 +1030,44 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
         sum = sum + textureSample(src_tex, src_sampler, in.uv + offsets[i] * q).r;
     }
     return vec4<f32>(sum / 9.0, 0.0, 0.0, 1.0);
+}
+"#;
+
+const LUM_TEMPORAL_WGSL: &str = r#"
+@group(0) @binding(0) var current_lum_tex: texture_2d<f32>;
+@group(0) @binding(1) var previous_lum_tex: texture_2d<f32>;
+@group(0) @binding(2) var lum_sampler: sampler;
+
+struct Params {
+    adaptation_alpha: f32,
+    initialized: f32,
+    _pad: vec2<f32>,
+};
+@group(0) @binding(3) var<uniform> p: Params;
+
+struct VsOut {
+    @builtin(position) clip_pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
+    var out: VsOut;
+    let uv = vec2<f32>(f32((vid << 1u) & 2u), f32(vid & 2u));
+    out.clip_pos = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
+    out.uv = vec2<f32>(uv.x, 1.0 - uv.y);
+    return out;
+}
+
+@fragment
+fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    let current = textureSample(current_lum_tex, lum_sampler, in.uv).r;
+    if (p.initialized < 0.5) {
+        return vec4<f32>(current, 0.0, 0.0, 1.0);
+    }
+    let previous = textureSample(previous_lum_tex, lum_sampler, in.uv).r;
+    let adapted = mix(previous, current, clamp(p.adaptation_alpha, 0.0, 1.0));
+    return vec4<f32>(adapted, 0.0, 0.0, 1.0);
 }
 "#;
 
@@ -1083,9 +1195,13 @@ struct RestoreParams {
     hsv_hue_shift: f32,
     hsv_saturation: f32,
     hsv_value: f32,
+    levels_min: f32,
+    levels_max: f32,
     _pad0: f32,
+    _pad1: vec2<f32>,
     color_balance: vec4<f32>,
     lut_blend: vec4<f32>,
+    lut_factors: vec4<f32>,
 };
 @group(0) @binding(8) var<uniform> rp: RestoreParams;
 
@@ -1104,8 +1220,8 @@ fn vs_main(@builtin(vertex_index) vid: u32) -> VsOut {
 }
 
 fn uncharted2_tonemap_partial(x: vec3<f32>) -> vec3<f32> {
-    let a = 0.15;
-    let b = 0.50;
+    let a = 0.22;
+    let b = 0.30;
     let c = 0.10;
     let d = 0.20;
     let e = 0.02;
@@ -1117,13 +1233,6 @@ fn uncharted2_tonemap(color: vec3<f32>, white_point: f32) -> vec3<f32> {
     let curr = uncharted2_tonemap_partial(color);
     let white_scale = 1.0 / uncharted2_tonemap_partial(vec3<f32>(max(white_point, 0.001))).r;
     return clamp(curr * white_scale, vec3<f32>(0.0), vec3<f32>(1.0));
-}
-
-fn restore_map_tonemap(color: vec3<f32>, white_point: f32) -> vec3<f32> {
-    let linear_restore = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
-    let shoulder = uncharted2_tonemap(color, white_point);
-    let highlight = smoothstep(0.70, 1.35, max(color.r, max(color.g, color.b)));
-    return mix(linear_restore, shoulder, 0.10 + highlight * 0.22);
 }
 
 fn rgb_to_hsv(c: vec3<f32>) -> vec3<f32> {
@@ -1149,7 +1258,7 @@ fn apply_hsv(color: vec3<f32>) -> vec3<f32> {
     return hsv_to_rgb(hsv);
 }
 
-fn apply_color_cube(color: vec3<f32>) -> vec3<f32> {
+fn sample_color_cube_layer(color: vec3<f32>, layer: i32) -> vec3<f32> {
     let n = max(rp.lut_size, 2.0);
     let c = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
     let b_idx = c.b * (n - 1.0);
@@ -1161,21 +1270,40 @@ fn apply_color_cube(color: vec3<f32>) -> vec3<f32> {
     let u_lo = (b_lo + c.r * (1.0 - inv_n) + 0.5 * inv_n) * cell_w;
     let u_hi = (b_hi + c.r * (1.0 - inv_n) + 0.5 * inv_n) * cell_w;
     let v = c.g * (1.0 - inv_n) + 0.5 * inv_n;
-    let day_layer = i32(max(rp.lut_blend.x, 0.0));
-    let night_layer = i32(max(rp.lut_blend.y, 0.0));
-    let lo_day = textureSample(color_cube_tex, color_cube_sampler, vec2<f32>(u_lo, v), day_layer).rgb;
-    let hi_day = textureSample(color_cube_tex, color_cube_sampler, vec2<f32>(u_hi, v), day_layer).rgb;
-    let lo_night = textureSample(color_cube_tex, color_cube_sampler, vec2<f32>(u_lo, v), night_layer).rgb;
-    let hi_night = textureSample(color_cube_tex, color_cube_sampler, vec2<f32>(u_hi, v), night_layer).rgb;
-    let lut_day = mix(lo_day, hi_day, b_frac);
-    let lut_night = mix(lo_night, hi_night, b_frac);
-    let lut = mix(lut_day, lut_night, clamp(rp.lut_blend.z, 0.0, 1.0));
+    let lo = textureSample(color_cube_tex, color_cube_sampler, vec2<f32>(u_lo, v), layer).rgb;
+    let hi = textureSample(color_cube_tex, color_cube_sampler, vec2<f32>(u_hi, v), layer).rgb;
+    return mix(lo, hi, b_frac);
+}
+
+fn apply_color_cube(color: vec3<f32>) -> vec3<f32> {
+    let c = clamp(color, vec3<f32>(0.0), vec3<f32>(1.0));
+    let day_near_layer = i32(max(rp.lut_blend.x, 0.0));
+    let night_near_layer = i32(max(rp.lut_blend.y, 0.0));
+    let day_far_layer = i32(max(rp.lut_blend.z, 0.0));
+    let night_far_layer = i32(max(rp.lut_blend.w, 0.0));
+    let night_t = clamp(rp.lut_factors.y, 0.0, 1.0);
+    let distance_t = clamp(rp.lut_factors.x, 0.0, 1.0);
+    let near_lut = mix(
+        sample_color_cube_layer(c, day_near_layer),
+        sample_color_cube_layer(c, night_near_layer),
+        night_t,
+    );
+    let far_lut = mix(
+        sample_color_cube_layer(c, day_far_layer),
+        sample_color_cube_layer(c, night_far_layer),
+        night_t,
+    );
+    let lut = mix(near_lut, far_lut, distance_t);
     return mix(c, lut, clamp(rp.lut_strength, 0.0, 1.0));
 }
 
 fn apply_saturation(color: vec3<f32>, saturation: f32) -> vec3<f32> {
     let lum = dot(color, vec3<f32>(0.2125, 0.7154, 0.0721));
     return mix(vec3<f32>(lum), color, saturation);
+}
+
+fn apply_levels(color: vec3<f32>, min_in: f32, _max_in: f32) -> vec3<f32> {
+    return clamp(color - vec3<f32>(min_in), vec3<f32>(0.0), vec3<f32>(1.0));
 }
 
 @fragment
@@ -1187,18 +1315,15 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let raw_log_lum = textureSample(lum_tex, lum_sampler, vec2<f32>(0.5, 0.5)).r;
     let avg_log_lum = clamp(raw_log_lum, -8.0, 8.0);
     let avg_lum = max(exp(avg_log_lum), 1e-3);
-    // The vanilla luminance chain adapts through LastLuminance. Until that
-    // temporal target is mirrored, using the current frame's 1x1 average here
-    // makes exposure pulse when the camera pans across different land/sea
-    // ratios. Keep the final map path stable and leave avg_lum for debug.
-    let exposure = rp.exposure_bias;
+    let exposure = clamp((rp.middle_grey / avg_lum) * rp.exposure_bias, rp.exposure_min, rp.exposure_max);
     let tonemap_input = scene_with_bloom * exposure;
-    let tonemapped = restore_map_tonemap(tonemap_input, rp.uncharted_white_point);
+    let tonemapped = uncharted2_tonemap(tonemap_input, rp.uncharted_white_point);
 
     var graded = apply_color_cube(tonemapped);
     graded = apply_hsv(graded);
-    graded = apply_saturation(graded, rp.saturation);
     graded = max(graded + rp.color_balance.rgb, vec3<f32>(0.0));
+    graded = apply_levels(graded, rp.levels_min, rp.levels_max);
+    graded = apply_saturation(graded, rp.saturation);
     var ldr = clamp(graded, vec3<f32>(0.0), vec3<f32>(1.0));
 
     if (rp.debug_view > 0.5 && rp.debug_view < 1.5) {
@@ -1251,6 +1376,14 @@ struct LumParams {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct LumTemporalParams {
+    adaptation_alpha: f32,
+    initialized: f32,
+    _pad: [f32; 2],
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct RestoreParams {
     middle_grey: f32,
     bloom_strength: f32,
@@ -1267,9 +1400,13 @@ struct RestoreParams {
     hsv_hue_shift: f32,
     hsv_saturation: f32,
     hsv_value: f32,
+    levels_min: f32,
+    levels_max: f32,
     _pad0: f32,
+    _pad1: [f32; 2],
     color_balance: [f32; 4],
     lut_blend: [f32; 4],
+    lut_factors: [f32; 4],
 }
 
 // ─── 单个 RT + bind group 的小辅助 ─────────────────────────────────────────────
@@ -1300,7 +1437,10 @@ fn make_target(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_SRC
+            | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
     let view = texture.create_view(&Default::default());
@@ -1475,6 +1615,82 @@ fn make_simple_bind_group(
     })
 }
 
+fn make_lum_temporal_bgl(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: Some("lum_temporal_bgl"),
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            },
+        ],
+    })
+}
+
+fn make_lum_temporal_bind_group(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    current_view: &wgpu::TextureView,
+    previous_view: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+    uniform: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("lum_temporal_bg"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(current_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(previous_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: uniform.as_entire_binding(),
+            },
+        ],
+    })
+}
+
 fn make_simple_pipeline(
     device: &wgpu::Device,
     label: &str,
@@ -1549,6 +1765,14 @@ pub struct PostProcessChain {
     lum_uniforms: Vec<wgpu::Buffer>,
     lum_targets: Vec<PingTarget>,
     lum_bind_groups: Vec<wgpu::BindGroup>,
+    lum_temporal_bgl: wgpu::BindGroupLayout,
+    lum_temporal_pipeline: wgpu::RenderPipeline,
+    lum_temporal_uniform: wgpu::Buffer,
+    lum_temporal_bind_group: Option<wgpu::BindGroup>,
+    adapted_lum_previous: Option<PingTarget>,
+    adapted_lum_current: Option<PingTarget>,
+    adapted_lum_initialized: bool,
+    last_luminance_prepare: Option<Instant>,
 
     // restorescene final
     restore_bgl: wgpu::BindGroupLayout,
@@ -1635,6 +1859,20 @@ impl PostProcessChain {
             &simple_bgl,
             wgpu::TextureFormat::R16Float,
         );
+        let lum_temporal_bgl = make_lum_temporal_bgl(device);
+        let lum_temporal_pipeline = make_simple_pipeline(
+            device,
+            "lum_temporal",
+            LUM_TEMPORAL_WGSL,
+            &lum_temporal_bgl,
+            wgpu::TextureFormat::R16Float,
+        );
+        let lum_temporal_uniform = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("lum_temporal_uniform"),
+            size: std::mem::size_of::<LumTemporalParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         // ── restore ─────────────────────────────────────────────────────
         let (color_cube_texture, color_cube_view) =
@@ -1787,6 +2025,14 @@ impl PostProcessChain {
             lum_uniforms: Vec::new(),
             lum_targets: Vec::new(),
             lum_bind_groups: Vec::new(),
+            lum_temporal_bgl,
+            lum_temporal_pipeline,
+            lum_temporal_uniform,
+            lum_temporal_bind_group: None,
+            adapted_lum_previous: None,
+            adapted_lum_current: None,
+            adapted_lum_initialized: false,
+            last_luminance_prepare: None,
             restore_bgl,
             restore_pipeline,
             restore_uniform,
@@ -1822,6 +2068,11 @@ impl PostProcessChain {
     pub fn cycle_debug_view(&mut self) -> PostProcessDebugView {
         self.debug_view = self.debug_view.next();
         self.debug_view
+    }
+
+    pub fn reset_luminance_adaptation(&mut self) {
+        self.adapted_lum_initialized = false;
+        self.last_luminance_prepare = None;
     }
 
     pub fn rebuild_targets(
@@ -1933,9 +2184,42 @@ impl PostProcessChain {
             self.lum_bind_groups.push(bg);
         }
 
+        self.adapted_lum_previous = Some(make_target(
+            device,
+            "adapted_lum_previous",
+            1,
+            1,
+            wgpu::TextureFormat::R16Float,
+        ));
+        self.adapted_lum_current = Some(make_target(
+            device,
+            "adapted_lum_current",
+            1,
+            1,
+            wgpu::TextureFormat::R16Float,
+        ));
+        self.adapted_lum_initialized = false;
+        self.last_luminance_prepare = None;
+        self.lum_temporal_bind_group = Some(make_lum_temporal_bind_group(
+            device,
+            &self.lum_temporal_bgl,
+            &self.lum_targets[LUM_LEVELS - 1].view,
+            &self
+                .adapted_lum_previous
+                .as_ref()
+                .expect("adapted luminance previous target exists")
+                .view,
+            &self.sampler,
+            &self.lum_temporal_uniform,
+        ));
+
         // ── restore bind group ──────────────────────────────────────────
         let bloom_final_view = &self.bloom_targets[BLOOM_LEVELS - 1].view;
-        let lum_final_view = &self.lum_targets[LUM_LEVELS - 1].view;
+        let lum_final_view = &self
+            .adapted_lum_current
+            .as_ref()
+            .expect("adapted luminance current target exists")
+            .view;
         self.restore_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("restore_bg"),
             layout: &self.restore_bgl,
@@ -1981,7 +2265,7 @@ impl PostProcessChain {
     }
 
     /// 每帧调一次，更新所有 uniform。
-    pub fn prepare(&self, queue: &wgpu::Queue, selection: PostProcessLutSelection) {
+    pub fn prepare(&mut self, queue: &wgpu::Queue, selection: PostProcessLutSelection) {
         // bloom bright pass：threshold 抬到 1.05 → 仅真正 HDR 高光（>1.0）参与 bloom，
         // 防止 LDR 区域整体染上一层"奶白"提亮。strength 0.6 让 9-tap 模糊不超过场景亮度。
         let bp = BloomParams {
@@ -2019,6 +2303,29 @@ impl PostProcessChain {
             queue.write_buffer(buf, 0, bytemuck::bytes_of(&lp));
         }
 
+        let now = Instant::now();
+        let dt = self
+            .last_luminance_prepare
+            .map(|last| now.duration_since(last).as_secs_f32())
+            .unwrap_or(0.0);
+        self.last_luminance_prepare = Some(now);
+        let adaptation_alpha = if self.adapted_lum_initialized {
+            (1.0 - (-dt / EXPOSURE_ADAPTATION_SECONDS).exp()).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let ltp = LumTemporalParams {
+            adaptation_alpha,
+            initialized: if self.adapted_lum_initialized {
+                1.0
+            } else {
+                0.0
+            },
+            _pad: [0.0; 2],
+        };
+        queue.write_buffer(&self.lum_temporal_uniform, 0, bytemuck::bytes_of(&ltp));
+        self.adapted_lum_initialized = true;
+
         let selected_middle_grey = selection.tonemap_middle_grey();
         let middle_grey =
             self.calibration.middle_grey * (selected_middle_grey / STANDARD_TONEMAP_MIDDLE_GREY);
@@ -2043,7 +2350,10 @@ impl PostProcessChain {
             hsv_hue_shift: self.calibration.hsv_hue_shift,
             hsv_saturation: self.calibration.hsv_saturation,
             hsv_value: self.calibration.hsv_value,
+            levels_min: self.calibration.levels_min,
+            levels_max: self.calibration.levels_max,
             _pad0: 0.0,
+            _pad1: [0.0; 2],
             color_balance: [
                 self.calibration.color_balance[0],
                 self.calibration.color_balance[1],
@@ -2051,17 +2361,29 @@ impl PostProcessChain {
                 0.0,
             ],
             lut_blend: self.lut_blend(selection),
+            lut_factors: self.lut_factors(selection),
         };
         queue.write_buffer(&self.restore_uniform, 0, bytemuck::bytes_of(&rp));
     }
 
     fn lut_blend(&self, selection: PostProcessLutSelection) -> [f32; 4] {
-        let day_key = selection.key(false) as usize;
-        let night_key = selection.key(true) as usize;
+        let (day_lo, day_hi, _) = selection.height_lut_pair(false);
+        let (night_lo, night_hi, _) = selection.height_lut_pair(true);
         [
-            self.color_cube_bindings[day_key] as f32,
-            self.color_cube_bindings[night_key] as f32,
+            self.color_cube_bindings[day_lo as usize] as f32,
+            self.color_cube_bindings[night_lo as usize] as f32,
+            self.color_cube_bindings[day_hi as usize] as f32,
+            self.color_cube_bindings[night_hi as usize] as f32,
+        ]
+    }
+
+    fn lut_factors(&self, selection: PostProcessLutSelection) -> [f32; 4] {
+        let (_, _, day_weight) = selection.height_lut_pair(false);
+        let (_, _, night_weight) = selection.height_lut_pair(true);
+        [
+            day_weight + (night_weight - day_weight) * selection.night_factor.clamp(0.0, 1.0),
             selection.night_factor.clamp(0.0, 1.0),
+            0.0,
             0.0,
         ]
     }
@@ -2075,13 +2397,17 @@ impl PostProcessChain {
     }
 
     pub fn runtime_lut_summary(&self, selection: PostProcessLutSelection) -> String {
-        let day_key = selection.key(false);
-        let night_key = selection.key(true);
+        let (day_lo, day_hi, day_weight) = selection.height_lut_pair(false);
+        let (night_lo, night_hi, night_weight) = selection.height_lut_pair(true);
         format!(
-            "{} layers(day={},night={}) gamma_policy={} colorcube_fallback={}",
+            "{} layers(day={}→{}:{:.2},night={}→{}:{:.2}) gamma_policy={} colorcube_fallback={}",
             selection.audit_summary(),
-            self.color_cube_bindings[day_key as usize],
-            self.color_cube_bindings[night_key as usize],
+            self.color_cube_bindings[day_lo as usize],
+            self.color_cube_bindings[day_hi as usize],
+            day_weight,
+            self.color_cube_bindings[night_lo as usize],
+            self.color_cube_bindings[night_hi as usize],
+            night_weight,
             self.gamma_policy(),
             self.color_cube_fallback,
         )
@@ -2145,6 +2471,50 @@ impl PostProcessChain {
             rp.draw(0..3, 0..1);
         }
 
+        if let (Some(bg), Some(current), Some(previous)) = (
+            self.lum_temporal_bind_group.as_ref(),
+            self.adapted_lum_current.as_ref(),
+            self.adapted_lum_previous.as_ref(),
+        ) {
+            {
+                let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("lum_temporal"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &current.view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                rp.set_pipeline(&self.lum_temporal_pipeline);
+                rp.set_bind_group(0, bg, &[]);
+                rp.draw(0..3, 0..1);
+            }
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &current.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: &previous.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+
         // ── restorescene final composite ──
         {
             let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2183,8 +2553,10 @@ mod tests {
         assert!(!DOWNSAMPLE_WGSL.is_empty());
         assert!(!LUM_LOG_WGSL.is_empty());
         assert!(LUM_AVG_WGSL.contains("vs_main"));
+        assert!(LUM_TEMPORAL_WGSL.contains("adaptation_alpha"));
         assert!(RESTORESCENE_PHASE10_WGSL.contains("uncharted2_tonemap"));
         assert!(RESTORESCENE_PHASE10_WGSL.contains("apply_color_cube"));
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("apply_levels"));
         assert!(RESTORESCENE_PHASE10_WGSL.contains("rgb_to_hsv"));
         assert!(RESTORESCENE_PHASE10_WGSL.contains("color_balance"));
         assert!(RESTORESCENE_PHASE10_WGSL.contains("srgb_target"));
@@ -2200,6 +2572,7 @@ mod tests {
         assert!(std::mem::size_of::<BloomParams>() % 16 == 0);
         assert!(std::mem::size_of::<DownParams>() % 16 == 0);
         assert!(std::mem::size_of::<LumParams>() % 16 == 0);
+        assert!(std::mem::size_of::<LumTemporalParams>() % 16 == 0);
         assert!(std::mem::size_of::<RestoreParams>() % 16 == 0);
     }
 
@@ -2209,36 +2582,52 @@ mod tests {
         assert!((calibration.middle_grey - 0.55).abs() < f32::EPSILON);
         assert!(calibration.exposure_min <= 0.125);
         assert!(calibration.exposure_max >= 8.0);
-        assert!((calibration.exposure_bias - 1.10).abs() < f32::EPSILON);
+        assert!((calibration.exposure_bias - 1.0).abs() < f32::EPSILON);
         assert!((calibration.uncharted_white_point - 11.2).abs() < f32::EPSILON);
         assert!((calibration.final_bloom_strength - 0.14).abs() < f32::EPSILON);
         assert!((calibration.bloom_bright_threshold - 1.05).abs() < f32::EPSILON);
         assert!((calibration.bloom_prefilter_strength - 0.68).abs() < f32::EPSILON);
-        assert_eq!(calibration.lut_strength, 0.28);
-        assert_eq!(calibration.saturation, 1.02);
-        assert_eq!(calibration.hsv_saturation, 0.98);
-        assert_eq!(calibration.hsv_value, 1.07);
-        assert_eq!(calibration.color_balance, [0.010, 0.008, 0.000]);
+        assert_eq!(calibration.lut_strength, 1.0);
+        assert_eq!(calibration.saturation, 1.0);
+        assert_eq!(calibration.hsv_saturation, 1.0);
+        assert_eq!(calibration.hsv_value, 1.0);
+        assert_eq!(calibration.color_balance, [0.0, 0.0, 0.0]);
+        assert_eq!(calibration.levels_min, 0.0);
+        assert_eq!(calibration.levels_max, 0.80);
         assert!(calibration.summary().contains("aces=off"));
-        assert!(calibration.summary().contains("lut=0.28"));
+        assert!(calibration.summary().contains("lut=1.00"));
+        assert!(calibration.summary().contains("levels=0.00,0.80"));
         assert!(calibration.summary().contains("restore=uncharted"));
     }
 
     #[test]
-    fn restore_shader_uses_stable_exposure_until_last_luminance_is_mirrored() {
-        assert!(RESTORESCENE_PHASE10_WGSL.contains("let exposure = rp.exposure_bias;"));
-        assert!(
-            !RESTORESCENE_PHASE10_WGSL.contains("let exposure = clamp((rp.middle_grey / avg_lum)")
-        );
+    fn restore_shader_uses_adaptive_exposure_from_temporal_luminance() {
+        assert!(RESTORESCENE_PHASE10_WGSL
+            .contains("let exposure = clamp((rp.middle_grey / avg_lum) * rp.exposure_bias"));
+        assert!(LUM_TEMPORAL_WGSL.contains("previous_lum_tex"));
+        assert!(LUM_TEMPORAL_WGSL.contains("mix(previous, current"));
     }
 
     #[test]
-    fn restore_shader_keeps_map_luminance_near_simple_blit() {
-        assert!(RESTORESCENE_PHASE10_WGSL.contains("fn restore_map_tonemap"));
-        assert!(RESTORESCENE_PHASE10_WGSL.contains("let linear_restore = clamp(color"));
-        assert!(RESTORESCENE_PHASE10_WGSL.contains("return mix(linear_restore, shoulder"));
-        assert!(!RESTORESCENE_PHASE10_WGSL
-            .contains("let tonemapped = uncharted2_tonemap(tonemap_input"));
+    fn restore_shader_uses_vanilla_phase2_order_and_tonemap_constants() {
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("let a = 0.22;"));
+        assert!(RESTORESCENE_PHASE10_WGSL.contains("let b = 0.30;"));
+        assert!(
+            RESTORESCENE_PHASE10_WGSL.contains("let tonemapped = uncharted2_tonemap(tonemap_input")
+        );
+        let lut_pos = RESTORESCENE_PHASE10_WGSL
+            .find("var graded = apply_color_cube(tonemapped)")
+            .unwrap();
+        let hsv_pos = RESTORESCENE_PHASE10_WGSL.find("apply_hsv(graded)").unwrap();
+        let balance_pos = RESTORESCENE_PHASE10_WGSL
+            .find("graded = max(graded + rp.color_balance.rgb")
+            .unwrap();
+        let levels_pos = RESTORESCENE_PHASE10_WGSL
+            .find("graded = apply_levels(graded, rp.levels_min, rp.levels_max)")
+            .unwrap();
+        assert!(lut_pos < hsv_pos);
+        assert!(hsv_pos < balance_pos);
+        assert!(balance_pos < levels_pos);
     }
 
     #[test]
@@ -2270,6 +2659,12 @@ mod tests {
         validator
             .validate(&module)
             .expect("restore shader should validate");
+
+        let module =
+            naga::front::wgsl::parse_str(LUM_TEMPORAL_WGSL).expect("temporal shader should parse");
+        validator
+            .validate(&module)
+            .expect("temporal shader should validate");
     }
 
     #[test]
@@ -2316,13 +2711,27 @@ mod tests {
         );
         assert_eq!(
             PostProcessLutSelection {
-                camera_distance_t: 0.8,
+                camera_distance_t: 0.9,
                 night_factor: 1.0,
                 water_factor: 0.0,
                 winter_factor: 0.0,
             }
             .key(true),
             PostProcessLutKey::FarDistanceNight
+        );
+        assert_eq!(
+            PostProcessLutSelection {
+                camera_distance_t: 0.25,
+                night_factor: 0.0,
+                water_factor: 0.0,
+                winter_factor: 0.0,
+            }
+            .height_lut_pair(false),
+            (
+                PostProcessLutKey::DefaultDay,
+                PostProcessLutKey::MidDistanceDay,
+                0.5
+            )
         );
         assert_eq!(
             PostProcessLutSelection {
@@ -2366,6 +2775,32 @@ mod tests {
                 - 0.40)
                 .abs()
                 < f32::EPSILON
+        );
+    }
+
+    #[test]
+    fn lut_selection_from_camera_height_uses_vanilla_height_thresholds() {
+        assert_eq!(
+            PostProcessLutSelection::from_camera_height_px(200.0).key(false),
+            PostProcessLutKey::DefaultDay
+        );
+        assert_eq!(
+            PostProcessLutSelection::from_camera_height_px(CAMERA_MID_LUT_HEIGHT_PX)
+                .height_lut_pair(false),
+            (
+                PostProcessLutKey::DefaultDay,
+                PostProcessLutKey::MidDistanceDay,
+                0.5
+            )
+        );
+        assert_eq!(
+            PostProcessLutSelection::from_camera_height_px(CAMERA_FAR_LUT_HEIGHT_PX)
+                .height_lut_pair(false),
+            (
+                PostProcessLutKey::MidDistanceDay,
+                PostProcessLutKey::FarDistanceDay,
+                0.5
+            )
         );
     }
 

@@ -410,7 +410,7 @@ pub struct RenderParams {
     pub month_phase: f32,
     pub season_snow_offset: f32,
     /// Base terrain blend for current map mode (0.0 = full political, 1.0 = full terrain).
-    /// Political mode uses ~0.30; terrain mode uses ~0.70.
+    /// Political mode now keeps full terrain detail; GradientBorder supplies country color.
     pub map_mode_terrain_blend: f32,
     /// 1 = diplomacy border coloring enabled (faction/war lines), 0 = default.
     pub diplomacy_mode: u32,
@@ -436,7 +436,7 @@ impl RenderParams {
             sun_dir: [0.4, 0.85, 0.3, 0.0],
             month_phase: 0.5,
             season_snow_offset: 0.0,
-            map_mode_terrain_blend: 0.30,
+            map_mode_terrain_blend: 1.0,
             diplomacy_mode: 0,
             object_opacity: 1.0,
             object_scale: 1.0,

@@ -188,12 +188,23 @@ fn lib_text_includes_expected_helpers() {
 }
 
 #[test]
-fn shader_lib_uses_project_scaled_vanilla_fog() {
+fn shader_lib_uses_vanilla_distance_fog_constants() {
     let lib = hoi4_render::SHADER_LIB_WGSL;
     assert!(lib.contains("const FOG_COLOR: vec3<f32> = vec3<f32>(0.12, 0.28, 0.60);"));
-    assert!(lib.contains("const FOG_BEGIN: f32 = WORLD_EXTENT * 2.2;"));
-    assert!(lib.contains("const FOG_END: f32 = WORLD_EXTENT * 8.0;"));
-    assert!(lib.contains("const FOG_MAX: f32 = 0.12;"));
+    assert!(lib.contains("const FOG_BEGIN: f32 = 1.0;"));
+    assert!(lib.contains("const FOG_END: f32 = 150.0;"));
+    assert!(lib.contains("const FOG_MAX: f32 = 0.35;"));
+}
+
+#[test]
+fn shader_lib_exposes_far_view_horizon_bend() {
+    let lib = hoi4_render::SHADER_LIB_WGSL;
+    assert!(lib.contains("fn calculate_map_horizon_bend_factor"));
+    assert!(lib.contains("fn apply_map_horizon_bend"));
+    assert!(lib.contains("fn apply_map_horizon_bend_clip"));
+    assert!(lib.contains("HORIZON_BEND_HEIGHT_START_SCALE"));
+    assert!(lib.contains("HORIZON_BEND_DROP_SCALE"));
+    assert!(lib.contains("HORIZON_BEND_SCREEN_DROP"));
 }
 
 // =============================================================================

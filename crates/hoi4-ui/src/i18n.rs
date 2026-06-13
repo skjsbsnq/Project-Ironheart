@@ -78,6 +78,11 @@ pub fn tr(key: &str) -> &str {
     lookup(key, lang).unwrap_or(key)
 }
 
+/// Looks up a translation in a specific language without changing global UI state.
+pub fn tr_for_language<'a>(key: &'a str, lang: Language) -> &'a str {
+    lookup(key, lang).unwrap_or(key)
+}
+
 fn lookup(key: &str, lang: Language) -> Option<&'static str> {
     let idx = match lang {
         Language::English => 0,
@@ -959,9 +964,11 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     ("CAN", ["Canada", "加拿大"]),
     ("AUS", ["Austria", "奥地利"]),
     ("IND", ["British Raj", "英属印度"]),
+    ("RAJ", ["British Raj", "英属印度"]),
     ("SAF", ["South Africa", "南非"]),
     ("NZL", ["New Zealand", "新西兰"]),
     ("MAN", ["Manchukuo", "满洲国"]),
+    ("MEN", ["Mengjiang", "蒙疆"]),
     ("YUG", ["Yugoslavia", "南斯拉夫"]),
     ("CZE", ["Czechoslovakia", "捷克斯洛伐克"]),
     ("BOM", ["Bohemia-Moravia", "波西米亚-摩拉维亚保护国"]),
@@ -994,6 +1001,7 @@ static TRANSLATIONS: &[(&str, [&str; 2])] = &[
     ("BUL", ["Bulgaria", "保加利亚"]),
     ("GRE", ["Greece", "希腊"]),
     ("MON", ["Mongolia", "蒙古"]),
+    ("TIB", ["Tibet", "西藏"]),
     ("SIK", ["Sinkiang", "新疆"]),
     ("TAN", ["Tannu Tuva", "唐努图瓦"]),
     ("NEP", ["Nepal", "尼泊尔"]),
@@ -1404,6 +1412,9 @@ mod tests {
         assert_eq!(tr("SIC"), "四川军阀");
         assert_eq!(tr("GDC"), "广东军阀");
         assert_eq!(tr("XAJ"), "西安剿总");
+        assert_eq!(tr("RAJ"), "英属印度");
+        assert_eq!(tr("MEN"), "蒙疆");
+        assert_eq!(tr("TIB"), "西藏");
         set_language(Language::English);
         assert_eq!(tr("AUS"), "Austria");
         assert_eq!(tr("AST"), "Australia");
@@ -1413,5 +1424,9 @@ mod tests {
         assert_eq!(tr("SIC"), "Sichuan Clique");
         assert_eq!(tr("GDC"), "Guangdong Clique");
         assert_eq!(tr("XAJ"), "Xian Pacification HQ");
+        assert_eq!(tr("RAJ"), "British Raj");
+        assert_eq!(tr("MEN"), "Mengjiang");
+        assert_eq!(tr("TIB"), "Tibet");
+        assert_eq!(tr_for_language("MAN", Language::Chinese), "满洲国");
     }
 }

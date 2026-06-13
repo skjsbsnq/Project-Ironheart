@@ -273,7 +273,9 @@ pub struct PdxMapParams {
 }
 
 impl PdxMapParams {
-    pub const VANILLA_PARITY_FEATURE_FLAGS: [f32; 4] = [0.0, 0.0, 0.0, 0.0];
+    /// x=detail noise/cloud shadows, y=river fallback overlay,
+    /// z=map-mode overlay fallback, w=optional coast band.
+    pub const VANILLA_PARITY_FEATURE_FLAGS: [f32; 4] = [1.0, 0.0, 0.0, 0.0];
     pub const LEGACY_ART_FEATURE_FLAGS: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
 }
 
@@ -326,6 +328,7 @@ pub struct TerrainPassInputs<'a> {
     pub rivers_view: &'a wgpu::TextureView,
     pub heightmap_view: &'a wgpu::TextureView,
     pub province_view: &'a wgpu::TextureView,
+    pub water_mask_view: &'a wgpu::TextureView,
     pub terrain_idx_view: &'a wgpu::TextureView,
     pub terrain_atlas_view: &'a wgpu::TextureView,
     pub country_color_lut_view: &'a wgpu::TextureView,
@@ -695,6 +698,17 @@ impl TerrainPass {
                 texture_entry(11),
                 // 12: mud_normal_rgb_spec_a_0
                 texture_entry(12),
+                // 13: authoritative province-derived water mask (R8Uint)
+                wgpu::BindGroupLayoutEntry {
+                    binding: 13,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -865,6 +879,10 @@ impl TerrainPass {
                     binding: 12,
                     resource: wgpu::BindingResource::TextureView(&mud_normal_view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 13,
+                    resource: wgpu::BindingResource::TextureView(inputs.water_mask_view),
+                },
             ],
         });
 
@@ -1026,8 +1044,10 @@ pub fn build_terrain_pdxmap_report_json(binding_audit: &BindingAudit) -> String 
     out.push_str("    \"feature_flags\": ");
     write_f32_array_json(&mut out, &PdxMapParams::VANILLA_PARITY_FEATURE_FLAGS);
     out.push_str(",\n");
-    out.push_str("    \"legacy_art_features\": {\n");
-    out.push_str("      \"terrain_jitter_noise_coast_tint_vignette\": false,\n");
+    out.push_str("    \"selective_detail_features\": {\n");
+    out.push_str("      \"terrain_detail_noise_and_cloud_shadow\": true,\n");
+    out.push_str("      \"terrain_coast_band\": false,\n");
+    out.push_str("      \"terrain_screen_vignette\": false,\n");
     out.push_str("      \"political_terrain_direct_mix\": false,\n");
     out.push_str("      \"map_mode_terrain_blend\": false,\n");
     out.push_str("      \"river_overlay_fallback_default_path\": false,\n");
@@ -1153,8 +1173,8 @@ pub fn build_terrain_pdxmap_report_json(binding_audit: &BindingAudit) -> String 
     out.push_str("    \"pdxmap_resource_binding_semantics_aligned\": true,\n");
     out.push_str("    \"political_color_does_not_replace_terrain_albedo\": true,\n");
     out.push_str("    \"map_size_formulas_use_vanilla_pixels\": true,\n");
-    out.push_str("    \"project_vivid_noise_grain_isolated_to_legacy_feature_flag\": true,\n");
-    out.push_str("    \"legacy_river_overlay_coast_tint_vignette_default_path\": false,\n");
+    out.push_str("    \"phase3_detail_noise_and_cloud_shadow_default_path\": true,\n");
+    out.push_str("    \"legacy_river_overlay_and_coast_band_default_path\": false,\n");
     out.push_str("    \"terrain_final_before_postprocess_exportable\": true,\n");
     out.push_str("    \"known_degraded_fallbacks\": [\"FOW visible-all placeholder\", \"SnowMudData zero fallback\"]\n");
     out.push_str("  }\n");
@@ -1444,6 +1464,18 @@ mod tests {
     }
 
     #[test]
+    fn pdxmap_default_feature_flags_enable_phase3_detail_only() {
+        assert_eq!(
+            PdxMapParams::VANILLA_PARITY_FEATURE_FLAGS,
+            [1.0, 0.0, 0.0, 0.0]
+        );
+        assert_eq!(
+            PdxMapParams::default().feature_flags,
+            PdxMapParams::VANILLA_PARITY_FEATURE_FLAGS
+        );
+    }
+
+    #[test]
     fn terrain_debug_view_cycles_through_shader_values() {
         assert_eq!(TerrainDebugView::Off.next(), TerrainDebugView::TerrainId);
         assert_eq!(
@@ -1559,9 +1591,7 @@ mod tests {
         assert!(json.contains("\"map_size_px\": [5632.0, 2048.0]"));
         assert!(json.contains("\"terrain_binding_count\": 2"));
         assert!(json.contains("\"pdxmap_resource_binding_semantics_aligned\": true"));
-        assert!(
-            json.contains("\"project_vivid_noise_grain_isolated_to_legacy_feature_flag\": true")
-        );
+        assert!(json.contains("\"phase3_detail_noise_and_cloud_shadow_default_path\": true"));
         assert!(json.contains("fallback: visible-all placeholder"));
     }
 

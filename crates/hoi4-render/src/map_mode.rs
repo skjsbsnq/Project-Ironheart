@@ -810,7 +810,7 @@ mod tests {
     }
 
     #[test]
-    fn political_lut_keeps_vanilla_country_color_ungraded() {
+    fn political_lut_keeps_source_country_color_before_postprocess() {
         assert_eq!(political_lut_color([60, 90, 170]), (60, 90, 170));
         assert_eq!(political_lut_color([210, 205, 180]), (210, 205, 180));
     }

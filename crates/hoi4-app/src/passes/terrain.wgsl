@@ -119,13 +119,14 @@ struct ChunkUniform {
 @group(2) @binding(10) var snow_normal_diffuse_tex: texture_2d<f32>;
 @group(2) @binding(11) var mud_diffuse_gloss_tex: texture_2d<f32>;
 @group(2) @binding(12) var mud_normal_spec_tex: texture_2d<f32>;
+@group(2) @binding(13) var water_mask_tex: texture_2d<u32>;
 
 const LUT_WIDTH: u32 = 256u;
 const SEA_LEVEL: f32 = 95.0 / 255.0;
-const NOISE_AMOUNT: f32 = 0.026;
+const NOISE_AMOUNT: f32 = 0.014;
 const TERRAIN_ATLAS_TILE_SCALE: f32 = 0.95;
-const CLOSE_DETAIL_AMOUNT: f32 = 0.052;
-const TERRAIN_ID_JITTER_PIXELS: f32 = 0.55;
+const CLOSE_DETAIL_AMOUNT: f32 = 0.030;
+const TERRAIN_ID_JITTER_PIXELS: f32 = 0.20;
 const COLORMAP_OVERLAY_STRENGTH_TERRAIN: f32 = 0.75;
 const COLORMAP_MUD_OVERLAY_STRENGTH_TERRAIN: f32 = 0.5;
 const TERRAIN_ATLAS_ALBEDO_STRENGTH: f32 = 0.78;
@@ -151,12 +152,14 @@ const SNOW_TILING_TERRAIN: f32 = 0.05;
 const SNOW_NORMAL_START_TERRAIN: f32 = 0.7;
 const GB_THRESHOLD_TERRAIN: f32 = 0.05;
 const GB_THRESHOLD2_TERRAIN: f32 = 0.25;
-const GB_STRENGTH_CH1_TERRAIN: f32 = 1.0;
-const GB_STRENGTH_CH2_TERRAIN: f32 = 1.0;
-const GB_FIRST_LAYER_PRIORITY_TERRAIN: f32 = 0.4;
+const GB_COUNTRY_FILL_NEAR_TERRAIN: f32 = 0.94;
+const GB_COUNTRY_FILL_FAR_TERRAIN: f32 = 0.96;
+const GB_OUTLINE_STRENGTH_TERRAIN: f32 = 0.38;
+const GB_OUTLINE_DARKEN_TERRAIN: f32 = 0.70;
+const GB_LIGHTING_RESTORE_TERRAIN: f32 = 0.8;
+const GB_NIGHT_DESAT_BLEND_TERRAIN: f32 = 0.20;
 const GB_TEXTURE_HEIGHT_TERRAIN: f32 = 1024.0;
 const BORDER_FOW_REMOVAL_FACTOR_TERRAIN: f32 = 0.8;
-const POLITICAL_NIGHT_DESAT_BLEND: f32 = 0.35;
 const ID_NONE: u32 = 4294967295u;
 
 const TERRAIN_DEBUG_OFF: u32 = 0u;
@@ -340,7 +343,14 @@ fn vs_main(in: VsIn) -> VsOut {
     let world_pos = vec3<f32>(world_xz.x, world_y, world_xz.y);
 
     var out: VsOut;
-    out.clip_position = frame.view_proj * vec4<f32>(world_pos, 1.0);
+    let visual_pos = apply_map_horizon_bend(world_pos, frame.cam_pos, world_size);
+
+    out.clip_position = apply_map_horizon_bend_clip(
+        frame.view_proj * vec4<f32>(visual_pos, 1.0),
+        world_pos,
+        frame.cam_pos,
+        world_size
+    );
     out.map_uv = uv;
     out.world_pos = world_pos;
     out.world_normal = normal;
@@ -360,6 +370,14 @@ fn province_at(uv: vec2<f32>) -> u32 {
     let cx = clamp(coord.x, 0, i32(tex_size.x) - 1);
     let cy = clamp(coord.y, 0, i32(tex_size.y) - 1);
     return textureLoad(province_id_tex, vec2<i32>(cx, cy), 0).r;
+}
+
+fn water_mask_at(uv: vec2<f32>) -> bool {
+    let tex_size = vec2<f32>(textureDimensions(water_mask_tex));
+    let coord = vec2<i32>(uv * tex_size);
+    let cx = clamp(coord.x, 0, i32(tex_size.x) - 1);
+    let cy = clamp(coord.y, 0, i32(tex_size.y) - 1);
+    return textureLoad(water_mask_tex, vec2<i32>(cx, cy), 0).r != 0u;
 }
 
 fn province_color(id: u32) -> vec4<f32> {
@@ -414,7 +432,7 @@ fn sample_atlas_tile(id: u32, map_px: vec2<f32>) -> vec3<f32> {
     let atlas_dim = vec2<f32>(textureDimensions(terrain_atlas_tex));
     let tile_dim = max(min(atlas_dim.x, atlas_dim.y) * 0.25, 1.0);
     var inset = 0.5 / tile_dim;
-    if (terrain_legacy_art_enabled()) {
+    if (terrain_detail_noise_enabled()) {
         tile_uv = fract(vanilla_terrain_tile_repeat(map_px) * TERRAIN_ATLAS_TILE_SCALE);
         inset = max(inset, 0.001);
     }
@@ -430,7 +448,7 @@ fn sample_atlas_normal_tile(id: u32, map_px: vec2<f32>) -> vec3<f32> {
     let atlas_dim = vec2<f32>(textureDimensions(terrain_atlas_normal_tex));
     let tile_dim = max(min(atlas_dim.x, atlas_dim.y) * 0.25, 1.0);
     var inset = 0.5 / tile_dim;
-    if (terrain_legacy_art_enabled()) {
+    if (terrain_detail_noise_enabled()) {
         tile_uv = fract(vanilla_terrain_tile_repeat(map_px) * TERRAIN_ATLAS_TILE_SCALE);
         inset = max(inset, 0.001);
     }
@@ -511,14 +529,14 @@ fn jitter_terrain_uv(uv: vec2<f32>, map_px: vec2<f32>) -> vec2<f32> {
 }
 
 fn terrain_atlas_color(uv: vec2<f32>, map_px: vec2<f32>) -> vec3<f32> {
-    if (terrain_legacy_art_enabled()) {
+    if (terrain_detail_noise_enabled()) {
         return terrain_atlas_color_blended(jitter_terrain_uv(uv, map_px), map_px);
     }
     return terrain_atlas_color_blended(uv, map_px);
 }
 
 fn terrain_atlas_normal(uv: vec2<f32>, map_px: vec2<f32>) -> vec3<f32> {
-    if (terrain_legacy_art_enabled()) {
+    if (terrain_detail_noise_enabled()) {
         return terrain_atlas_normal_blended(jitter_terrain_uv(uv, map_px), map_px);
     }
     return terrain_atlas_normal_blended(uv, map_px);
@@ -554,10 +572,10 @@ fn gradient_border_page_uv(uv: vec2<f32>, page: f32) -> vec2<f32> {
 }
 
 fn country_dist_px(uv: vec2<f32>) -> f32 {
-    return textureSample(gradient_border_ch1_tex, generic_sampler, gradient_border_page_uv(uv, 0.0)).r * 255.0;
+    return (1.0 - textureSample(gradient_border_ch1_tex, generic_sampler, gradient_border_page_uv(uv, 0.0)).a) * 255.0;
 }
 fn province_dist_px(uv: vec2<f32>) -> f32 {
-    return textureSample(gradient_border_ch1_tex, generic_sampler, gradient_border_page_uv(uv, 1.0)).r * 255.0;
+    return (1.0 - textureSample(gradient_border_ch1_tex, generic_sampler, gradient_border_page_uv(uv, 1.0)).a) * 255.0;
 }
 fn gradient_border_ch1_sample(uv: vec2<f32>) -> vec4<f32> {
     return textureSample(gradient_border_ch1_tex, generic_sampler, gradient_border_page_uv(uv, 0.0));
@@ -752,7 +770,7 @@ fn terrain_overlays_enabled() -> bool {
     return terrain_control_enabled(params.terrain_controls.w);
 }
 
-fn terrain_legacy_art_enabled() -> bool {
+fn terrain_detail_noise_enabled() -> bool {
     return terrain_control_enabled(params.feature_flags.x);
 }
 
@@ -760,11 +778,15 @@ fn terrain_river_overlay_enabled() -> bool {
     return terrain_control_enabled(params.feature_flags.y);
 }
 
+fn terrain_cloud_shadow_enabled() -> bool {
+    return terrain_detail_noise_enabled();
+}
+
 fn terrain_map_mode_overlay_enabled() -> bool {
     return terrain_control_enabled(params.feature_flags.z);
 }
 
-fn terrain_vignette_enabled() -> bool {
+fn terrain_coast_band_enabled() -> bool {
     return terrain_control_enabled(params.feature_flags.w);
 }
 
@@ -811,14 +833,23 @@ fn gradient_border_alpha_from_distance(dist_px: f32) -> f32 {
 }
 
 fn apply_gradient_border_channels(base_color: vec3<f32>, uv: vec2<f32>) -> GradientBorderResult {
-    let ch1 = gradient_border_alpha_from_distance(country_dist_px(uv)) * GB_STRENGTH_CH1_TERRAIN;
-    let ch2_raw = gradient_border_alpha_from_distance(province_dist_px(uv)) * GB_STRENGTH_CH2_TERRAIN;
-    let ch2 = ch2_raw * (1.0 - ch1 * GB_FIRST_LAYER_PRIORITY_TERRAIN);
-    let alpha = clamp(max(ch1, ch2), 0.0, 1.0);
+    let ch1 = gradient_border_ch1_sample(uv);
+    let ch2 = gradient_border_ch2_sample(uv);
+    let country_gate = clamp(ch2.g, 0.0, 1.0);
+    let country_color = ch1.rgb;
+    let fill_strength = mix(GB_COUNTRY_FILL_FAR_TERRAIN, GB_COUNTRY_FILL_NEAR_TERRAIN, params.zoom_factor);
+    let fill_alpha = country_gate * fill_strength;
+    let outline_alpha =
+        gradient_border_alpha_from_distance(country_dist_px(uv)) *
+        country_gate *
+        GB_OUTLINE_STRENGTH_TERRAIN;
+    let fx_alpha = clamp(ch2.b, 0.0, 1.0);
 
     var result: GradientBorderResult;
-    result.color = mix(base_color, get_overlay(base_color, vec3<f32>(0.85), 0.35), alpha);
-    result.bloom_alpha = 1.0 - alpha;
+    let filled = mix(base_color, country_color, fill_alpha);
+    let outline_color = min(filled, country_color * GB_OUTLINE_DARKEN_TERRAIN);
+    result.color = mix(filled, outline_color, clamp(outline_alpha + fx_alpha, 0.0, 1.0));
+    result.bloom_alpha = 1.0 - clamp(max(outline_alpha, fill_alpha * 0.55), 0.0, 1.0);
     return result;
 }
 
@@ -929,7 +960,7 @@ fn city_light_terms(map_px: vec2<f32>, uv: vec2<f32>) -> vec4<f32> {
 fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) -> TerrainMaterial {
     let weights = terrain_material_weights();
     let terrain_id = load_terrain_id(frag.map_uv, vec2<i32>(0, 0));
-    let terrain_is_water = is_water || terrain_category_water(terrain_id);
+    let terrain_is_water = is_water;
     let political_color = province_color(pid).rgb;
     let atlas_terr = terrain_atlas_color(frag.map_uv, frag.map_px);
     let cmap = sample_season_color(frag.map_uv);
@@ -949,7 +980,7 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
         frag.map_px,
         TERRAIN_FOREST_POLITICAL_STRENGTH * (1.0 - weights.map_mode_weight)
     );
-    if (terrain_legacy_art_enabled()) {
+    if (terrain_detail_noise_enabled()) {
         let atlas_terr2 = terrain_atlas_color(
             frag.map_uv,
             frag.map_px * 0.48 + vec2<f32>(365.0, 585.0),
@@ -996,7 +1027,7 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
         let snow_n = rotate_vec_by_vec(surface_normal, snow_normal(frag.map_px));
         surface_normal = normalize(mix(surface_normal, snow_n, snow * 0.22));
 
-        if (terrain_legacy_art_enabled()) {
+        if (terrain_coast_band_enabled()) {
             let band_top = SEA_LEVEL + 0.025;
             if (real_h < band_top) {
                 let t = clamp(1.0 - (real_h - SEA_LEVEL) / 0.025, 0.0, 1.0);
@@ -1007,7 +1038,9 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
             let coast_line = 1.0 - smoothstep(0.0, 1.65, cdist_coast_land);
             let coast_aa = smoothstep(0.18, 0.70, params.zoom_factor);
             color = mix(color, vec3<f32>(0.54, 0.50, 0.36), coast_line * coast_aa * 0.08 * TERRAIN_COAST_WHITE_EDGE_STRENGTH);
+        }
 
+        if (terrain_detail_noise_enabled()) {
             let n = triplanar_noise(frag.world_pos, combined_normal);
             color = color * (1.0 + n * NOISE_AMOUNT);
             let fine = fbm2d(frag.world_pos.xz * 18.0 + vec2<f32>(31.7, 8.4)) - 0.5;
@@ -1019,6 +1052,11 @@ fn build_terrain_material(frag: VsOut, real_h: f32, is_water: bool, pid: u32) ->
         let river_lvl = river_level_at(frag.map_uv);
         let zoom_cut = mix(0.55, 0.18, params.zoom_factor);
         river_mask = smoothstep(zoom_cut - 0.06, zoom_cut + 0.08, river_lvl);
+        if (terrain_owns_sdf_borders()) {
+            let gb = apply_gradient_border_channels(color, frag.map_uv);
+            color = gb.color;
+            border_bloom_alpha = gb.bloom_alpha;
+        }
         if (terrain_overlays_enabled()) {
             color = apply_province_secondary_color(color, frag.map_uv);
 
@@ -1273,7 +1311,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let pid = province_at(in.map_uv);
     let real_h = load_height_bilinear(in.map_uv);
     let terrain_id = load_terrain_id(in.map_uv, vec2<i32>(0, 0));
-    let is_water = real_h <= SEA_LEVEL || terrain_category_water(terrain_id);
+    let is_water = water_mask_at(in.map_uv);
     let material = build_terrain_material(in, real_h, is_water, pid);
 
     let debug_view = terrain_debug_view();
@@ -1284,10 +1322,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     var color = material.hdr_color;
 
     // ── 大气 / 云影 ──
-    if (terrain_legacy_art_enabled()) {
+    if (terrain_cloud_shadow_enabled()) {
         let cloud_uv = map_px_to_uv(in.map_px) * 4.0 + vec2<f32>(frame.global_time * 0.012, frame.global_time * 0.005);
         let cloud_n = fbm2d(cloud_uv);
-        let cloud_shadow = smoothstep(0.55, 0.75, cloud_n) * 0.035;
+        let cloud_shadow = smoothstep(0.55, 0.75, cloud_n) * 0.020;
         color = color * (1.0 - cloud_shadow);
     }
 
@@ -1311,7 +1349,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     }
 
     let hidden_water_under_dedicated_pass = is_water && !terrain_owns_water_color();
-    color = color * select(shade, 1.0, hidden_water_under_dedicated_pass);
+    let lit_color = color * select(shade, 1.0, hidden_water_under_dedicated_pass);
+    color = mix(
+        lit_color,
+        material.hdr_color,
+        GB_LIGHTING_RESTORE_TERRAIN * (1.0 - material.border_bloom_alpha)
+    );
 
     // ── City lights / emissive（仅夜半球）──
     if (!is_water) {
@@ -1337,7 +1380,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             globe_n,
             frame.day_night_hour_sun_dir.yzw,
             0.0,
-            mix(POLITICAL_NIGHT_DESAT_BLEND, 1.0, material.border_bloom_alpha)
+            mix(GB_NIGHT_DESAT_BLEND_TERRAIN, 1.0, material.border_bloom_alpha)
         );
     }
 
@@ -1348,16 +1391,6 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
             frame.cam_pos,
             params.world_size_xy_height_lat.x
         );
-    }
-
-    if (terrain_vignette_enabled()) {
-        let screen_uv = vec2<f32>(
-            in.clip_position.x / max(params.screen_width, 1.0),
-            in.clip_position.y / max(params.screen_height, 1.0),
-        );
-        let vig_d = distance(screen_uv, vec2<f32>(0.5, 0.5));
-        let vig_t = smoothstep(0.4, 0.85, vig_d);
-        color = color * (1.0 - params.vignette_strength * vig_t);
     }
 
     if (debug_view == TERRAIN_DEBUG_FINAL_BEFORE_POSTPROCESS) {

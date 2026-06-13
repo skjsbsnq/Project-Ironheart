@@ -14,7 +14,9 @@ fn workspace_root() -> PathBuf {
 }
 
 fn write_report(name: &str, body: impl AsRef<str>) {
-    let path = workspace_root().join("target/finance_sprite_probe").join(name);
+    let path = workspace_root()
+        .join("target/finance_sprite_probe")
+        .join(name);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, body.as_ref()).unwrap();
 }

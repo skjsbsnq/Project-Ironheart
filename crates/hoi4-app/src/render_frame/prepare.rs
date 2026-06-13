@@ -336,6 +336,7 @@ impl App {
         } = input;
         let FrameUiPhaseOutput {
             render_started,
+            map_layer_mask,
             map_phase0_active,
             map_phase0_capture_path,
             ui_command_output,
@@ -376,6 +377,7 @@ impl App {
                 profile_hud_build_ms: draw_hud_output.profile_hud_build_ms,
                 egui_current_stats,
                 map_phase0_active,
+                ui_enabled: !map_phase0_active || map_layer_mask.ui,
             },
         );
     }
@@ -426,6 +428,7 @@ impl App {
         let hud_output = self.build_frame_hud(
             s,
             render_frame::hud::FrameHudInput {
+                hud_enabled: !self.audit.map_phase0.is_some() || self.current_map_layer_mask().ui,
                 map_phase0_debug_lines,
                 render_quality_preset,
                 chain_label: map_draw_output.chain_label,
@@ -1116,7 +1119,7 @@ impl App {
                 semantic_overlays.map_mode_overlay.opacity,
             ],
             feature_flags: [
-                0.0,
+                1.0,
                 if terrain_ownership.terrain_overlays
                     && map_frame_plan.draw.river
                     && !s.river_pass.any_loaded

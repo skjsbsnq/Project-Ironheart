@@ -718,7 +718,7 @@ impl WorldObjectSystem {
         let strategic = 1.0 - smoothstep(0.60, 0.90, zoom);
         let close = smoothstep(0.56, 0.86, zoom);
         let very_close = smoothstep(0.78, 0.96, zoom);
-        let province_label_zoom = smoothstep(0.86, 0.98, zoom);
+        let province_label_zoom = smoothstep(0.92, 0.98, zoom);
 
         let mut plan = WorldObjectPlan {
             budget,
@@ -727,12 +727,12 @@ impl WorldObjectSystem {
 
         if mask.labels {
             let country_opacity =
-                budget.labels * mix(0.62, 0.78, strategic) * mix(0.92, 0.70, close);
-            let country_scale = mix(0.92, 0.74, close);
+                budget.labels * mix(0.78, 0.88, strategic) * mix(0.96, 0.76, close);
+            let country_scale = mix(1.24, 0.92, close);
             plan.country_names = WorldObjectDecision::visible(country_opacity, country_scale, 60);
 
-            let province_opacity = budget.labels * province_label_zoom * 0.58;
-            let province_min_pixels = if zoom < 0.86 {
+            let province_opacity = budget.labels * province_label_zoom * 0.46;
+            let province_min_pixels = if zoom < 0.92 {
                 80_000
             } else if zoom < 0.94 {
                 45_000
@@ -846,10 +846,7 @@ impl MapPassDrawSet {
                 || semantic_overlays.map_mode_overlay.visible);
         TerrainMaterialOwnership {
             terrain_water_final_color: self.water && !dedicated_water_active,
-            // Do not let terrain consume gradient_border as a visual border
-            // fallback. Those runtime targets are logical-layer banks, and when
-            // treated as ordinary borders they show full-map grid artifacts.
-            terrain_sdf_borders: false,
+            terrain_sdf_borders: self.terrain && mask.borders,
             terrain_overlays: terrain_rivers_fallback || terrain_semantic_overlays,
         }
     }
@@ -969,16 +966,14 @@ impl MapRenderer {
             .border_material_ownership(input.dedicated_border_loaded);
         let fallback_report = MapPassFallbackReport {
             terrain_water_fallback: terrain_ownership.terrain_water_final_color,
-            terrain_border_fallback: terrain_ownership.terrain_sdf_borders,
+            terrain_border_fallback: false,
             terrain_overlay_fallback: terrain_ownership.terrain_overlays,
             water_degraded: plan.draw.water && !water_ownership.final_color,
             borders_degraded: plan.draw.borders && !border_ownership.final_borders,
             water_invalid: input.layer_mask.water
                 && !plan.draw.water
                 && !terrain_ownership.terrain_water_final_color,
-            borders_invalid: input.layer_mask.borders
-                && !plan.draw.borders
-                && !terrain_ownership.terrain_sdf_borders,
+            borders_invalid: input.layer_mask.borders && !plan.draw.borders,
         };
         MapPreparedFrame {
             terrain_ownership,
@@ -1392,6 +1387,21 @@ mod tests {
     }
 
     #[test]
+    fn mid_zoom_country_names_take_priority_over_province_names() {
+        let renderer = MapRenderer::new();
+        let mut registry = PassRegistry::new();
+        renderer.register_passes(&mut registry);
+
+        let mut europe = test_context(MapLayerMask::all());
+        europe.zoom_factor = 0.87;
+        let plan = renderer.build_frame_plan(europe, &registry);
+
+        assert!(plan.draw.map_names);
+        assert!(plan.world_objects.country_names.opacity > 0.20);
+        assert!(!plan.draw.province_names);
+    }
+
+    #[test]
     fn world_object_plan_counter_visibility_for_far_mid_close_zoom() {
         let renderer = MapRenderer::new();
         let mut registry = PassRegistry::new();
@@ -1479,6 +1489,21 @@ mod tests {
     }
 
     #[test]
+    fn high_quality_draws_water_refraction_by_default() {
+        let renderer = MapRenderer::new();
+        let mut registry = PassRegistry::new();
+        renderer.register_passes(&mut registry);
+
+        let mut high = test_context(MapLayerMask::all());
+        high.settings =
+            MapRenderSettings::with_quality(MapLayerMask::all(), MapQualityPreset::High);
+        let plan = renderer.build_frame_plan(high, &registry);
+
+        assert!(plan.draw.water);
+        assert!(plan.draw.water_refraction);
+    }
+
+    #[test]
     fn building_and_poi_objects_stay_disabled_for_now() {
         let mut political = test_context(MapLayerMask::all());
         political.zoom_factor = 0.65;
@@ -1557,7 +1582,7 @@ mod tests {
             plan.semantic_overlays,
         );
         assert!(!ownership.terrain_water_final_color);
-        assert!(!ownership.terrain_sdf_borders);
+        assert!(ownership.terrain_sdf_borders);
         assert!(!ownership.terrain_overlays);
 
         let river_fallback = plan.draw.terrain_material_ownership(
@@ -1579,7 +1604,7 @@ mod tests {
             plan.semantic_overlays,
         );
         assert!(fallback.terrain_water_final_color);
-        assert!(!fallback.terrain_sdf_borders);
+        assert!(fallback.terrain_sdf_borders);
     }
 
     #[test]
@@ -1667,7 +1692,7 @@ mod tests {
         );
 
         assert!(prepared.terrain_ownership.terrain_water_final_color);
-        assert!(!prepared.terrain_ownership.terrain_sdf_borders);
+        assert!(prepared.terrain_ownership.terrain_sdf_borders);
         assert!(prepared.fallback_report.terrain_water_fallback);
         assert!(!prepared.fallback_report.terrain_border_fallback);
         assert!(prepared.fallback_report.water_degraded);
@@ -1695,7 +1720,7 @@ mod tests {
         );
 
         assert!(!prepared.terrain_ownership.terrain_water_final_color);
-        assert!(!prepared.terrain_ownership.terrain_sdf_borders);
+        assert!(prepared.terrain_ownership.terrain_sdf_borders);
         assert!(prepared.water_ownership.final_color);
         assert!(prepared.border_ownership.final_borders);
         assert_eq!(prepared.fallback_report.fallback_count(), 0);

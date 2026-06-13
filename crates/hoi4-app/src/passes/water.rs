@@ -252,6 +252,38 @@ impl WaterEffectVariant {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaterReflectionCubeSource {
+    DimBlueFallback,
+    SkyCubemap { loaded_from_dds: bool },
+}
+
+impl WaterReflectionCubeSource {
+    fn source_name(self) -> &'static str {
+        match self {
+            Self::DimBlueFallback => "water_env_cube_fallback_1x1",
+            Self::SkyCubemap {
+                loaded_from_dds: true,
+            } => "sky_cubemap_dds",
+            Self::SkyCubemap {
+                loaded_from_dds: false,
+            } => "sky_cubemap_procedural",
+        }
+    }
+
+    fn source_detail(self) -> &'static str {
+        match self {
+            Self::DimBlueFallback => "water-local 1x1 dim-blue bootstrap cubemap",
+            Self::SkyCubemap {
+                loaded_from_dds: true,
+            } => "SkyPass cubemap assembled from gfx/loadingscreens/sky_*.dds",
+            Self::SkyCubemap {
+                loaded_from_dds: false,
+            } => "SkyPass procedural 128x128x6 cubemap fallback",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WaterEffectSelector {
     pub high_graphics_byte_0x18: bool,
     pub draw_refractions: bool,
@@ -262,8 +294,8 @@ impl Default for WaterEffectSelector {
     fn default() -> Self {
         Self {
             high_graphics_byte_0x18: true,
-            draw_refractions: false,
-            refraction_byte_0x15: false,
+            draw_refractions: true,
+            refraction_byte_0x15: true,
         }
     }
 }
@@ -452,6 +484,7 @@ pub struct WaterPassInputs<'a> {
     /// 高度乘子（与 `main.rs::HEIGHT_SCALE` 同值），决定海�?vertex Y�?    pub height_scale: f32,
     pub heightmap_view: &'a wgpu::TextureView,
     pub province_view: &'a wgpu::TextureView,
+    pub water_mask_view: &'a wgpu::TextureView,
     pub world_size: [f32; 2],
     pub height_scale: f32,
     pub vanilla_resources: &'a VanillaResourceViews,
@@ -618,6 +651,17 @@ impl WaterPass {
                     },
                     count: None,
                 },
+                // 6: authoritative province-derived water mask (R8Uint).
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Uint,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
 
@@ -649,6 +693,10 @@ impl WaterPass {
                     wgpu::BindGroupEntry {
                         binding: 5,
                         resource: wgpu::BindingResource::TextureView(inputs.province_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 6,
+                        resource: wgpu::BindingResource::TextureView(inputs.water_mask_view),
                     },
                 ],
             })
@@ -889,8 +937,13 @@ impl WaterPass {
         queue.write_buffer(&self.params_buffer, 0, bytemuck::bytes_of(params));
     }
 
-    /// Replace the environment cubemap with the sky pass cubemap.
-    pub fn set_env_cubemap(&mut self, device: &wgpu::Device, view: &wgpu::TextureView) {
+    /// Replace the bootstrap environment cubemap with the sky pass cubemap.
+    pub fn set_env_cubemap(
+        &mut self,
+        device: &wgpu::Device,
+        view: &wgpu::TextureView,
+        loaded_from_dds: bool,
+    ) {
         self.bind_group_g1 = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("water_bg_g1_sky"),
             layout: &self.bgl_g1,
@@ -905,6 +958,18 @@ impl WaterPass {
                 },
             ],
         });
+        let entry = water_reflection_cube_audit_entry(WaterReflectionCubeSource::SkyCubemap {
+            loaded_from_dds,
+        });
+        if let Some(existing) =
+            self.binding_audit.entries.iter_mut().find(|existing| {
+                existing.pass == "water" && existing.binding == "ReflectionCubeMap"
+            })
+        {
+            *existing = entry;
+        } else {
+            self.binding_audit.extend([entry]);
+        }
     }
 
     /// 在已开 render pass 里画。caller 必须�?set_pipeline 自己的状态前�?    /// 复用 [`crate::passes::TerrainPass`] �?instance buffers�?    pub fn render<'a>(
@@ -1101,15 +1166,36 @@ fn water_p5_state_audit_entries(selected_effect: WaterEffectVariant) -> [Binding
             "water material textures and runtime map targets use distinct address/filter policies",
         ),
         water_refraction_entry,
-        BindingAuditEntry::mock(
+        water_reflection_cube_audit_entry(WaterReflectionCubeSource::DimBlueFallback),
+    ]
+}
+
+fn water_reflection_cube_audit_entry(source: WaterReflectionCubeSource) -> BindingAuditEntry {
+    match source {
+        WaterReflectionCubeSource::DimBlueFallback => BindingAuditEntry::mock(
             "water",
             "ReflectionCubeMap",
-            "environment_cube_placeholder",
-            "No vanilla cubemap producer is mirrored yet; WaterPass binds a fallback or sky cubemap view.",
+            source.source_name(),
+            "WaterPass has not been connected to SkyPass yet, so Fresnel reflection would use the bootstrap 1x1 cubemap.",
             "cubemap reflection is explicit fallback and cannot count as full vanilla parity",
             BindingBlockingLevel::Degraded,
         ),
-    ]
+        WaterReflectionCubeSource::SkyCubemap { .. } => {
+            BindingAuditEntry::dynamic_target(
+                "water",
+                "ReflectionCubeMap",
+                source.source_name(),
+                "SkyPass cubemap feeds pdxwater Fresnel reflection.",
+            )
+            .with_runtime_target_metadata(
+                source.source_detail(),
+                "Rgba8Unorm or vanilla DDS decoded format",
+                "cube texture, 6 faces",
+                "EnvironmentMap / EnvironmentSampler",
+                "runtime sky cubemap bound to water",
+            )
+        }
+    }
 }
 
 fn load_water_material_textures(
@@ -1137,16 +1223,34 @@ fn load_water_material_textures(
             },
             warnings,
         );
-        let loaded = uploaded.audit.loaded;
+        let mut audit = uploaded.audit;
+        annotate_phase4_water_color_audit(&mut audit, spec);
+        let loaded = audit.loaded;
         let critical = spec.critical;
         owned.push(uploaded.texture);
         LoadedWaterTexture {
             view: uploaded.view,
             loaded,
             critical,
-            audit: uploaded.audit,
+            audit,
         }
     })
+}
+
+fn annotate_phase4_water_color_audit(entry: &mut BindingAuditEntry, spec: WaterTextureSpec) {
+    let lod = match spec.role {
+        MapResRole::ColormapWater(lod) => lod,
+        _ => return,
+    };
+    entry.source_detail = Some(format!(
+        "phase4_water_color_lod={} loaded={} fallback_rgba=[{},{},{},{}]",
+        lod,
+        entry.loaded,
+        spec.fallback_rgba[0],
+        spec.fallback_rgba[1],
+        spec.fallback_rgba[2],
+        spec.fallback_rgba[3]
+    ));
 }
 
 fn water_texture_load_stats(textures: &[LoadedWaterTexture; 12]) -> WaterTextureLoadStats {
@@ -1332,6 +1436,7 @@ struct ChunkUniform {
 @group(0) @binding(3) var heightmap_tex: texture_2d<f32>;
 @group(0) @binding(4) var heightmap_sampler: sampler;
 @group(0) @binding(5) var province_id_tex: texture_2d<u32>;
+@group(0) @binding(6) var water_mask_tex: texture_2d<u32>;
 
 @group(1) @binding(0) var environment_cube: texture_cube<f32>;
 @group(1) @binding(1) var environment_sampler: sampler;
@@ -1375,6 +1480,8 @@ const WATER_DEBUG_REFLECTION_CONTRIBUTION: u32 = 6u;
 const WATER_DEBUG_REFRACTION_TARGET: u32 = 7u;
 const WATER_DEBUG_REFRACTION_CONTRIBUTION: u32 = 8u;
 const WATER_DEBUG_FINAL_WATER_ONLY: u32 = 9u;
+const GB_TEXTURE_HEIGHT_WATER: f32 = 1024.0;
+const GB_OUTLINE_CUTOFF_SEA: f32 = 0.990;
 
 struct VertexInput {
     @builtin(vertex_index) vid: u32,
@@ -1424,6 +1531,45 @@ fn province_at(uv: vec2<f32>) -> u32 {
     return textureLoad(province_id_tex, vec2<i32>(cx, cy), 0).r;
 }
 
+fn water_mask_sample(uv: vec2<f32>) -> f32 {
+    let tex_size = vec2<f32>(textureDimensions(water_mask_tex));
+    let coord = vec2<i32>(uv * tex_size);
+    let cx = clamp(coord.x, 0, i32(tex_size.x) - 1);
+    let cy = clamp(coord.y, 0, i32(tex_size.y) - 1);
+    return select(0.0, 1.0, textureLoad(water_mask_tex, vec2<i32>(cx, cy), 0).r != 0u);
+}
+
+fn water_mask_at(uv: vec2<f32>) -> bool {
+    return water_mask_sample(uv) > 0.5;
+}
+
+fn gradient_border_page_uv(uv: vec2<f32>, page: f32) -> vec2<f32> {
+    let half_pix = 0.5 / GB_TEXTURE_HEIGHT_WATER;
+    return vec2<f32>(
+        uv.x,
+        uv.y * (0.5 - half_pix) + page * 0.5
+    );
+}
+
+fn gradient_border_ch1_sample(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(gradient_border_ch1, water_map_sampler, gradient_border_page_uv(uv, 0.0));
+}
+
+fn gradient_border_ch2_sample(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(gradient_border_ch2, water_map_sampler, gradient_border_page_uv(uv, 0.0));
+}
+
+fn apply_water_gradient_border(base_color: vec3<f32>, uv: vec2<f32>, offshore_water: f32) -> vec3<f32> {
+    let ch1 = gradient_border_ch1_sample(uv);
+    let ch2 = gradient_border_ch2_sample(uv);
+    let sea_outline = smoothstep(GB_OUTLINE_CUTOFF_SEA, 1.0, ch1.a);
+    let coastal_bleed = clamp(ch1.a * (1.0 - ch2.g), 0.0, 1.0) * (1.0 - offshore_water * 0.55);
+    let alpha = clamp(sea_outline * 0.18 + coastal_bleed * 0.05, 0.0, 0.18);
+    let gradient_color = ch1.rgb * 0.58 + vec3<f32>(0.012, 0.020, 0.026);
+    let outline_color = max(min(base_color, gradient_color), base_color * 0.72);
+    return mix(base_color, outline_color, alpha);
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VsOut {
     let grid = chunk.grid;
@@ -1441,19 +1587,24 @@ fn vs_main(in: VertexInput) -> VsOut {
     let cell_size = in.size_xz / f32(grid);
     let local_xz = vec2<f32>(f32(qx_u + ox), f32(qz_u + oz)) * cell_size;
     let world_xz = in.origin_xz + local_xz;
-    let world_y = SEA_LEVEL * wparams.height_scale;
     let world_size = vec2<f32>(wparams.world_w, wparams.world_d);
-
-    // 海面是平的：world_y = SEA_LEVEL × height_scale�?    let world_y = SEA_LEVEL * wparams.height_scale;
-
-    // 全图 uv：X 轴环绕，Z 轴仍限制在南北边界内�?    let world_size = vec2<f32>(wparams.world_w, wparams.world_d);
     let map_uv = world_xz_to_map_uv(world_xz, world_size);
     let map_px = map_uv_to_px(map_uv);
+    let h = load_height_bilinear(map_uv);
+    let water_t = water_mask_sample(map_uv);
+    let water_h = mix(SEA_LEVEL, max(SEA_LEVEL, h), water_t);
+    let world_y = water_h * wparams.height_scale + 0.012;
 
     let world_pos = vec3<f32>(world_xz.x, world_y, world_xz.y);
+    let visual_pos = apply_map_horizon_bend(world_pos, frame.cam_pos, world_size);
 
     var out: VsOut;
-    out.clip_pos = frame.view_proj * vec4<f32>(world_pos, 1.0);
+    out.clip_pos = apply_map_horizon_bend_clip(
+        frame.view_proj * vec4<f32>(visual_pos, 1.0),
+        world_pos,
+        frame.cam_pos,
+        world_size
+    );
     out.world_pos = world_pos;
     out.map_uv = map_uv;
     out.map_px = map_px;
@@ -1470,7 +1621,7 @@ fn blend_lean(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
 fn unpack_lean_normal(sample: vec4<f32>) -> vec3<f32> {
     let mean = sample.rg * 2.0 - 1.0;
     let variance = dot(sample.ba, vec2<f32>(0.5));
-    let strength = clamp(0.72 - variance * 0.20, 0.35, 0.72);
+    let strength = clamp(0.62 - variance * 0.22, 0.28, 0.62);
     let nx = mean.x * strength;
     let nz = mean.y * strength;
     let ny = sqrt(max(1.0 - nx * nx - nz * nz, 0.0));
@@ -1479,11 +1630,11 @@ fn unpack_lean_normal(sample: vec4<f32>) -> vec3<f32> {
 
 /// vanilla pdxwater 同款 4-tap LEAN 法线�? 个频�?+ 4 个滚动方向�?/// LEAN 纹理 RG = mean(N.xy)，BA = 方差。取 RG 解码为法线�?fn sample_water_normal_lean(map_px: vec2<f32>, time: f32) -> vec3<f32> {
 fn sample_water_normal_lean(map_px: vec2<f32>, time: f32) -> vec3<f32> {
-    let water_px = map_px / 128.0;
-    let uv0 = water_px * 0.04 + vec2<f32>(time * 0.036, time * 0.024);
-    let uv1 = water_px * 0.08 + vec2<f32>(-time * 0.033, time * 0.039);
-    let uv2 = water_px * 0.16 + vec2<f32>(time * 0.022, -time * 0.028);
-    let uv3 = water_px * 0.32 + vec2<f32>(-time * 0.017, -time * 0.034);
+    let water_px = map_px / 176.0;
+    let uv0 = water_px * 0.033 + vec2<f32>(time * 0.031, time * 0.021);
+    let uv1 = water_px * 0.071 + vec2<f32>(-time * 0.029, time * 0.034);
+    let uv2 = water_px * 0.137 + vec2<f32>(time * 0.019, -time * 0.024);
+    let uv3 = water_px * 0.241 + vec2<f32>(-time * 0.015, -time * 0.029);
 
     let lean_a = blend_lean(
         textureSample(water_normal_lean1, water_sampler, uv0),
@@ -1556,8 +1707,8 @@ fn water_depth_tint(depth_ratio: f32) -> vec3<f32> {
     let shelf = smoothstep(0.12, 0.50, depth_ratio);
     let deep = smoothstep(0.46, 0.98, depth_ratio);
     let shallow_color = vec3<f32>(0.020, 0.070, 0.078);
-    let shelf_color = vec3<f32>(0.014, 0.052, 0.090);
-    let deep_color = vec3<f32>(0.006, 0.030, 0.090);
+    let shelf_color = vec3<f32>(0.012, 0.048, 0.086);
+    let deep_color = vec3<f32>(0.004, 0.024, 0.078);
     return mix(mix(shallow_color, shelf_color, shelf), deep_color, deep);
 }
 
@@ -1587,14 +1738,14 @@ fn water_surface_glint(map_px: vec2<f32>, depth_ratio: f32, normal_strength: f32
     let lean = textureSample(
         water_normal_lean1,
         water_sampler,
-        map_px / vec2<f32>(86.0, 124.0) + vec2<f32>(t * 0.041, t * 0.018)
+        map_px / vec2<f32>(118.0, 171.0) + vec2<f32>(t * 0.031, t * 0.014)
     ).r;
     let micro = textureSample(
         water_normal_lean2,
         water_sampler,
-        map_px / vec2<f32>(34.0, 58.0) + vec2<f32>(-t * 0.052, t * 0.047)
+        map_px / vec2<f32>(73.0, 109.0) + vec2<f32>(-t * 0.037, t * 0.033)
     ).g;
-    let band = diagonal * 0.30 + cross * 0.22 + (lean * 2.0 - 1.0) * 0.30 + (micro * 2.0 - 1.0) * 0.18;
+    let band = diagonal * 0.27 + cross * 0.20 + (lean * 2.0 - 1.0) * 0.35 + (micro * 2.0 - 1.0) * 0.10;
     let depth_window = smoothstep(0.03, 0.20, depth_ratio) * (1.0 - smoothstep(0.96, 1.0, depth_ratio) * 0.30);
     let sparkle = smoothstep(0.28, 0.74, band) + smoothstep(0.58, 0.94, micro) * 0.66;
     return clamp(sparkle, 0.0, 1.0) * depth_window * clamp(0.52 + normal_strength * 1.08, 0.0, 1.0);
@@ -1797,8 +1948,7 @@ fn sample_refraction(map_uv: vec2<f32>, screen_uv: vec2<f32>, normal: vec3<f32>,
 }
 
 fn probe_coast_distance_px(map_uv: vec2<f32>, texel: vec2<f32>, offset_px: vec2<f32>, current: f32) -> f32 {
-    let sample_h = load_height_bilinear(map_uv + offset_px * texel);
-    let land_t = smoothstep(SEA_LEVEL - 0.003, SEA_LEVEL + 0.010, sample_h);
+    let land_t = 1.0 - water_mask_sample(map_uv + offset_px * texel);
     let dist = length(offset_px);
     return min(current, mix(255.0, dist, land_t));
 }
@@ -1806,8 +1956,6 @@ fn probe_coast_distance_px(map_uv: vec2<f32>, texel: vec2<f32>, offset_px: vec2<
 fn estimate_coast_distance_px(map_uv: vec2<f32>) -> f32 {
     let dim = vec2<f32>(textureDimensions(heightmap_tex));
     let texel = 1.0 / max(dim, vec2<f32>(1.0));
-    let h = load_height_bilinear(map_uv);
-    let edge_t = smoothstep(SEA_LEVEL - 0.018, SEA_LEVEL + 0.003, h);
     var d = 255.0;
 
     d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 1.0,  0.0), d);
@@ -1842,17 +1990,7 @@ fn estimate_coast_distance_px(map_uv: vec2<f32>) -> f32 {
     d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 0.0, 12.0), d);
     d = probe_coast_distance_px(map_uv, texel, vec2<f32>( 0.0,-12.0), d);
 
-    let h_l = load_height_bilinear(map_uv - vec2<f32>(texel.x * 2.0, 0.0));
-    let h_r = load_height_bilinear(map_uv + vec2<f32>(texel.x * 2.0, 0.0));
-    let h_d = load_height_bilinear(map_uv - vec2<f32>(0.0, texel.y * 2.0));
-    let h_u = load_height_bilinear(map_uv + vec2<f32>(0.0, texel.y * 2.0));
-    let shoreline_gradient = smoothstep(
-        0.0015,
-        0.020,
-        max(abs(h_l - h_r), abs(h_d - h_u))
-    );
-    let continuous_edge = (1.0 - edge_t) * shoreline_gradient;
-    return mix(d, min(d, 1.25), continuous_edge);
+    return d;
 }
 
 fn calculate_point_lights_water(map_px: vec2<f32>, world_pos: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
@@ -2017,9 +2155,9 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, screen_uv: vec2<f3
     let shelf_depth = 1.0 - smoothstep(0.16, 0.74, depth_ratio);
     let shelf_glass = shelf_depth * (1.0 - smoothstep(0.74, 1.0, depth_ratio) * 0.92);
     let clarity = clamp(
-        (0.06 + shallow_for_refraction * 0.42 + mid_refraction * 0.18 + shelf_glass * 0.20 + shelf_relief * 0.08) * (0.34 + clarity_window * 0.48) - fresnel_t * 0.06 - reflection_contribution * 0.035,
+        (0.04 + shallow_for_refraction * 0.16 + mid_refraction * 0.12 + shelf_glass * 0.08 + shelf_relief * 0.05) * (0.30 + clarity_window * 0.34) - fresnel_t * 0.06 - reflection_contribution * 0.035,
         0.02,
-        0.46
+        0.24
     ) * (1.0 - smoothstep(0.64, 1.0, depth_ratio) * 0.78);
     let visible_seabed = sample_underwater_detail(map_uv + normal.xz * 0.0016, depth_ratio);
     let caustics = water_shallow_caustics(map_px, depth_ratio, coast_d_px, normal_strength);
@@ -2030,9 +2168,9 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, screen_uv: vec2<f3
         color * (0.78 + shelf_relief * 0.54 + shelf_breakup * 0.08) + vec3<f32>(0.006, 0.014, 0.012) * shelf_relief,
         shelf_relief_window * 0.28
     );
-    let glass_bed = visible_seabed * (0.92 + caustics * 0.28 + shelf_breakup * 0.20)
-        + water_depth_tint(depth_ratio) * (0.12 + caustics * 0.08);
-    color = mix(color, glass_bed, clamp(shelf_glass * 0.28 + shelf_relief * 0.06 + max(shelf_breakup, 0.0) * 0.04, 0.0, 0.38));
+    let glass_bed = visible_seabed * (0.62 + caustics * 0.10 + shelf_breakup * 0.10)
+        + water_depth_tint(depth_ratio) * (0.22 + caustics * 0.04);
+    color = mix(color, glass_bed, clamp(shelf_glass * 0.12 + shelf_relief * 0.035 + max(shelf_breakup, 0.0) * 0.025, 0.0, 0.18));
     let deep_absorption = smoothstep(0.58, 0.98, depth_ratio);
     color = mix(color, color * vec3<f32>(0.48, 0.68, 0.92), deep_absorption * 0.32);
     let open_ocean = max(smoothstep(0.62, 0.90, depth_ratio), offshore_water * smoothstep(0.48, 0.78, depth_ratio));
@@ -2077,7 +2215,7 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, screen_uv: vec2<f3
     let sun_spec_sharp = pow(n_dot_h, 72.0) * spec_mask * max(frame.sun_specular_intensity, 0.5);
     let sun_spec_broad = pow(n_dot_h, 16.0) * spec_mask * (0.42 + normal_strength * 0.78);
     color = color + vec3<f32>(1.0, 0.97, 0.86)
-        * (sun_spec_sharp * 1.05 + sun_spec_broad * 0.420 + sun_glare_hot * 2.20 + sun_glare_path * 0.560 + sun_map_streak * view_sun_lobe * 0.280 + glint * 0.560 + caustics * 0.120)
+        * (sun_spec_sharp * 1.05 + sun_spec_broad * 0.420 + sun_glare_hot * 2.20 + sun_glare_path * 0.560 + sun_map_streak * view_sun_lobe * 0.280 + glint * 0.560 + caustics * 0.030)
         * sun_above
         * (1.0 - polar_edge * 0.90);
 
@@ -2089,19 +2227,26 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, screen_uv: vec2<f3
         * smoothstep(0.04, 0.18, depth_ratio);
     let foam_wave = 0.5 + 0.5 * sin(frame.global_time * 0.85 + map_px.x * 0.07 + map_px.y * 0.035);
     let foam_noise = textureSample(water_normal_lean2, water_sampler, map_px / vec2<f32>(72.0) + vec2<f32>(frame.global_time * 0.012, -frame.global_time * 0.009)).b;
-    let foam_alpha = shore_band * shallow * smoothstep(0.52, 0.92, foam_noise * 0.54 + foam_wave * 0.28) * 0.080;
-    let seabed_overlay = clamp(shelf_glass * (0.08 + shallow * 0.12) + shelf_relief * 0.05 + max(shelf_breakup, 0.0) * 0.035, 0.0, 0.24);
-    color = mix(color, visible_seabed * (1.00 + caustics * 0.16 + shelf_breakup * 0.06), seabed_overlay);
+    let foam_alpha = shore_band * shallow * smoothstep(0.52, 0.92, foam_noise * 0.54 + foam_wave * 0.28) * 0.025;
+    let seabed_overlay = clamp(shelf_glass * (0.035 + shallow * 0.040) + shelf_relief * 0.025 + max(shelf_breakup, 0.0) * 0.018, 0.0, 0.085);
+    color = mix(color, visible_seabed * (0.72 + caustics * 0.06 + shelf_breakup * 0.04), seabed_overlay);
     color = color * (1.0 + shelf_breakup * shelf_glass * 0.055);
-    color = color + vec3<f32>(0.020, 0.030, 0.024) * caustics * (shallow * 0.22 + shelf_glass * 0.10);
+    color = color + vec3<f32>(0.010, 0.018, 0.018) * caustics * (shallow * 0.10 + shelf_glass * 0.05);
     let shallow_clear = shelf_glass * (1.0 - smoothstep(0.56, 0.90, depth_ratio));
-    color = color + vec3<f32>(0.016, 0.036, 0.036) * shallow_clear * (0.30 + caustics * 0.44);
+    color = color + vec3<f32>(0.008, 0.018, 0.020) * shallow_clear * (0.16 + caustics * 0.18);
     color = mix(
         color,
         color * vec3<f32>(0.50, 0.68, 0.92) + vec3<f32>(0.000, 0.004, 0.014),
         smoothstep(0.62, 1.0, depth_ratio) * 0.26
     );
-    color = mix(color, vec3<f32>(0.76, 0.90, 0.94), foam_alpha);
+    color = mix(color, vec3<f32>(0.42, 0.58, 0.62), foam_alpha);
+    let nearshore_band = (1.0 - smoothstep(0.0, 18.0, coast_d_px))
+        * (1.0 - smoothstep(0.20, 0.52, depth_ratio));
+    let nearshore_tint = max(
+        water_depth_tint(max(depth_ratio, 0.18)) * vec3<f32>(1.42, 1.28, 1.12),
+        vec3<f32>(0.045, 0.095, 0.115)
+    );
+    color = mix(color, nearshore_tint, nearshore_band * 0.72);
     let flow_sheen = water_flow_sheen(map_px, depth_ratio, normal_strength);
     color = color + vec3<f32>(0.018, 0.030, 0.038) * flow_sheen;
     color = color + vec3<f32>(0.030, 0.044, 0.052) * max(flow_sheen, 0.0) * (0.24 + offshore_water * 0.34);
@@ -2119,6 +2264,7 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, screen_uv: vec2<f3
 
     let polar_neutral = vec3<f32>(0.075, 0.18, 0.27);
     color = mix(color, polar_neutral, polar_edge * 0.92);
+    color = apply_water_gradient_border(color, map_uv, offshore_water);
 
     let pid = province_at(map_uv);
     let selected = wparams.selected_province_id != ID_NONE && pid == wparams.selected_province_id;
@@ -2135,7 +2281,11 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, screen_uv: vec2<f3
     let offshore_opaque = smoothstep(0.48, 0.88, offshore_water);
     let depth_opaque = smoothstep(0.64, 0.86, depth_ratio);
     let coast_opaque = smoothstep(0.0, 10.0, coast_d_px);
-    let water_alpha = clamp(mix(surface_alpha, 1.0, max(max(offshore_opaque, depth_opaque), coast_opaque)), 0.14, 1.0);
+    let water_alpha = clamp(
+        max(mix(surface_alpha, 1.0, max(max(offshore_opaque, depth_opaque), coast_opaque)), 0.98),
+        0.98,
+        1.0
+    );
 
     let globe_n = calc_globe_normal(map_px, frame.day_night_hour_sun_dir.x);
     let water_night = day_night_with_blend(color, globe_n, frame.day_night_hour_sun_dir.yzw, 1.0, 0.30);
@@ -2145,6 +2295,13 @@ fn build_water_material(map_uv: vec2<f32>, map_px: vec2<f32>, screen_uv: vec2<f3
     let fow_visibility = clamp(min(textureSample(fow_tex, water_map_sampler, map_uv).g, max(projected_shadow.b, projected_shadow.g)), 0.90, 1.0);
     color = mix(color * 0.88, color, fow_visibility);
     color = max(color, water_depth_tint(depth_ratio) * (1.18 + offshore_water * 0.30));
+    let final_nearshore_band = (1.0 - smoothstep(2.0, 30.0, coast_d_px))
+        * (1.0 - smoothstep(0.24, 0.58, depth_ratio));
+    let final_nearshore_tint = max(
+        water_depth_tint(max(depth_ratio, 0.24)) * vec3<f32>(1.75, 1.45, 1.25),
+        vec3<f32>(0.055, 0.105, 0.125)
+    );
+    color = mix(color, final_nearshore_tint, final_nearshore_band * 0.62);
 
     return WaterMaterial(
         color,
@@ -2169,10 +2326,10 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     if (wparams.final_water_owner == 0u) {
         discard;
     }
-    let h = load_height_bilinear(map_uv);
-    if (h > SEA_LEVEL + 0.002) {
+    if (!water_mask_at(map_uv)) {
         discard;
     }
+    let h = load_height_bilinear(map_uv);
     let screen_uv = clamp(in.clip_pos.xy / max(frame.screen_size, vec2<f32>(1.0)), vec2<f32>(0.0), vec2<f32>(1.0));
     let material = build_water_material(map_uv, in.map_px, screen_uv, in.world_pos, h);
     let color = water_debug_color(material);
@@ -2269,6 +2426,45 @@ mod tests {
     }
 
     #[test]
+    fn water_colormap_specs_expose_phase4_fallback_rgba_for_audit() {
+        let specs = WaterMaterialSystem::texture_specs();
+        let colormap = |lod| {
+            specs
+                .iter()
+                .find(|spec| spec.role == MapResRole::ColormapWater(lod))
+                .expect("missing water colormap spec")
+        };
+
+        assert_eq!(colormap(0).fallback_rgba, [40, 80, 120, 255]);
+        assert_eq!(colormap(1).fallback_rgba, [40, 82, 126, 255]);
+        assert_eq!(colormap(2).fallback_rgba, [34, 72, 118, 255]);
+    }
+
+    #[test]
+    fn water_colormap_audit_marks_phase4_color_lod_and_fallback_rgba() {
+        let spec = *WaterMaterialSystem::texture_specs()
+            .iter()
+            .find(|spec| spec.role == MapResRole::ColormapWater(0))
+            .expect("missing water colormap spec");
+        let mut entry = BindingAuditEntry::vanilla(
+            "water",
+            "colormap_water",
+            spec.role,
+            true,
+            spec.critical,
+            None,
+            water_visual_impact(spec.component),
+        );
+
+        annotate_phase4_water_color_audit(&mut entry, spec);
+
+        let detail = entry.source_detail.as_deref().unwrap_or_default();
+        assert!(detail.contains("phase4_water_color_lod=0"));
+        assert!(detail.contains("loaded=true"));
+        assert!(detail.contains("fallback_rgba=[40,80,120,255]"));
+    }
+
+    #[test]
     fn water_pass_uses_explicit_texture_fallbacks_instead_of_terrain_water() {
         let source = include_str!("water.rs");
         assert!(
@@ -2284,6 +2480,10 @@ mod tests {
 
     #[test]
     fn water_effect_selector_p5_rules_are_registered() {
+        assert_eq!(
+            WaterEffectSelector::default().select(),
+            WaterEffectVariant::Water
+        );
         assert_eq!(
             WaterEffectSelector {
                 high_graphics_byte_0x18: false,
@@ -2335,7 +2535,9 @@ mod tests {
 
     #[test]
     fn water_p5_state_audit_reports_fallback_state() {
-        let entries = water_p5_state_audit_entries(WaterEffectSelector::default().select());
+        let entries = water_p5_state_audit_entries(
+            WaterEffectSelector::for_runtime(false, MapQualityPreset::High).select(),
+        );
         assert_eq!(entries.len(), 6);
 
         let entry = |binding: &str| {
@@ -2400,6 +2602,23 @@ mod tests {
     }
 
     #[test]
+    fn water_reflection_cube_audit_reports_sky_cubemap_runtime_target() {
+        let entry = water_reflection_cube_audit_entry(WaterReflectionCubeSource::SkyCubemap {
+            loaded_from_dds: true,
+        });
+
+        assert_eq!(
+            entry.source_kind,
+            crate::vanilla_resource_views::BindingSourceKind::DynamicTarget
+        );
+        assert_eq!(entry.source_name, "sky_cubemap_dds");
+        assert_eq!(entry.mock_name, None);
+        assert_eq!(entry.blocking_level, BindingBlockingLevel::None);
+        assert_eq!(entry.producer_equivalent, true);
+        assert_eq!(entry.producer_status.as_deref(), Some("runtime_generated"));
+    }
+
+    #[test]
     fn water_pipeline_source_uses_traced_phase_d_om_state() {
         let source = include_str!("water.rs");
         assert!(source.contains("BlendFactor::SrcAlpha"));
@@ -2435,14 +2654,31 @@ mod tests {
     }
 
     #[test]
-    fn water_wgsl_estimates_coast_distance_and_foam_from_heightmap() {
+    fn water_wgsl_estimates_coast_distance_and_foam_from_water_mask() {
         assert!(WATER_WGSL.contains("fn estimate_coast_distance_px"));
         assert!(WATER_WGSL.contains("probe_coast_distance_px"));
         assert!(WATER_WGSL.contains("let coast_d_px = estimate_coast_distance_px(map_uv);"));
+        assert!(WATER_WGSL.contains("@group(0) @binding(6) var water_mask_tex: texture_2d<u32>;"));
+        assert!(WATER_WGSL.contains("fn water_mask_sample(uv: vec2<f32>) -> f32"));
+        assert!(WATER_WGSL.contains("textureLoad(water_mask_tex"));
+        assert!(WATER_WGSL.contains("let land_t = 1.0 - water_mask_sample(map_uv + offset_px * texel);"));
+        assert!(WATER_WGSL.contains("if (!water_mask_at(map_uv))"));
         assert!(WATER_WGSL.contains("let shore_band = (1.0 - smoothstep"));
         assert!(WATER_WGSL.contains("let foam_alpha = shore_band * shallow"));
         assert!(!WATER_WGSL.contains("let coast_d_px = 255.0;"));
         assert!(!WATER_WGSL.contains("let foam_alpha = 0.0;"));
+    }
+
+    #[test]
+    fn water_wgsl_limits_nearshore_white_band() {
+        assert!(WATER_WGSL.contains(
+            "let clarity = clamp(\n        (0.04 + shallow_for_refraction * 0.16"
+        ));
+        assert!(WATER_WGSL.contains("let foam_alpha = shore_band * shallow * smoothstep"));
+        assert!(WATER_WGSL.contains("* 0.025;"));
+        assert!(WATER_WGSL.contains("let final_nearshore_band = (1.0 - smoothstep(2.0, 30.0, coast_d_px))"));
+        assert!(WATER_WGSL.contains("water_depth_tint(max(depth_ratio, 0.24))"));
+        assert!(WATER_WGSL.contains("color = mix(color, final_nearshore_tint, final_nearshore_band * 0.62);"));
     }
 
     #[test]
@@ -2453,7 +2689,16 @@ mod tests {
     }
 
     #[test]
-    fn water_wgsl_keeps_gradient_border_out_of_final_water_color() {
+    fn water_wgsl_bends_visible_vertices_only() {
+        assert!(WATER_WGSL.contains(
+            "let visual_pos = apply_map_horizon_bend(world_pos, frame.cam_pos, world_size)"
+        ));
+        assert!(WATER_WGSL.contains("out.clip_pos = apply_map_horizon_bend_clip("));
+        assert!(WATER_WGSL.contains("out.world_pos = world_pos"));
+    }
+
+    #[test]
+    fn water_wgsl_applies_gradient_border_to_final_water_color() {
         let material_start = WATER_WGSL
             .find("fn build_water_material")
             .expect("water shader should build material");
@@ -2463,9 +2708,14 @@ mod tests {
         let material_body = &WATER_WGSL[material_start..fragment_start];
 
         assert!(
-            !material_body.contains("border_hint"),
-            "GradientBorder fallback SDFs must not darken final water color"
+            material_body.contains("apply_water_gradient_border(color, map_uv, offshore_water)"),
+            "water final color should sample GradientBorderChannel1/2 for sea/coast outline"
         );
+        assert!(WATER_WGSL.contains("const GB_OUTLINE_CUTOFF_SEA: f32 = 0.990"));
+        assert!(
+            WATER_WGSL.contains("let sea_outline = smoothstep(GB_OUTLINE_CUTOFF_SEA, 1.0, ch1.a)")
+        );
+        assert!(WATER_WGSL.contains("let coastal_bleed = clamp(ch1.a * (1.0 - ch2.g)"));
         assert!(material_body.contains("color = mix(color, secondary.rgb"));
     }
 
@@ -2548,7 +2798,7 @@ mod tests {
         // 防止后续重构丢掉关键 vanilla 行为
         assert!(
             WATER_WGSL.contains("discard"),
-            "needs heightmap-mask discard"
+            "needs province water-mask discard"
         );
         assert!(WATER_WGSL.contains("fresnel_t"), "needs Fresnel mixing");
         assert!(
@@ -2603,8 +2853,12 @@ mod tests {
             "flow must affect final water color, not only debug-only state"
         );
         assert!(
-            WATER_WGSL.contains("time * 0.036"),
-            "LEAN water normal scroll must be fast enough to be visible in top-down view"
+            WATER_WGSL.contains("water_px * 0.033") && WATER_WGSL.contains("water_px * 0.241"),
+            "LEAN water normal scroll should use non-power-of-two frequencies to avoid visible tiling"
+        );
+        assert!(
+            WATER_WGSL.contains("let strength = clamp(0.62 - variance * 0.22"),
+            "LEAN normal strength should be restrained for phase 4 water-noise cleanup"
         );
     }
 

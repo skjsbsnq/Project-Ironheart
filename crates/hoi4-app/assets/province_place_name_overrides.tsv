@@ -1,0 +1,5 @@
+# Curated 1936 province display-name overrides.
+# Columns: province_id<TAB>zh_name<TAB>en_name<TAB>source<TAB>note
+# This file is intentionally small: only verified rows belong here. Do not bulk-fill it
+# from modern gazetteers without a 1936/historical check.
+7108	宝安	Bao'an	vanilla_wtt_1936_vp_localisation	1936 广东省宝安县；覆盖现代“深圳”一类名称。

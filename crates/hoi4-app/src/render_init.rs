@@ -122,6 +122,63 @@ impl App {
         );
         let province_view = province_tex.create_view(&Default::default());
 
+        let terrain_flags = self.world.map.terrain_catalog.terrain_flags_array_256();
+        let water_mask_pixels: Vec<u8> = self
+            .world
+            .map
+            .province_map
+            .pixels
+            .iter()
+            .enumerate()
+            .map(|(idx, &pid)| {
+                let province_water = self
+                    .world
+                    .map
+                    .definitions
+                    .get(pid as usize)
+                    .and_then(|def| def.as_ref())
+                    .map(|def| {
+                        matches!(
+                            def.province_type,
+                            hoi4_map::ProvinceType::Sea | hoi4_map::ProvinceType::Lake
+                        )
+                    });
+                let terrain_water = self
+                    .world
+                    .map
+                    .terrain_bmp
+                    .pixels
+                    .get(idx)
+                    .map(|&terrain_idx| (terrain_flags[terrain_idx as usize] & 2) != 0)
+                    .unwrap_or(false);
+                if province_water.unwrap_or(terrain_water) {
+                    255
+                } else {
+                    0
+                }
+            })
+            .collect();
+        let water_mask_tex = device.create_texture_with_data(
+            &queue,
+            &wgpu::TextureDescriptor {
+                label: Some("water_mask"),
+                size: wgpu::Extent3d {
+                    width: self.world.map.province_map.width,
+                    height: self.world.map.province_map.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::R8Uint,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &water_mask_pixels,
+        );
+        let water_mask_view = water_mask_tex.create_view(&Default::default());
+
         // Heightmap texture. Phase 11.3: upgraded from R8Unorm to R16Unorm when
         // the GPU supports TEXTURE_FORMAT_16BIT_NORM. The source BMP is 8-bit;
         // each pixel is upcast to 16-bit (value << 8) to eliminate the 1/256
@@ -413,6 +470,7 @@ impl App {
                 rivers_view: &rivers_view,
                 heightmap_view: &height_view,
                 province_view: &province_view,
+                water_mask_view: &water_mask_view,
                 terrain_idx_view: &terrain_idx_view,
                 terrain_atlas_view: &terrain_atlas_view,
                 country_color_lut_view: &lut_view,
@@ -674,32 +732,51 @@ impl App {
             t_obb.elapsed().as_secs_f32()
         );
 
-        // Phase 3.10.3: bake R8 atlas of country names with 1-pixel outline.
-        // Names default to country tags; localised full names will arrive
-        // with Phase 4.9. Falls back gracefully if no system font is
-        // available ???the legacy 2D HUD path still works.
+        // Phase 5 map parity: use player-facing country names, not three-letter tags.
+        // Map labels prefer the same tag-level names used by country profiles,
+        // then fall back to vanilla localisation for tags missing in our table.
         let t_atlas = Instant::now();
+        let map_label_language = self.ui_state.settings.language;
+        let country_loc = load_country_label_loc_catalog(&self.path_cfg, map_label_language);
+        let english_country_loc =
+            load_country_label_loc_catalog(&self.path_cfg, hoi4_ui::i18n::Language::English);
         let names: Vec<Option<String>> = self
             .world
             .countries
             .tags
             .iter()
-            .map(|tag| {
+            .enumerate()
+            .map(|(idx, tag)| {
                 if tag.is_empty() {
                     None
                 } else {
-                    Some(tag.clone())
+                    let ruling_party = self
+                        .world
+                        .countries
+                        .ruling_party
+                        .get(idx)
+                        .map(String::as_str)
+                        .unwrap_or_default();
+                    Some(map_country_label(
+                        tag,
+                        ruling_party,
+                        map_label_language,
+                        &country_loc,
+                        &english_country_loc,
+                    ))
                 }
             })
             .collect();
-        let mapname_atlas_opt = mapname_atlas::bake_country_name_atlas(&names, 36.0);
+        let mapname_atlas_opt =
+            mapname_atlas::bake_country_name_atlas_with_paths(&names, 48.0, Some(&self.path_cfg));
         if let Some(atlas) = &mapname_atlas_opt {
             println!(
-                "[mapname_3d] atlas: {}x{} R8, {} entries baked in {:.2}s",
+                "[mapname_3d] atlas: {}x{} R8, {} entries baked in {:.2}s, font={}",
                 atlas.width,
                 atlas.height,
                 atlas.count_baked(),
-                t_atlas.elapsed().as_secs_f32()
+                t_atlas.elapsed().as_secs_f32(),
+                atlas.font_source
             );
         } else {
             eprintln!("[mapname_3d] atlas bake failed (no system font?); 2D HUD fallback active");
@@ -1345,6 +1422,7 @@ impl App {
                 lod_grid: LOD_GRID,
                 heightmap_view: &height_view,
                 province_view: &province_view,
+                water_mask_view: &water_mask_view,
                 world_size: [self.camera.world_size.x, self.camera.world_size.y],
                 height_scale: HEIGHT_SCALE,
                 vanilla_resources: &vanilla_resources,
@@ -1366,18 +1444,6 @@ impl App {
         for w in &water_pass.load_warnings {
             eprintln!("  {}", w);
         }
-        binding_audit.extend(water_pass.binding_audit.entries.clone());
-        println!("{}", binding_audit.summary_line());
-        for entry in binding_audit.critical_entries().take(16) {
-            eprintln!(
-                "[binding-audit] critical {}.{} source={} reason={}",
-                entry.pass,
-                entry.binding,
-                entry.source_name,
-                entry.reason.as_deref().unwrap_or("none")
-            );
-        }
-
         // Phase 3.12.9 (redesign) ???vanilla border pass using strip meshes.
         // CPU extracts border edges from province bitmap ???generates thin
         // quad-strip meshes that hug actual boundaries.
@@ -1428,7 +1494,7 @@ impl App {
             depth_format,
             &self.path_cfg,
         );
-        water_pass.set_env_cubemap(&device, &sky_pass.cubemap_view);
+        water_pass.set_env_cubemap(&device, &sky_pass.cubemap_view, sky_pass.loaded);
         pdxmesh_pass.set_env_cubemap_with_shadow(
             &device,
             &sky_pass.cubemap_view,
@@ -1445,6 +1511,17 @@ impl App {
                 "procedural_fallback"
             }
         );
+        binding_audit.extend(water_pass.binding_audit.entries.clone());
+        println!("{}", binding_audit.summary_line());
+        for entry in binding_audit.critical_entries().take(16) {
+            eprintln!(
+                "[binding-audit] critical {}.{} source={} reason={}",
+                entry.pass,
+                entry.binding,
+                entry.source_name,
+                entry.reason.as_deref().unwrap_or("none")
+            );
+        }
 
         // Phase 3.12.10: Particle pass (combat smoke / factory chimneys / scorched earth).
         let particle_pass = passes::ParticlePass::new(
@@ -1535,6 +1612,8 @@ impl App {
             let _defs = &self.world.map.definitions;
             let state_names = &self.world.states.names;
             let state_of = &self.world.provinces.state_of;
+            let name_resolver =
+                hoi4_app::ui_data::names::DisplayNameResolver::new(Some(&self.loc_catalog));
             let mut out: Vec<Option<String>> = vec![None; province_labels.len()];
             for id in 1..province_labels.len() {
                 if province_labels[id].is_none() {
@@ -1548,7 +1627,7 @@ impl App {
                 let name = if sid != hoi4_state::ids::StateId::NONE {
                     let si = sid.0 as usize;
                     if si < state_names.len() && !state_names[si].is_empty() {
-                        Some(state_names[si].clone())
+                        Some(name_resolver.state_name(&state_names[si], si))
                     } else {
                         Some(format!("PROV{}", id))
                     }
@@ -1900,6 +1979,161 @@ impl App {
     }
 }
 
+fn load_country_label_loc_catalog(
+    path_cfg: &PathConfig,
+    language: hoi4_ui::i18n::Language,
+) -> hoi4_ui::loc::LocCatalog {
+    load_loc_catalog_for_language(path_cfg, language)
+}
+
+fn map_country_label(
+    tag: &str,
+    ruling_party: &str,
+    language: hoi4_ui::i18n::Language,
+    country_loc: &hoi4_ui::loc::LocCatalog,
+    english_loc: &hoi4_ui::loc::LocCatalog,
+) -> String {
+    let raw = profile_country_label(tag, language)
+        .or_else(|| localized_country_label(tag, ruling_party, country_loc))
+        .or_else(|| builtin_country_name(tag, language).map(str::to_owned))
+        .or_else(|| {
+            if language != hoi4_ui::i18n::Language::English {
+                profile_country_label(tag, hoi4_ui::i18n::Language::English)
+                    .or_else(|| localized_country_label(tag, ruling_party, english_loc))
+            } else {
+                None
+            }
+        })
+        .or_else(|| builtin_country_name(tag, hoi4_ui::i18n::Language::English).map(str::to_owned))
+        .unwrap_or_else(|| tag.to_owned());
+    format_map_country_label(&raw)
+}
+
+fn profile_country_label(tag: &str, language: hoi4_ui::i18n::Language) -> Option<String> {
+    let localized = hoi4_ui::i18n::tr_for_language(tag, language).trim();
+    if localized != tag && !localized.is_empty() {
+        Some(localized.to_owned())
+    } else {
+        None
+    }
+}
+
+fn localized_country_label(
+    tag: &str,
+    ruling_party: &str,
+    loc: &hoi4_ui::loc::LocCatalog,
+) -> Option<String> {
+    for key in country_label_keys(tag, ruling_party) {
+        let localized = loc.tr(&key).trim();
+        if localized != key && !localized.is_empty() {
+            return Some(localized.to_owned());
+        }
+    }
+    None
+}
+
+fn country_label_keys(tag: &str, ruling_party: &str) -> Vec<String> {
+    let mut keys = Vec::with_capacity(2);
+    if let Some(ideology) = country_label_ideology_key(ruling_party) {
+        keys.push(format!("{tag}_{ideology}"));
+    }
+    keys.push(tag.to_owned());
+    keys
+}
+
+fn country_label_ideology_key(ruling_party: &str) -> Option<&str> {
+    let key = ruling_party.trim();
+    match key {
+        "fascism" | "democratic" | "communism" | "neutrality" => Some(key),
+        "" => None,
+        other => Some(other),
+    }
+}
+
+fn format_map_country_label(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.is_ascii() {
+        trimmed.to_ascii_uppercase()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+fn builtin_country_name(tag: &str, language: hoi4_ui::i18n::Language) -> Option<&'static str> {
+    match language {
+        hoi4_ui::i18n::Language::Chinese => builtin_chinese_country_name(tag),
+        hoi4_ui::i18n::Language::English => builtin_english_country_name(tag),
+    }
+}
+
+fn builtin_chinese_country_name(tag: &str) -> Option<&'static str> {
+    match tag {
+        "AUS" => Some("奥地利"),
+        "AST" => Some("澳大利亚"),
+        "BRA" => Some("巴西"),
+        "CAN" => Some("加拿大"),
+        "CHI" => Some("中华民国"),
+        "CZE" => Some("捷克斯洛伐克"),
+        "ENG" => Some("联合王国"),
+        "FRA" => Some("法国"),
+        "GER" => Some("德意志国"),
+        "GXC" => Some("桂系"),
+        "ITA" => Some("意大利"),
+        "JAP" => Some("日本"),
+        "MAN" => Some("满洲国"),
+        "MEN" => Some("蒙疆"),
+        "POL" => Some("波兰"),
+        "PRC" => Some("中共"),
+        "RAJ" => Some("英属印度"),
+        "ROM" => Some("罗马尼亚"),
+        "SAF" => Some("南非"),
+        "SHX" => Some("晋系"),
+        "SIK" => Some("新疆"),
+        "SOV" => Some("苏维埃联盟"),
+        "SPR" => Some("西班牙"),
+        "SWE" => Some("瑞典"),
+        "TIB" => Some("西藏"),
+        "USA" => Some("美利坚合众国"),
+        "XSM" => Some("马家军"),
+        "YUN" => Some("云南"),
+        _ => None,
+    }
+}
+
+fn builtin_english_country_name(tag: &str) -> Option<&'static str> {
+    match tag {
+        "AUS" => Some("Austria"),
+        "AST" => Some("Australia"),
+        "BRA" => Some("Brazil"),
+        "CAN" => Some("Canada"),
+        "CHI" => Some("China"),
+        "CZE" => Some("Czechoslovakia"),
+        "ENG" => Some("United Kingdom"),
+        "FRA" => Some("France"),
+        "GER" => Some("German Reich"),
+        "GXC" => Some("Guangxi Clique"),
+        "ITA" => Some("Italy"),
+        "JAP" => Some("Japan"),
+        "MAN" => Some("Manchukuo"),
+        "MEN" => Some("Mengjiang"),
+        "POL" => Some("Poland"),
+        "PRC" => Some("Communist China"),
+        "RAJ" => Some("British Raj"),
+        "ROM" => Some("Romania"),
+        "SAF" => Some("South Africa"),
+        "SHX" => Some("Shanxi"),
+        "SIK" => Some("Sinkiang"),
+        "SOV" => Some("Soviet Union"),
+        "SPR" => Some("Spain"),
+        "SWE" => Some("Sweden"),
+        "TIB" => Some("Tibet"),
+        "USA" => Some("United States"),
+        "XSM" => Some("Ma Clique"),
+        "YUN" => Some("Yunnan"),
+        _ => None,
+    }
+}
+
 fn select_captured_restore_surface_format(formats: &[wgpu::TextureFormat]) -> wgpu::TextureFormat {
     let preferred = [
         wgpu::TextureFormat::Bgra8Unorm,
@@ -1911,4 +2145,125 @@ fn select_captured_restore_surface_format(formats: &[wgpu::TextureFormat]) -> wg
         .or_else(|| formats.iter().copied().find(|format| !format.is_srgb()))
         .or_else(|| formats.first().copied())
         .expect("surface must expose at least one format")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_loc() -> hoi4_ui::loc::LocCatalog {
+        hoi4_ui::loc::LocCatalog::new()
+    }
+
+    #[test]
+    fn chinese_map_country_labels_use_profile_country_names() {
+        let empty = empty_loc();
+        assert_eq!(
+            map_country_label(
+                "GER",
+                "fascism",
+                hoi4_ui::i18n::Language::Chinese,
+                &empty,
+                &empty,
+            ),
+            "德国"
+        );
+        assert_eq!(
+            map_country_label(
+                "CHI",
+                "neutrality",
+                hoi4_ui::i18n::Language::Chinese,
+                &empty,
+                &empty,
+            ),
+            "中国"
+        );
+        assert_eq!(
+            map_country_label(
+                "ENG",
+                "democratic",
+                hoi4_ui::i18n::Language::Chinese,
+                &empty,
+                &empty,
+            ),
+            "英国"
+        );
+    }
+
+    #[test]
+    fn map_country_label_prefers_profile_name_over_ideology_localisation() {
+        let root = std::env::temp_dir().join(format!(
+            "ironheart_render_init_loc_{}_{}",
+            std::process::id(),
+            "profile"
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("countries_l_simp_chinese.yml"),
+            "l_simp_chinese:\n MAN_neutrality:0 \"大清\"\n MAN:0 \"满洲国\"\n",
+        )
+        .unwrap();
+
+        let loc = hoi4_ui::loc::LocCatalog::load_from_dir(&root);
+        let empty = empty_loc();
+        assert_eq!(
+            map_country_label(
+                "MAN",
+                "neutrality",
+                hoi4_ui::i18n::Language::Chinese,
+                &loc,
+                &empty,
+            ),
+            "满洲国"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn map_country_label_uses_vanilla_localisation_when_profile_name_is_missing() {
+        let root = std::env::temp_dir().join(format!(
+            "ironheart_render_init_loc_{}_{}",
+            std::process::id(),
+            "fallback"
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("countries_l_simp_chinese.yml"),
+            "l_simp_chinese:\n TST_fascism:0 \"测试国\"\n TST:0 \"测试\"\n",
+        )
+        .unwrap();
+
+        let loc = hoi4_ui::loc::LocCatalog::load_from_dir(&root);
+        let empty = empty_loc();
+        assert_eq!(
+            map_country_label(
+                "TST",
+                "fascism",
+                hoi4_ui::i18n::Language::Chinese,
+                &loc,
+                &empty,
+            ),
+            "测试国"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn english_map_country_labels_remain_uppercase() {
+        let empty = empty_loc();
+        assert_eq!(
+            map_country_label(
+                "ENG",
+                "democratic",
+                hoi4_ui::i18n::Language::English,
+                &empty,
+                &empty,
+            ),
+            "UNITED KINGDOM"
+        );
+    }
 }
