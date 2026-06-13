@@ -293,7 +293,16 @@ impl VanillaPanelProfile for FinanceVanillaProfile {
             return GuiBinding::default().click("close").tooltip("关闭财政面板");
         }
         if path_str.ends_with("finance_footer") {
-            return GuiBinding::default().text("Q 关闭 | 点击行查看详情");
+            return GuiBinding::default().text("数据每日刷新 · 点击行查看详情");
+        }
+
+        // Gate 4 字色梯度：分区头（fb/ti/cb/ib_header）金色；KV 标签 muted。
+        // 命中后仍允许后续 tv_* 值绑定按 leaf 名分流（值文本不走这两条）。
+        if matches!(name, "fb_header" | "ti_header" | "cb_header" | "ib_header") {
+            return GuiBinding::default().text_color(FIN_GOLD);
+        }
+        if name == "kv_label" {
+            return GuiBinding::default().text_color(FIN_MUTED);
         }
 
         // KPI 条：6 格各含 kpi_label / kpi_value，靠父容器名区分。
@@ -489,18 +498,16 @@ fn bind_kpi_node(cell: FinanceKpiCell, name: &str, data: &FinancePanelData) -> G
 }
 
 /// tab 容器内的 `tab_bg` / `hit` / `label` 绑定。
-/// 选中态：`tab_bg` 用 `GFX_tiled_button` 金色 tint + `label` 高亮金；未选中暗 tint + 常规文本色。
+/// 选中态：`tab_bg` 用真页签 sprite `GFX_tab_intel_ledger`（noOfFrames=2），
+/// frame 2=选中（底边高亮）/ frame 1=未选中；不再走 tint。
+/// `label` 文本色仍按选中态微调（金 vs 中性），仅作辅助强调。
 /// `hit` 始终绑 `finance:tab:<id>` 点击命令（show 函数拦截，不进 FinanceCommand）。
 fn bind_tab_node(name: &str, tab: FinanceTab, active: FinanceTab) -> GuiBinding {
     let selected = tab == active;
     match name {
         "tab_bg" => GuiBinding::default()
-            .sprite("GFX_tiled_button")
-            .tint(if selected {
-                FIN_TAB_SELECTED
-            } else {
-                FIN_TAB_IDLE
-            }),
+            .sprite("GFX_tab_intel_ledger")
+            .frame(if selected { 2 } else { 1 }),
         "hit" => GuiBinding::default()
             .click(tab.tab_click_command())
             .tooltip(tab.label()),
@@ -1114,10 +1121,11 @@ fn bind_budget_row_node(
         "amount" => GuiBinding::default()
             .text(format_million(model.amount))
             .text_color(amount_color),
+        // Gate 10：方向图标走真 frame（GFX_resources_strip noOfFrames=7，
+        // frame 1=收入 / frame 2=支出），不再叠加 tint——语义由金额色（绿/红）独立承担。
         "dir_icon" => GuiBinding::default()
             .visible(true)
-            .frame(if model.income { 1 } else { 2 })
-            .tint(amount_color),
+            .frame(if model.income { 1 } else { 2 }),
         "row_hit" => match model.route {
             Some(route) => GuiBinding::default()
                 .click(route.command())
@@ -1460,10 +1468,12 @@ mod tests {
                 );
             }
 
-            // active/非 active 都用 GFX_tiled_button，靠 tint 区分；active 金色 label。
+            // active/非 active 都用真页签 sprite GFX_tab_intel_ledger，靠 frame 区分；
+            // active frame=2（选中）/ 非 active frame=1（未选中）；label 颜色作辅助强调。
             let active_bg = profile.bind_node(&tab_path(active, "tab_bg"), &input);
-            assert_eq!(active_bg.sprite.as_deref(), Some("GFX_tiled_button"));
-            assert_eq!(active_bg.tint, Some(FIN_TAB_SELECTED));
+            assert_eq!(active_bg.sprite.as_deref(), Some("GFX_tab_intel_ledger"));
+            assert_eq!(active_bg.frame, Some(2));
+            assert_eq!(active_bg.tint, None);
             let active_label = profile.bind_node(&tab_path(active, "label"), &input);
             assert_eq!(active_label.text.as_deref(), Some(active.label()));
             assert_eq!(active_label.text_color, Some(FIN_GOLD));
@@ -1473,8 +1483,9 @@ mod tests {
                 .find(|t| *t != active)
                 .expect("another tab");
             let other_bg = profile.bind_node(&tab_path(other, "tab_bg"), &input);
-            assert_eq!(other_bg.sprite.as_deref(), Some("GFX_tiled_button"));
-            assert_eq!(other_bg.tint, Some(FIN_TAB_IDLE));
+            assert_eq!(other_bg.sprite.as_deref(), Some("GFX_tab_intel_ledger"));
+            assert_eq!(other_bg.frame, Some(1));
+            assert_eq!(other_bg.tint, None);
             let other_label = profile.bind_node(&tab_path(other, "label"), &input);
             assert_eq!(other_label.text_color, Some(FIN_TEXT));
 
@@ -1872,20 +1883,25 @@ mod tests {
         for (template, cells) in [
             (
                 "finance_budget_row",
-                &["row_hit", "dir_icon", "label", "amount"][..],
+                &["row_hit", "dir_icon", "label", "amount", "row_rule"][..],
             ),
-            ("finance_gdp_row", &["label", "amount", "percent"][..]),
+            (
+                "finance_gdp_row",
+                &["label", "amount", "percent", "row_rule"][..],
+            ),
             (
                 "finance_sector_row",
-                &["building", "level", "employ", "fill_bar", "value"][..],
+                &[
+                    "building", "level", "employ", "fill_bar", "value", "row_rule",
+                ][..],
             ),
             (
                 "finance_employment_row",
-                &["label", "employed", "demand", "rate", "value"][..],
+                &["label", "employed", "demand", "rate", "value", "row_rule"][..],
             ),
             (
                 "finance_diagnostic_row",
-                &["source", "status", "detail"][..],
+                &["source", "status", "detail", "row_rule"][..],
             ),
         ] {
             let node = index

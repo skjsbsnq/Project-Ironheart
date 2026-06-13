@@ -100,13 +100,16 @@ pub const LOGISTICS_REQUIRED_SPRITES: &[&str] = &[
 pub const FINANCE_REQUIRED_SPRITES: &[&str] = &[
     "GFX_tiled_window_1b_thin_border",
     "GFX_tiled_paper_bg2",
-    "GFX_tiled_header",
     "GFX_tiled_window_small",
-    "GFX_tiled_stats_bg",
+    "GFX_tiled_window_small_small",
     "GFX_tiled_button",
+    "GFX_tab_intel_ledger",
+    "GFX_header_bg",
     "GFX_prod_progress_bar3",
     "GFX_closebutton",
     "GFX_resources_strip",
+    "GFX_trait_line_horizontal_tile_8x8",
+    "GFX_trait_line_vertical_tile_8x8",
 ];
 
 pub const FINANCE_KEY_TEMPLATES: &[&str] = &[

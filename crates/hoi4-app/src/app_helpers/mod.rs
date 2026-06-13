@@ -2,9 +2,35 @@ use hoi4_audio::UiSound;
 use hoi4_render::camera::Camera;
 use hoi4_render::defines::VanillaMapSpace;
 use hoi4_render::map_mode::MapMode;
+use hoi4_state::{GameDate, GameSpeed};
 
 use crate::map_baseline;
 use crate::passes::{PostProcessLutSelection, TerrainDebugView};
+
+// Fast simulation can advance days per real second; keep aesthetic lighting below
+// a temporal-aliasing threshold so day/night cannot appear as flash frames.
+const VISUAL_DAY_NIGHT_MAX_HOURS_PER_SEC: f32 = 1.5;
+
+pub(crate) fn visual_day_night_hour_from_date(date: GameDate) -> f32 {
+    (date.hour as f32).rem_euclid(24.0)
+}
+
+pub(crate) fn advance_visual_day_night_hour(
+    current_hour: f32,
+    speed: GameSpeed,
+    dt_secs: f32,
+) -> f32 {
+    if matches!(speed, GameSpeed::Paused) {
+        return current_hour.rem_euclid(24.0);
+    }
+    let secs_per_hour = speed.seconds_per_hour();
+    if !secs_per_hour.is_finite() || secs_per_hour <= 0.0 || dt_secs <= 0.0 {
+        return current_hour.rem_euclid(24.0);
+    }
+    let game_hours = dt_secs / secs_per_hour;
+    let visual_cap = VISUAL_DAY_NIGHT_MAX_HOURS_PER_SEC * dt_secs;
+    (current_hour + game_hours.min(visual_cap)).rem_euclid(24.0)
+}
 
 pub(crate) fn estimate_construction_days_remaining(progress: f32, cost: f32) -> Option<u32> {
     if cost <= 0.0 || progress < 0.0 {
@@ -140,4 +166,27 @@ pub(crate) fn surrender_notification_sound_key(
         notification.kind,
         notification.results.len()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visual_day_night_freezes_when_paused() {
+        let hour = advance_visual_day_night_hour(23.5, GameSpeed::Paused, 10.0);
+        assert!((hour - 23.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn visual_day_night_caps_fast_simulation() {
+        let hour = advance_visual_day_night_hour(12.0, GameSpeed::Speed5, 1.0);
+        assert!((hour - 13.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn visual_day_night_wraps_at_end_of_day() {
+        let hour = advance_visual_day_night_hour(23.75, GameSpeed::Speed1, 1.0);
+        assert!(hour < 2.0);
+    }
 }

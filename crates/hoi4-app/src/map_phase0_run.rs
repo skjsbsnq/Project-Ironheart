@@ -198,6 +198,7 @@ impl App {
         self.camera.yaw = scene.camera.yaw_degrees.to_radians();
         self.camera.clamp_target_to_map();
         self.world.date = scene.date;
+        self.visual_day_night_hour = visual_day_night_hour_from_date(self.world.date);
         self.render_toggles.show_province_names = mask.labels;
         let scene_map_mode = map_mode_from_capture_name(&scene.map_mode);
         if self.map_mode != scene_map_mode {

@@ -1359,6 +1359,8 @@ impl App {
                     if let Err(e) = hoi4_state::save::read(&path, &mut self.world) {
                         self.ui_state.save_browser.last_error = Some(format!("load failed: {e}"));
                     } else {
+                        self.visual_day_night_hour =
+                            visual_day_night_hour_from_date(self.world.date);
                         self.ui_state.save_browser.open = false;
                         self.close_primary_panel();
                     }

@@ -87,6 +87,11 @@ corneredTileSpriteType = {
     borderSize = { x = 32 y = 32 }
 }
 corneredTileSpriteType = {
+    name = "GFX_tiled_window_small_small"
+    texturefile = "gfx/interface/finance_test/window_small_small.dds"
+    borderSize = { x = 16 y = 16 }
+}
+corneredTileSpriteType = {
     name = "GFX_tiled_stats_bg"
     texturefile = "gfx/interface/finance_test/stats_bg.dds"
     borderSize = { x = 1 y = 1 }
@@ -96,8 +101,20 @@ corneredTileSpriteType = {
     texturefile = "gfx/interface/finance_test/tiled_button.dds"
     borderSize = { x = 12 y = 13 }
 }
+spriteType = { name = "GFX_tab_intel_ledger" texturefile = "gfx/interface/finance_test/tab_intel_ledger.dds" noOfFrames = 2 }
+spriteType = { name = "GFX_header_bg" texturefile = "gfx/interface/finance_test/header_bg.dds" }
 spriteType = { name = "GFX_closebutton" texturefile = "gfx/interface/finance_test/close.dds" noOfFrames = 3 }
 spriteType = { name = "GFX_resources_strip" texturefile = "gfx/interface/finance_test/resources.dds" noOfFrames = 6 }
+corneredTileSpriteType = {
+    name = "GFX_trait_line_horizontal_tile_8x8"
+    texturefile = "gfx/interface/finance_test/horizontal_line.dds"
+    borderSize = { x = 0 y = 0 }
+}
+corneredTileSpriteType = {
+    name = "GFX_trait_line_vertical_tile_8x8"
+    texturefile = "gfx/interface/finance_test/vertical_line.dds"
+    borderSize = { x = 0 y = 0 }
+}
 progressbartype = {
     name = "GFX_prod_progress_bar3"
     textureFile1 = "gfx/interface/finance_test/progress_fg.dds"
@@ -615,11 +632,13 @@ fn collect_forbidden_asset_files(dir: &Path, out: &mut Vec<PathBuf>) {
 
 #[test]
 fn finance_vanilla_gate27_visual_layout_smoke() {
+    let profile = FinanceVanillaProfile;
     let data = sample_data();
     let overview = build_frame(&data, FinanceTab::Overview, FinanceSector::Primary);
+    // 阶段 3 收尾：root height=100%%（与 logistics/politics 同款占满），1080p 视口下 rect 高 1080。
     assert_eq!(
         overview.root_layout.rect,
-        GuiRect::new(-6.0, 78.0, 550.0, 640.0)
+        GuiRect::new(-6.0, 78.0, 550.0, 1080.0)
     );
     assert!(overview.root_layout.find_by_name("kpi_strip").is_some());
     assert!(overview.root_layout.find_by_name("tab_bar").is_some());
@@ -638,14 +657,32 @@ fn finance_vanilla_gate27_visual_layout_smoke() {
     for expected in [
         "GFX_tiled_paper_bg2",
         "GFX_closebutton",
-        "GFX_tiled_header",
-        "GFX_tiled_button",
+        "GFX_tiled_window_small_small",
+        "GFX_tab_intel_ledger",
     ] {
         assert!(
             overview_resources.contains(expected),
             "missing resource {expected}: {overview_resources:?}"
         );
     }
+    assert!(
+        !overview_resources.contains("GFX_tiled_header"),
+        "GFX_tiled_header should be gone from KPI strip after Gate 7: {overview_resources:?}"
+    );
+    // Gate 8: treasury subtotal rule (between stocks and flows) renders in overview.
+    assert!(
+        overview_resources.contains("GFX_trait_line_horizontal_tile_8x8"),
+        "treasury subtotal rule missing: {overview_resources:?}"
+    );
+    let overview_rules = overview
+        .draw_list
+        .iter()
+        .filter(|command| command.resource_name() == Some("GFX_trait_line_horizontal_tile_8x8"))
+        .count();
+    assert!(
+        overview_rules >= 1,
+        "overview should draw at least one subtotal rule, got {overview_rules}"
+    );
     assert!(overview.root_layout.find_by_name("panel_frame").is_some());
     let overview_progress = overview
         .draw_list
@@ -654,12 +691,134 @@ fn finance_vanilla_gate27_visual_layout_smoke() {
         .count();
     assert!(overview_progress >= 2);
 
+    // Gate 9: 进度条带卡片化背板 + 阈值刻度（debt 45%/75%、mefo 18%/30%）。
+    for node in [
+        "debt_bar_group",
+        "mefo_bar_group",
+        "debt_tick_warn",
+        "debt_tick_bad",
+        "mefo_tick_warn",
+        "mefo_tick_bad",
+    ] {
+        assert!(
+            overview.root_layout.find_by_name(node).is_some(),
+            "Gate 9: missing bar group/tick node `{node}`"
+        );
+    }
+    // 进度条仍是 vanilla progress 渲染（非 fallback quad）。
+    assert!(overview
+        .draw_list
+        .iter()
+        .any(|command| matches!(command.kind, GuiDrawCommandKind::DrawProgress(_))));
+    let overview_ticks = overview
+        .draw_list
+        .iter()
+        .filter(|command| command.resource_name() == Some("GFX_trait_line_vertical_tile_8x8"))
+        .count();
+    assert!(
+        overview_ticks >= 4,
+        "overview should draw four threshold ticks (debt×2 + mefo×2), got {overview_ticks}"
+    );
+
+    // Gate 9: pressure 三块卡片化对齐（同宽 166、等距 5px、底图同 sprite）。
+    let pressure_cards: Vec<_> = [
+        "pressure_military",
+        "pressure_construction",
+        "pressure_debt",
+    ]
+    .iter()
+    .map(|name| {
+        overview
+            .root_layout
+            .find_by_name(name)
+            .expect("pressure card present")
+    })
+    .collect();
+    let pressure_width = pressure_cards[0].rect.width;
+    for card in &pressure_cards {
+        assert!(
+            (card.rect.width - pressure_width).abs() < 0.5,
+            "pressure cards differ in width: {}",
+            pressure_cards
+                .iter()
+                .map(|c| format!("{:.1}", c.rect.width))
+                .collect::<Vec<_>>()
+                .join("/")
+        );
+    }
+    let mut pressure_xs: Vec<_> = pressure_cards.iter().map(|c| c.rect.x).collect();
+    pressure_xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let gaps = [
+        pressure_xs[1] - (pressure_xs[0] + pressure_width),
+        pressure_xs[2] - (pressure_xs[1] + pressure_width),
+    ];
+    for gap in gaps {
+        assert!(
+            gap >= 0.0 && gap <= 8.0,
+            "pressure card gap out of expected range: {gap}"
+        );
+    }
+
     let budget = build_frame(&data, FinanceTab::Budget, FinanceSector::Primary);
     assert_non_overlapping_rows_by_parent(&budget, "finance_budget_row");
     assert!(budget
         .draw_list
         .iter()
-        .any(|command| { command.resource_name() == Some("GFX_tiled_stats_bg") }));
+        .any(|command| { command.resource_name() == Some("GFX_tiled_window_small") }));
+    assert!(budget
+        .draw_list
+        .iter()
+        .all(|command| { command.resource_name() != Some("GFX_tiled_stats_bg") }));
+
+    // Gate 8: budget / construction / investment subtotal rules render in their tabs.
+    let budget_rule_count = budget
+        .draw_list
+        .iter()
+        .filter(|command| command.resource_name() == Some("GFX_trait_line_horizontal_tile_8x8"))
+        .count();
+    assert!(
+        budget_rule_count >= 1,
+        "budget should draw at least one subtotal rule, got {budget_rule_count}"
+    );
+    let funding = build_frame(&data, FinanceTab::Funding, FinanceSector::Primary);
+    let funding_rule_count = funding
+        .draw_list
+        .iter()
+        .filter(|command| command.resource_name() == Some("GFX_trait_line_horizontal_tile_8x8"))
+        .count();
+    assert!(
+        funding_rule_count >= 2,
+        "funding tab should draw two subtotal rules (construction + investment), got {funding_rule_count}"
+    );
+    // 每条 rule 节点真存在（防止命名/坐标写错后只剩 fixture 兜底）。
+    assert!(
+        overview
+            .root_layout
+            .find_by_name("treasury_subtotal_rule")
+            .is_some(),
+        "missing treasury_subtotal_rule in overview"
+    );
+    assert!(
+        budget
+            .root_layout
+            .find_by_name("budget_subtotal_rule")
+            .is_some(),
+        "missing budget_subtotal_rule in budget"
+    );
+    assert!(
+        funding
+            .root_layout
+            .find_by_name("construction_subtotal_rule")
+            .is_some(),
+        "missing construction_subtotal_rule in funding"
+    );
+    assert!(
+        funding
+            .root_layout
+            .find_by_name("investment_subtotal_rule")
+            .is_some(),
+        "missing investment_subtotal_rule in funding"
+    );
 
     let debt = build_frame(&data, FinanceTab::Debt, FinanceSector::Primary);
     for command in [
@@ -702,6 +861,101 @@ fn finance_vanilla_gate27_visual_layout_smoke() {
         })
         .collect();
     assert!(text_overflows.is_empty(), "{text_overflows:?}");
+
+    // Gate 10：5 个行模板各加一条底分隔线 `row_rule`（GFX_trait_line_horizontal_tile_8x8）。
+    let doc = finance_doc();
+    let index = doc.template_index();
+    for (template, expected_y) in [
+        ("finance_budget_row", 22.0),
+        ("finance_gdp_row", 22.0),
+        ("finance_sector_row", 22.0),
+        ("finance_employment_row", 24.0),
+        ("finance_diagnostic_row", 20.0),
+    ] {
+        let node = index
+            .get(template)
+            .unwrap_or_else(|| panic!("missing row template `{template}`"));
+        let rule = node
+            .find_node_by_name("row_rule")
+            .unwrap_or_else(|| panic!("template `{template}` missing row_rule separator"));
+        let pos_y = rule
+            .block("position")
+            .and_then(|block| block.get_int("y"))
+            .map(|value| value as f32);
+        if let Some(y) = pos_y {
+            assert!(
+                (y - expected_y).abs() < 0.5,
+                "template `{template}` row_rule y={y} should be {expected_y}"
+            );
+        }
+    }
+
+    // 每行实际渲染时，row_rule 会产生 GFX_trait_line_horizontal_tile_8x8 draw 命令；
+    // instance 数不变（诊断 3 / 预算 13 / GDP 9 / sector 2 / employment 2），但分隔线计数 = 行数。
+    let overview_separator_count = overview
+        .draw_list
+        .iter()
+        .filter(|command| command.resource_name() == Some("GFX_trait_line_horizontal_tile_8x8"))
+        .count();
+    // overview = 1 treasury_subtotal_rule + 3 diagnostic row_rule = 4。
+    assert!(
+        overview_separator_count >= 4,
+        "overview should draw ≥4 horizontal rules (1 subtotal + 3 row separators), got {overview_separator_count}"
+    );
+
+    let budget_separator_count = budget
+        .draw_list
+        .iter()
+        .filter(|command| command.resource_name() == Some("GFX_trait_line_horizontal_tile_8x8"))
+        .count();
+    // budget = 1 budget_subtotal_rule + 13 budget row_rule = 14。
+    assert!(
+        budget_separator_count >= 14,
+        "budget should draw ≥14 horizontal rules (1 subtotal + 13 row separators), got {budget_separator_count}"
+    );
+
+    let economy_separator_count = economy
+        .draw_list
+        .iter()
+        .filter(|command| command.resource_name() == Some("GFX_trait_line_horizontal_tile_8x8"))
+        .count();
+    // economy = 9 gdp + 2 sector + 2 employment row_rule = 13。
+    assert!(
+        economy_separator_count >= 13,
+        "economy should draw ≥13 horizontal row separators (9 gdp + 2 sector + 2 employment), got {economy_separator_count}"
+    );
+
+    // Gate 10：预算行方向图标走真 frame（不再 tint），frame 1=收入 / 2=支出。
+    let budget_input =
+        FinanceVanillaInput::new(data.clone(), FinanceTab::Budget, FinanceSector::Primary);
+    let income_ctx = hoi4_ui::vanilla_gui::GuiInstanceContext::new(
+        "finance_budget_row",
+        0,
+        GuiNodePath::root("budget_income_grid"),
+    )
+    .with_semantic_role("finance_budget_row")
+    .with_model_key("budget:inc:tariffs");
+    let income_icon = profile.bind_node_with_context(
+        &GuiNodePath::root("finance_budget_row[0]").child("dir_icon"),
+        &budget_input,
+        Some(&income_ctx),
+    );
+    assert_eq!(income_icon.frame, Some(1));
+    assert_eq!(income_icon.tint, None);
+    let expense_ctx = hoi4_ui::vanilla_gui::GuiInstanceContext::new(
+        "finance_budget_row",
+        0,
+        GuiNodePath::root("budget_expense_grid"),
+    )
+    .with_semantic_role("finance_budget_row")
+    .with_model_key("budget:exp:military");
+    let expense_icon = profile.bind_node_with_context(
+        &GuiNodePath::root("finance_budget_row[0]").child("dir_icon"),
+        &budget_input,
+        Some(&expense_ctx),
+    );
+    assert_eq!(expense_icon.frame, Some(2));
+    assert_eq!(expense_icon.tint, None);
 
     let mut report = String::from("# Gate 27 Finance Visual Layout Smoke\n\n");
     let _ = writeln!(report, "- root_rect: {:?}", overview.root_layout.rect);

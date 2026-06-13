@@ -88,10 +88,11 @@ mod ui_driver;
 mod update_loop;
 mod world_overlays;
 use app_helpers::{
-    decision_id_matches_player_tag, estimate_construction_days_remaining, event_modal_sound,
-    intervention_expected_impact, map_mode_from_capture_name, map_mode_terrain_blend_for,
-    postprocess_lut_selection_for, surrender_notification_sound_key,
-    terrain_debug_view_for_baseline_layer,
+    advance_visual_day_night_hour, decision_id_matches_player_tag,
+    estimate_construction_days_remaining, event_modal_sound, intervention_expected_impact,
+    map_mode_from_capture_name, map_mode_terrain_blend_for, postprocess_lut_selection_for,
+    surrender_notification_sound_key, terrain_debug_view_for_baseline_layer,
+    visual_day_night_hour_from_date,
 };
 use app_state::{
     AuditState, InteractionState, PerfState, RenderToggles, RuntimeState, UiStateBundle, ViewState,
@@ -448,6 +449,7 @@ struct App {
     world: World,
     map_mode: MapMode,
     time_accumulator: f32,
+    visual_day_night_hour: f32,
     last_frame: Instant,
     last_redraw_at: Instant,
     last_status_print: Instant,
@@ -608,6 +610,7 @@ impl App {
 
         // P0.1??? world move ????????????
         let initial_day = world.date.days_since_epoch();
+        let visual_day_night_hour = visual_day_night_hour_from_date(world.date);
 
         Self {
             state: None,
@@ -617,6 +620,7 @@ impl App {
             world,
             map_mode: MapMode::Political,
             time_accumulator: 0.0,
+            visual_day_night_hour,
             last_frame: Instant::now(),
             last_redraw_at: Instant::now(),
             last_status_print: Instant::now(),

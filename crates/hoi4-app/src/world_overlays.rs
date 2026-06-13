@@ -767,15 +767,53 @@ impl App {
                     .saturating_duration_since(last_interaction_at)
                     .as_secs_f32()
                     <= INTERACTIVE_RENDER_QUALITY_HOLD_SECS;
-        if high_speed_interaction
-            && matches!(
-                self.render_toggles.map_quality_preset,
-                MapQualityPreset::High | MapQualityPreset::Ultra
-            )
-        {
-            MapQualityPreset::LowEnd
+        if high_speed_interaction {
+            temporary_interaction_quality(self.render_toggles.map_quality_preset)
         } else {
             self.render_toggles.map_quality_preset
         }
+    }
+}
+
+fn temporary_interaction_quality(preset: MapQualityPreset) -> MapQualityPreset {
+    match preset {
+        // Keep the full postprocess chain during automatic interaction fallback.
+        // Dropping to LowEnd changes color grading globally and reads as a flash.
+        MapQualityPreset::High | MapQualityPreset::Ultra => MapQualityPreset::Balanced,
+        MapQualityPreset::Balanced | MapQualityPreset::LowEnd => preset,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn temporary_interaction_quality_preserves_postprocess_chain() {
+        assert_eq!(
+            temporary_interaction_quality(MapQualityPreset::High),
+            MapQualityPreset::Balanced
+        );
+        assert_eq!(
+            temporary_interaction_quality(MapQualityPreset::Ultra),
+            MapQualityPreset::Balanced
+        );
+        assert!(
+            temporary_interaction_quality(MapQualityPreset::High)
+                .controls()
+                .postprocess_chain
+        );
+    }
+
+    #[test]
+    fn temporary_interaction_quality_respects_manual_lower_presets() {
+        assert_eq!(
+            temporary_interaction_quality(MapQualityPreset::Balanced),
+            MapQualityPreset::Balanced
+        );
+        assert_eq!(
+            temporary_interaction_quality(MapQualityPreset::LowEnd),
+            MapQualityPreset::LowEnd
+        );
     }
 }

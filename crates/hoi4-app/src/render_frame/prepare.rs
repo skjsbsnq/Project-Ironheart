@@ -715,7 +715,7 @@ impl App {
             [params.season_snow_offset.max(0.0), time, season_blend, 5.0];
         gu.day_night_hour_sun_dir = {
             let sd = RenderParams::compute_sun_dir(12, self.world.date.month);
-            let hour = (self.world.date.hour as f32) / 24.0;
+            let hour = (self.visual_day_night_hour / 24.0).rem_euclid(1.0);
             [hour, sd[0], sd[1], sd[2]]
         };
         gu.screen_size = [s.config.width as f32, s.config.height as f32];

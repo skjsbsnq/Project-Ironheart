@@ -3,8 +3,9 @@ use std::time::Instant;
 use winit::keyboard::KeyCode;
 
 use crate::{
-    runtime, App, GamePhase, EDGE_PAN_MARGIN_PX, EDGE_PAN_SPEED_SCALE,
-    INTERACTIVE_FAST_SIM_BUDGET_SECS, MAX_INTERACTION_DT_SECS, MIN_SIM_SLICE_SECS,
+    advance_visual_day_night_hour, runtime, App, GamePhase, EDGE_PAN_MARGIN_PX,
+    EDGE_PAN_SPEED_SCALE, INTERACTIVE_FAST_SIM_BUDGET_SECS, MAX_INTERACTION_DT_SECS,
+    MIN_SIM_SLICE_SECS,
 };
 
 impl App {
@@ -82,6 +83,11 @@ impl App {
             }
             return;
         }
+        self.visual_day_night_hour = advance_visual_day_night_hour(
+            self.visual_day_night_hour,
+            self.world.speed,
+            interaction_dt,
+        );
 
         let secs_per_hour = self.world.speed.seconds_per_hour();
         let mut simulation_advanced = false;
