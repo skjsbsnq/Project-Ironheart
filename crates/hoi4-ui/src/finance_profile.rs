@@ -18,6 +18,9 @@ const FIN_GOLD: Color32 = Color32::from_rgb(0xc8, 0xa4, 0x4c);
 const FIN_INFO: Color32 = Color32::from_rgb(0x6c, 0x9c, 0xc8);
 const FIN_MUTED: Color32 = Color32::from_gray(0x88);
 const FIN_TEXT: Color32 = Color32::from_rgb(0xe6, 0xdf, 0xc8);
+// tab/sector 按钮共用 GFX_tiled_button，靠 tint 区分选中态（选中偏亮金，未选中压暗）。
+const FIN_TAB_SELECTED: Color32 = Color32::from_rgb(0xff, 0xe6, 0xa8);
+const FIN_TAB_IDLE: Color32 = Color32::from_rgb(0x8c, 0x88, 0x78);
 
 fn finance_ratio(value: f64, total: f64) -> f64 {
     if total > 0.0 {
@@ -486,16 +489,14 @@ fn bind_kpi_node(cell: FinanceKpiCell, name: &str, data: &FinancePanelData) -> G
 }
 
 /// tab 容器内的 `tab_bg` / `hit` / `label` 绑定。
-/// 选中态：`tab_bg` 换原版 ledger tab sprite + `label` 高亮金；未选中保持 diplomacy tab 底 + 常规文本色。
+/// 选中态：`tab_bg` 用 `GFX_tiled_button` 金色 tint + `label` 高亮金；未选中暗 tint + 常规文本色。
 /// `hit` 始终绑 `finance:tab:<id>` 点击命令（show 函数拦截，不进 FinanceCommand）。
 fn bind_tab_node(name: &str, tab: FinanceTab, active: FinanceTab) -> GuiBinding {
     let selected = tab == active;
     match name {
-        "tab_bg" => GuiBinding::default().sprite(if selected {
-            "GFX_tab_intel_ledger"
-        } else {
-            "GFX_tab_diplomacy_bg"
-        }),
+        "tab_bg" => GuiBinding::default()
+            .sprite("GFX_tiled_button")
+            .tint(if selected { FIN_TAB_SELECTED } else { FIN_TAB_IDLE }),
         "hit" => GuiBinding::default()
             .click(tab.tab_click_command())
             .tooltip(tab.label()),
@@ -1023,11 +1024,8 @@ fn sector_button_target(name: &str) -> Option<FinanceSector> {
 fn bind_sector_button(sector: FinanceSector, active: FinanceSector) -> GuiBinding {
     let selected = sector == active;
     GuiBinding::default()
-        .sprite(if selected {
-            "GFX_tab_intel_ledger"
-        } else {
-            "GFX_tab_diplomacy_bg"
-        })
+        .sprite("GFX_tiled_button")
+        .tint(if selected { FIN_TAB_SELECTED } else { FIN_TAB_IDLE })
         .click(sector.sector_click_command())
         .tooltip(sector.label())
 }
@@ -1454,9 +1452,10 @@ mod tests {
                 );
             }
 
-            // active tab 选中态 sprite + 金色 label；非 active 用 diplomacy 底 + 常规色。
+            // active/非 active 都用 GFX_tiled_button，靠 tint 区分；active 金色 label。
             let active_bg = profile.bind_node(&tab_path(active, "tab_bg"), &input);
-            assert_eq!(active_bg.sprite.as_deref(), Some("GFX_tab_intel_ledger"));
+            assert_eq!(active_bg.sprite.as_deref(), Some("GFX_tiled_button"));
+            assert_eq!(active_bg.tint, Some(FIN_TAB_SELECTED));
             let active_label = profile.bind_node(&tab_path(active, "label"), &input);
             assert_eq!(active_label.text.as_deref(), Some(active.label()));
             assert_eq!(active_label.text_color, Some(FIN_GOLD));
@@ -1466,7 +1465,8 @@ mod tests {
                 .find(|t| *t != active)
                 .expect("another tab");
             let other_bg = profile.bind_node(&tab_path(other, "tab_bg"), &input);
-            assert_eq!(other_bg.sprite.as_deref(), Some("GFX_tab_diplomacy_bg"));
+            assert_eq!(other_bg.sprite.as_deref(), Some("GFX_tiled_button"));
+            assert_eq!(other_bg.tint, Some(FIN_TAB_IDLE));
             let other_label = profile.bind_node(&tab_path(other, "label"), &input);
             assert_eq!(other_label.text_color, Some(FIN_TEXT));
 
@@ -1999,15 +1999,17 @@ mod tests {
                 &input,
             )
         };
-        // 选中（二产）用 ledger 选中底，未选中用 diplomacy 底；click 走 finance:sector:*。
+        // 选中（二产）金色 tint，未选中暗 tint；两者同 GFX_tiled_button；click 走 finance:sector:*。
         let secondary = button("sector_secondary");
-        assert_eq!(secondary.sprite.as_deref(), Some("GFX_tab_intel_ledger"));
+        assert_eq!(secondary.sprite.as_deref(), Some("GFX_tiled_button"));
+        assert_eq!(secondary.tint, Some(FIN_TAB_SELECTED));
         assert_eq!(
             secondary.click.as_ref().map(|c| c.command.as_str()),
             Some("finance:sector:secondary")
         );
         let primary = button("sector_primary");
-        assert_eq!(primary.sprite.as_deref(), Some("GFX_tab_diplomacy_bg"));
+        assert_eq!(primary.sprite.as_deref(), Some("GFX_tiled_button"));
+        assert_eq!(primary.tint, Some(FIN_TAB_IDLE));
         assert_eq!(
             primary.click.as_ref().map(|c| c.command.as_str()),
             Some("finance:sector:primary")

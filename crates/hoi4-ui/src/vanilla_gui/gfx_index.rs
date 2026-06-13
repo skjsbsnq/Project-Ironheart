@@ -58,6 +58,10 @@ impl GfxIndex {
         self.resources.get(name)
     }
 
+    pub fn iter(&self) -> impl Iterator<Item = &GfxResource> {
+        self.resources.values()
+    }
+
     pub fn contains(&self, name: &str) -> bool {
         self.resources.contains_key(name)
     }

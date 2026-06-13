@@ -65,6 +65,10 @@ fn terrain_wgsl_has_phase3_runtime_debug_and_ownership_gates() {
         "const TERRAIN_DEBUG_MAP_PX_GRID",
         "const TERRAIN_DEBUG_CITYLIGHT_UV",
         "const TERRAIN_DEBUG_GRADIENT_BORDER_CH3",
+        "const TERRAIN_DEBUG_GRADIENT_BORDER_CH1_RGB",
+        "const TERRAIN_DEBUG_GRADIENT_BORDER_CH1_ALPHA",
+        "const TERRAIN_DEBUG_GRADIENT_BORDER_CH2_RGB",
+        "const TERRAIN_DEBUG_GRADIENT_BORDER_CH2_ALPHA",
         "const TERRAIN_DEBUG_PROVINCE_SECONDARY",
         "const TERRAIN_DEBUG_FOW_UNEXPLORED",
         "const TERRAIN_DEBUG_FOW_VISIBILITY",
@@ -88,6 +92,8 @@ fn terrain_wgsl_has_phase3_runtime_debug_and_ownership_gates() {
         "fn calculate_map_tex_index",
         "fn province_secondary_at",
         "fn gradient_border_page_uv",
+        "fn gradient_border_ch1_sample",
+        "fn gradient_border_ch2_sample",
         "fn gradient_border_ch3_dist_px",
         "const TERRAIN_ATLAS_ALBEDO_STRENGTH: f32 = 0.78",
         "const TERRAIN_ATLAS_MAX_DARKEN_TERRAIN: f32 = 0.48",
@@ -210,4 +216,15 @@ fn terrain_wgsl_final_path_gates_semantic_overlay_inputs() {
         source.contains("if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH3)"),
         "gradient_border_ch3 should remain available as an explicit debug view"
     );
+    for token in [
+        "if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH1_RGB)",
+        "if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH1_ALPHA)",
+        "if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH2_RGB)",
+        "if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH2_ALPHA)",
+    ] {
+        assert!(
+            source.contains(token),
+            "gradient_border ch1/ch2 RGB and alpha should remain available as explicit debug views"
+        );
+    }
 }

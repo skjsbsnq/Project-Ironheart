@@ -65,6 +65,10 @@ pub enum MapBaselineLayer {
     OverlaysOnly,
     LabelsOnly,
     ProvinceSecondaryDebug,
+    GradientBorderCh1RgbDebug,
+    GradientBorderCh1AlphaDebug,
+    GradientBorderCh2RgbDebug,
+    GradientBorderCh2AlphaDebug,
     GradientBorderCh3Debug,
     TerrainRiverMaskDebug,
     FowVisibilityDebug,
@@ -73,7 +77,7 @@ pub enum MapBaselineLayer {
 }
 
 impl MapBaselineLayer {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 25] = [
         Self::FinalFull,
         Self::TerrainOnly,
         Self::WaterOnly,
@@ -82,6 +86,10 @@ impl MapBaselineLayer {
         Self::ObjectsOnly,
         Self::OverlaysOnly,
         Self::ProvinceSecondaryDebug,
+        Self::GradientBorderCh1RgbDebug,
+        Self::GradientBorderCh1AlphaDebug,
+        Self::GradientBorderCh2RgbDebug,
+        Self::GradientBorderCh2AlphaDebug,
         Self::GradientBorderCh3Debug,
         Self::TerrainRiverMaskDebug,
         Self::FowVisibilityDebug,
@@ -116,6 +124,10 @@ impl MapBaselineLayer {
             Self::OverlaysOnly => "overlays",
             Self::LabelsOnly => "labels",
             Self::ProvinceSecondaryDebug => "province_secondary",
+            Self::GradientBorderCh1RgbDebug => "gradient_border_ch1_rgb",
+            Self::GradientBorderCh1AlphaDebug => "gradient_border_ch1_alpha",
+            Self::GradientBorderCh2RgbDebug => "gradient_border_ch2_rgb",
+            Self::GradientBorderCh2AlphaDebug => "gradient_border_ch2_alpha",
             Self::GradientBorderCh3Debug => "gradient_border_ch3",
             Self::TerrainRiverMaskDebug => "terrain_river_mask",
             Self::FowVisibilityDebug => "fow_visibility",
@@ -127,6 +139,10 @@ impl MapBaselineLayer {
     pub const fn terrain_debug_view_name(self) -> Option<&'static str> {
         match self {
             Self::ProvinceSecondaryDebug => Some("province_secondary"),
+            Self::GradientBorderCh1RgbDebug => Some("gradient_border_ch1_rgb"),
+            Self::GradientBorderCh1AlphaDebug => Some("gradient_border_ch1_alpha"),
+            Self::GradientBorderCh2RgbDebug => Some("gradient_border_ch2_rgb"),
+            Self::GradientBorderCh2AlphaDebug => Some("gradient_border_ch2_alpha"),
             Self::GradientBorderCh3Debug => Some("gradient_border_ch3"),
             Self::TerrainRiverMaskDebug => Some("river_mask"),
             Self::FowVisibilityDebug => Some("fow_visibility"),
@@ -138,6 +154,10 @@ impl MapBaselineLayer {
     pub const fn diagnostic_source(self) -> Option<&'static str> {
         match self {
             Self::ProvinceSecondaryDebug => Some("ProvinceSecondaryColorMap texture"),
+            Self::GradientBorderCh1RgbDebug => Some("GradientBorderChannel1 texture RGB"),
+            Self::GradientBorderCh1AlphaDebug => Some("GradientBorderChannel1 texture alpha"),
+            Self::GradientBorderCh2RgbDebug => Some("GradientBorderChannel2 texture RGB"),
+            Self::GradientBorderCh2AlphaDebug => Some("GradientBorderChannel2 texture alpha"),
             Self::GradientBorderCh3Debug => Some("GradientBorderChannel3 texture"),
             Self::TerrainRiverMaskDebug => Some("terrain material river mask"),
             Self::FowVisibilityDebug => Some("FOW visibility texture green channel"),
@@ -171,6 +191,18 @@ impl MapBaselineLayer {
             "overlays" | "overlays_only" => Some(Self::OverlaysOnly),
             "labels" | "labels_only" => Some(Self::LabelsOnly),
             "province_secondary" | "province_secondary_debug" => Some(Self::ProvinceSecondaryDebug),
+            "gradient_border_ch1_rgb" | "gradient_border_ch1_rgb_debug" => {
+                Some(Self::GradientBorderCh1RgbDebug)
+            }
+            "gradient_border_ch1_alpha" | "gradient_border_ch1_alpha_debug" => {
+                Some(Self::GradientBorderCh1AlphaDebug)
+            }
+            "gradient_border_ch2_rgb" | "gradient_border_ch2_rgb_debug" => {
+                Some(Self::GradientBorderCh2RgbDebug)
+            }
+            "gradient_border_ch2_alpha" | "gradient_border_ch2_alpha_debug" => {
+                Some(Self::GradientBorderCh2AlphaDebug)
+            }
             "gradient_border_ch3" | "gradient_border_ch3_debug" => {
                 Some(Self::GradientBorderCh3Debug)
             }
@@ -223,6 +255,10 @@ impl MapLayerMask {
             | MapBaselineLayer::BloomOnly => Self::all(),
             MapBaselineLayer::TerrainOnly
             | MapBaselineLayer::ProvinceSecondaryDebug
+            | MapBaselineLayer::GradientBorderCh1RgbDebug
+            | MapBaselineLayer::GradientBorderCh1AlphaDebug
+            | MapBaselineLayer::GradientBorderCh2RgbDebug
+            | MapBaselineLayer::GradientBorderCh2AlphaDebug
             | MapBaselineLayer::GradientBorderCh3Debug
             | MapBaselineLayer::TerrainRiverMaskDebug
             | MapBaselineLayer::FowVisibilityDebug
@@ -2054,42 +2090,41 @@ mod tests {
     #[test]
     fn fixed_scene_matrix_matches_phase0_scope() {
         let scenes = fixed_scenes();
-        assert_eq!(scenes.len(), 6);
-        assert_eq!(MapBaselineLayer::ALL.len(), 21);
+        assert_eq!(scenes.len(), 2);
+        assert_eq!(MapBaselineLayer::ALL.len(), 25);
         assert_eq!(
             scenes[0].screenshot_name(MapBaselineLayer::FinalFull, MapBaselinePreset::High),
-            "project/western_europe_close/final.high.png"
+            "project/world/final.high.png"
         );
-        assert!(scenes.iter().any(|scene| scene.name.contains("mountain")));
-        assert!(scenes.iter().any(|scene| scene.name.contains("night")));
-        assert!(scenes.iter().any(|scene| scene.name.contains("distant")));
+        assert_eq!(scenes[0].name, "world");
+        assert_eq!(scenes[1].name, "germany");
         assert!(scenes[0]
             .enabled_layers
             .contains(&MapBaselineLayer::TerrainOnly));
         assert!(scenes[0]
             .enabled_layers
-            .contains(&MapBaselineLayer::AvgLuminance));
-        assert!(scenes[0]
-            .enabled_layers
             .contains(&MapBaselineLayer::LutAfter));
         assert!(scenes[0]
             .enabled_layers
-            .contains(&MapBaselineLayer::OverlaysOnly));
+            .contains(&MapBaselineLayer::BordersOnly));
         assert!(scenes[0]
             .enabled_layers
-            .contains(&MapBaselineLayer::ProvinceSecondaryDebug));
+            .contains(&MapBaselineLayer::WaterOnly));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::GradientBorderCh1RgbDebug));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::GradientBorderCh1AlphaDebug));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::GradientBorderCh2RgbDebug));
+        assert!(scenes[0]
+            .enabled_layers
+            .contains(&MapBaselineLayer::GradientBorderCh2AlphaDebug));
         assert!(scenes[0]
             .enabled_layers
             .contains(&MapBaselineLayer::GradientBorderCh3Debug));
-        assert!(scenes[0]
-            .enabled_layers
-            .contains(&MapBaselineLayer::TerrainRiverMaskDebug));
-        assert!(scenes[0]
-            .enabled_layers
-            .contains(&MapBaselineLayer::FowVisibilityDebug));
-        assert!(scenes[0]
-            .enabled_layers
-            .contains(&MapBaselineLayer::TerrainFinalBeforePostprocessDebug));
     }
 
     #[test]
@@ -2104,6 +2139,26 @@ mod tests {
                 MapBaselineLayer::GradientBorderCh3Debug,
                 "gradient_border_ch3",
                 "GradientBorderChannel3 texture",
+            ),
+            (
+                MapBaselineLayer::GradientBorderCh1RgbDebug,
+                "gradient_border_ch1_rgb",
+                "GradientBorderChannel1 texture RGB",
+            ),
+            (
+                MapBaselineLayer::GradientBorderCh1AlphaDebug,
+                "gradient_border_ch1_alpha",
+                "GradientBorderChannel1 texture alpha",
+            ),
+            (
+                MapBaselineLayer::GradientBorderCh2RgbDebug,
+                "gradient_border_ch2_rgb",
+                "GradientBorderChannel2 texture RGB",
+            ),
+            (
+                MapBaselineLayer::GradientBorderCh2AlphaDebug,
+                "gradient_border_ch2_alpha",
+                "GradientBorderChannel2 texture alpha",
             ),
             (
                 MapBaselineLayer::TerrainRiverMaskDebug,
@@ -2231,12 +2286,11 @@ mod tests {
         assert!(json.contains("\"binding_audit\""));
         assert!(json.contains("\"asset_quality\""));
         assert!(json.contains("\"phase2_probe\""));
-        assert!(json.contains("\"terrain_debug_view\": \"province_secondary\""));
+        assert!(json.contains("\"terrain_debug_view\": \"gradient_border_ch1_rgb\""));
+        assert!(json.contains("\"terrain_debug_view\": \"gradient_border_ch2_alpha\""));
         assert!(json.contains("\"diagnostic_source\": \"GradientBorderChannel3 texture\""));
-        assert!(json.contains("project/western_europe_close/final.high.png"));
-        assert!(
-            json.contains("project/western_europe_close/terrain_final_before_postprocess.high.png")
-        );
+        assert!(json.contains("project/world/final.high.png"));
+        assert!(json.contains("project/world/gradient_border_ch1_rgb.high.png"));
     }
 
     #[test]
@@ -2343,7 +2397,7 @@ mod tests {
         };
 
         write_phase0_report_files(&report, &dir).unwrap();
-        let diff = dir.join("diff/western_europe_close/final.high.json");
+        let diff = dir.join("diff/world/final.high.json");
         let diff_json = std::fs::read_to_string(diff).unwrap();
         assert!(diff_json.contains("\"status\": \"missing_project\""));
         let report_json = std::fs::read_to_string(dir.join("report.json")).unwrap();

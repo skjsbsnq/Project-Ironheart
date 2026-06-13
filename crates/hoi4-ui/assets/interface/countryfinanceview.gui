@@ -6,20 +6,20 @@ guiTypes = {
         show_animation_type = decelerated
         hide_animation_type = accelerated
         animation_time = 300
-        size = { width = 550 height = 100%% }
+        size = { width = 550 height = 640 }
         clipping = yes
 
         background = {
             name = "panel_bg"
             quadTextureSprite = "GFX_tiled_paper_bg2"
             position = { x = 0 y = 0 }
-            size = { width = 550 height = 100%% }
+            size = { width = 550 height = 640 }
         }
         background = {
             name = "panel_frame"
             corneredTileSpriteType = "GFX_tiled_window_1b_thin_border"
             position = { x = 0 y = 0 }
-            size = { width = 550 height = 100%% }
+            size = { width = 550 height = 640 }
         }
 
         instantTextboxType = {
@@ -45,7 +45,7 @@ guiTypes = {
             size = { width = 508 height = 80 }
             background = {
                 name = "kpi_bg"
-                quadTextureSprite = "GFX_win_header_short"
+                quadTextureSprite = "GFX_tiled_header"
                 position = { x = 0 y = 0 }
                 size = { width = 508 height = 80 }
             }
@@ -101,7 +101,7 @@ guiTypes = {
                 name = "tab_overview"
                 position = { x = 0 y = 0 }
                 size = { width = 84 height = 26 }
-                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tiled_button" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
                 buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
                 instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "总览" }
             }
@@ -109,7 +109,7 @@ guiTypes = {
                 name = "tab_budget"
                 position = { x = 84 y = 0 }
                 size = { width = 84 height = 26 }
-                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tiled_button" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
                 buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
                 instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "预算" }
             }
@@ -117,7 +117,7 @@ guiTypes = {
                 name = "tab_debt"
                 position = { x = 168 y = 0 }
                 size = { width = 84 height = 26 }
-                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tiled_button" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
                 buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
                 instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "债务" }
             }
@@ -125,7 +125,7 @@ guiTypes = {
                 name = "tab_exchange"
                 position = { x = 252 y = 0 }
                 size = { width = 84 height = 26 }
-                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tiled_button" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
                 buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
                 instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "外汇" }
             }
@@ -133,7 +133,7 @@ guiTypes = {
                 name = "tab_economy"
                 position = { x = 336 y = 0 }
                 size = { width = 84 height = 26 }
-                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tiled_button" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
                 buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
                 instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "经济" }
             }
@@ -141,7 +141,7 @@ guiTypes = {
                 name = "tab_funding"
                 position = { x = 420 y = 0 }
                 size = { width = 84 height = 26 }
-                background = { name = "tab_bg" quadTextureSprite = "GFX_tab_diplomacy_bg" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
+                background = { name = "tab_bg" quadTextureSprite = "GFX_tiled_button" position = { x = 0 y = 0 } size = { width = 84 height = 26 } }
                 buttonType = { name = "hit" position = { x = 0 y = 0 } size = { width = 84 height = 26 } alwaystransparent = yes }
                 instantTextboxType = { name = "label" position = { x = 0 y = 5 } size = { width = 84 height = 16 } font = "hoi_14mbs" format = center text = "资金" }
             }
@@ -155,7 +155,7 @@ guiTypes = {
                 name = "treasury_block"
                 position = { x = 0 y = 0 }
                 size = { width = 508 height = 150 }
-                background = { name = "treasury_bg" quadTextureSprite = "GFX_diplo_actions_bg" position = { x = 0 y = 0 } size = { width = 508 height = 150 } }
+                background = { name = "treasury_bg" quadTextureSprite = "GFX_tiled_window_small" position = { x = 0 y = 0 } size = { width = 508 height = 150 } }
                 containerWindowType = {
                     name = "kv_cash"
                     position = { x = 8 y = 6 }
@@ -249,7 +249,7 @@ guiTypes = {
                     name = "pressure_military"
                     position = { x = 0 y = 0 }
                     size = { width = 166 height = 56 }
-                    background = { name = "pm_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 166 height = 56 } }
+                    background = { name = "pm_bg" quadTextureSprite = "GFX_tiled_stats_bg" position = { x = 0 y = 0 } size = { width = 166 height = 56 } }
                     instantTextboxType = { name = "kv_label" position = { x = 4 y = 4 } size = { width = 158 height = 14 } font = "hoi_14" text = "军费" }
                     instantTextboxType = { name = "tv_pressure_military" position = { x = 4 y = 22 } size = { width = 158 height = 18 } font = "hoi_16b" text = "" }
                 }
@@ -257,7 +257,7 @@ guiTypes = {
                     name = "pressure_construction"
                     position = { x = 171 y = 0 }
                     size = { width = 166 height = 56 }
-                    background = { name = "pc_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 166 height = 56 } }
+                    background = { name = "pc_bg" quadTextureSprite = "GFX_tiled_stats_bg" position = { x = 0 y = 0 } size = { width = 166 height = 56 } }
                     instantTextboxType = { name = "kv_label" position = { x = 4 y = 4 } size = { width = 158 height = 14 } font = "hoi_14" text = "建造" }
                     instantTextboxType = { name = "tv_pressure_construction" position = { x = 4 y = 22 } size = { width = 158 height = 18 } font = "hoi_16b" text = "" }
                 }
@@ -265,7 +265,7 @@ guiTypes = {
                     name = "pressure_debt"
                     position = { x = 342 y = 0 }
                     size = { width = 166 height = 56 }
-                    background = { name = "pd_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 166 height = 56 } }
+                    background = { name = "pd_bg" quadTextureSprite = "GFX_tiled_stats_bg" position = { x = 0 y = 0 } size = { width = 166 height = 56 } }
                     instantTextboxType = { name = "kv_label" position = { x = 4 y = 4 } size = { width = 158 height = 14 } font = "hoi_14" text = "债务利息" }
                     instantTextboxType = { name = "tv_pressure_debt" position = { x = 4 y = 22 } size = { width = 158 height = 18 } font = "hoi_16b" text = "" }
                 }
@@ -339,7 +339,7 @@ guiTypes = {
                 position = { x = 0 y = -74 }
                 Orientation = LOWER_LEFT
                 size = { width = 508 height = 72 }
-                background = { name = "bt_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 508 height = 72 } }
+                background = { name = "bt_bg" quadTextureSprite = "GFX_tiled_stats_bg" position = { x = 0 y = 0 } size = { width = 508 height = 72 } }
                 containerWindowType = {
                     name = "bt_income"
                     position = { x = 8 y = 4 }
@@ -373,7 +373,7 @@ guiTypes = {
                 name = "debt_metrics"
                 position = { x = 0 y = 0 }
                 size = { width = 508 height = 152 }
-                background = { name = "dm_bg" quadTextureSprite = "GFX_diplo_actions_bg" position = { x = 0 y = 0 } size = { width = 508 height = 152 } }
+                background = { name = "dm_bg" quadTextureSprite = "GFX_tiled_window_small" position = { x = 0 y = 0 } size = { width = 508 height = 152 } }
                 containerWindowType = {
                     name = "dm_public_debt"
                     position = { x = 8 y = 6 }
@@ -428,7 +428,7 @@ guiTypes = {
                 name = "financing_block"
                 position = { x = 0 y = 158 }
                 size = { width = 508 height = 96 }
-                background = { name = "fb_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 508 height = 96 } }
+                background = { name = "fb_bg" quadTextureSprite = "GFX_tiled_stats_bg" position = { x = 0 y = 0 } size = { width = 508 height = 96 } }
                 instantTextboxType = { name = "fb_header" position = { x = 8 y = 4 } size = { width = 492 height = 16 } font = "hoi_14mbs" text = "融资记录" }
                 containerWindowType = {
                     name = "fb_mefo_issued"
@@ -468,7 +468,7 @@ guiTypes = {
                     name = "act_issue_domestic"
                     position = { x = 0 y = 0 }
                     size = { width = 165 height = 34 }
-                    quadTextureSprite = "GFX_button_123x34"
+                    quadTextureSprite = "GFX_tiled_button"
                     buttonText = "发行国债"
                     buttonFont = "hoi_14mbs"
                 }
@@ -476,7 +476,7 @@ guiTypes = {
                     name = "act_issue_foreign"
                     position = { x = 172 y = 0 }
                     size = { width = 165 height = 34 }
-                    quadTextureSprite = "GFX_button_123x34"
+                    quadTextureSprite = "GFX_tiled_button"
                     buttonText = "发行外债"
                     buttonFont = "hoi_14mbs"
                 }
@@ -484,7 +484,7 @@ guiTypes = {
                     name = "act_print_mefo"
                     position = { x = 344 y = 0 }
                     size = { width = 164 height = 34 }
-                    quadTextureSprite = "GFX_button_123x34"
+                    quadTextureSprite = "GFX_tiled_button"
                     buttonText = "发行 MEFO"
                     buttonFont = "hoi_14mbs"
                 }
@@ -499,7 +499,7 @@ guiTypes = {
                 name = "forex_metrics"
                 position = { x = 0 y = 0 }
                 size = { width = 508 height = 110 }
-                background = { name = "fx_bg" quadTextureSprite = "GFX_diplo_actions_bg" position = { x = 0 y = 0 } size = { width = 508 height = 110 } }
+                background = { name = "fx_bg" quadTextureSprite = "GFX_tiled_window_small" position = { x = 0 y = 0 } size = { width = 508 height = 110 } }
                 containerWindowType = {
                     name = "fx_reserve"
                     position = { x = 8 y = 6 }
@@ -533,7 +533,7 @@ guiTypes = {
                 name = "trade_impact"
                 position = { x = 0 y = 116 }
                 size = { width = 508 height = 96 }
-                background = { name = "ti_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 508 height = 96 } }
+                background = { name = "ti_bg" quadTextureSprite = "GFX_tiled_stats_bg" position = { x = 0 y = 0 } size = { width = 508 height = 96 } }
                 instantTextboxType = { name = "ti_header" position = { x = 8 y = 4 } size = { width = 492 height = 16 } font = "hoi_14mbs" text = "贸易影响" }
                 containerWindowType = {
                     name = "ti_net_exports"
@@ -566,7 +566,7 @@ guiTypes = {
                     name = "act_sell_gold"
                     position = { x = 0 y = 0 }
                     size = { width = 250 height = 34 }
-                    quadTextureSprite = "GFX_button_123x34"
+                    quadTextureSprite = "GFX_tiled_button"
                     buttonText = "出售黄金"
                     buttonFont = "hoi_14mbs"
                 }
@@ -574,7 +574,7 @@ guiTypes = {
                     name = "act_buy_forex"
                     position = { x = 258 y = 0 }
                     size = { width = 250 height = 34 }
-                    quadTextureSprite = "GFX_button_123x34"
+                    quadTextureSprite = "GFX_tiled_button"
                     buttonText = "购入外汇"
                     buttonFont = "hoi_14mbs"
                 }
@@ -597,7 +597,7 @@ guiTypes = {
                     name = "gdp_totals"
                     position = { x = 0 y = 0 }
                     size = { width = 508 height = 96 }
-                    background = { name = "gt_bg" quadTextureSprite = "GFX_diplo_actions_bg" position = { x = 0 y = 0 } size = { width = 508 height = 96 } }
+                    background = { name = "gt_bg" quadTextureSprite = "GFX_tiled_window_small" position = { x = 0 y = 0 } size = { width = 508 height = 96 } }
                     containerWindowType = {
                         name = "gt_total"
                         position = { x = 8 y = 6 }
@@ -647,7 +647,7 @@ guiTypes = {
                         name = "sector_primary"
                         position = { x = 0 y = 0 }
                         size = { width = 168 height = 26 }
-                        quadTextureSprite = "GFX_tab_diplomacy_bg"
+                        quadTextureSprite = "GFX_tiled_button"
                         buttonText = "一产"
                         buttonFont = "hoi_14mbs"
                     }
@@ -655,7 +655,7 @@ guiTypes = {
                         name = "sector_secondary"
                         position = { x = 170 y = 0 }
                         size = { width = 168 height = 26 }
-                        quadTextureSprite = "GFX_tab_diplomacy_bg"
+                        quadTextureSprite = "GFX_tiled_button"
                         buttonText = "二产"
                         buttonFont = "hoi_14mbs"
                     }
@@ -663,7 +663,7 @@ guiTypes = {
                         name = "sector_tertiary"
                         position = { x = 340 y = 0 }
                         size = { width = 168 height = 26 }
-                        quadTextureSprite = "GFX_tab_diplomacy_bg"
+                        quadTextureSprite = "GFX_tiled_button"
                         buttonText = "三产"
                         buttonFont = "hoi_14mbs"
                     }
@@ -703,7 +703,7 @@ guiTypes = {
                 name = "construction_block"
                 position = { x = 0 y = 0 }
                 size = { width = 508 height = 232 }
-                background = { name = "cb_bg" quadTextureSprite = "GFX_diplo_actions_bg" position = { x = 0 y = 0 } size = { width = 508 height = 232 } }
+                background = { name = "cb_bg" quadTextureSprite = "GFX_tiled_window_small" position = { x = 0 y = 0 } size = { width = 508 height = 232 } }
                 instantTextboxType = { name = "cb_header" position = { x = 8 y = 4 } size = { width = 492 height = 16 } font = "hoi_14mbs" text = "建造资金路径" }
                 containerWindowType = {
                     name = "cf_government"
@@ -780,7 +780,7 @@ guiTypes = {
                 name = "investment_block"
                 position = { x = 0 y = 238 }
                 size = { width = 508 height = -4 }
-                background = { name = "ib_bg" quadTextureSprite = "GFX_diplo_relations_bg" position = { x = 0 y = 0 } size = { width = 508 height = 192 } }
+                background = { name = "ib_bg" quadTextureSprite = "GFX_tiled_stats_bg" position = { x = 0 y = 0 } size = { width = 508 height = 192 } }
                 instantTextboxType = { name = "ib_header" position = { x = 8 y = 4 } size = { width = 492 height = 16 } font = "hoi_14mbs" text = "投资池" }
                 containerWindowType = {
                     name = "ip_private"
@@ -856,7 +856,7 @@ guiTypes = {
         size = { width = 250 height = 24 }
         background = {
             name = "row_bg"
-            quadTextureSprite = "GFX_diplo_countrylist_entry"
+            quadTextureSprite = "GFX_tiled_stats_bg"
             position = { x = 0 y = 0 }
             size = { width = 250 height = 24 }
         }

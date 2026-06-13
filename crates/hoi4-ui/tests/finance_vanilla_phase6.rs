@@ -76,17 +76,26 @@ corneredTileSpriteType = {
 }
 spriteType = { name = "GFX_tiled_paper_bg2" texturefile = "gfx/interface/finance_test/paper.dds" }
 spriteType = { name = "GFX_tiled_plain_bg" texturefile = "gfx/interface/finance_test/plain.dds" }
-spriteType = { name = "GFX_win_header_short" texturefile = "gfx/interface/finance_test/header_short.dds" }
-spriteType = { name = "GFX_header_bg" texturefile = "gfx/interface/finance_test/header.dds" }
-spriteType = { name = "GFX_tab_diplomacy_bg" texturefile = "gfx/interface/finance_test/tab_bg.dds" noOfFrames = 3 }
-spriteType = { name = "GFX_tab_intel_ledger" texturefile = "gfx/interface/finance_test/tab_selected.dds" noOfFrames = 3 }
-spriteType = { name = "GFX_diplo_actions_bg" texturefile = "gfx/interface/finance_test/actions.dds" }
-spriteType = { name = "GFX_diplo_relations_bg" texturefile = "gfx/interface/finance_test/relations.dds" }
-spriteType = { name = "GFX_decision_category_header_bg" texturefile = "gfx/interface/finance_test/decision_header.dds" }
-spriteType = { name = "GFX_diplo_countrylist_entry" texturefile = "gfx/interface/finance_test/list_entry.dds" }
-spriteType = { name = "GFX_decision_item_bg" texturefile = "gfx/interface/finance_test/decision_item.dds" }
-spriteType = { name = "GFX_production_progressbar_frame2" texturefile = "gfx/interface/finance_test/progress_frame.dds" }
-spriteType = { name = "GFX_button_123x34" texturefile = "gfx/interface/finance_test/button.dds" noOfFrames = 4 }
+corneredTileSpriteType = {
+    name = "GFX_tiled_header"
+    texturefile = "gfx/interface/finance_test/tiled_header.dds"
+    borderSize = { x = 61 y = 21 }
+}
+corneredTileSpriteType = {
+    name = "GFX_tiled_window_small"
+    texturefile = "gfx/interface/finance_test/window_small.dds"
+    borderSize = { x = 32 y = 32 }
+}
+corneredTileSpriteType = {
+    name = "GFX_tiled_stats_bg"
+    texturefile = "gfx/interface/finance_test/stats_bg.dds"
+    borderSize = { x = 1 y = 1 }
+}
+corneredTileSpriteType = {
+    name = "GFX_tiled_button"
+    texturefile = "gfx/interface/finance_test/tiled_button.dds"
+    borderSize = { x = 12 y = 13 }
+}
 spriteType = { name = "GFX_closebutton" texturefile = "gfx/interface/finance_test/close.dds" noOfFrames = 3 }
 spriteType = { name = "GFX_resources_strip" texturefile = "gfx/interface/finance_test/resources.dds" noOfFrames = 6 }
 progressbartype = {
@@ -389,8 +398,8 @@ fn finance_vanilla_gate25_regression_summary() {
         .collect();
     assert!(required.contains("GFX_closebutton"));
     assert!(required.contains("GFX_prod_progress_bar3"));
-    assert!(required.contains("GFX_button_123x34"));
-    assert!(required.contains("GFX_tab_intel_ledger"));
+    assert!(required.contains("GFX_tiled_button"));
+    assert!(required.contains("GFX_tiled_window_small"));
 
     for active in FinanceTab::ALL {
         let input = FinanceVanillaInput::new(data.clone(), active, FinanceSector::Primary);
@@ -610,7 +619,7 @@ fn finance_vanilla_gate27_visual_layout_smoke() {
     let overview = build_frame(&data, FinanceTab::Overview, FinanceSector::Primary);
     assert_eq!(
         overview.root_layout.rect,
-        GuiRect::new(-6.0, 78.0, 550.0, 1080.0)
+        GuiRect::new(-6.0, 78.0, 550.0, 640.0)
     );
     assert!(overview.root_layout.find_by_name("kpi_strip").is_some());
     assert!(overview.root_layout.find_by_name("tab_bar").is_some());
@@ -629,8 +638,8 @@ fn finance_vanilla_gate27_visual_layout_smoke() {
     for expected in [
         "GFX_tiled_paper_bg2",
         "GFX_closebutton",
-        "GFX_win_header_short",
-        "GFX_tab_intel_ledger",
+        "GFX_tiled_header",
+        "GFX_tiled_button",
     ] {
         assert!(
             overview_resources.contains(expected),
@@ -650,7 +659,7 @@ fn finance_vanilla_gate27_visual_layout_smoke() {
     assert!(budget
         .draw_list
         .iter()
-        .any(|command| { command.resource_name() == Some("GFX_diplo_countrylist_entry") }));
+        .any(|command| { command.resource_name() == Some("GFX_tiled_stats_bg") }));
 
     let debt = build_frame(&data, FinanceTab::Debt, FinanceSector::Primary);
     for command in [
@@ -668,7 +677,7 @@ fn finance_vanilla_gate27_visual_layout_smoke() {
     assert!(debt
         .draw_list
         .iter()
-        .any(|command| command.resource_name() == Some("GFX_button_123x34")));
+        .any(|command| command.resource_name() == Some("GFX_tiled_button")));
 
     let economy = build_frame(&data, FinanceTab::Economy, FinanceSector::Primary);
     assert_non_overlapping_rows_by_parent(&economy, "finance_gdp_row");
@@ -679,6 +688,8 @@ fn finance_vanilla_gate27_visual_layout_smoke() {
         .iter()
         .any(|hit| hit.command == "finance:sector:primary" && hit.enabled));
 
+    // 查节点自身 rect 是否被布局赋了正尺寸；不查 clip 后的 hit_rect，
+    // 因为经济 tab 是 scroll 视口，折叠线以下的行被合法裁切（hit_rect 坍缩）属正常滚动行为。
     let text_overflows: Vec<_> = economy
         .diagnostics
         .nodes
@@ -687,7 +698,7 @@ fn finance_vanilla_gate27_visual_layout_smoke() {
             node.name
                 .as_deref()
                 .is_some_and(|name| matches!(name, "building" | "label" | "amount" | "percent"))
-                && (node.hit_rect.width <= 0.0 || node.hit_rect.height <= 0.0)
+                && (node.rect.width <= 0.0 || node.rect.height <= 0.0)
         })
         .collect();
     assert!(text_overflows.is_empty(), "{text_overflows:?}");

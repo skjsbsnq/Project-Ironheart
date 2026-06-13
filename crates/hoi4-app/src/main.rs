@@ -2108,6 +2108,22 @@ mod v6_app_tests {
                 super::passes::TerrainDebugView::GradientBorderCh3,
             ),
             (
+                super::map_baseline::MapBaselineLayer::GradientBorderCh1RgbDebug,
+                super::passes::TerrainDebugView::GradientBorderCh1Rgb,
+            ),
+            (
+                super::map_baseline::MapBaselineLayer::GradientBorderCh1AlphaDebug,
+                super::passes::TerrainDebugView::GradientBorderCh1Alpha,
+            ),
+            (
+                super::map_baseline::MapBaselineLayer::GradientBorderCh2RgbDebug,
+                super::passes::TerrainDebugView::GradientBorderCh2Rgb,
+            ),
+            (
+                super::map_baseline::MapBaselineLayer::GradientBorderCh2AlphaDebug,
+                super::passes::TerrainDebugView::GradientBorderCh2Alpha,
+            ),
+            (
                 super::map_baseline::MapBaselineLayer::TerrainRiverMaskDebug,
                 super::passes::TerrainDebugView::RiverMask,
             ),

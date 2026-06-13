@@ -190,6 +190,10 @@ const TERRAIN_DEBUG_MUD_SNOW_TARGET: u32 = 27u;
 const TERRAIN_DEBUG_POINT_LIGHT_CONTRIB: u32 = 28u;
 const TERRAIN_DEBUG_COLORMAP: u32 = 29u;
 const TERRAIN_DEBUG_FINAL_BEFORE_POSTPROCESS: u32 = 30u;
+const TERRAIN_DEBUG_GRADIENT_BORDER_CH1_RGB: u32 = 31u;
+const TERRAIN_DEBUG_GRADIENT_BORDER_CH1_ALPHA: u32 = 32u;
+const TERRAIN_DEBUG_GRADIENT_BORDER_CH2_RGB: u32 = 33u;
+const TERRAIN_DEBUG_GRADIENT_BORDER_CH2_ALPHA: u32 = 34u;
 
 struct TerrainMaterialWeights {
     terrain_albedo_weight: f32,
@@ -555,6 +559,12 @@ fn country_dist_px(uv: vec2<f32>) -> f32 {
 fn province_dist_px(uv: vec2<f32>) -> f32 {
     return textureSample(gradient_border_ch1_tex, generic_sampler, gradient_border_page_uv(uv, 1.0)).r * 255.0;
 }
+fn gradient_border_ch1_sample(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(gradient_border_ch1_tex, generic_sampler, gradient_border_page_uv(uv, 0.0));
+}
+fn gradient_border_ch2_sample(uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(gradient_border_ch2_tex, generic_sampler, gradient_border_page_uv(uv, 0.0));
+}
 fn gradient_border_ch3_dist_px(uv: vec2<f32>) -> f32 {
     return textureSample(gradient_border_ch3_tex, generic_sampler, uv).r * 255.0;
 }
@@ -727,7 +737,7 @@ fn terrain_control_enabled(value: f32) -> bool {
 }
 
 fn terrain_debug_view() -> u32 {
-    return u32(clamp(params.terrain_controls.x + 0.5, 0.0, 30.0));
+    return u32(clamp(params.terrain_controls.x + 0.5, 0.0, 34.0));
 }
 
 fn terrain_owns_water_color() -> bool {
@@ -1196,6 +1206,18 @@ fn terrain_debug_color(view: u32, frag: VsOut, material: TerrainMaterial, real_h
     if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH3) {
         let d = gradient_border_ch3_dist_px(frag.map_uv);
         return vec3<f32>(1.0 - clamp(d / 32.0, 0.0, 1.0), clamp(d / 32.0, 0.0, 1.0), 0.2);
+    }
+    if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH1_RGB) {
+        return gradient_border_ch1_sample(frag.map_uv).rgb;
+    }
+    if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH1_ALPHA) {
+        return vec3<f32>(gradient_border_ch1_sample(frag.map_uv).a);
+    }
+    if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH2_RGB) {
+        return gradient_border_ch2_sample(frag.map_uv).rgb;
+    }
+    if (view == TERRAIN_DEBUG_GRADIENT_BORDER_CH2_ALPHA) {
+        return vec3<f32>(gradient_border_ch2_sample(frag.map_uv).a);
     }
     if (view == TERRAIN_DEBUG_PROVINCE_SECONDARY) {
         let secondary = province_secondary_at(frag.map_uv);

@@ -113,6 +113,18 @@ pub(crate) fn terrain_debug_view_for_baseline_layer(
         map_baseline::MapBaselineLayer::ProvinceSecondaryDebug => {
             TerrainDebugView::ProvinceSecondary
         }
+        map_baseline::MapBaselineLayer::GradientBorderCh1RgbDebug => {
+            TerrainDebugView::GradientBorderCh1Rgb
+        }
+        map_baseline::MapBaselineLayer::GradientBorderCh1AlphaDebug => {
+            TerrainDebugView::GradientBorderCh1Alpha
+        }
+        map_baseline::MapBaselineLayer::GradientBorderCh2RgbDebug => {
+            TerrainDebugView::GradientBorderCh2Rgb
+        }
+        map_baseline::MapBaselineLayer::GradientBorderCh2AlphaDebug => {
+            TerrainDebugView::GradientBorderCh2Alpha
+        }
         map_baseline::MapBaselineLayer::GradientBorderCh3Debug => {
             TerrainDebugView::GradientBorderCh3
         }

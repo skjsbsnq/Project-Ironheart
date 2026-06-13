@@ -69,10 +69,14 @@ pub enum TerrainDebugView {
     PointLightContribution = 28,
     Colormap = 29,
     FinalBeforePostprocess = 30,
+    GradientBorderCh1Rgb = 31,
+    GradientBorderCh1Alpha = 32,
+    GradientBorderCh2Rgb = 33,
+    GradientBorderCh2Alpha = 34,
 }
 
 impl TerrainDebugView {
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 35] = [
         Self::Off,
         Self::TerrainId,
         Self::AtlasTileId,
@@ -94,6 +98,10 @@ impl TerrainDebugView {
         Self::VanillaTileRepeat,
         Self::CitylightUv,
         Self::GradientBorderCh3,
+        Self::GradientBorderCh1Rgb,
+        Self::GradientBorderCh1Alpha,
+        Self::GradientBorderCh2Rgb,
+        Self::GradientBorderCh2Alpha,
         Self::ProvinceSecondary,
         Self::FowUnexplored,
         Self::FowVisibility,
@@ -109,7 +117,7 @@ impl TerrainDebugView {
     /// Views reachable from the normal F6 runtime cycle. `MapPxGrid` is kept as
     /// a shader/debug value but excluded here because it draws a strong 64/256
     /// map-pixel grid that is easy to mistake for final map content.
-    pub const INTERACTIVE_CYCLE: [Self; 30] = [
+    pub const INTERACTIVE_CYCLE: [Self; 34] = [
         Self::Off,
         Self::TerrainId,
         Self::AtlasTileId,
@@ -130,6 +138,10 @@ impl TerrainDebugView {
         Self::VanillaTileRepeat,
         Self::CitylightUv,
         Self::GradientBorderCh3,
+        Self::GradientBorderCh1Rgb,
+        Self::GradientBorderCh1Alpha,
+        Self::GradientBorderCh2Rgb,
+        Self::GradientBorderCh2Alpha,
         Self::ProvinceSecondary,
         Self::FowUnexplored,
         Self::FowVisibility,
@@ -165,6 +177,10 @@ impl TerrainDebugView {
             Self::VanillaTileRepeat => "vanilla_tile_repeat",
             Self::CitylightUv => "citylight_uv",
             Self::GradientBorderCh3 => "gradient_border_ch3",
+            Self::GradientBorderCh1Rgb => "gradient_border_ch1_rgb",
+            Self::GradientBorderCh1Alpha => "gradient_border_ch1_alpha",
+            Self::GradientBorderCh2Rgb => "gradient_border_ch2_rgb",
+            Self::GradientBorderCh2Alpha => "gradient_border_ch2_alpha",
             Self::ProvinceSecondary => "province_secondary",
             Self::FowUnexplored => "fow_unexplored",
             Self::FowVisibility => "fow_visibility",
@@ -211,6 +227,10 @@ impl TerrainDebugView {
             Self::PointLightContribution => 28.0,
             Self::Colormap => 29.0,
             Self::FinalBeforePostprocess => 30.0,
+            Self::GradientBorderCh1Rgb => 31.0,
+            Self::GradientBorderCh1Alpha => 32.0,
+            Self::GradientBorderCh2Rgb => 33.0,
+            Self::GradientBorderCh2Alpha => 34.0,
         }
     }
 
@@ -1440,6 +1460,26 @@ mod tests {
             TerrainDebugView::GradientBorderCh3
         );
         assert_eq!(
+            TerrainDebugView::GradientBorderCh3.next(),
+            TerrainDebugView::GradientBorderCh1Rgb
+        );
+        assert_eq!(
+            TerrainDebugView::GradientBorderCh1Rgb.next(),
+            TerrainDebugView::GradientBorderCh1Alpha
+        );
+        assert_eq!(
+            TerrainDebugView::GradientBorderCh1Alpha.next(),
+            TerrainDebugView::GradientBorderCh2Rgb
+        );
+        assert_eq!(
+            TerrainDebugView::GradientBorderCh2Rgb.next(),
+            TerrainDebugView::GradientBorderCh2Alpha
+        );
+        assert_eq!(
+            TerrainDebugView::GradientBorderCh2Alpha.next(),
+            TerrainDebugView::ProvinceSecondary
+        );
+        assert_eq!(
             TerrainDebugView::ProvinceSecondary.next(),
             TerrainDebugView::FowUnexplored
         );
@@ -1474,6 +1514,14 @@ mod tests {
         assert_eq!(
             TerrainDebugView::FinalBeforePostprocess.as_shader_value(),
             30.0
+        );
+        assert_eq!(
+            TerrainDebugView::GradientBorderCh1Rgb.as_shader_value(),
+            31.0
+        );
+        assert_eq!(
+            TerrainDebugView::GradientBorderCh2Alpha.name(),
+            "gradient_border_ch2_alpha"
         );
     }
 
